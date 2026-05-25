@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
@@ -20,6 +20,13 @@ const getFileIcon = (item: any, classNameStr: string) => {
   if (item.type === 'DOCX' || item.name?.match(/\.(doc|docx)$/i)) return <FileText className={`${classNameStr} text-emerald-600`} />;
   if (item.type === 'TXT' || item.name?.match(/\.(txt|md|csv)$/i)) return <FileText className={`${classNameStr} text-slate-500`} />;
   return <FileIcon className={`${classNameStr} text-slate-400`} />;
+};
+
+const formatSize = (bytes: number) => {
+  if (!bytes) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 };
 
 export default function Explorer() {
@@ -45,6 +52,7 @@ export default function Explorer() {
   const [isDragging, setIsDragging] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' }>({ key: 'name', direction: 'asc' });
   const [tagSortConfig, setTagSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' }>({ key: 'createdAt', direction: 'desc' });
+  const [isLoading, setIsLoading] = useState(false);
   
   // Selection & Renaming
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -70,7 +78,26 @@ export default function Explorer() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mainPaneRef = useRef<HTMLDivElement>(null);
 
+  // Synchronizing state references for memory-safe and efficient hotkey event listener
+  const selectedIdsRef = useRef(selectedIds);
+  const lastSelectedIdRef = useRef(lastSelectedId);
+  const clipboardRef = useRef(clipboard);
+  const allCurrentItemsRef = useRef<any[]>([]);
+  const currentFolderIdRef = useRef(currentFolderId);
+  const foldersRef = useRef(folders);
+  
+  const handleDeleteRef = useRef<any>(null);
+  const handlePasteRef = useRef<any>(null);
+  const navigateToRef = useRef<any>(null);
+
+  useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
+  useEffect(() => { lastSelectedIdRef.current = lastSelectedId; }, [lastSelectedId]);
+  useEffect(() => { clipboardRef.current = clipboard; }, [clipboard]);
+  useEffect(() => { currentFolderIdRef.current = currentFolderId; }, [currentFolderId]);
+  useEffect(() => { foldersRef.current = folders; }, [folders]);
+
   const fetchData = async () => {
+    setIsLoading(true);
     try {
       const projectId = activeProject?.id || 'default';
       const [fRes, tRes] = await Promise.all([
@@ -87,6 +114,8 @@ export default function Explorer() {
       setFolders([]);
       setRootFiles([]);
       setProjectTags([]);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -367,6 +396,10 @@ export default function Explorer() {
     fetchData();
   };
 
+  useEffect(() => { handleDeleteRef.current = handleDelete; }, [handleDelete]);
+  useEffect(() => { handlePasteRef.current = handlePaste; }, [handlePaste]);
+  useEffect(() => { navigateToRef.current = navigateTo; }, [navigateTo]);
+
   const handleDownload = (id: string, isFolder: boolean) => {
     if (isFolder) return;
     const item = allCurrentItems.find(i => i.id === id);
@@ -391,18 +424,41 @@ export default function Explorer() {
   };
 
   const currentFolder = folders.find(f => f.id === currentFolderId);
-  const childFolders = folders.filter(f => f.parentId === currentFolderId);
   const files = currentFolderId === null ? rootFiles : (currentFolder?.files || []);
   
-  const searchLower = searchQuery.toLowerCase();
-  
-  const allCurrentItems = [
-    ...(searchQuery ? folders.filter(f => f.name.toLowerCase().includes(searchLower)) : childFolders).map(f => ({ ...f, isFolder: true })),
-    ...(searchQuery 
-      ? [...rootFiles, ...folders.flatMap(f => f.files || [])].filter((f: any) => f.name.toLowerCase().includes(searchLower)) 
-      : files
-    ).map((f: any) => ({ ...f, isFolder: false }))
-  ];
+  const allCurrentItems = useMemo(() => {
+    const childFolders = folders.filter(f => f.parentId === currentFolderId);
+    const searchLower = searchQuery.toLowerCase();
+    
+    const items = [
+      ...(searchQuery ? folders.filter(f => f.name.toLowerCase().includes(searchLower)) : childFolders).map(f => ({ ...f, isFolder: true })),
+      ...(searchQuery 
+        ? [...rootFiles, ...folders.flatMap(f => f.files || [])].filter((f: any) => f.name.toLowerCase().includes(searchLower)) 
+        : files
+      ).map((f: any) => ({ ...f, isFolder: false }))
+    ];
+
+    items.sort((a, b) => {
+      if (a.isFolder && !b.isFolder) return -1;
+      if (!a.isFolder && b.isFolder) return 1;
+
+      let valA = a[sortConfig.key];
+      let valB = b[sortConfig.key];
+
+      if (sortConfig.key === 'updatedAt') {
+        valA = new Date(valA || 0).getTime();
+        valB = new Date(valB || 0).getTime();
+      }
+
+      if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return items;
+  }, [folders, rootFiles, currentFolderId, searchQuery, sortConfig]);
+
+  useEffect(() => { allCurrentItemsRef.current = allCurrentItems; }, [allCurrentItems]);
 
   const [paneWidth, setPaneWidth] = useState(800);
 
@@ -445,93 +501,156 @@ export default function Explorer() {
     gridVirtualizer.measure();
   }, [viewMode, allCurrentItems.length, cols]);
 
+  const handleDropOnFolder = useCallback(async (ids: string[], targetFolderId: string | null) => {
+    if (ids.includes(targetFolderId || '')) return;
+    await fetch('/api/files/copy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, targetFolderId, isCut: true })
+    });
+    fetchData();
+  }, [activeProject]);
+
+  const handleDragStart = useCallback((e: React.DragEvent, item: any) => {
+    let currentSelected = selectedIdsRef.current;
+    if (!currentSelected.has(item.id)) {
+      const newSelected = new Set(currentSelected);
+      newSelected.add(item.id);
+      setSelectedIds(newSelected);
+      currentSelected = newSelected;
+    }
+    const idsToMove = Array.from(currentSelected);
+    e.dataTransfer.setData('text/plain', JSON.stringify({ ids: idsToMove, type: 'app_items' }));
+  }, []);
+
+  const handleDropItems = useCallback((e: React.DragEvent, targetFolderId: string | null) => {
+    const dataStr = e.dataTransfer.getData('text/plain');
+    if (dataStr) {
+      try {
+        const data = JSON.parse(dataStr);
+        if (data.type === 'app_items') {
+          handleDropOnFolder(data.ids, targetFolderId);
+        }
+      } catch (err) {}
+    }
+  }, [handleDropOnFolder]);
+
+  const handleItemClickClean = useCallback((e: React.MouseEvent, id: string, isFile: boolean) => {
+    e.stopPropagation();
+    const newSelected = new Set(selectedIdsRef.current);
+    if (e.ctrlKey || e.metaKey) {
+      if (newSelected.has(id)) newSelected.delete(id);
+      else newSelected.add(id);
+    } else if (e.shiftKey && lastSelectedIdRef.current) {
+      const startIdx = allCurrentItemsRef.current.findIndex(i => i.id === lastSelectedIdRef.current);
+      const endIdx = allCurrentItemsRef.current.findIndex(i => i.id === id);
+      if (startIdx !== -1 && endIdx !== -1) {
+        newSelected.clear();
+        const min = Math.min(startIdx, endIdx);
+        const max = Math.max(startIdx, endIdx);
+        for (let i = min; i <= max; i++) {
+          newSelected.add(allCurrentItemsRef.current[i].id);
+        }
+      }
+    } else {
+      newSelected.clear();
+      newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
+    setLastSelectedId(id);
+  }, []);
+
+  const handleItemDoubleClick = useCallback((id: string, isFolder: boolean) => {
+    if (isFolder) navigateToRef.current(id);
+  }, []);
+
+  const handleItemContextMenu = useCallback((e: React.MouseEvent, id: string, isFile: boolean) => {
+    e.preventDefault();
+    e.stopPropagation();
+    let currentSelected = selectedIdsRef.current;
+    if (!currentSelected.has(id)) {
+      setSelectedIds(new Set([id]));
+      setLastSelectedId(id);
+    }
+    setContextMenu({ x: e.clientX, y: e.clientY, targetId: id, isFile });
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't intercept if writing in an input
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
-      if ((e.ctrlKey || e.metaKey) && e.key === 'c' && selectedIds.size > 0) {
-        setClipboard({ ids: Array.from(selectedIds), type: 'copy' });
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'x' && selectedIds.size > 0) {
-        setClipboard({ ids: Array.from(selectedIds), type: 'cut' });
+      const selected = selectedIdsRef.current;
+      const currFolderId = currentFolderIdRef.current;
+      const items = allCurrentItemsRef.current;
+      const clip = clipboardRef.current;
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c' && selected.size > 0) {
+        setClipboard({ ids: Array.from(selected), type: 'copy' });
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'x' && selected.size > 0) {
+        setClipboard({ ids: Array.from(selected), type: 'cut' });
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
         e.preventDefault();
-        setSelectedIds(new Set(allCurrentItems.map(i => i.id)));
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'v' && clipboard) {
-        handlePaste();
-      } else if (e.key === 'Delete' && selectedIds.size > 0) {
-        openConfirm("Удаление", `Удалить ${selectedIds.size} элементов?`).then(confirmed => {
+        setSelectedIds(new Set(items.map(i => i.id)));
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'v' && clip) {
+        handlePasteRef.current();
+      } else if (e.key === 'Delete' && selected.size > 0) {
+        openConfirm("Удаление", `Удалить ${selected.size} элементов?`).then(confirmed => {
            if (confirmed) {
-             selectedIds.forEach(id => {
-               const isFile = files.some((f: any) => f.id === id) || folders.flatMap(f => f.files || []).some((f: any) => f.id === id);
-               handleDelete(id, isFile);
+             selected.forEach(id => {
+               const item = items.find(i => i.id === id);
+               const isFile = item ? !item.isFolder : false;
+               handleDeleteRef.current(id, isFile);
              });
              setSelectedIds(new Set());
            }
         });
-      } else if (e.key === 'F2' && selectedIds.size === 1) {
-        const id = Array.from(selectedIds)[0];
+      } else if (e.key === 'F2' && selected.size === 1) {
+        const id = Array.from(selected)[0];
         setRenamingId(id);
-        const item = files.find((f: any) => f.id === id) || folders.find(f => f.id === id);
+        const item = items.find(i => i.id === id);
         setRenameValue(item?.name || '');
       } else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
         e.preventDefault();
-        const currentIdx = allCurrentItems.findIndex(i => i.id === lastSelectedId);
-        if (currentIdx < allCurrentItems.length - 1) {
-          const nextId = allCurrentItems[currentIdx + 1].id;
+        const lastSelIdx = lastSelectedIdRef.current;
+        const currentIdx = items.findIndex(i => i.id === lastSelIdx);
+        if (currentIdx < items.length - 1) {
+          const nextId = items[currentIdx + 1].id;
           setSelectedIds(new Set([nextId]));
           setLastSelectedId(nextId);
-        } else if (allCurrentItems.length > 0 && currentIdx === -1) {
-          const nextId = allCurrentItems[0].id;
+        } else if (items.length > 0 && currentIdx === -1) {
+          const nextId = items[0].id;
           setSelectedIds(new Set([nextId]));
           setLastSelectedId(nextId);
         }
       } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
         e.preventDefault();
-        const currentIdx = allCurrentItems.findIndex(i => i.id === lastSelectedId);
+        const lastSelIdx = lastSelectedIdRef.current;
+        const currentIdx = items.findIndex(i => i.id === lastSelIdx);
         if (currentIdx > 0) {
-          const prevId = allCurrentItems[currentIdx - 1].id;
+          const prevId = items[currentIdx - 1].id;
           setSelectedIds(new Set([prevId]));
           setLastSelectedId(prevId);
-        } else if (allCurrentItems.length > 0 && currentIdx === -1) {
-          const prevId = allCurrentItems[allCurrentItems.length - 1].id;
+        } else if (items.length > 0 && currentIdx === -1) {
+          const prevId = items[items.length - 1].id;
           setSelectedIds(new Set([prevId]));
           setLastSelectedId(prevId);
         }
       } else if (e.key === 'Enter') {
-        if (selectedIds.size === 1) {
-          const id = Array.from(selectedIds)[0] as string;
-          const item = allCurrentItems.find(i => i.id === id);
-          if (item?.isFolder) navigateTo(id);
+        if (selected.size === 1) {
+          const id = Array.from(selected)[0] as string;
+          const item = items.find(i => i.id === id);
+          if (item?.isFolder) navigateToRef.current(id);
         }
       } else if (e.key === 'Backspace') {
-        // Prevent backspace from navigating back in browser if we are in Explorer
         e.preventDefault();
-        const parentId = folders.find(f => f.id === currentFolderId)?.parentId || null;
-        if (currentFolderId) navigateTo(parentId);
+        const parentId = foldersRef.current.find(f => f.id === currFolderId)?.parentId || null;
+        if (currFolderId) navigateToRef.current(parentId);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIds, clipboard, files, folders, allCurrentItems]);
-
-  // Sorting
-  allCurrentItems.sort((a, b) => {
-    if (a.isFolder && !b.isFolder) return -1;
-    if (!a.isFolder && b.isFolder) return 1;
-
-    let valA = a[sortConfig.key];
-    let valB = b[sortConfig.key];
-
-    if (sortConfig.key === 'updatedAt') {
-      valA = new Date(valA || 0).getTime();
-      valB = new Date(valB || 0).getTime();
-    }
-
-    if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
-    if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
-    return 0;
-  });
+  }, []);
 
   const handleContextMenu = (e: React.MouseEvent, targetId?: string, isFile?: boolean) => {
     e.preventDefault();
@@ -548,30 +667,6 @@ export default function Explorer() {
     }
   };
 
-  const handleItemClick = (e: React.MouseEvent, id: string, isFile: boolean) => {
-    e.stopPropagation();
-    const newSelected = new Set(selectedIds);
-    if (e.ctrlKey || e.metaKey) {
-      if (newSelected.has(id)) newSelected.delete(id);
-      else newSelected.add(id);
-    } else if (e.shiftKey && lastSelectedId) {
-      const startIdx = allCurrentItems.findIndex(i => i.id === lastSelectedId);
-      const endIdx = allCurrentItems.findIndex(i => i.id === id);
-      if (startIdx !== -1 && endIdx !== -1) {
-        newSelected.clear();
-        const min = Math.min(startIdx, endIdx);
-        const max = Math.max(startIdx, endIdx);
-        for (let i = min; i <= max; i++) {
-          newSelected.add(allCurrentItems[i].id);
-        }
-      }
-    } else {
-      newSelected.clear();
-      newSelected.add(id);
-    }
-    setSelectedIds(newSelected);
-    setLastSelectedId(id);
-  };
 
   const handleSort = (key: string) => {
     setSortConfig(current => ({
@@ -744,7 +839,10 @@ export default function Explorer() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Tree Sidebar */}
-        <div className="w-56 border-r border-slate-200 dark:border-slate-850 bg-slate-50/60 dark:bg-slate-950/40 overflow-y-auto pt-2 flex-shrink-0 select-none">
+        <div 
+          className="w-56 border-r border-slate-200 dark:border-slate-850 bg-slate-50/60 dark:bg-slate-950/40 overflow-y-auto pt-2 flex-shrink-0 select-none scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-800"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
             <div 
               className={`flex items-center py-1.5 px-3 mx-2 rounded-lg cursor-pointer transition-colors text-slate-700 dark:text-slate-250 ${currentFolderId === null ? 'bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-200 font-medium' : 'hover:bg-slate-200/50 dark:hover:bg-slate-900'}`}
               onClick={() => navigateTo(null)}
@@ -775,7 +873,8 @@ export default function Explorer() {
         {/* Main Pane - Table View */}
         <div 
           ref={mainPaneRef}
-          className={`flex-1 overflow-y-auto bg-white dark:bg-slate-900 relative select-none ${isDragging ? 'bg-emerald-50/10' : ''}`}
+          className={`flex-1 overflow-y-auto bg-white dark:bg-slate-900 relative select-none scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-800 ${isDragging ? 'bg-emerald-50/10' : ''}`}
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           onDragOver={handleDragOver}
           onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
           onDrop={handleDrop}
@@ -790,7 +889,33 @@ export default function Explorer() {
             )}
 
             <AnimatePresence mode="wait">
-              {viewMode === 'list' ? (
+              {isLoading ? (
+                <motion.table
+                  key="skeleton"
+                  className="w-full text-left border-collapse select-none"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <thead className="sticky top-0 bg-white dark:bg-slate-900 shadow-xs border-b border-slate-200 dark:border-slate-800 z-10 text-xs text-slate-500 dark:text-slate-400 font-medium">
+                    <tr>
+                      <th className="py-2 px-3 border-r border-slate-200 dark:border-slate-800 font-medium cursor-default">Имя</th>
+                      <th className="py-2 px-3 border-r border-slate-200 dark:border-slate-800 font-medium cursor-default">Дата изменения</th>
+                      <th className="py-2 px-3 border-r border-slate-200 dark:border-slate-800 font-medium cursor-default">Тип</th>
+                      <th className="py-2 px-3 border-r border-slate-200 dark:border-slate-800 font-medium cursor-default">Размер</th>
+                      <th className="py-2 px-3 border-r border-slate-200 dark:border-slate-800 font-medium cursor-default">Теги</th>
+                      <th className="py-2 px-3 font-medium cursor-default">Отдел</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <SkeletonRow />
+                    <SkeletonRow />
+                    <SkeletonRow />
+                    <SkeletonRow />
+                    <SkeletonRow />
+                  </tbody>
+                </motion.table>
+              ) : viewMode === 'list' ? (
                 <motion.table 
                   key="list"
                   className="w-full text-left border-collapse"
@@ -844,89 +969,24 @@ export default function Explorer() {
                           const isCut = clipboard?.type === 'cut' && clipboard.ids.includes(item.id);
 
                           return (
-                            <tr 
+                            <FileRowItem
                               key={item.id}
-                              ref={listVirtualizer.measureElement}
-                              data-index={virtualRow.index}
-                              draggable
-                              onDragStart={(e) => {
-                                if (!selectedIds.has(item.id)) {
-                                   setSelectedIds(new Set([item.id]));
-                                }
-                                const idsToMove = selectedIds.has(item.id) ? Array.from(selectedIds) : [item.id];
-                                e.dataTransfer.setData('text/plain', JSON.stringify({ ids: idsToMove, type: 'app_items' }));
-                              }}
-                              onDragOver={(e) => {
-                                if (item.isFolder) {
-                                  e.preventDefault();
-                                  e.currentTarget.classList.add('bg-emerald-100');
-                                }
-                              }}
-                              onDragLeave={(e) => {
-                                 if (item.isFolder) e.currentTarget.classList.remove('bg-emerald-100');
-                              }}
-                              onDrop={async (e) => {
-                                if (!item.isFolder) return;
-                                e.preventDefault();
-                                e.stopPropagation();
-                                e.currentTarget.classList.remove('bg-emerald-100');
-                                const dataStr = e.dataTransfer.getData('text/plain');
-                                if (dataStr) {
-                                   try {
-                                     const data = JSON.parse(dataStr);
-                                     if (data.type === 'app_items') {
-                                       if (data.ids.includes(item.id)) return; // prevent moving into itself
-                                       await fetch('/api/files/copy', {
-                                         method: 'POST',
-                                         headers: { 'Content-Type': 'application/json' },
-                                         body: JSON.stringify({ ids: data.ids, targetFolderId: item.id, isCut: true })
-                                       });
-                                       fetchData();
-                                     }
-                                   } catch (err) {}
-                                }
-                              }}
-                              onClick={(e) => handleItemClick(e, item.id, !item.isFolder)}
-                              onDoubleClick={() => { if(item.isFolder) navigateTo(item.id); }}
-                              onContextMenu={(e) => handleContextMenu(e, item.id, !item.isFolder)}
-                              className={`cursor-default ${isSelected ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-900 dark:text-emerald-100' : 'hover:bg-slate-100 dark:hover:bg-slate-800'} ${isCut ? 'opacity-50' : ''}`}
-                            >
-                              <td className="py-1 px-3 flex items-center gap-2">
-                                <div className="relative">
-                                   {getFileIcon(item, "w-5 h-5")}
-                                   {/* CRS Status Badge */}
-                                   {!item.isFolder && item.statusCode && (
-                                      <span className={`absolute -bottom-1 -right-1 text-[8px] font-bold w-3 h-3 flex items-center justify-center rounded-full text-white ${item.statusCode === 'A' ? 'bg-green-500' : item.statusCode === 'B' ? 'bg-teal-500' : item.statusCode === 'C' ? 'bg-yellow-500' : 'bg-red-500'}`}>
-                                        {item.statusCode}
-                                      </span>
-                                   )}
-                                </div>
-                                {isRenaming ? (
-                                  <input 
-                                    type="text"
-                                    autoFocus
-                                    value={renameValue}
-                                    onChange={e => setRenameValue(e.target.value)}
-                                    onBlur={() => handleRenameSubmit(item.id, !item.isFolder, renameValue)}
-                                    onKeyDown={e => {
-                                      if (e.key === 'Enter') handleRenameSubmit(item.id, !item.isFolder, renameValue);
-                                      if (e.key === 'Escape') setRenamingId(null);
-                                    }}
-                                    onClick={e => e.stopPropagation()}
-                                    className="border border-emerald-400 px-1 py-0 text-sm outline-none w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
-                                  />
-                                ) : (
-                                  <span className="truncate max-w-[200px]">{item.name}</span>
-                                )}
-                              </td>
-                              <td className="py-1 px-3 text-slate-500">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : ''}</td>
-                              <td className="py-1 px-3 text-slate-500">{item.isFolder ? 'Папка с файлами' : (item.type || 'Файл')}</td>
-                              <td className="py-1 px-3 text-slate-500 text-right">{!item.isFolder ? formatSize(item.size) : ''}</td>
-                              <td className="py-1 px-3 text-slate-500">
-                                 {!item.isFolder && [...(item.mainTags||[]), ...(item.additionalTags||[])].map((t:any) => t.identifier).join(', ')}
-                              </td>
-                              <td className="py-1 px-3 text-slate-500">{!item.isFolder && item.department !== 'Unassigned' ? item.department : ''}</td>
-                            </tr>
+                              item={item}
+                              index={virtualRow.index}
+                              isSelected={isSelected}
+                              isRenaming={isRenaming}
+                              isCut={isCut}
+                              renameValue={renameValue}
+                              onRenameValueChange={setRenameValue}
+                              onRenameSubmit={handleRenameSubmit}
+                              onCancelRename={() => setRenamingId(null)}
+                              onClick={(e: React.MouseEvent) => handleItemClickClean(e, item.id, !item.isFolder)}
+                              onDoubleClick={() => handleItemDoubleClick(item.id, item.isFolder)}
+                              onContextMenu={(e: React.MouseEvent) => handleItemContextMenu(e, item.id, !item.isFolder)}
+                              onDragStart={(e: React.DragEvent) => handleDragStart(e, item)}
+                              onDropItems={handleDropItems}
+                              measureElement={listVirtualizer.measureElement}
+                            />
                           );
                         })}
                         {listVirtualizer.getVirtualItems().length > 0 && (
@@ -945,7 +1005,7 @@ export default function Explorer() {
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.98 }}
                 transition={{ duration: 0.15 }}
-                className="w-full h-full"
+                className="w-full h-full animate-in fade-in"
               >
                {allCurrentItems.length === 0 ? (
                   <div className="p-4 flex flex-wrap gap-4 items-start content-start">
@@ -982,89 +1042,24 @@ export default function Explorer() {
                             const isSelected = selectedIds.has(item.id);
                             const isRenaming = renamingId === item.id;
                             const isCut = clipboard?.type === 'cut' && clipboard.ids.includes(item.id);
-                            
-                            const isImage = item.type === 'IMAGE' || (item.name && item.name.match(/\.(jpeg|jpg|gif|png|webp)$/i));
 
                             return (
-                              <div
+                              <FileCardItem
                                 key={item.id}
-                                draggable
-                                onDragStart={(e) => {
-                                  if (!selectedIds.has(item.id)) {
-                                      setSelectedIds(new Set([item.id]));
-                                  }
-                                  const idsToMove = selectedIds.has(item.id) ? Array.from(selectedIds) : [item.id];
-                                  e.dataTransfer.setData('text/plain', JSON.stringify({ ids: idsToMove, type: 'app_items' }));
-                                }}
-                                onDragOver={(e) => {
-                                  if (item.isFolder) {
-                                    e.preventDefault();
-                                    e.currentTarget.classList.add('bg-emerald-100');
-                                  }
-                                }}
-                                onDragLeave={(e) => {
-                                    if (item.isFolder) e.currentTarget.classList.remove('bg-emerald-100');
-                                }}
-                                onDrop={async (e) => {
-                                  if (!item.isFolder) return;
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  e.currentTarget.classList.remove('bg-emerald-100');
-                                  const dataStr = e.dataTransfer.getData('text/plain');
-                                  if (dataStr) {
-                                      try {
-                                        const data = JSON.parse(dataStr);
-                                        if (data.type === 'app_items') {
-                                          if (data.ids.includes(item.id)) return; // prevent moving into itself
-                                          await fetch('/api/files/copy', {
-                                            method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({ ids: data.ids, targetFolderId: item.id, isCut: true })
-                                          });
-                                          fetchData();
-                                        }
-                                      } catch (err) {}
-                                  }
-                                }}
-                                onClick={(e) => handleItemClick(e, item.id, !item.isFolder)}
-                                onDoubleClick={() => { if(item.isFolder) navigateTo(item.id); }}
-                                onContextMenu={(e) => handleContextMenu(e, item.id, !item.isFolder)}
-                                className={`w-28 flex flex-col items-center gap-2 p-2 rounded border border-transparent cursor-default ${isSelected ? 'bg-emerald-100 dark:bg-emerald-900/30 border-emerald-300 dark:border-emerald-800' : 'hover:bg-slate-100 dark:hover:bg-slate-800 hover:border-slate-200 dark:hover:border-slate-700'} ${isCut ? 'opacity-50' : ''}`}
-                              >
-                                 <div className="w-16 h-16 flex items-center justify-center relative">
-                                   {item.isFolder ? (
-                                     <Folder className="w-16 h-16 text-yellow-500 fill-yellow-200" />
-                                   ) : isImage && item.content ? (
-                                     <img src={item.content} alt={item.name} className="max-w-full max-h-full object-cover rounded shadow-sm border border-slate-200" />
-                                   ) : (
-                                     getFileIcon(item, "w-12 h-12")
-                                   )}
-                                   {/* CRS Status Badge */}
-                                   {!item.isFolder && item.statusCode && (
-                                      <span className={`absolute bottom-0 right-0 text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full border border-white text-white ${item.statusCode === 'A' ? 'bg-green-500' : item.statusCode === 'B' ? 'bg-teal-500' : item.statusCode === 'C' ? 'bg-yellow-500' : 'bg-red-500'}`}>
-                                        {item.statusCode}
-                                      </span>
-                                   )}
-                                 </div>
-                                 
-                                 {isRenaming ? (
-                                   <input 
-                                     type="text"
-                                     autoFocus
-                                     value={renameValue}
-                                     onChange={e => setRenameValue(e.target.value)}
-                                     onBlur={() => handleRenameSubmit(item.id, !item.isFolder, renameValue)}
-                                     onKeyDown={e => {
-                                       if (e.key === 'Enter') handleRenameSubmit(item.id, !item.isFolder, renameValue);
-                                       if (e.key === 'Escape') setRenamingId(null);
-                                     }}
-                                     onClick={e => e.stopPropagation()}
-                                     className="border border-emerald-400 px-1 py-0 text-sm outline-none w-full text-center mt-1 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
-                                   />
-                                 ) : (
-                                   <span className="text-sm font-medium text-slate-700 dark:text-slate-200 text-center line-clamp-2 break-all">{item.name}</span>
-                                 )}
-                              </div>
+                                item={item}
+                                isSelected={isSelected}
+                                isRenaming={isRenaming}
+                                isCut={isCut}
+                                renameValue={renameValue}
+                                onRenameValueChange={setRenameValue}
+                                onRenameSubmit={handleRenameSubmit}
+                                onCancelRename={() => setRenamingId(null)}
+                                onClick={(e: React.MouseEvent) => handleItemClickClean(e, item.id, !item.isFolder)}
+                                onDoubleClick={() => handleItemDoubleClick(item.id, item.isFolder)}
+                                onContextMenu={(e: React.MouseEvent) => handleItemContextMenu(e, item.id, !item.isFolder)}
+                                onDragStart={(e: React.DragEvent) => handleDragStart(e, item)}
+                                onDropItems={handleDropItems}
+                              />
                             );
                           })}
                         </div>
@@ -1518,3 +1513,186 @@ const TreeFolder = ({ folder, allFolders, currentFolderId, onSelect, depth = 1, 
     </div>
   );
 };
+
+const SkeletonRow = () => (
+  <tr className="animate-pulse border-b border-slate-100 dark:border-slate-800">
+    <td className="py-2.5 px-3 flex items-center gap-2">
+      <div className="w-5 h-5 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
+      <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-40 animate-pulse" />
+    </td>
+    <td className="py-2.5 px-3">
+      <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-28 animate-pulse" />
+    </td>
+    <td className="py-2.5 px-3">
+      <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-20 animate-pulse" />
+    </td>
+    <td className="py-2.5 px-3">
+      <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-16 animate-pulse" />
+    </td>
+    <td className="py-2.5 px-3">
+      <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-24 animate-pulse" />
+    </td>
+    <td className="py-2.5 px-3">
+      <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-16 animate-pulse" />
+    </td>
+  </tr>
+);
+
+const FileRowItem = React.memo(({ 
+  item, 
+  index,
+  isSelected, 
+  isRenaming, 
+  isCut, 
+  renameValue, 
+  onRenameValueChange, 
+  onRenameSubmit, 
+  onCancelRename, 
+  onClick, 
+  onDoubleClick, 
+  onContextMenu, 
+  onDragStart, 
+  onDropItems, 
+  measureElement
+}: any) => {
+  return (
+    <tr 
+      ref={measureElement}
+      data-index={index}
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={(e) => {
+        if (item.isFolder) {
+           e.preventDefault();
+           e.currentTarget.classList.add('bg-emerald-100');
+        }
+      }}
+      onDragLeave={(e) => {
+         if (item.isFolder) e.currentTarget.classList.remove('bg-emerald-100');
+      }}
+      onDrop={(e) => {
+         if (!item.isFolder) return;
+         e.preventDefault();
+         e.stopPropagation();
+         e.currentTarget.classList.remove('bg-emerald-100');
+         onDropItems(e, item.id);
+      }}
+      onClick={onClick}
+      onDoubleClick={onDoubleClick}
+      onContextMenu={onContextMenu}
+      className={`cursor-default ${isSelected ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-900 dark:text-emerald-100' : 'hover:bg-slate-100 dark:hover:bg-slate-800'} ${isCut ? 'opacity-50' : ''}`}
+    >
+      <td className="py-1.5 px-3 flex items-center gap-2">
+        <div className="relative shrink-0">
+           {getFileIcon(item, "w-5 h-5")}
+           {!item.isFolder && item.statusCode && (
+              <span className={`absolute -bottom-1 -right-1 text-[8px] font-bold w-3 h-3 flex items-center justify-center rounded-full text-white ${item.statusCode === 'A' ? 'bg-green-500' : item.statusCode === 'B' ? 'bg-teal-500' : item.statusCode === 'C' ? 'bg-yellow-500' : 'bg-red-500'}`}>
+                {item.statusCode}
+              </span>
+           )}
+        </div>
+        {isRenaming ? (
+          <input 
+            type="text"
+            autoFocus
+            value={renameValue}
+            onChange={e => onRenameValueChange(e.target.value)}
+            onBlur={() => onRenameSubmit(item.id, !item.isFolder, renameValue)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') onRenameSubmit(item.id, !item.isFolder, renameValue);
+              if (e.key === 'Escape') onCancelRename();
+            }}
+            onClick={e => e.stopPropagation()}
+            className="border border-emerald-405 px-1 py-0 text-sm outline-none w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white select-text"
+          />
+        ) : (
+          <span className="truncate max-w-[200px] text-slate-800 dark:text-slate-100">{item.name}</span>
+        )}
+      </td>
+      <td className="py-1.5 px-3 text-sm text-slate-500">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : ''}</td>
+      <td className="py-1.5 px-3 text-sm text-slate-500">{item.isFolder ? 'Папка с файлами' : (item.type || 'Файл')}</td>
+      <td className="py-1.5 px-3 text-sm text-slate-500 text-right">{!item.isFolder ? formatSize(item.size) : ''}</td>
+      <td className="py-1.5 px-3 text-sm text-slate-500">
+         {!item.isFolder && [...(item.mainTags||[]), ...(item.additionalTags||[])].map((t:any) => t.identifier).join(', ')}
+      </td>
+      <td className="py-1.5 px-3 text-xs text-slate-500">{!item.isFolder && item.department !== 'Unassigned' ? item.department : ''}</td>
+    </tr>
+  );
+});
+
+const FileCardItem = React.memo(({
+  item,
+  isSelected,
+  isRenaming,
+  isCut,
+  renameValue,
+  onRenameValueChange,
+  onRenameSubmit,
+  onCancelRename,
+  onClick,
+  onDoubleClick,
+  onContextMenu,
+  onDragStart,
+  onDropItems
+}: any) => {
+  const isImage = item.type === 'IMAGE' || (item.name && item.name.match(/\.(jpeg|jpg|gif|png|webp)$/i));
+  return (
+    <div
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={(e) => {
+        if (item.isFolder) {
+          e.preventDefault();
+          e.currentTarget.classList.add('bg-emerald-100');
+        }
+      }}
+      onDragLeave={(e) => {
+          if (item.isFolder) e.currentTarget.classList.remove('bg-emerald-150');
+      }}
+      onDrop={(e) => {
+         if (!item.isFolder) return;
+         e.preventDefault();
+         e.stopPropagation();
+         e.currentTarget.classList.remove('bg-emerald-100');
+         onDropItems(e, item.id);
+      }}
+      onClick={onClick}
+      onDoubleClick={onDoubleClick}
+      onContextMenu={onContextMenu}
+      className={`w-28 flex flex-col items-center gap-2 p-2 rounded border border-transparent cursor-default transition-all ${isSelected ? 'bg-emerald-105 dark:bg-emerald-950/35 border-emerald-300 dark:border-emerald-800' : 'hover:bg-slate-100 dark:hover:bg-slate-800 hover:border-slate-200 dark:hover:border-slate-700'} ${isCut ? 'opacity-50' : ''}`}
+    >
+       <div className="w-16 h-16 flex items-center justify-center relative select-none">
+         {item.isFolder ? (
+           <Folder className="w-16 h-16 text-yellow-500 fill-yellow-250 shrink-0" />
+         ) : isImage && item.content ? (
+           <img src={item.content} alt={item.name} className="max-w-full max-h-full object-cover rounded shadow-xs border border-slate-200" referrerPolicy="no-referrer" />
+         ) : (
+           getFileIcon(item, "w-12 h-12")
+         )}
+         {!item.isFolder && item.statusCode && (
+            <span className={`absolute bottom-0 right-0 text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full border border-white text-white ${item.statusCode === 'A' ? 'bg-green-500' : item.statusCode === 'B' ? 'bg-teal-500' : item.statusCode === 'C' ? 'bg-yellow-500' : 'bg-red-500'}`}>
+              {item.statusCode}
+            </span>
+         )}
+       </div>
+       
+       {isRenaming ? (
+         <input 
+           type="text"
+           autoFocus
+           value={renameValue}
+           onChange={e => onRenameValueChange(e.target.value)}
+           onBlur={() => onRenameSubmit(item.id, !item.isFolder, renameValue)}
+           onKeyDown={e => {
+             if (e.key === 'Enter') onRenameSubmit(item.id, !item.isFolder, renameValue);
+             if (e.key === 'Escape') onCancelRename();
+           }}
+           onClick={e => e.stopPropagation()}
+           className="border border-emerald-405 px-1 py-0 text-sm outline-none w-full text-center mt-1 bg-white dark:bg-slate-900 text-slate-900 dark:text-white select-text"
+         />
+       ) : (
+         <span className="text-sm font-medium text-slate-700 dark:text-slate-200 text-center line-clamp-2 break-all">{item.name}</span>
+       )}
+    </div>
+  );
+});
