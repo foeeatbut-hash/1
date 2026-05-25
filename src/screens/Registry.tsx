@@ -36,6 +36,23 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
+import CustomSelect from '../components/CustomSelect';
+
+const actualitySelectOptions = [
+  { value: 'actual', label: '🟢 Актуально' },
+  { value: 'warning', label: '🟡 Проверить' },
+  { value: 'critical', label: '🔴 Критично' },
+  { value: 'info', label: '🔵 В работе' },
+  { value: 'draft', label: '⚪ Устарело' }
+];
+
+const emojiOptions = [
+  { value: 'actual', label: '🟢' },
+  { value: 'warning', label: '🟡' },
+  { value: 'critical', label: '🔴' },
+  { value: 'info', label: '🔵' },
+  { value: 'draft', label: '⚪' }
+];
 
 interface DescriptionItem {
   id: string;
@@ -97,6 +114,7 @@ export default function Registry() {
 
   // Sub-description inline editing state
   const [editingDescId, setEditingDescId] = useState<string | null>(null);
+  const [modalStatusInput, setModalStatusInput] = useState<string>('actual');
   const [editDescForm, setEditDescForm] = useState<{
     text: string;
     comment: string;
@@ -1766,7 +1784,7 @@ export default function Registry() {
   }
 
   return (
-    <div id="registry-screen-root" className="h-full flex flex-col min-h-0 text-slate-100 dark:text-slate-100 transition-colors duration-250 animate-fadeIn gap-3">
+    <div id="registry-screen-root" className="h-full flex flex-col min-h-0 text-slate-800 dark:text-slate-100 transition-colors duration-250 animate-fadeIn gap-3">
       
       {/* MODULE HEADER AND TAB SWITCHER */}
       <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs">
@@ -1921,7 +1939,7 @@ export default function Registry() {
                 placeholder="ВИР800-340"
                 value={newTagBrand}
                 onChange={(e) => setNewTagBrand(e.target.value)}
-                className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs rounded-lg text-slate-850 dark:text-slate-100 focus:outline-none focus:bg-white focus:ring-2 focus:ring-emerald-500/20 font-medium"
+                className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs rounded-lg text-slate-850 dark:text-slate-100 focus:outline-none focus:bg-white dark:focus:bg-slate-950 focus:ring-2 focus:ring-emerald-500/20 font-medium"
               />
             </div>
 
@@ -1935,7 +1953,7 @@ export default function Registry() {
                 placeholder="Приточный вентилятор"
                 value={newTagMainName}
                 onChange={(e) => setNewTagMainName(e.target.value)}
-                className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs placeholder-slate-400 dark:placeholder-slate-550 focus:outline-none focus:bg-white dark:text-slate-100 font-medium"
+                className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs placeholder-slate-400 dark:placeholder-slate-550 focus:outline-none focus:bg-white dark:focus:bg-slate-950 text-slate-805 dark:text-slate-100 font-medium"
               />
             </div>
 
@@ -1944,17 +1962,11 @@ export default function Registry() {
               <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase leading-none truncate">
                 Актуальность
               </label>
-              <select
+              <CustomSelect
                 value={newTagActuality}
-                onChange={(e) => setNewTagActuality(e.target.value as any)}
-                className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-705 dark:text-slate-300 focus:outline-none cursor-pointer font-medium h-8"
-              >
-                <option value="actual">🟢 Актуально</option>
-                <option value="warning">🟡 Проверить</option>
-                <option value="critical">🔴 Критично</option>
-                <option value="info">🔵 В работе</option>
-                <option value="draft">⚪ Устарело</option>
-              </select>
+                onChange={(val) => setNewTagActuality(val as any)}
+                options={actualitySelectOptions}
+              />
             </div>
 
             {/* Actions (Buttons) */}
@@ -2014,20 +2026,17 @@ export default function Registry() {
                       .sort((a: any, b: any) => a.nameRu.localeCompare(b.nameRu));
 
                     return (
-                      <div key={cat.id} className="flex items-center gap-1" id={`dynamic-field-${cat.id}`}>
-                        <span className="text-[10px] font-semibold text-slate-400">{cat.nameRu}:</span>
-                        <select
+                      <div key={cat.id} className="flex items-center gap-1 w-44" id={`dynamic-field-${cat.id}`}>
+                        <span className="text-[10px] font-semibold text-slate-400 shrink-0">{cat.nameRu}:</span>
+                        <CustomSelect
                           value={dynamicCategorySelections[cat.id] || ''}
-                          onChange={(e) => handleDynamicCategoryChange(cat.id, e.target.value)}
-                          className="px-2 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-[11px] text-slate-705 dark:text-slate-350 focus:outline-none cursor-pointer"
-                        >
-                          <option value="">-- выбрать --</option>
-                          {options.map((opt: any) => (
-                            <option key={opt.id} value={opt.nameRu}>
-                              {opt.nameRu}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(val) => handleDynamicCategoryChange(cat.id, val)}
+                          placeholder="-- выбрать --"
+                          options={options.map((opt: any) => ({
+                            value: opt.nameRu,
+                            label: opt.nameRu
+                          }))}
+                        />
                       </div>
                     );
                   });
@@ -2049,7 +2058,7 @@ export default function Registry() {
               placeholder="Поиск..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs placeholder-slate-400 dark:placeholder-slate-550 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:bg-white dark:focus:bg-slate-950 dark:text-slate-100 font-medium h-8"
+              className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs placeholder-slate-400 dark:placeholder-slate-550 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:bg-white dark:focus:bg-slate-950 text-slate-800 dark:text-slate-100 font-medium h-8"
             />
           </div>
         </div>
@@ -2413,17 +2422,11 @@ export default function Registry() {
                                           </div>
                                           <div className="space-y-0.5">
                                             <span className="text-[8px] font-bold text-slate-400">Актуальность</span>
-                                            <select
+                                            <CustomSelect
                                               value={editDescForm.status}
-                                              onChange={(e) => setEditDescForm(prev => ({ ...prev, status: e.target.value as any }))}
-                                              className="w-full px-1.5 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-[10px]"
-                                            >
-                                              <option value="actual">🟢 Актуально</option>
-                                              <option value="warning">🟡 Проверить</option>
-                                              <option value="critical">🔴 Критично</option>
-                                              <option value="info">🔵 В работе</option>
-                                              <option value="draft">⚪ Устарело</option>
-                                            </select>
+                                              onChange={(val) => setEditDescForm(prev => ({ ...prev, status: val as any }))}
+                                              options={actualitySelectOptions}
+                                            />
                                           </div>
                                         </div>
 
@@ -2541,17 +2544,11 @@ export default function Registry() {
                                   onChange={(e) => setQuickDescText(prev => ({ ...prev, [tag.id]: e.target.value }))}
                                   className="px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded text-[10px] flex-1 text-slate-800 dark:text-slate-100 focus:outline-none"
                                 />
-                                <select
+                                <CustomSelect
                                   value={quickStatus[tag.id] || 'actual'}
-                                  onChange={(e) => setQuickStatus(prev => ({ ...prev, [tag.id]: e.target.value as any }))}
-                                  className="px-1 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded text-[10px] text-slate-700 dark:text-slate-300 focus:outline-none"
-                                >
-                                  <option value="actual">🟢</option>
-                                  <option value="warning">🟡</option>
-                                  <option value="critical">🔴</option>
-                                  <option value="info">🔵</option>
-                                  <option value="draft">⚪</option>
-                                </select>
+                                  onChange={(val) => setQuickStatus(prev => ({ ...prev, [tag.id]: val as any }))}
+                                  options={emojiOptions}
+                                />
                               </div>
                               
                               <div className="flex gap-1.5">
@@ -2779,16 +2776,15 @@ export default function Registry() {
                                 <span className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
                                   Категория фильтра:
                                 </span>
-                                <select
+                                <CustomSelect
                                   value={activeCatId}
-                                  onChange={(e) => setSelectedTagFilterCategoryIds(prev => ({ ...prev, [idx]: e.target.value }))}
-                                  className="w-full p-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-[11px] rounded text-slate-850 dark:text-slate-200 focus:outline-none"
-                                >
-                                  <option value="">-- Категории справочника --</option>
-                                  {filterCategories.map((cat: any) => (
-                                    <option key={cat.id} value={cat.id}>{cat.nameRu}</option>
-                                  ))}
-                                </select>
+                                  onChange={(val) => setSelectedTagFilterCategoryIds(prev => ({ ...prev, [idx]: val }))}
+                                  placeholder="-- Категории справочника --"
+                                  options={filterCategories.map((cat: any) => ({
+                                    value: cat.id,
+                                    label: cat.nameRu
+                                  }))}
+                                />
 
                                 {activeCatId && (
                                   <div className="bg-white/40 dark:bg-slate-950/20 p-2 rounded border border-slate-200/40 dark:border-slate-800/40 space-y-1">
@@ -2859,20 +2855,18 @@ export default function Registry() {
                             <span className="block text-[9px] font-semibold text-slate-450 dark:text-slate-500 uppercase tracking-wider">
                               Связать со справочником KKS:
                             </span>
-                            <select
+                            <CustomSelect
                               value={boundDictId}
-                              onChange={(e) => {
-                                const dId = e.target.value;
-                                setTagDictBindings(prev => ({ ...prev, [idx]: dId }));
+                              onChange={(val) => {
+                                setTagDictBindings(prev => ({ ...prev, [idx]: val }));
                                 setTagHierarchySelections(prev => ({ ...prev, [idx]: {} }));
                               }}
-                              className="w-full p-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-[11px] rounded text-slate-850 dark:text-slate-200 focus:outline-none"
-                            >
-                              <option value="">-- Без справочника --</option>
-                              {dictionaries.map((dict) => (
-                                <option key={dict.id} value={dict.id}>{dict.name}</option>
-                              ))}
-                            </select>
+                              placeholder="-- Без справочника --"
+                              options={dictionaries.map((dict) => ({
+                                value: dict.id,
+                                label: dict.name
+                              }))}
+                            />
                           </div>
 
                           {boundDict && (
@@ -2880,36 +2874,30 @@ export default function Registry() {
                               {/* Main Category */}
                               <div className="space-y-0.5 animate-fadeIn">
                                 <span className="block text-[8px] font-bold text-slate-400 uppercase">1. Главная</span>
-                                <select
+                                <CustomSelect
                                   value={selection.mainId || ''}
-                                  onChange={(e) => handleMainChange(e.target.value)}
-                                  className="w-full px-1 py-0.5 text-[10px] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-slate-705 dark:text-slate-330"
-                                >
-                                  <option value="">Не выбрано</option>
-                                  {mainCategories.map((cat: any) => (
-                                    <option key={cat.id} value={cat.id}>
-                                      {cat.code} — {cat.nameRu}
-                                    </option>
-                                  ))}
-                                </select>
+                                  onChange={(val) => handleMainChange(val)}
+                                  placeholder="Не выбрано"
+                                  options={mainCategories.map((cat: any) => ({
+                                    value: cat.id,
+                                    label: `${cat.code} — ${cat.nameRu}`
+                                  }))}
+                                />
                               </div>
 
                               {/* Subcategory */}
                               {selection.mainId && subCategories.length > 0 && (
                                 <div className="space-y-0.5 animate-fadeIn">
                                   <span className="block text-[8px] font-bold text-slate-400 uppercase">2. Подкатегория</span>
-                                  <select
+                                  <CustomSelect
                                     value={selection.subId || ''}
-                                    onChange={(e) => handleSubChange(e.target.value)}
-                                    className="w-full px-1 py-0.5 text-[10px] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-slate-705 dark:text-slate-330"
-                                  >
-                                    <option value="">Не выбрано</option>
-                                    {subCategories.map((sub: any) => (
-                                      <option key={sub.id} value={sub.id}>
-                                        {sub.code} — {sub.nameRu}
-                                      </option>
-                                    ))}
-                                  </select>
+                                    onChange={(val) => handleSubChange(val)}
+                                    placeholder="Не выбрано"
+                                    options={subCategories.map((sub: any) => ({
+                                      value: sub.id,
+                                      label: `${sub.code} — ${sub.nameRu}`
+                                    }))}
+                                  />
                                 </div>
                               )}
 
@@ -2917,18 +2905,15 @@ export default function Registry() {
                               {selection.subId && subSubCategories.length > 0 && (
                                 <div className="space-y-0.5 animate-fadeIn">
                                   <span className="block text-[8px] font-bold text-slate-400 uppercase">3. Подподкатегория</span>
-                                  <select
+                                  <CustomSelect
                                     value={selection.subSubId || ''}
-                                    onChange={(e) => handleSubSubChange(e.target.value)}
-                                    className="w-full px-1 py-0.5 text-[10px] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-slate-705 dark:text-slate-330"
-                                  >
-                                    <option value="">Не выбрано</option>
-                                    {subSubCategories.map((s: any) => (
-                                      <option key={s.id} value={s.id}>
-                                        {s.code} — {s.nameRu}
-                                      </option>
-                                    ))}
-                                  </select>
+                                    onChange={(val) => handleSubSubChange(val)}
+                                    placeholder="Не выбрано"
+                                    options={subSubCategories.map((s: any) => ({
+                                      value: s.id,
+                                      label: `${s.code} — ${s.nameRu}`
+                                    }))}
+                                  />
                                 </div>
                               )}
                             </div>
@@ -3072,16 +3057,15 @@ export default function Registry() {
                                 <span className="block text-[9px] font-bold text-slate-400 dark:text-slate-550 uppercase tracking-wide">
                                   Категория фильтра:
                                 </span>
-                                <select
+                                <CustomSelect
                                   value={activeCatId}
-                                  onChange={(e) => setSelectedMarkFilterCategoryIds(prev => ({ ...prev, [idx]: e.target.value }))}
-                                  className="w-full p-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-[11px] rounded text-slate-850 dark:text-slate-200 focus:outline-none"
-                                >
-                                  <option value="">-- Категории справочника --</option>
-                                  {filterCategories.map((cat: any) => (
-                                    <option key={cat.id} value={cat.id}>{cat.nameRu}</option>
-                                  ))}
-                                </select>
+                                  onChange={(val) => setSelectedMarkFilterCategoryIds(prev => ({ ...prev, [idx]: val }))}
+                                  placeholder="-- Категории справочника --"
+                                  options={filterCategories.map((cat: any) => ({
+                                    value: cat.id,
+                                    label: cat.nameRu
+                                  }))}
+                                />
 
                                 {activeCatId && (
                                   <div className="bg-white/40 dark:bg-slate-950/20 p-2 rounded border border-slate-200/40 dark:border-slate-800/40 space-y-1">
@@ -3152,20 +3136,18 @@ export default function Registry() {
                             <span className="block text-[9px] font-semibold text-slate-455 dark:text-slate-500 uppercase tracking-wider">
                               Связать со справочником Mark:
                             </span>
-                            <select
+                            <CustomSelect
                               value={boundDictId}
-                              onChange={(e) => {
-                                const dId = e.target.value;
-                                setMarkDictBindings(prev => ({ ...prev, [idx]: dId }));
+                              onChange={(val) => {
+                                setMarkDictBindings(prev => ({ ...prev, [idx]: val }));
                                 setMarkHierarchySelections(prev => ({ ...prev, [idx]: {} }));
                               }}
-                              className="w-full p-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-[11px] rounded text-slate-850 dark:text-slate-200 focus:outline-none"
-                            >
-                              <option value="">-- Без справочника --</option>
-                              {dictionaries.map((dict) => (
-                                <option key={dict.id} value={dict.id}>{dict.name}</option>
-                              ))}
-                            </select>
+                              placeholder="-- Без справочника --"
+                              options={dictionaries.map((dict) => ({
+                                value: dict.id,
+                                label: dict.name
+                              }))}
+                            />
                           </div>
 
                           {boundDict && (
@@ -3173,36 +3155,30 @@ export default function Registry() {
                               {/* Main Category */}
                               <div className="space-y-0.5 animate-fadeIn">
                                 <span className="block text-[8px] font-bold text-slate-400 uppercase">1. Главная</span>
-                                <select
+                                <CustomSelect
                                   value={selection.mainId || ''}
-                                  onChange={(e) => handleMainChange(e.target.value)}
-                                  className="w-full px-1 py-0.5 text-[10px] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-slate-705 dark:text-slate-330"
-                                >
-                                  <option value="">Не выбрано</option>
-                                  {mainCategories.map((cat: any) => (
-                                    <option key={cat.id} value={cat.id}>
-                                      {cat.code} — {cat.nameRu}
-                                    </option>
-                                  ))}
-                                </select>
+                                  onChange={(val) => handleMainChange(val)}
+                                  placeholder="Не выбрано"
+                                  options={mainCategories.map((cat: any) => ({
+                                    value: cat.id,
+                                    label: `${cat.code} — ${cat.nameRu}`
+                                  }))}
+                                />
                               </div>
 
                               {/* Subcategory */}
                               {selection.mainId && subCategories.length > 0 && (
                                 <div className="space-y-0.5 animate-fadeIn">
                                   <span className="block text-[8px] font-bold text-slate-400 uppercase">2. Подкатегория</span>
-                                  <select
+                                  <CustomSelect
                                     value={selection.subId || ''}
-                                    onChange={(e) => handleSubChange(e.target.value)}
-                                    className="w-full px-1 py-0.5 text-[10px] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-slate-705 dark:text-slate-330"
-                                  >
-                                    <option value="">Не выбрано</option>
-                                    {subCategories.map((sub: any) => (
-                                      <option key={sub.id} value={sub.id}>
-                                        {sub.code} — {sub.nameRu}
-                                      </option>
-                                    ))}
-                                  </select>
+                                    onChange={(val) => handleSubChange(val)}
+                                    placeholder="Не выбрано"
+                                    options={subCategories.map((sub: any) => ({
+                                      value: sub.id,
+                                      label: `${sub.code} — ${sub.nameRu}`
+                                    }))}
+                                  />
                                 </div>
                               )}
 
@@ -3210,18 +3186,15 @@ export default function Registry() {
                               {selection.subId && subSubCategories.length > 0 && (
                                 <div className="space-y-0.5 animate-fadeIn">
                                   <span className="block text-[8px] font-bold text-slate-400 uppercase">3. Подподкатегория</span>
-                                  <select
+                                  <CustomSelect
                                     value={selection.subSubId || ''}
-                                    onChange={(e) => handleSubSubChange(e.target.value)}
-                                    className="w-full px-1 py-0.5 text-[10px] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-slate-705 dark:text-slate-330"
-                                  >
-                                    <option value="">Не выбрано</option>
-                                    {subSubCategories.map((s: any) => (
-                                      <option key={s.id} value={s.id}>
-                                        {s.code} — {s.nameRu}
-                                      </option>
-                                    ))}
-                                  </select>
+                                    onChange={(val) => handleSubSubChange(val)}
+                                    placeholder="Не выбрано"
+                                    options={subSubCategories.map((s: any) => ({
+                                      value: s.id,
+                                      label: `${s.code} — ${s.nameRu}`
+                                    }))}
+                                  />
                                 </div>
                               )}
                             </div>
@@ -3786,19 +3759,20 @@ export default function Registry() {
                 {/* RE-ASSIGN PARENT TAG FORM */}
                 <div className="space-y-1.5 text-left">
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Родительский тег (Мастер)</label>
-                  <select
+                  <CustomSelect
                     value={parseTagMetadata(editingTag).parentId || 'none'}
-                    onChange={(e) => handleUpdateParent(editingTag.id, e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded-xl text-sm text-slate-850 dark:text-slate-100 focus:outline-none"
-                  >
-                    <option value="none">-- Нет родительского тега --</option>
-                    {tags
-                      .filter(t => t.id !== editingTag.id)
-                      .map(t => (
-                        <option key={t.id} value={t.id}>{t.identifier} ({t.department || 'Комплексный'})</option>
-                      ))
-                    }
-                  </select>
+                    onChange={(val) => handleUpdateParent(editingTag.id, val)}
+                    placeholder="-- Нет родительского тега --"
+                    options={[
+                      { value: "none", label: "-- Нет родительского тега --" },
+                      ...tags
+                        .filter(t => t.id !== editingTag.id)
+                        .map(t => ({
+                          value: t.id,
+                          label: `${t.identifier} (${t.department || 'Комплексный'})`
+                        }))
+                    ]}
+                  />
                 </div>
 
                 {/* DYNAMIC CATEGORIES FORM SECTION */}
@@ -3826,18 +3800,15 @@ export default function Registry() {
                             return (
                               <div key={cat.id} className="space-y-1">
                                 <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">{cat.nameRu}</span>
-                                <select
+                                <CustomSelect
                                   value={tagDFields[cat.nameRu] || ''}
-                                  onChange={(e) => handleUpdateDynamicFields(editingTag.id, { [cat.nameRu]: e.target.value })}
-                                  className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
-                                >
-                                  <option value="">-- Выберите --</option>
-                                  {options.map((opt: any) => (
-                                    <option key={opt.id} value={opt.nameRu}>
-                                      {opt.nameRu}
-                                    </option>
-                                  ))}
-                                </select>
+                                  onChange={(val) => handleUpdateDynamicFields(editingTag.id, { [cat.nameRu]: val })}
+                                  placeholder="-- Выберите --"
+                                  options={options.map((opt: any) => ({
+                                    value: opt.nameRu,
+                                    label: opt.nameRu
+                                  }))}
+                                />
                               </div>
                             );
                           })}
@@ -3873,10 +3844,9 @@ export default function Registry() {
                               return (
                                 <div key={cat.id} className="space-y-1">
                                   <span className="text-[9px] uppercase font-bold text-slate-400">{cat.nameRu}</span>
-                                  <select
+                                  <CustomSelect
                                     value={editTagMarkingSelections[cat.id] || ''}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
+                                    onChange={(val) => {
                                       const updatedSelections = { ...editTagMarkingSelections, [cat.id]: val };
                                       setEditTagMarkingSelections(updatedSelections);
                                       
@@ -3886,25 +3856,22 @@ export default function Registry() {
                                         .filter(Boolean);
                                       setEditTagBrand(parts.join(editTagMarkingSeparator));
                                     }}
-                                    className="w-full px-2 py-1 bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-800 rounded text-xs text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
-                                  >
-                                    <option value="">-- выбрать --</option>
-                                    {options.map((opt: any) => (
-                                      <option key={opt.id} value={opt.nameRu}>
-                                        {opt.nameRu}
-                                      </option>
-                                    ))}
-                                  </select>
+                                    placeholder="-- выбрать --"
+                                    options={options.map((opt: any) => ({
+                                      value: opt.nameRu,
+                                      label: opt.nameRu
+                                    }))}
+                                  />
                                 </div>
                               );
                             })}
 
                             <div className="space-y-1">
                               <span className="text-[9px] uppercase font-bold text-slate-400">Разделитель</span>
-                              <select
+                              <CustomSelect
                                 value={editTagMarkingSeparator}
-                                onChange={(e) => {
-                                  const sep = e.target.value;
+                                onChange={(val) => {
+                                  const sep = val;
                                   setEditTagMarkingSeparator(sep);
                                   
                                   const parts = mCats
@@ -3912,14 +3879,14 @@ export default function Registry() {
                                     .filter(Boolean);
                                   setEditTagBrand(parts.join(sep));
                                 }}
-                                className="w-full px-2 py-1 bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-850 rounded text-xs text-slate-800 dark:text-slate-350 focus:outline-none cursor-pointer"
-                              >
-                                <option value="-">-</option>
-                                <option value="/">/</option>
-                                <option value=".">.</option>
-                                <option value=" ">пробел</option>
-                                <option value="">без знака</option>
-                              </select>
+                                options={[
+                                  { value: "-", label: "-" },
+                                  { value: "/", label: "/" },
+                                  { value: ".", label: "." },
+                                  { value: " ", label: "пробел" },
+                                  { value: "", label: "без знака" }
+                                ]}
+                              />
                             </div>
                           </div>
                         </div>
@@ -3966,16 +3933,11 @@ export default function Registry() {
                     </div>
                     <div className="space-y-1">
                       <span className="text-[10px] font-bold text-slate-500">Статус актуальности</span>
-                      <select
-                        id="modal-status-input"
-                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs"
-                      >
-                        <option value="actual">🟢 Актуально</option>
-                        <option value="warning">🟡 Проверить</option>
-                        <option value="critical">🔴 Критично</option>
-                        <option value="info">🔵 В работе</option>
-                        <option value="draft">⚪ Устарело</option>
-                      </select>
+                      <CustomSelect
+                        value={modalStatusInput}
+                        onChange={(val) => setModalStatusInput(val)}
+                        options={actualitySelectOptions}
+                      />
                     </div>
                   </div>
 
@@ -3992,12 +3954,12 @@ export default function Registry() {
                   <button
                     onClick={() => {
                       const textEl = document.getElementById('modal-desc-input') as HTMLInputElement;
-                      const statusEl = document.getElementById('modal-status-input') as HTMLSelectElement;
                       const commentEl = document.getElementById('modal-comment-input') as HTMLInputElement;
                       if (textEl && textEl.value) {
-                        handleAddDescription(editingTag.id, textEl.value, commentEl.value, statusEl.value as any);
+                        handleAddDescription(editingTag.id, textEl.value, commentEl.value, modalStatusInput as any);
                         textEl.value = '';
                         commentEl.value = '';
+                        setModalStatusInput('actual');
                       }
                     }}
                     className="w-full py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-semibold cursor-pointer transition-colors border-none"
@@ -4030,17 +3992,11 @@ export default function Registry() {
                                   className="px-2.5 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
                                   placeholder="Название..."
                                 />
-                                <select
+                                <CustomSelect
                                   value={editDescForm.status}
-                                  onChange={(e) => setEditDescForm(prev => ({ ...prev, status: e.target.value as any }))}
-                                  className="px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-xs"
-                                >
-                                  <option value="actual">🟢 Актуально</option>
-                                  <option value="warning">🟡 Проверить</option>
-                                  <option value="critical">🔴 Критично</option>
-                                  <option value="info">🔵 В работе</option>
-                                  <option value="draft">⚪ Устарело</option>
-                                </select>
+                                  onChange={(val) => setEditDescForm(prev => ({ ...prev, status: val as any }))}
+                                  options={actualitySelectOptions}
+                                />
                               </div>
                               <textarea
                                 value={editDescForm.comment}
@@ -4192,7 +4148,7 @@ export default function Registry() {
                   placeholder="Введите код или наименование..."
                   value={tagSearchText}
                   onChange={(e) => setTagSearchText(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none dark:text-slate-100 focus:bg-white dark:focus:bg-slate-950"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none text-slate-800 dark:text-slate-100 focus:bg-white dark:focus:bg-slate-950"
                 />
               </div>
 

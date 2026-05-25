@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useStore } from "../store/store";
 import { motion } from "motion/react";
+import CustomSelect from "../components/CustomSelect";
 import {
   Book,
   Upload,
@@ -2082,23 +2083,22 @@ export default function DictionaryEditor() {
                           />
                         </td>
                         <td className="px-4 py-2">
-                          <select
+                          <CustomSelect
                             value={addForm.parentId}
-                            onChange={(e) =>
+                            onChange={(val) =>
                               setAddForm({
                                 ...addForm,
-                                parentId: e.target.value,
+                                parentId: val,
                               })
                             }
-                            className="w-full px-2 py-1 text-sm border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
-                          >
-                            <option value="">Нет (Главная категория)</option>
-                            {activeDict.items.map((i: any) => (
-                              <option key={i.id} value={i.id}>
-                                {i.code} — {i.nameRu}
-                              </option>
-                            ))}
-                          </select>
+                            options={[
+                              { value: "", label: "Нет (Главная категория)" },
+                              ...activeDict.items.map((i: any) => ({
+                                value: i.id,
+                                label: `${i.code} — ${i.nameRu}`,
+                              })),
+                            ]}
+                          />
                         </td>
                         <td className="px-4 py-2 text-right">
                           <div className="flex items-center justify-end gap-2">
@@ -2160,25 +2160,24 @@ export default function DictionaryEditor() {
                               />
                             </td>
                             <td className="px-4 py-2">
-                              <select
+                              <CustomSelect
                                 value={editForm.parentId}
-                                onChange={(e) =>
+                                onChange={(val) =>
                                   setEditForm({
                                     ...editForm,
-                                    parentId: e.target.value,
+                                    parentId: val,
                                   })
                                 }
-                                className="w-full px-2 py-1 text-sm border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
-                              >
-                                <option value="">Нет (Главная категория)</option>
-                                {activeDict.items
-                                  .filter((i: any) => i.id !== item.id)
-                                  .map((i: any) => (
-                                    <option key={i.id} value={i.id}>
-                                      {i.code} — {i.nameRu}
-                                    </option>
-                                  ))}
-                              </select>
+                                options={[
+                                  { value: "", label: "Нет (Главная категория)" },
+                                  ...activeDict.items
+                                    .filter((i: any) => i.id !== item.id)
+                                    .map((i: any) => ({
+                                      value: i.id,
+                                      label: `${i.code} — ${i.nameRu}`,
+                                    })),
+                                ]}
+                              />
                             </td>
                             <td className="px-4 py-2 text-right">
                               <div className="flex items-center justify-end gap-2">
