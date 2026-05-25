@@ -1,0 +1,8 @@
+{
+  "name": "MAX",
+  "description": "Enterprise PDM/EDMS (Product Data Management / Engineering Data Management System) designed for engineers. Features project management, document tracking, equipment registry, file explorer, and customer comment resolution (CRS).",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

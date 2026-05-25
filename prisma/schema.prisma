@@ -1,0 +1,241 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String        @id @default(uuid())
+  symbol           String        @unique // Табельный номер сотрудника, используемый как логин
+  password         String        @default("password") // Пароль доступа
+  name             String        // ФИО сотрудника
+  role             String        @default("ENGINEER_VENT") // "ADMIN", "MANAGER", "ENGINEER_VENT", "ENGINEER_AUTO"
+  createdAt        DateTime      @default(now())
+  createdFiles     FileNode[]    @relation("FileCreator")
+  updatedFiles     FileNode[]    @relation("FileUpdater")
+  sentMessages     ChatMessage[] @relation("SentMessages")
+  receivedMessages ChatMessage[] @relation("ReceivedMessages")
+  chatGroups       ChatGroup[]   @relation("GroupMembers")
+}
+
+model Project {
+  id           String        @id @default(uuid())
+  name         String
+  description  String        @default("")
+  info         String        @default("")
+  status       String        @default("ACTIVE")
+  createdAt    DateTime      @default(now())
+  
+  folders          Folder[]
+  tags             Tag[]
+  dictionaries     Dictionary[]
+  tagTemplate      TagTemplate?
+  equipmentSystems EquipmentSystem[]
+  chatMessages     ChatMessage[]     @relation("LinkedProject")
+  chatGroups       ChatGroup[]       @relation("ProjectGroups")
+}
+
+model Dictionary {
+  id        String   @id @default(uuid())
+  projectId String
+  name      String
+  items     DictionaryItem[]
+  
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model DictionaryItem {
+  id           String           @id @default(uuid())
+  dictionaryId String
+  code         String
+  nameRu       String
+  parentId     String?
+  parent       DictionaryItem?  @relation("HierarchicalItems", fields: [parentId], references: [id], onDelete: Cascade)
+  children     DictionaryItem[] @relation("HierarchicalItems")
+
+  dictionary   Dictionary @relation(fields: [dictionaryId], references: [id], onDelete: Cascade)
+}
+
+model TagTemplate {
+  id         String   @id @default(uuid())
+  projectId  String   @unique
+  schemaJson String
+
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model Folder {
+  id          String   @id @default(uuid())
+  name        String
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  parentId    String?
+  parent      Folder?  @relation("FolderToFolder", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Folder[] @relation("FolderToFolder")
+  
+  files       FileNode[]
+  updatedAt   DateTime @default(now()) @updatedAt
+}
+
+model FileNode {
+  id          String   @id @default(uuid())
+  name        String
+  filePath    String
+  size        Int      @default(0)
+  type        String   @default("FILE")
+  department  String?
+  statusCode  String   @default("D")
+  revision    String   @default("1")
+  createdAt   DateTime @default(now())
+  createdById String?
+  createdBy   User?    @relation("FileCreator", fields: [createdById], references: [id])
+  updatedById String?
+  updatedBy   User?    @relation("FileUpdater", fields: [updatedById], references: [id])
+  updatedAt   DateTime @default(now()) @updatedAt
+  content     String?
+
+  folderId    String?
+  folder      Folder?   @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  
+  mainTags        Tag[]    @relation("FileMainTags")
+  additionalTags  Tag[]    @relation("FileAdditionalTags")
+}
+
+model Equipment {
+  id          String   @id @default(uuid())
+  type        String   // "VALVE", "FAN", "AHU", "CONTROL_PANEL"
+  description String?
+  tags        Tag[]
+}
+
+model Tag {
+  id           String      @id @default(uuid())
+  identifier   String      // e.g. AHU-2
+  brand        String?     // Марка
+  department   String?
+  wbs          String?
+  fluid        String?
+  projectId    String
+  equipmentId  String?
+  metadata     String?
+  createdAt    DateTime    @default(now())
+  
+  project      Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  equipment    Equipment?  @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
+  mainFiles        FileNode[]  @relation("FileMainTags")
+  additionalFiles  FileNode[]  @relation("FileAdditionalTags")
+  componentElements ComponentElement[]
+}
+
+model EquipmentSystem {
+  id            String          @id @default(uuid())
+  name          String          // e.g. "у1"
+  projectId     String
+  fileName      String?         // Added to keep different imported files separate
+  project       Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  monoblocks    Monoblock[]
+  createdAt     DateTime        @default(now())
+}
+
+model Monoblock {
+  id                String             @id @default(uuid())
+  name              String             // e.g. "мн1"
+  systemId          String
+  system            EquipmentSystem    @relation(fields: [systemId], references: [id], onDelete: Cascade)
+  components        ComponentElement[]
+  createdAt         DateTime           @default(now())
+}
+
+model ComponentElement {
+  id            String             @id @default(uuid())
+  name          String             // e.g. "бл2.1"
+  itemCode      String             // Stable unique business code (e.g., "бл2.1")
+  monoblockId   String
+  monoblock     Monoblock          @relation(fields: [monoblockId], references: [id], onDelete: Cascade)
+  specs         String?            // JSON string with raw specs
+  tags          Tag[]
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @default(now())
+  status        String             @default("OK")
+  hasConflict   Boolean            @default(false)
+  conflictType  String?            // "ORPHANED_TAG", "TYPE_MISMATCH"
+  conflictLog   String?
+  version       Int                @default(1)
+  history       EquipmentHistory[]
+  chatMessages  ChatMessage[]      @relation("LinkedElement")
+}
+
+model EquipmentHistory {
+  id          String           @id @default(uuid())
+  elementId   String
+  element     ComponentElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+  version     Int
+  changedAt   DateTime         @default(now())
+  oldSpecs    String?
+  newSpecs    String?
+  changeType  String           // "UPDATE", "DELETE", "CREATE"
+}
+
+model UserNote {
+  id          String   @id @default(uuid())
+  title       String   @default("Новая заметка")
+  content     String   // Хранение HTML-строки или JSON-дерева Rich-text редактора
+  color       String   @default("bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200") // Предустанови slate, red, green, yellow
+  equipmentId String?  // Опциональная привязка к тегу/оборудованию
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SystemChangeLog {
+  id          String   @id @default(uuid())
+  userName    String   // Кто изменил (например, "Главный Администратор")
+  userSymbol  String   // Символ/ID (например, "RaupovKhKh")
+  description String   // Что изменено ("Обновлены спецификации вентилятора по тегу AHU-2")
+  targetRoute String   // Маршрут/параметры для сквозного перехода (например, "/equipment?tag=AHU-2")
+  createdAt   DateTime @default(now())
+}
+
+model ChatGroup {
+  id        String        @id @default(uuid())
+  name      String
+  type      String        @default("PROJECT") // "DIRECT" | "PROJECT"
+  projectId String?
+  project   Project?      @relation("ProjectGroups", fields: [projectId], references: [id], onDelete: Cascade)
+  members   User[]        @relation("GroupMembers")
+  messages  ChatMessage[] @relation("GroupMessages")
+  createdAt DateTime      @default(now())
+}
+
+model ChatMessage {
+  id              String            @id @default(uuid())
+  content         String
+  createdAt       DateTime          @default(now())
+  senderId        String
+  sender          User              @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId      String?
+  receiver        User?             @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  chatGroupId     String?
+  chatGroup       ChatGroup?        @relation("GroupMessages", fields: [chatGroupId], references: [id], onDelete: Cascade)
+  linkedElementId String?
+  linkedElement   ComponentElement? @relation("LinkedElement", fields: [linkedElementId], references: [id], onDelete: SetNull)
+  linkedProjectId String?
+  linkedProject   Project?          @relation("LinkedProject", fields: [linkedProjectId], references: [id], onDelete: SetNull)
+  attachments     ChatAttachment[]
+}
+
+model ChatAttachment {
+  id        String      @id @default(uuid())
+  messageId String
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  fileName  String
+  filePath  String
+  fileSize  Int         @default(0)
+}
+
