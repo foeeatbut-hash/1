@@ -1766,7 +1766,7 @@ export default function Registry() {
   }
 
   return (
-    <div id="registry-screen-root" className="space-y-4 text-slate-100 dark:text-slate-100 transition-colors duration-250 animate-fadeIn">
+    <div id="registry-screen-root" className="h-full flex flex-col min-h-0 text-slate-100 dark:text-slate-100 transition-colors duration-250 animate-fadeIn gap-3">
       
       {/* MODULE HEADER AND TAB SWITCHER */}
       <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs">
@@ -2056,22 +2056,23 @@ export default function Registry() {
       </div>
 
       {/* TABS INTERFACE */}
-      <AnimatePresence mode="wait">
-        
-        {/* INTERACTIVE BOARD (GRAPH CANVAS) */}
-        {activeTab === 'board' && (
-          <motion.div
-            key="canvas-board"
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -15 }}
-            transition={{ duration: 0.15 }}
-            className="space-y-3"
-          >
-            {/* THE GRAPH SPACE WITH OVERLAID CONTROLS */}
-            <div 
-              ref={boardRef}
-              className="w-full h-[calc(100vh-215px)] min-h-[720px] overflow-hidden bg-slate-50 dark:bg-slate-900 border-2 border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-lg relative select-none transition-colors"
+      <div className="flex-1 min-h-0 w-full relative">
+        <AnimatePresence mode="wait">
+          
+          {/* INTERACTIVE BOARD (GRAPH CANVAS) */}
+          {activeTab === 'board' && (
+            <motion.div
+              key="canvas-board"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              transition={{ duration: 0.15 }}
+              className="h-full w-full flex flex-col min-h-0"
+            >
+              {/* THE GRAPH SPACE WITH OVERLAID CONTROLS */}
+              <div 
+                ref={boardRef}
+                className="w-full flex-1 min-h-0 overflow-hidden bg-slate-50 dark:bg-slate-900 border-2 border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-lg relative select-none transition-colors"
               style={{ cursor: isPanning ? 'grabbing' : 'grab' }}
               onMouseDown={(e) => {
                 if (e.button !== 0) return;
@@ -2614,7 +2615,7 @@ export default function Registry() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -15 }}
             transition={{ duration: 0.15 }}
-            className="space-y-4 text-left"
+            className="h-full w-full overflow-y-auto space-y-4 text-left pr-1"
           >
             <div className="p-5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs">
               {buildTree().length === 0 ? (
@@ -2640,7 +2641,7 @@ export default function Registry() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -15 }}
             transition={{ duration: 0.15 }}
-            className="space-y-4 text-left"
+            className="h-full w-full overflow-y-auto space-y-4 text-left pr-1"
           >
 
             {/* SELECTION FILTERS BLOCK */}
@@ -3533,11 +3534,11 @@ export default function Registry() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -15 }}
             transition={{ duration: 0.15 }}
-            className="text-left"
+            className="h-full w-full flex flex-col min-h-0 text-left pr-1"
           >
-            <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs overflow-hidden border-none">
+            <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs overflow-hidden border-none flex-1 flex flex-col min-h-0">
               {/* Optional view controls bar */}
-              <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/40 flex justify-between items-center flex-wrap gap-2 border-none">
+              <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/40 flex justify-between items-center flex-wrap gap-2 border-none shrink-0">
                 <span className="text-xs font-bold text-slate-500 uppercase tracking-widest block">Спецификация и Актуальность систем ({sortedTagsList.length} записей)</span>
                 
                 <button
@@ -3556,7 +3557,7 @@ export default function Registry() {
 
               <div 
                 ref={parentRefTable}
-                className="overflow-auto max-h-[600px] style-scrollbar"
+                className="overflow-auto flex-1 min-h-0 style-scrollbar"
               >
                 <table className="w-full text-sm text-left border-collapse">
                   <thead className="sticky top-0 bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-850 text-xs font-semibold uppercase tracking-wider z-10 shadow-xs">
@@ -3723,6 +3724,7 @@ export default function Registry() {
         )}
 
       </AnimatePresence>
+      </div>
 
       {/* DETAIL MODAL DESCRIPTIONS CONTROL DIALOG */}
       <AnimatePresence>
