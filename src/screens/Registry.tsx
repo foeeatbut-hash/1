@@ -2009,7 +2009,8 @@ export default function Registry() {
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              className="flex flex-wrap items-center gap-3 pt-2.5 border-t border-slate-100 dark:border-slate-900/60 overflow-hidden text-left"
+              style={{ overflow: 'visible' }}
+              className="flex flex-wrap items-center gap-3 pt-2.5 border-t border-slate-100 dark:border-slate-900/60 overflow-visible text-left"
             >
               {(() => {
                 const configDict = dictionaries.find(d => d.name === '__tag_creation_config__');
@@ -2026,8 +2027,10 @@ export default function Registry() {
                       .sort((a: any, b: any) => a.nameRu.localeCompare(b.nameRu));
 
                     return (
-                      <div key={cat.id} className="flex items-center gap-1 w-44" id={`dynamic-field-${cat.id}`}>
-                        <span className="text-[10px] font-semibold text-slate-400 shrink-0">{cat.nameRu}:</span>
+                      <div key={cat.id} className="flex flex-col gap-1 min-w-[160px] md:min-w-[180px] lg:min-w-[200px] flex-1 max-w-[300px]" id={`dynamic-field-${cat.id}`}>
+                        <span className="text-[10px] font-bold text-slate-450 dark:text-slate-500 uppercase leading-none truncate" title={cat.nameRu}>
+                          {cat.nameRu}
+                        </span>
                         <CustomSelect
                           value={dynamicCategorySelections[cat.id] || ''}
                           onChange={(val) => handleDynamicCategoryChange(cat.id, val)}

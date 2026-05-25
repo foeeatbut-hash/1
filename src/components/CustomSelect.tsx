@@ -138,7 +138,7 @@ export default function CustomSelect({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.15 }}
-            className="absolute left-0 z-50 mt-1 w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl p-1 max-h-60 overflow-y-auto style-scrollbar"
+            className="absolute left-0 z-[999] mt-1 w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl p-1 max-h-60 overflow-y-auto style-scrollbar"
             role="listbox"
           >
             {options.map((opt, idx) => {
