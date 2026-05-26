@@ -38,11 +38,7 @@ export const useLogStore = create<LogState>((set, get) => ({
     };
 
     set((state) => {
-      // Hard limit of 500 entries
       const updatedLogs = [...state.logs, newLog];
-      if (updatedLogs.length > 500) {
-        updatedLogs.shift();
-      }
 
       // If error occurs and widget is not open, mark as unread error
       const shouldMarkUnread = type === 'ERROR' && !state.widgetOpen;

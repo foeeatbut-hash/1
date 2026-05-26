@@ -54,7 +54,7 @@ const FormattedMessage: React.FC<FormattedMessageProps> = ({ text, onTagClick })
           e.stopPropagation();
           onTagClick(tagName);
         }}
-        className="inline-flex items-center mx-0.5 px-1.5 py-0.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-850 rounded text-[11px] font-bold text-indigo-700 dark:text-indigo-400 cursor-pointer hover:underline transition-all font-sans select-none align-baseline shrink-0"
+        className="inline-flex items-center mx-0.5 px-1.5 py-0.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-850 rounded text-xs font-bold text-indigo-700 dark:text-indigo-400 cursor-pointer hover:underline transition-all font-sans select-none align-baseline shrink-0"
       >
         #{tagName}
       </button>
@@ -561,11 +561,11 @@ export default function ChatManagement() {
           
           {/* Section 1: Project Rooms (Автоматические проектные комнаты) */}
           <div className="space-y-1">
-            <div className="px-3 py-1 text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+            <div className="px-3 py-1 text-xs font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
               Проектные группы
             </div>
             {groups.length === 0 ? (
-              <p className="text-[11px] p-3 text-slate-400 italic">Активных проектных групп нет</p>
+              <p className="text-xs p-3 text-slate-400 italic">Активных проектных групп нет</p>
             ) : (
               groups.map((g) => {
                 const active = g.id === activeGroupId;
@@ -586,7 +586,7 @@ export default function ChatManagement() {
                       <span className="text-xs font-bold text-slate-850 dark:text-white block truncate leading-tight">
                         {g.name}
                       </span>
-                      <span className="text-[9px] text-slate-400 font-semibold block truncate mt-0.5">
+                      <span className="text-xs text-slate-400 font-semibold block truncate mt-0.5">
                         Автомод. комната проекта
                       </span>
                     </div>
@@ -598,7 +598,7 @@ export default function ChatManagement() {
 
           {/* Section 2: Direct Messages (Личные диалоги) */}
           <div className="space-y-1">
-            <div className="px-3 py-1 text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+            <div className="px-3 py-1 text-xs font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
               Личные диалоги
             </div>
             {filteredUsers.length === 0 ? (
@@ -627,9 +627,9 @@ export default function ChatManagement() {
                           {u.name}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 leading-normal mt-0.5">
+                      <div className="flex items-center justify-between text-xs text-slate-400 leading-normal mt-0.5">
                         <span className="truncate">Таб: {u.symbol}</span>
-                        <span className="shrink-0 text-slate-500 font-mono bg-slate-100 dark:bg-slate-950 px-1 rounded text-[8px]">
+                        <span className="shrink-0 text-slate-500 font-mono bg-slate-100 dark:bg-slate-950 px-1 rounded text-xs">
                           {u.role.replace('ENGINEER_', '')}
                         </span>
                       </div>
@@ -696,7 +696,7 @@ export default function ChatManagement() {
               {messages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center p-6 text-center select-none">
                   <MessageSquare className="w-8 h-8 text-slate-300 dark:text-slate-700 mb-2 animate-bounce" />
-                  <p className="text-[11px] text-slate-400 mt-1 max-w-xs">
+                  <p className="text-xs text-slate-400 mt-1 max-w-xs">
                     Напечатайте текст с инженерными тегами вида <span className="font-mono text-indigo-500 font-bold">#бл2.1</span> или привяжите спецификацию
                   </p>
                 </div>
@@ -708,12 +708,12 @@ export default function ChatManagement() {
                       key={msg.id} 
                       className={`flex gap-3 max-w-[85%] ${isMe ? 'ml-auto flex-row-reverse' : 'mr-auto'}`}
                     >
-                      <div className="w-8 h-8 rounded-full bg-slate-150 dark:bg-slate-800 shrink-0 border border-slate-250 dark:border-slate-750 flex items-center justify-center text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                      <div className="w-8 h-8 rounded-full bg-slate-150 dark:bg-slate-800 shrink-0 border border-slate-250 dark:border-slate-750 flex items-center justify-center text-xs font-bold text-slate-600 dark:text-slate-400">
                         {(msg.sender?.name || 'С').charAt(0)}
                       </div>
 
                       <div className="space-y-1 text-left">
-                        <div className="flex items-center gap-2 text-[10px] text-slate-400 select-none">
+                        <div className="flex items-center gap-2 text-xs text-slate-400 select-none">
                           <span className="font-bold text-slate-500 dark:text-slate-450">
                             {isMe ? 'Вы' : msg.sender?.name}
                           </span>
@@ -739,13 +739,13 @@ export default function ChatManagement() {
                               onClick={() => handleEquipmentClick(msg.linkedElementId!)}
                               className="mt-2 text-left block w-full p-2 bg-emerald-600/10 dark:bg-emerald-450/15 border border-emerald-500/20 rounded-md hover:bg-emerald-600/15 dark:hover:bg-emerald-450/20 cursor-pointer transition-all shrink-0"
                             >
-                              <div className="text-[10px] font-bold text-emerald-800 dark:text-emerald-400 uppercase tracking-wider mb-0.5 flex items-center gap-1 font-sans">
+                              <div className="text-xs font-bold text-emerald-800 dark:text-emerald-400 uppercase tracking-wider mb-0.5 flex items-center gap-1 font-sans">
                                 ⚙️ Сквозная ссылка MAX
                               </div>
                               <div className="text-xs font-black text-slate-800 dark:text-slate-200">
                                 {msg.linkedElement.name}
                               </div>
-                              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+                              <div className="text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5">
                                 Код узла: {msg.linkedElement.itemCode}
                               </div>
                             </button>
@@ -764,10 +764,10 @@ export default function ChatManagement() {
                                   <div className="flex items-center gap-2 min-w-0">
                                     <File className="w-3.5 h-3.5 text-indigo-650 dark:text-indigo-400 shrink-0" />
                                     <div className="min-w-0">
-                                      <p className="text-[11px] font-bold text-slate-850 dark:text-slate-250 truncate group-hover:text-indigo-700 dark:group-hover:text-indigo-400">
+                                      <p className="text-xs font-bold text-slate-850 dark:text-slate-250 truncate group-hover:text-indigo-700 dark:group-hover:text-indigo-400">
                                         {file.fileName}
                                       </p>
-                                      <p className="text-[9px] text-slate-400 font-mono">
+                                      <p className="text-xs text-slate-400 font-mono">
                                         {formatBytes(file.fileSize)}
                                       </p>
                                     </div>
@@ -792,9 +792,9 @@ export default function ChatManagement() {
               {/* Autocomplete suggestions dropdown panel right above input bar */}
               {autocompleteSuggestions.length > 0 && (
                 <div id="tag-autocomplete-dropdown" className="absolute bottom-full left-3 right-3 mb-2 max-h-56 bg-white dark:bg-slate-950 border border-slate-200 dark:border-indigo-950 rounded-xl shadow-2xl overflow-y-auto z-50 divide-y divide-slate-100 dark:divide-slate-900 animate-in fade-in slide-in-from-bottom-2 duration-150">
-                  <div className="p-2 bg-slate-50 dark:bg-slate-900/60 text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center justify-between select-none border-b border-slate-100 dark:border-slate-900">
+                  <div className="p-2 bg-slate-50 dark:bg-slate-900/60 text-xs font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center justify-between select-none border-b border-slate-100 dark:border-slate-900">
                     <span>💡 Подходящие к вводу MAX/KKS теги</span>
-                    <span className="font-mono text-[8px] opacity-80">Клавиши ↑ ↓ Enter для ввода</span>
+                    <span className="font-mono text-xs opacity-80">Клавиши ↑ ↓ Enter для ввода</span>
                   </div>
                   {autocompleteSuggestions.map((sug, idx) => {
                     const active = idx === autocompleteIndex;
@@ -813,7 +813,7 @@ export default function ChatManagement() {
                         <span className="font-mono text-xs text-indigo-700 dark:text-indigo-400 font-extrabold flex items-center gap-0.5">
                           #{sug.text}
                         </span>
-                        <span className="text-[10px] text-slate-450 dark:text-slate-500 leading-normal truncate">
+                        <span className="text-xs text-slate-450 dark:text-slate-500 leading-normal truncate">
                           {sug.description}
                         </span>
                       </button>
@@ -826,7 +826,7 @@ export default function ChatManagement() {
               {(stagedAttachments.length > 0 || selectedElementId) && (
                 <div className="flex flex-wrap gap-2 py-1 items-center select-none">
                   {selectedElementId && (
-                    <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-50 dark:bg-emerald-955/20 border border-emerald-250 dark:border-emerald-900 rounded-md text-[11px] text-emerald-800 dark:text-emerald-400 font-bold shrink-0">
+                    <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-50 dark:bg-emerald-955/20 border border-emerald-250 dark:border-emerald-900 rounded-md text-xs text-emerald-800 dark:text-emerald-400 font-bold shrink-0">
                       <LinkIcon className="w-3.5 h-3.5 text-emerald-600" />
                       <span>Связь: {selectedElementName}</span>
                       <button 
@@ -842,7 +842,7 @@ export default function ChatManagement() {
                   {stagedAttachments.map((att, idx) => (
                     <div 
                       key={idx} 
-                      className="flex items-center gap-1.5 px-2 py-1 bg-slate-105 dark:bg-slate-950/45 border border-slate-200 dark:border-slate-850 rounded-md text-[11px] text-slate-600 dark:text-slate-400 shrink-0"
+                      className="flex items-center gap-1.5 px-2 py-1 bg-slate-105 dark:bg-slate-950/45 border border-slate-200 dark:border-slate-850 rounded-md text-xs text-slate-600 dark:text-slate-400 shrink-0"
                     >
                       <File className="w-3.5 h-3.5 text-indigo-500" />
                       <span className="truncate max-w-[120px]">{att.fileName}</span>
@@ -974,7 +974,7 @@ export default function ChatManagement() {
             /* DYNAMIC TAG CARD SECTION (ФИЧА 2: Быстрая карточка тега) */
             <div className="flex-1 flex flex-col h-full select-none">
               <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-indigo-50/55 dark:bg-indigo-950/25">
-                <span className="text-[11px] font-extrabold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-1.5 font-sans">
+                <span className="text-xs font-extrabold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-1.5 font-sans">
                   ⚙️ Карточка тега
                 </span>
                 <button 
@@ -991,14 +991,14 @@ export default function ChatManagement() {
                   <h4 className="text-xs font-black text-slate-800 dark:text-white leading-snug">
                     {selectedTagElement.name}
                   </h4>
-                  <p className="text-[10px] font-mono text-slate-400">
+                  <p className="text-xs font-mono text-slate-400">
                     Код узла: {selectedTagElement.itemCode}
                   </p>
                 </div>
 
                 <div className="bg-white dark:bg-slate-950 p-3 rounded-lg border border-slate-200 dark:border-slate-800/80 space-y-2.5 shadow-3xs text-xs">
                   <div>
-                    <span className="text-[9px] text-slate-400 uppercase block font-extrabold">Тип оборудования</span>
+                    <span className="text-xs text-slate-400 uppercase block font-extrabold">Тип оборудования</span>
                     <span className="font-semibold text-slate-800 dark:text-slate-200 block mt-0.5">
                       {selectedTagElement.type || 'Спецификация MAX'}
                     </span>
@@ -1006,7 +1006,7 @@ export default function ChatManagement() {
 
                   {selectedTagElement.monoblock && (
                     <div>
-                      <span className="text-[9px] text-slate-400 uppercase block font-extrabold">Моноблок</span>
+                      <span className="text-xs text-slate-400 uppercase block font-extrabold">Моноблок</span>
                       <span className="font-semibold text-slate-800 dark:text-slate-200 block mt-0.5">
                         📦 {selectedTagElement.monoblock.name}
                       </span>
@@ -1015,7 +1015,7 @@ export default function ChatManagement() {
 
                   {selectedTagElement.monoblock?.system && (
                     <div>
-                      <span className="text-[9px] text-slate-400 uppercase block font-extrabold">Система</span>
+                      <span className="text-xs text-slate-400 uppercase block font-extrabold">Система</span>
                       <span className="font-semibold text-slate-800 dark:text-slate-200 block mt-0.5">
                         🌐 {selectedTagElement.monoblock.system.name}
                       </span>
@@ -1025,10 +1025,10 @@ export default function ChatManagement() {
 
                 {/* Technical specifications */}
                 <div className="space-y-1.5">
-                  <h5 className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">
+                  <h5 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">
                     Технические параметры
                   </h5>
-                  <div className="bg-white dark:bg-slate-950 rounded-lg border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-900 overflow-hidden text-[11px] shadow-3xs">
+                  <div className="bg-white dark:bg-slate-950 rounded-lg border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-900 overflow-hidden text-xs shadow-3xs">
                     {(() => {
                       try {
                         const specs = typeof selectedTagElement.specs === 'string'
@@ -1039,13 +1039,13 @@ export default function ChatManagement() {
                           return Object.entries(specs).map(([k, v]: [string, any]) => (
                             <div key={k} className="flex justify-between p-2">
                               <span className="text-slate-400">{k}:</span>
-                              <span className="font-mono font-bold text-slate-705 dark:text-slate-300 text-[10px]">{String(v)}</span>
+                              <span className="font-mono font-bold text-slate-705 dark:text-slate-300 text-xs">{String(v)}</span>
                             </div>
                           ));
                         }
                       } catch (e) {}
                       return (
-                        <div className="p-3 text-center text-slate-400 text-[10px] italic">
+                        <div className="p-3 text-center text-slate-400 text-xs italic">
                           Спецификации загружены из файла Excel
                         </div>
                       );
@@ -1059,7 +1059,7 @@ export default function ChatManagement() {
                     addToast('Перенаправление в Проводник...', 'success');
                     navigate(`/equipment?elementId=${selectedTagElement.id}`);
                   }}
-                  className="w-full py-2 bg-indigo-650 hover:bg-indigo-800 text-white font-bold rounded-lg text-[11px] transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-sm"
+                  className="w-full py-2 bg-indigo-650 hover:bg-indigo-800 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-sm"
                 >
                   <LinkIcon className="w-3.5 h-3.5" />
                   Открыть в Проводнике
@@ -1077,17 +1077,17 @@ export default function ChatManagement() {
                   <h4 className="text-xs font-extrabold text-slate-800 dark:text-white leading-tight truncate">
                     {activePeer.name}
                   </h4>
-                  <p className="text-[10px] text-slate-400 mt-1 font-semibold bg-slate-100 dark:bg-slate-900 py-0.5 px-2 rounded-full inline-block">
+                  <p className="text-xs text-slate-400 mt-1 font-semibold bg-slate-100 dark:bg-slate-900 py-0.5 px-2 rounded-full inline-block">
                     {activePeer.role}
                   </p>
                   
-                  <div className="mt-4 grid grid-cols-2 gap-2 text-left text-[11px]">
+                  <div className="mt-4 grid grid-cols-2 gap-2 text-left text-xs">
                     <div className="bg-white dark:bg-slate-950/50 p-2 rounded-lg border border-slate-150 dark:border-slate-850">
-                      <p className="text-slate-400 text-[9px] leading-tight mb-0.5">Табель</p>
+                      <p className="text-slate-400 text-xs leading-tight mb-0.5">Табель</p>
                       <p className="font-mono font-bold text-slate-700 dark:text-slate-300 truncate">{activePeer.symbol}</p>
                     </div>
                     <div className="bg-white dark:bg-slate-950/50 p-2 rounded-lg border border-slate-150 dark:border-slate-850">
-                      <p className="text-slate-400 text-[9px] leading-tight mb-0.5">Окружение</p>
+                      <p className="text-slate-400 text-xs leading-tight mb-0.5">Окружение</p>
                       <p className="font-bold text-indigo-700 dark:text-indigo-400 leading-none mt-1 truncate">MAX LOCAL</p>
                     </div>
                   </div>
@@ -1100,17 +1100,17 @@ export default function ChatManagement() {
                   <h4 className="text-xs font-extrabold text-slate-800 dark:text-white leading-tight truncate">
                     {activeGroup.name}
                   </h4>
-                  <p className="text-[10px] text-slate-400 mt-1 font-semibold bg-slate-100 dark:bg-slate-900 py-0.5 px-2 rounded-full inline-block">
+                  <p className="text-xs text-slate-400 mt-1 font-semibold bg-slate-100 dark:bg-slate-900 py-0.5 px-2 rounded-full inline-block">
                     Проектная комната
                   </p>
                   
-                  <div className="mt-4 grid grid-cols-2 gap-2 text-left text-[11px]">
+                  <div className="mt-4 grid grid-cols-2 gap-2 text-left text-xs">
                     <div className="bg-white dark:bg-slate-950/50 p-2 rounded-lg border border-slate-150 dark:border-slate-850">
-                      <p className="text-slate-400 text-[9px] leading-tight mb-0.5">Участники</p>
+                      <p className="text-slate-400 text-xs leading-tight mb-0.5">Участники</p>
                       <p className="font-mono font-bold text-slate-700 dark:text-slate-300 truncate">Все сотрудники</p>
                     </div>
                     <div className="bg-white dark:bg-slate-950/50 p-2 rounded-lg border border-slate-150 dark:border-slate-850">
-                      <p className="text-slate-400 text-[9px] leading-tight mb-0.5">Тип канала</p>
+                      <p className="text-slate-400 text-xs leading-tight mb-0.5">Тип канала</p>
                       <p className="font-bold text-indigo-700 dark:text-indigo-400 leading-none mt-1 truncate">Auto ROOM</p>
                     </div>
                   </div>
@@ -1119,7 +1119,7 @@ export default function ChatManagement() {
 
               {/* Shared Files attachment listings */}
               <div className="flex-1 p-4 text-left">
-                <h5 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                <h5 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
                   <Paperclip className="w-3.5 h-3.5 text-slate-400" />
                   История вложений ({allHistoryAttachments.length})
                 </h5>
@@ -1140,10 +1140,10 @@ export default function ChatManagement() {
                         <div className="flex items-center gap-2 min-w-0">
                           <File className="w-3.5 h-3.5 text-slate-450 shrink-0 group-hover:text-indigo-600" />
                           <div className="min-w-0">
-                            <p className="text-[11px] font-bold text-slate-700 dark:text-slate-300 truncate group-hover:text-slate-950 dark:group-hover:text-indigo-400">
+                            <p className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate group-hover:text-slate-950 dark:group-hover:text-indigo-400">
                               {f.fileName}
                             </p>
-                            <p className="text-[9px] text-slate-400 font-mono">
+                            <p className="text-xs text-slate-400 font-mono">
                               {formatBytes(f.fileSize)}
                             </p>
                           </div>
@@ -1176,7 +1176,7 @@ export default function ChatManagement() {
                     <Settings className="w-4 h-4 text-indigo-600 animate-spin" style={{ animationDuration: '6s' }} />
                     Привязка узла к сообщению
                   </h3>
-                  <p className="text-[10.5px] text-slate-400 mt-1">
+                  <p className="text-xs text-slate-400 mt-1">
                     Проект: {activeProject?.name || 'все проекты'}
                   </p>
                 </div>
@@ -1224,11 +1224,11 @@ export default function ChatManagement() {
                         <p className="text-xs font-bold text-slate-805 dark:text-slate-200">
                           ⚙️ {c.name}
                         </p>
-                        <p className="text-[10px] text-slate-400 mt-0.5">
+                        <p className="text-xs text-slate-400 mt-0.5">
                           Код: <span className="font-mono text-indigo-500 font-bold">{c.itemCode}</span> • Моноблок: {c.monoblockName}
                         </p>
                       </div>
-                      <span className="text-[9px] bg-slate-100 dark:bg-slate-950 px-2 py-0.5 rounded font-bold text-slate-500 shadow-3xs">
+                      <span className="text-xs bg-slate-100 dark:bg-slate-950 px-2 py-0.5 rounded font-bold text-slate-500 shadow-3xs">
                         {c.systemName}
                       </span>
                     </button>
@@ -1267,7 +1267,7 @@ export default function ChatManagement() {
                     <Brush className="w-4 h-4 text-rose-500 animate-pulse" />
                     Инженерные аннотации снимка экрана
                   </h3>
-                  <p className="text-[10px] text-slate-400 mt-0.5 font-sans">
+                  <p className="text-xs text-slate-400 mt-0.5 font-sans">
                     Зажмите и ведите курсор по снимку, чтобы нанести красные пометки карандашом
                   </p>
                 </div>

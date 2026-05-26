@@ -6,12 +6,12 @@ import {
   Terminal, 
   Copy, 
   Download, 
-  Trash2, 
   X, 
   AlertCircle, 
   Info, 
   AlertTriangle,
-  Check
+  Check,
+  Send
 } from 'lucide-react';
 
 export default function ActionLogWidget() {
@@ -136,6 +136,28 @@ export default function ActionLogWidget() {
     }
   };
 
+  const handleSendLogs = async () => {
+    const text = getFormattedLogs();
+    if (!text) {
+      addToast('Журнал логов пуст', 'info');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(text);
+      const url = "https://messenger.360.yandex.ru/#/join/e1d17837-7be6-44d1-943b-03ca3350897e";
+      const win = window as any;
+      if (win.electron && typeof win.electron.openExternal === 'function') {
+        await win.electron.openExternal(url);
+      } else {
+        window.open(url, '_blank');
+      }
+      addToast('Журнал скопирован! Нажмите Ctrl+V в открывшемся чате Яндекса для отправки', 'success');
+    } catch (err) {
+      addToast('Не удалось скопировать логи', 'error');
+    }
+  };
+
   // Filter & Search logs
   const filteredLogs = logs.filter(log => {
     const matchesFilter = filter === 'ALL' || log.type === filter;
@@ -197,14 +219,14 @@ export default function ActionLogWidget() {
                 placeholder="Поиск по модулю или тексту..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="w-full px-2.5 py-1.5 text-xs rounded border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono outline-none text-slate-800 dark:text-slate-200 focus:border-emerald-550 transition"
+                className="w-full px-2.5 py-1.5 text-xs rounded border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono outline-none text-slate-800 dark:text-slate-200 focus:border-emerald-555 transition"
               />
             </div>
 
             {/* Logs Area */}
             <div 
               ref={scrollContainerRef}
-              className="flex-1 overflow-y-auto p-4 bg-slate-50 dark:bg-slate-950 font-mono text-[11px] leading-relaxed select-text space-y-2 scrollbar-thin"
+              className="flex-1 overflow-y-auto p-4 bg-slate-50 dark:bg-slate-950 font-mono text-xs leading-relaxed select-text space-y-2 scrollbar-thin"
             >
               {filteredLogs.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-slate-400 dark:text-slate-600 py-12 gap-2 text-center text-xs">
@@ -230,7 +252,7 @@ export default function ActionLogWidget() {
                       {log.message}
                     </div>
                     {log.stack && (
-                      <pre className="mt-1.5 p-1.5 bg-red-154/5 dark:bg-red-950/20 text-red-600 dark:text-red-300 border border-red-500/10 rounded overflow-x-auto text-[10px] whitespace-pre-wrap max-h-32">
+                      <pre className="mt-1.5 p-1.5 bg-red-154/5 dark:bg-red-950/20 text-red-600 dark:text-red-300 border border-red-500/10 rounded overflow-x-auto text-xs whitespace-pre-wrap max-h-32">
                         {log.stack}
                       </pre>
                     )}
@@ -240,35 +262,33 @@ export default function ActionLogWidget() {
             </div>
 
             {/* Bottom Actions */}
-            <div className="px-4 py-3 bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
+            <div className="px-3.5 py-3 bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 flex items-center gap-2">
               <button
-                onClick={clearLogs}
+                onClick={handleCopyLogs}
                 disabled={logs.length === 0}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-600 dark:text-red-400 hover:bg-red-500/10 disabled:opacity-40 disabled:hover:bg-transparent rounded-md cursor-pointer transition font-medium"
+                className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-150 dark:hover:bg-slate-800 disabled:opacity-40 rounded-md cursor-pointer border border-slate-200 dark:border-slate-850 shadow-xs transition font-medium"
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Очистить</span>
+                {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>Копировать</span>
               </button>
-              
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleCopyLogs}
-                  disabled={logs.length === 0}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-150 dark:hover:bg-slate-800 disabled:opacity-40 rounded-md cursor-pointer border border-slate-200 dark:border-slate-850 shadow-xs transition font-medium"
-                >
-                  {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copied ? 'Скопировано' : 'Копировать'}</span>
-                </button>
 
-                <button
-                  onClick={handleExportLogs}
-                  disabled={logs.length === 0}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-emerald-555 text-white hover:bg-emerald-600 disabled:opacity-40 disabled:hover:bg-emerald-555 rounded-md cursor-pointer shadow-xs transition font-semibold"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Экспорт</span>
-                </button>
-              </div>
+              <button
+                onClick={handleExportLogs}
+                disabled={logs.length === 0}
+                className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs bg-slate-150 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40 rounded-md cursor-pointer border border-slate-200 dark:border-slate-800 shadow-xs transition font-semibold"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Экспорт</span>
+              </button>
+
+              <button
+                onClick={handleSendLogs}
+                disabled={logs.length === 0}
+                className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-40 disabled:hover:bg-emerald-600 rounded-md cursor-pointer shadow-xs transition font-semibold border border-transparent"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Отправить</span>
+              </button>
             </div>
           </motion.div>
         )}
@@ -292,7 +312,7 @@ export default function ActionLogWidget() {
         
         {/* Unread Indicator Badge */}
         {!widgetOpen && logs.length > 0 && (
-          <span className={`absolute -top-1 -right-1 text-[9px] font-bold px-1 py-0.5 rounded-full border border-white text-white ${
+          <span className={`absolute -top-1 -right-1 text-xs font-bold px-1.5 py-0.5 rounded-full border border-white text-white ${
             hasUnreadError ? 'bg-red-500 animate-bounce' : 'bg-slate-500'
           }`}>
             {logs.length > 99 ? '99+' : logs.length}

@@ -490,13 +490,13 @@ export default function Equipment() {
             <div className="py-12 px-4 text-center text-slate-400 text-xs rounded-lg border border-dashed border-slate-200 dark:border-slate-850 space-y-2">
               <FileSpreadsheet className="w-8 h-8 mx-auto text-slate-300" />
               <p>Нет импортированных установок.</p>
-              <p className="text-[10px] text-slate-500">Загрузите конфигурационный файл XLSX / XML в модуле общего "Проводника", чтобы наполнить эту спецификацию.</p>
+              <p className="text-xs text-slate-500">Загрузите конфигурационный файл XLSX / XML в модуле общего "Проводника", чтобы наполнить эту спецификацию.</p>
             </div>
           ) : (
             <div className="space-y-4">
               {/* Dropdown 1: Select Active Installation (File) */}
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
+                <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
                   <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
                   <span>Установка (Проектный файл)</span>
                 </label>
@@ -527,7 +527,7 @@ export default function Equipment() {
               {filteredSystems.length > 0 && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center gap-1.55">
+                    <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center gap-1.55">
                       <Layers className="w-3.5 h-3.5 text-emerald-500" />
                       <span>Поток системы (Раскрывающийся список)</span>
                     </label>
@@ -537,7 +537,7 @@ export default function Equipment() {
                           setShowDeleteConfirm(selectedSystemId);
                         }
                       }}
-                      className="text-red-500 hover:text-red-700 dark:hover:text-red-400 p-1 rounded hover:bg-red-50 dark:hover:bg-red-950/20 transition-all font-semibold flex items-center gap-1 text-[10px] uppercase cursor-pointer"
+                      className="text-red-500 hover:text-red-700 dark:hover:text-red-400 p-1 rounded hover:bg-red-50 dark:hover:bg-red-950/20 transition-all font-semibold flex items-center gap-1 text-xs uppercase cursor-pointer"
                       title="Удалить эту установку"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -558,7 +558,7 @@ export default function Equipment() {
                         </span>{' '}
                         и все связанные с ней моноблоки и блоки? Это действие необратимо.
                       </p>
-                      <div className="flex justify-end gap-2 text-[10px] font-bold uppercase pt-1">
+                      <div className="flex justify-end gap-2 text-xs font-bold uppercase pt-1">
                         <button
                           onClick={() => setShowDeleteConfirm(null)}
                           className="px-2.5 py-1 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded cursor-pointer"
@@ -612,13 +612,13 @@ export default function Equipment() {
                 if (!activeSystem || !activeSystem.monoblocks || activeSystem.monoblocks.length === 0) return null;
                 return (
                   <div className="pt-3 border-t border-slate-100 dark:border-slate-900/60">
-                    <span className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2">
+                    <span className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2">
                       Состав линии ({activeSystem.monoblocks.length} моноблоков)
                     </span>
                     <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
                       {activeSystem.monoblocks.map((mb: any) => (
                         <div key={mb.id} className="bg-slate-50/50 dark:bg-slate-900/40 border border-slate-200/50 dark:border-slate-900 rounded-lg p-2.5 flex flex-col gap-1.5">
-                          <div className="font-extrabold text-[11px] text-slate-700 dark:text-slate-300 font-mono truncate" title={mb.name}>
+                          <div className="font-extrabold text-xs text-slate-700 dark:text-slate-300 font-mono truncate" title={mb.name}>
                             📦 {mb.name}
                           </div>
                           <div className="pl-1.5 border-l border-slate-200/60 dark:border-slate-800 space-y-1">
@@ -637,7 +637,7 @@ export default function Equipment() {
                                       }
                                     }, 100);
                                   }}
-                                  className={`w-full text-left font-mono text-[10px] px-2 py-1 rounded-xs transition-all flex items-center justify-between truncate cursor-pointer ${
+                                  className={`w-full text-left font-mono text-xs px-2 py-1 rounded-xs transition-all flex items-center justify-between truncate cursor-pointer ${
                                     isCompFocused
                                       ? 'bg-emerald-600 text-white font-extrabold shadow-inner'
                                       : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400'
@@ -645,7 +645,7 @@ export default function Equipment() {
                                 >
                                   <span className="truncate">▫️ {c.name || c.itemCode}</span>
                                   {c.hasConflict && (
-                                    <span className={isCompFocused ? "text-white text-[9px]" : "text-amber-500 text-[9px] font-bold"} title="Различие версий">⚠️</span>
+                                    <span className={isCompFocused ? "text-white text-xs" : "text-amber-500 text-xs font-bold"} title="Различие версий">⚠️</span>
                                   )}
                                 </button>
                               );
@@ -742,7 +742,7 @@ export default function Equipment() {
                             </div>
                             <div>
                               <div className="flex items-center gap-2">
-                                <span className="text-[10px] font-mono font-black bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded border border-slate-300/30">
+                                <span className="text-xs font-mono font-black bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded border border-slate-300/30">
                                   {activeComp.itemCode || 'Блок'}
                                 </span>
                                 <span className="text-xs text-slate-400 font-medium">в {activeMonoName}</span>
@@ -764,7 +764,7 @@ export default function Equipment() {
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                           {/* Name / Position */}
                           <div className="bg-white dark:bg-slate-950 border border-slate-150 dark:border-slate-850 rounded-xl p-3">
-                            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">Положение / Позиция</span>
+                            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">Положение / Позиция</span>
                             <span className="font-mono text-xs font-extrabold text-slate-850 dark:text-slate-100 mt-1 block">
                               {position}
                             </span>
@@ -772,7 +772,7 @@ export default function Equipment() {
 
                           {/* Sizes */}
                           <div className="bg-white dark:bg-slate-950 border border-slate-150 dark:border-slate-850 rounded-xl p-3">
-                            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">Размеры (ДхШхВ / Ø)</span>
+                            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">Размеры (ДхШхВ / Ø)</span>
                             <span className="font-mono text-xs font-extrabold text-slate-850 dark:text-slate-100 mt-1 block">
                               {sizeStr}
                             </span>
@@ -780,7 +780,7 @@ export default function Equipment() {
 
                           {/* Weight */}
                           <div className="bg-white dark:bg-slate-950 border border-slate-150 dark:border-slate-850 rounded-xl p-3">
-                            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">Масса элемента</span>
+                            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">Масса элемента</span>
                             <span className="font-mono text-xs font-extrabold text-emerald-600 dark:text-emerald-400 mt-1 block">
                               {weight}
                             </span>
@@ -788,7 +788,7 @@ export default function Equipment() {
 
                           {/* Maintenance Side */}
                           <div className="bg-white dark:bg-slate-950 border border-slate-150 dark:border-slate-850 rounded-xl p-3">
-                            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">Сторона обслуживания</span>
+                            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">Сторона обслуживания</span>
                             <span className="font-sans text-xs font-extrabold text-slate-800 dark:text-slate-100 mt-1 block truncate" title={maintSideVal}>
                               {maintSideVal}
                             </span>
@@ -796,7 +796,7 @@ export default function Equipment() {
 
                           {/* Actuator Type */}
                           <div className="bg-white dark:bg-slate-950 border border-slate-150 dark:border-slate-850 rounded-xl p-3">
-                            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">Привод</span>
+                            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">Привод</span>
                             <span className="font-sans text-xs font-bold text-slate-800 dark:text-slate-200 mt-1 block truncate" title={actuator}>
                               {actuator}
                             </span>
@@ -804,7 +804,7 @@ export default function Equipment() {
 
                           {/* Actuator Count */}
                           <div className="bg-white dark:bg-slate-950 border border-slate-150 dark:border-slate-850 rounded-xl p-3">
-                            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">Число приводов</span>
+                            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">Число приводов</span>
                             <span className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200 mt-1 block">
                               {actuatorCount}
                             </span>
@@ -812,7 +812,7 @@ export default function Equipment() {
 
                           {/* Block Code */}
                           <div className="bg-white dark:bg-slate-950 border border-slate-150 dark:border-slate-850 rounded-xl p-3">
-                            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">Код позиции</span>
+                            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">Код позиции</span>
                             <span className="font-mono text-xs font-black text-slate-500 dark:text-slate-400 mt-1 block">
                               {activeComp.itemCode || '—'}
                             </span>
@@ -820,16 +820,16 @@ export default function Equipment() {
 
                           {/* KKS/BIM Tags list */}
                           <div className="bg-white dark:bg-slate-950 border border-slate-150 dark:border-slate-850 rounded-xl p-3">
-                            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">BIM/KKS метки</span>
+                            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">BIM/KKS метки</span>
                             <div className="flex flex-wrap gap-1 mt-1">
                               {activeComp.tags && activeComp.tags.length > 0 ? (
                                 activeComp.tags.map((tg: any) => (
-                                  <span key={tg.id} className="text-[9px] font-bold bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300 px-1 py-0.2 rounded font-mono">
+                                  <span key={tg.id} className="text-xs font-bold bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300 px-1 py-0.2 rounded font-mono">
                                     {tg.identifier}
                                   </span>
                                 ))
                               ) : (
-                                <span className="text-[10px] text-slate-400 italic">Связей нет</span>
+                                <span className="text-xs text-slate-400 italic">Связей нет</span>
                               )}
                             </div>
                           </div>
@@ -838,12 +838,12 @@ export default function Equipment() {
                         {/* ALL OTHER TECHNICAL SPECIFICATIONS EXPANSION */}
                         {otherSpecs.length > 0 && (
                           <div className="border-t border-slate-200/50 dark:border-slate-800/80 pt-3">
-                            <span className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1.5">
+                            <span className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1.5">
                               Дополнительные инженерные характеристики ({otherSpecs.length})
                             </span>
                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-2 bg-slate-50/20 dark:bg-slate-900/10 rounded-xl p-3 border border-slate-150 dark:border-slate-850 max-h-[160px] overflow-y-auto scrollbar-thin">
                               {otherSpecs.map(([field, value]) => (
-                                <div key={field} className="flex justify-between items-center text-[10.5px] border-b border-slate-100/50 dark:border-slate-800/10 py-1 font-mono">
+                                <div key={field} className="flex justify-between items-center text-xs border-b border-slate-100/50 dark:border-slate-800/10 py-1 font-mono">
                                   <span className="text-slate-400 text-left truncate pr-2" title={field}>{field}:</span>
                                   <span className="font-bold text-slate-750 dark:text-slate-250 text-right truncate max-w-[150px]" title={value}>{value}</span>
                                 </div>
@@ -858,7 +858,7 @@ export default function Equipment() {
                   <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl p-5 shadow-2xs space-y-5">
                   <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-900 pb-3">
                     <div>
-                      <span className="text-[10px] uppercase font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/45 border border-emerald-200/50 px-2.5 py-0.5 rounded-full">
+                      <span className="text-xs uppercase font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/45 border border-emerald-200/50 px-2.5 py-0.5 rounded-full">
                         Выбранная система вентиляции
                       </span>
                       <h2 className="text-xl font-extrabold text-slate-950 dark:text-white font-mono mt-1">
@@ -886,7 +886,7 @@ export default function Equipment() {
                                 Моноблок: {mono.name}
                               </span>
                             </div>
-                            <span className="text-[11px] bg-emerald-500/10 dark:bg-emerald-500/25 border border-emerald-400/20 text-emerald-700 dark:text-emerald-300 font-semibold px-2 py-0.5 rounded-full">
+                            <span className="text-xs bg-emerald-500/10 dark:bg-emerald-500/25 border border-emerald-400/20 text-emerald-700 dark:text-emerald-300 font-semibold px-2 py-0.5 rounded-full">
                               Блоков: {mono.components?.length || 0}
                             </span>
                           </div>
@@ -894,7 +894,7 @@ export default function Equipment() {
                           {/* Visual sequence diagram (Квадратики "Состав линии") */}
                           {mono.components && mono.components.length > 0 && (
                             <div className="px-4 py-4 bg-white dark:bg-slate-950 border-b border-slate-100 dark:border-slate-850">
-                              <h4 className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                              <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                                 <span>Схема состава линии (Клик для выбора блока)</span>
                               </h4>
@@ -942,11 +942,11 @@ export default function Equipment() {
                                       >
                                         <div>
                                           <div className="flex items-center justify-between mb-1.5">
-                                            <span className="font-mono text-[9px] font-black bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-350 px-1.5 py-0.5 rounded leading-none border border-slate-300/30">
+                                            <span className="font-mono text-xs font-black bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-350 px-1.5 py-0.5 rounded leading-none border border-slate-300/30">
                                               {blockName}
                                             </span>
                                             {c.hasConflict && (
-                                              <span className="text-amber-500 text-[10px]" title="Конфликт">⚠️</span>
+                                              <span className="text-amber-500 text-xs" title="Конфликт">⚠️</span>
                                             )}
                                           </div>
                                           <div className="font-extrabold text-xs text-slate-800 dark:text-slate-205 line-clamp-2 leading-tight mb-2" title={blockTitle}>
@@ -954,7 +954,7 @@ export default function Equipment() {
                                           </div>
                                         </div>
 
-                                        <div className="border-t border-slate-200/50 dark:border-slate-800/80 pt-1.5 mt-auto space-y-1 text-[9px]">
+                                        <div className="border-t border-slate-200/50 dark:border-slate-800/80 pt-1.5 mt-auto space-y-1 text-xs">
                                           <div className="flex justify-between gap-1 text-slate-400 dark:text-slate-500">
                                             <span>Размеры:</span>
                                             <span className="font-mono font-bold text-slate-700 dark:text-slate-300 truncate max-w-[100px]" title={dimensions}>
@@ -992,7 +992,7 @@ export default function Equipment() {
                             ) : (
                               <table className="w-full text-left border-collapse min-w-[700px] text-xs">
                                 <thead>
-                                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/20 text-[10px] font-bold text-slate-450 dark:text-slate-400 uppercase tracking-wider font-mono">
+                                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/20 text-xs font-bold text-slate-450 dark:text-slate-400 uppercase tracking-wider font-mono">
                                     <th className="py-2.5 px-4 w-[12%]">Позиция</th>
                                     <th className="py-2.5 px-3 w-[25%]">Компонент</th>
                                     <th className="py-2.5 px-3 w-[25%]">Спецификация</th>
@@ -1046,7 +1046,7 @@ export default function Equipment() {
                                             <span className="font-extrabold text-slate-900 dark:text-slate-50 font-sans">{comp.name}</span>
                                             {hasConflict && (
                                               <span 
-                                                className="inline-flex items-center gap-1 text-[10px] font-bold text-red-700 dark:text-red-400 bg-red-100/50 dark:bg-red-950/40 px-1.5 py-0.5 rounded border border-red-200 dark:border-red-900/30 w-fit cursor-help"
+                                                className="inline-flex items-center gap-1 text-xs font-bold text-red-700 dark:text-red-400 bg-red-100/50 dark:bg-red-950/40 px-1.5 py-0.5 rounded border border-red-200 dark:border-red-900/30 w-fit cursor-help"
                                                 title={conflictToolTip}
                                               >
                                                 <AlertTriangle className="w-3 h-3 text-red-500 shrink-0" />
@@ -1055,14 +1055,14 @@ export default function Equipment() {
                                             )}
                                             
                                             {comp.conflictLog && (
-                                              <div className="mt-1 text-[10px] font-sans text-red-700 dark:text-red-300 bg-red-100/45 dark:bg-red-950/30 p-2 rounded border border-red-200/40 dark:border-red-900/30 max-w-[280px]">
-                                                <div className="font-bold flex items-center gap-1 mb-0.5 text-[10.5px]">
+                                              <div className="mt-1 text-xs font-sans text-red-700 dark:text-red-300 bg-red-100/45 dark:bg-red-950/30 p-2 rounded border border-red-200/40 dark:border-red-900/30 max-w-[280px]">
+                                                <div className="font-bold flex items-center gap-1 mb-0.5 text-xs">
                                                   <Activity className="w-3.5 h-3.5 text-red-500 shrink-0 animate-spin" style={{ animationDuration: '3s' }} />
                                                   <span>Лог изменений характеристик:</span>
                                                 </div>
-                                                <p className="leading-normal font-sans font-normal text-[10.5px]">{comp.conflictLog}</p>
+                                                <p className="leading-normal font-sans font-normal text-xs">{comp.conflictLog}</p>
                                                 {comp.updatedAt && (
-                                                  <div className="mt-1 text-[9px] text-slate-400 dark:text-slate-500 text-right font-medium">
+                                                  <div className="mt-1 text-xs text-slate-400 dark:text-slate-500 text-right font-medium">
                                                     Изменено: {new Date(comp.updatedAt).toLocaleString('ru-RU')}
                                                   </div>
                                                 )}
@@ -1074,18 +1074,18 @@ export default function Equipment() {
                                         {/* SPECIFICATIONS LIST COMPACT */}
                                         <td className="py-3 px-3">
                                           {Object.keys(specsObj).length > 0 ? (
-                                            <div className="text-[10.5px] font-mono leading-tight space-y-0.5 max-h-[85px] overflow-y-auto max-w-[200px] text-left">
+                                            <div className="text-xs font-mono leading-tight space-y-0.5 max-h-[85px] overflow-y-auto max-w-[200px] text-left">
                                               {Object.entries(specsObj).slice(0, 3).map(([k, v]) => (
                                                 <div key={k} className="truncate" title={`${k}: ${v}`}>
                                                   <span className="text-slate-400 font-medium">{k}:</span> <span className="text-slate-700 dark:text-slate-300 font-extrabold">{v}</span>
                                                 </div>
                                               ))}
                                               {Object.keys(specsObj).length > 3 && (
-                                                <span className="text-[9px] text-slate-400 font-bold block mt-0.5">(ещё {Object.keys(specsObj).length - 3} парт.)</span>
+                                                <span className="text-xs text-slate-400 font-bold block mt-0.5">(ещё {Object.keys(specsObj).length - 3} парт.)</span>
                                               )}
                                             </div>
                                           ) : (
-                                            <span className="text-slate-400 italic text-[11px]">Нет характеристик</span>
+                                            <span className="text-slate-400 italic text-xs">Нет характеристик</span>
                                           )}
                                         </td>
 
@@ -1094,7 +1094,7 @@ export default function Equipment() {
                                           <div className="flex flex-wrap gap-1 min-h-[22px] items-center">
                                             {comp.tags && comp.tags.length > 0 ? (
                                               comp.tags.map((tg: any) => (
-                                                <span key={tg.id} className="inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-500/10 dark:bg-emerald-500/15 border border-emerald-500/35 text-emerald-800 dark:text-emerald-300 px-1.5 py-0.5 rounded">
+                                                <span key={tg.id} className="inline-flex items-center gap-1 text-xs font-bold bg-emerald-500/10 dark:bg-emerald-500/15 border border-emerald-500/35 text-emerald-800 dark:text-emerald-300 px-1.5 py-0.5 rounded">
                                                   <span>{tg.identifier}</span>
                                                   <button
                                                     onClick={() => handleUnpinTagFromComponent(comp.id, tg.id)}
@@ -1106,7 +1106,7 @@ export default function Equipment() {
                                                 </span>
                                               ))
                                             ) : (
-                                              <span className="text-[10px] text-slate-400 italic">Связей нет</span>
+                                              <span className="text-xs text-slate-400 italic">Связей нет</span>
                                             )}
                                           </div>
                                         </td>
@@ -1122,7 +1122,7 @@ export default function Equipment() {
                                             {hasConflict && (
                                                <button
                                                  onClick={() => handleResolveConflict(comp.id)}
-                                                 className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 hover:scale-105 transition-all text-white text-[11px] font-bold rounded flex items-center gap-1 cursor-pointer"
+                                                 className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 hover:scale-105 transition-all text-white text-xs font-bold rounded flex items-center gap-1 cursor-pointer"
                                                  title="Разрешить конфликт и снять индикатор ошибки"
                                                >
                                                  <Check className="w-3 h-3" />
@@ -1220,7 +1220,7 @@ export default function Equipment() {
                 <span className="text-xs font-bold text-slate-400 uppercase">Текущие привязанные теги:</span>
                 <div className="flex flex-wrap gap-1.5 min-h-[30px] p-2 rounded-lg bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-850">
                   {bindingBlock.tags.length === 0 ? (
-                    <span className="text-[11px] text-slate-400 italic">Связанных тегов нет</span>
+                    <span className="text-xs text-slate-400 italic">Связанных тегов нет</span>
                   ) : (
                     bindingBlock.tags.map((t: any) => (
                       <span key={t.id} className="inline-flex items-center gap-1.5 text-xs font-semibold bg-emerald-500/10 dark:bg-emerald-500/20 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 px-2.5 py-1 rounded-md">
@@ -1258,16 +1258,16 @@ export default function Equipment() {
                       <div key={t.id} className="flex items-center justify-between p-2 rounded hover:bg-slate-50 dark:hover:bg-slate-900 border border-transparent hover:border-slate-150 dark:hover:border-slate-850 select-none transition-all">
                         <div className="text-left max-w-[70%]">
                           <p className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100">{t.identifier}</p>
-                          <p className="text-[10px] text-slate-400 truncate">{parseTagMetadata(t).mainName || 'Без названия'}</p>
+                          <p className="text-xs text-slate-400 truncate">{parseTagMetadata(t).mainName || 'Без названия'}</p>
                         </div>
                         {isAlreadyBound ? (
-                          <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/50 px-2.5 py-1 rounded">
+                          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/50 px-2.5 py-1 rounded">
                             Активен
                           </span>
                         ) : (
                           <button
                             onClick={() => handlePinTagToComponent(bindingBlock.id, t.id)}
-                            className="px-2.5 py-1 bg-emerald-750 hover:bg-emerald-600 text-white rounded text-[11px] font-bold cursor-pointer border-none"
+                            className="px-2.5 py-1 bg-emerald-750 hover:bg-emerald-600 text-white rounded text-xs font-bold cursor-pointer border-none"
                           >
                             Привязать
                           </button>
@@ -1322,7 +1322,7 @@ export default function Equipment() {
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-mono leading-relaxed">
                     Элемент: <span className="font-extrabold text-slate-800 dark:text-slate-100">{historyComponent.name}</span> <br/>
-                    Код позиции: <span className="font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-900 px-1 py-0.5 rounded text-[10.5px]">{historyComponent.itemCode || 'Отсутствует'}</span>
+                    Код позиции: <span className="font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-900 px-1 py-0.5 rounded text-xs">{historyComponent.itemCode || 'Отсутствует'}</span>
                   </p>
                 </div>
                 <button
@@ -1382,7 +1382,7 @@ export default function Equipment() {
                           <span className="absolute -left-1.5 top-1.5 w-3 h-3 rounded-full bg-indigo-500 border-2 border-white dark:border-slate-950 shadow-xs" />
                           
                           <div className="bg-slate-50 dark:bg-slate-900/40 border border-slate-150 dark:border-slate-850/80 rounded-xl p-4 space-y-3 shadow-3xs">
-                            <div className="flex items-center justify-between text-[11px] font-sans">
+                            <div className="flex items-center justify-between text-xs font-sans">
                               <span className="font-extrabold text-slate-900 dark:text-slate-100 bg-indigo-50 dark:bg-indigo-950 px-2 py-0.5 rounded font-mono">
                                 Версия {log.version}
                               </span>
@@ -1392,30 +1392,30 @@ export default function Equipment() {
                             </div>
 
                             {log.changedBy && (
-                              <p className="text-[10px] text-slate-550 dark:text-slate-400 font-medium">
+                              <p className="text-xs text-slate-550 dark:text-slate-400 font-medium">
                                 Инженер: <span className="text-slate-700 dark:text-slate-200 font-bold">{log.changedBy}</span>
                               </p>
                             )}
 
                             {/* COMPARISON RESULTS GRID */}
                             <div className="space-y-1.5">
-                              <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider block">Изменения параметров:</span>
+                              <span className="text-xs uppercase font-bold text-slate-400 tracking-wider block">Изменения параметров:</span>
                               {specChanges.length === 0 ? (
-                                <p className="text-[10.5px] italic text-slate-400 font-mono pl-1">Нет изменений технических спецификаций на данном шаге.</p>
+                                <p className="text-xs italic text-slate-400 font-mono pl-1">Нет изменений технических спецификаций на данном шаге.</p>
                               ) : (
-                                <div className="space-y-1 mt-1 font-mono text-[10.5px]">
+                                <div className="space-y-1 mt-1 font-mono text-xs">
                                   {specChanges.map((chg) => (
                                     <div key={chg.key} className="flex flex-wrap items-center gap-x-2 bg-white dark:bg-slate-950/40 p-1.5 px-2.5 rounded border border-slate-100 dark:border-slate-900/60 leading-normal text-left">
                                       <span className="text-slate-500 font-bold">{chg.key}:</span>
                                       
                                       {chg.mode === 'add' && (
-                                        <span className="text-emerald-700 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/35 px-1.5 py-0.5 rounded text-[9.5px]">
+                                        <span className="text-emerald-700 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/35 px-1.5 py-0.5 rounded text-xs">
                                           Добавлено ➔ "{chg.newV}"
                                         </span>
                                       )}
 
                                       {chg.mode === 'delete' && (
-                                        <span className="text-red-700 dark:text-red-400 font-bold bg-red-50 dark:bg-red-950/35 line-through px-1.5 py-0.5 rounded text-[9.5px]">
+                                        <span className="text-red-700 dark:text-red-400 font-bold bg-red-50 dark:bg-red-950/35 line-through px-1.5 py-0.5 rounded text-xs">
                                           Удалено (было: "{chg.oldV}")
                                         </span>
                                       )}
@@ -1424,7 +1424,7 @@ export default function Equipment() {
                                         <span className="inline-flex items-center gap-1">
                                           <span className="text-slate-405 line-through">"{chg.oldV}"</span>
                                           <span className="text-slate-400">➔</span>
-                                          <span className="text-amber-700 dark:text-amber-400 font-bold bg-amber-50/70 dark:bg-amber-950/35 px-1.5 py-0.5 rounded text-[9.5px]">
+                                          <span className="text-amber-700 dark:text-amber-400 font-bold bg-amber-50/70 dark:bg-amber-950/35 px-1.5 py-0.5 rounded text-xs">
                                             "{chg.newV}"
                                           </span>
                                         </span>

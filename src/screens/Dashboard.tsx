@@ -227,10 +227,10 @@ export default function Dashboard() {
                     
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2.5">
-                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 truncate">
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate">
                           {log.userName} ({log.userSymbol})
                         </span>
-                        <span className="text-[10px] text-slate-400 dark:text-slate-500 flex items-center gap-1 font-mono shrink-0">
+                        <span className="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1 font-mono shrink-0">
                           <Clock className="w-3 h-3" />
                           <span>{formatRelativeTime(log.createdAt)}</span>
                         </span>
@@ -297,7 +297,7 @@ export default function Dashboard() {
                         <h3 className="text-slate-850 dark:text-white font-bold text-xs truncate max-w-[170px]">
                           {note.title || 'Инженерная заметка'}
                         </h3>
-                        <p className="text-[11px] text-slate-600 dark:text-slate-400 line-clamp-3 mt-1.5 leading-relaxed font-light">
+                        <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-3 mt-1.5 leading-relaxed font-light">
                           {plainContent || 'Заметка не заполнена'}
                         </p>
                       </div>
@@ -305,13 +305,13 @@ export default function Dashboard() {
                       <div className="mt-4 pt-2.5 border-t border-black/5 dark:border-white/5 flex items-center justify-between gap-1">
                         <button
                           onClick={() => navigate('/notes')}
-                          className="text-[10px] font-bold text-indigo-700 dark:text-indigo-455 hover:underline cursor-pointer"
+                          className="text-xs font-bold text-indigo-700 dark:text-indigo-455 hover:underline cursor-pointer"
                         >
                           Перейти в Блокнот
                         </button>
                         <button
                           onClick={(e) => handleOpenSticker(e, note.id)}
-                          className="p-1.5 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 rounded-lg text-slate-600 dark:text-slate-300 hover:text-slate-900 cursor-pointer flex items-center gap-1 text-[9px] transition-all"
+                          className="p-1.5 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 rounded-lg text-slate-600 dark:text-slate-300 hover:text-slate-900 cursor-pointer flex items-center gap-1 text-xs transition-all"
                           title="Открепить стикер (поверх других приложений ОС)"
                         >
                           <ExternalLink className="w-3 h-3" />
@@ -407,11 +407,11 @@ export default function Dashboard() {
                           <span className={`text-xs font-bold leading-tight truncate ${isActive ? 'text-emerald-850 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-200'}`}>
                             {proj.name}
                           </span>
-                          <span className="text-[9px] font-mono font-semibold text-slate-400 dark:text-slate-500 uppercase shrink-0">
+                          <span className="text-xs font-mono font-semibold text-slate-400 dark:text-slate-500 uppercase shrink-0">
                             {proj.status === 'ACTIVE' ? 'Активен' : 'Архив'}
                           </span>
                         </div>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-1 leading-normal font-light">
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-1 leading-normal font-light">
                           {proj.description || 'Инженерно-проектная документация.'}
                         </p>
                       </div>

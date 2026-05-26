@@ -172,7 +172,7 @@ export default function DatabaseSetup({ onConfigured }: DatabaseSetupProps) {
                       setDbPath(e.target.value);
                       setTestResult(null);
                     }}
-                    className="flex-1 px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-450 dark:placeholder-slate-650 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-mono"
+                    className="flex-1 px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-450 dark:placeholder-slate-650 focus:outline-none focus:ring-2 focus:ring-emerald-555/20 focus:border-emerald-555 transition-all font-mono"
                     placeholder="Пример: C:\pdm\database.sqlite"
                     required
                   />
@@ -187,7 +187,7 @@ export default function DatabaseSetup({ onConfigured }: DatabaseSetupProps) {
                   </button>
                 </div>
                 {!isElectron && (
-                  <p className="text-[10px] text-amber-650 dark:text-amber-400 mt-1 font-semibold">
+                  <p className="text-xs text-amber-650 dark:text-amber-400 mt-1 font-semibold">
                     * Запустите программу в Electron, чтобы выбирать файл кликом через Проводник Windows.
                   </p>
                 )}
@@ -231,7 +231,7 @@ export default function DatabaseSetup({ onConfigured }: DatabaseSetupProps) {
                     }}
                     className="p-2.5 bg-slate-50 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 rounded-lg text-left text-xs font-mono text-slate-600 dark:text-slate-300 hover:border-emerald-500 dark:hover:border-emerald-500 hover:bg-slate-100 transition-all cursor-pointer"
                   >
-                    <p className="text-[10px] font-sans font-bold text-emerald-600 mb-0.5">Внутренняя папка программы (по умолчанию):</p>
+                    <p className="text-xs font-sans font-bold text-emerald-600 mb-0.5">Внутренняя папка программы (по умолчанию):</p>
                     {defaultPath}
                   </button>
                   <button
@@ -242,7 +242,7 @@ export default function DatabaseSetup({ onConfigured }: DatabaseSetupProps) {
                     }}
                     className="p-2.5 bg-slate-50 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 rounded-lg text-left text-xs font-mono text-slate-600 dark:text-slate-300 hover:border-emerald-500 dark:hover:border-emerald-500 hover:bg-slate-100 transition-all cursor-pointer"
                   >
-                    <p className="text-[10px] font-sans font-bold text-emerald-600 mb-0.5">Локальная папка диска C:</p>
+                    <p className="text-xs font-sans font-bold text-emerald-600 mb-0.5">Локальная папка диска C:</p>
                     C:\pdm\pdm_database.sqlite
                   </button>
                   <button
@@ -253,7 +253,7 @@ export default function DatabaseSetup({ onConfigured }: DatabaseSetupProps) {
                     }}
                     className="p-2.5 bg-slate-50 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 rounded-lg text-left text-xs font-mono text-slate-600 dark:text-slate-300 hover:border-emerald-500 dark:hover:border-emerald-500 hover:bg-slate-100 transition-all cursor-pointer"
                   >
-                    <p className="text-[10px] font-sans font-bold text-emerald-600 mb-0.5">Сетевой сервер / Общая папка NAS:</p>
+                    <p className="text-xs font-sans font-bold text-emerald-600 mb-0.5">Сетевой сервер / Общая папка NAS:</p>
                     {"\\\\NAS-SERVER\\SharedFolder\\database.sqlite"}
                   </button>
                 </div>

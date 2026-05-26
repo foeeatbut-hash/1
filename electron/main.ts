@@ -300,6 +300,16 @@ app.whenReady().then(() => {
       }
     });
 
+    ipcMain.handle('shell:open-external', async (event, url) => {
+      const { shell } = require('electron');
+      try {
+        await shell.openExternal(url);
+        return { success: true };
+      } catch (err: any) {
+        return { success: false, error: err.message };
+      }
+    });
+
     // Automated Project Group Chats Helpers and Handlers
     const ensureProjectChatGroupsIPC = async () => {
       try {

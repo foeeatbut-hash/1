@@ -1795,7 +1795,7 @@ export default function Registry() {
           <div className="text-left">
             <h1 className="text-lg font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
               Реестр технологических тегов
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200/50">
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200/50">
                 {tags.length} тегов
               </span>
             </h1>
@@ -1856,17 +1856,17 @@ export default function Registry() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-stretch">
         {/* Manual quick adding with active validation */}
         <form onSubmit={handleCreateTag} className="lg:col-span-10 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-855 rounded-xl shadow-xs text-left flex flex-col justify-between">
-          <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block pl-1 mb-1.5">
+          <div className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block pl-1 mb-1.5">
             Создать новый тег и оборудование:
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-12 gap-2.5 items-end">
             {/* Tag identifier code */}
             <div className="relative flex flex-col gap-1 lg:col-span-3">
-              <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase flex justify-between leading-none truncate">
+              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase flex justify-between leading-none truncate">
                 <span>Код тега (EN) *</span>
                 {newTagIdentifier && !isIdentifierUnique && (
-                  <span className="text-[9px] text-rose-550 lowercase font-semibold">Занят</span>
+                  <span className="text-xs text-rose-550 lowercase font-semibold">Занят</span>
                 )}
               </label>
               <div className="relative animate-fadeIn">
@@ -1887,9 +1887,9 @@ export default function Registry() {
                 {newTagIdentifier && (
                   <div className="absolute right-2 top-1.5 z-10">
                     {isIdentifierUnique ? (
-                      <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-950/60 px-1 py-0.5 rounded border border-emerald-200/40">Свободен</span>
+                      <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-950/60 px-1 py-0.5 rounded border border-emerald-200/40">Свободен</span>
                     ) : (
-                      <span className="text-[9px] text-rose-605 dark:text-rose-400 font-semibold bg-rose-50 dark:bg-rose-950/60 px-1 py-0.5 rounded border border-rose-200/40">Занят</span>
+                      <span className="text-xs text-rose-605 dark:text-rose-400 font-semibold bg-rose-50 dark:bg-rose-950/60 px-1 py-0.5 rounded border border-rose-200/40">Занят</span>
                     )}
                   </div>
                 )}
@@ -1898,9 +1898,9 @@ export default function Registry() {
               {/* Auto Suggestions list */}
               {newTagIdentifier && matchingSuggestions.length > 0 && (
                 <div className="absolute top-full left-0 w-full mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl z-50 p-2 max-h-64 overflow-y-auto">
-                  <div className="text-[9px] uppercase font-mono font-bold text-slate-400 dark:text-slate-550 pb-1 mb-1 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center pl-1">
+                  <div className="text-xs uppercase font-mono font-bold text-slate-400 dark:text-slate-550 pb-1 mb-1 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center pl-1">
                     <span>Существующие теги</span>
-                    <span className="text-[8px] italic font-sans font-normal lowercase text-slate-500">выберите</span>
+                    <span className="text-xs italic font-sans font-normal lowercase text-slate-500">выберите</span>
                   </div>
                   <div className="space-y-0.5">
                     {matchingSuggestions.map((st) => (
@@ -1918,8 +1918,8 @@ export default function Registry() {
                         className="w-full text-left px-2 py-1 text-xs text-slate-707 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded flex justify-between items-center transition-colors font-mono cursor-pointer"
                       >
                         <span className="font-bold text-emerald-600 dark:text-emerald-400">{st.identifier}</span>
-                        <span className="text-[11px] text-slate-500 dark:text-slate-400 font-sans truncate ml-2 max-w-[240px]" title={parseTagMetadata(st).mainName || 'Без наименования'}>
-                          {parseTagMetadata(st).mainName || <span className="italic opacity-40 text-[10px]">Без наименования</span>}
+                        <span className="text-xs text-slate-500 dark:text-slate-400 font-sans truncate ml-2 max-w-[240px]" title={parseTagMetadata(st).mainName || 'Без наименования'}>
+                          {parseTagMetadata(st).mainName || <span className="italic opacity-40 text-xs">Без наименования</span>}
                         </span>
                       </button>
                     ))}
@@ -1930,7 +1930,7 @@ export default function Registry() {
 
             {/* Required Mark input field */}
             <div className="flex flex-col gap-1 animate-fadeIn lg:col-span-2">
-              <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase leading-none truncate">
+              <label className="text-xs font-bold text-slate-400 dark:text-slate-555 uppercase leading-none truncate">
                 Марка оборудования *
               </label>
               <input
@@ -1945,7 +1945,7 @@ export default function Registry() {
 
             {/* Main Name string input */}
             <div className="flex flex-col gap-1 lg:col-span-3">
-              <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase leading-none truncate">
+              <label className="text-xs font-bold text-slate-400 dark:text-slate-555 uppercase leading-none truncate">
                 Главное наименование
               </label>
               <input
@@ -1959,7 +1959,7 @@ export default function Registry() {
 
             {/* Actuality Selector */}
             <div className="flex flex-col gap-1 lg:col-span-2">
-              <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase leading-none truncate">
+              <label className="text-xs font-bold text-slate-400 dark:text-slate-555 uppercase leading-none truncate">
                 Актуальность
               </label>
               <CustomSelect
@@ -1983,7 +1983,7 @@ export default function Registry() {
                 title="Дополнительные поля спецификации"
               >
                 <Sliders className="w-3.5 h-3.5 shrink-0" />
-                <span className="hidden xl:inline text-[10px]">Доп</span>
+                <span className="hidden xl:inline text-xs">Доп</span>
                 <ChevronDown className={`w-3 h-3 transition-transform duration-200 shrink-0 ${showAdvancedCreation ? 'rotate-180' : ''}`} />
               </button>
 
@@ -2028,7 +2028,7 @@ export default function Registry() {
 
                     return (
                       <div key={cat.id} className="flex flex-col gap-1 min-w-[160px] md:min-w-[180px] lg:min-w-[200px] flex-1 max-w-[300px]" id={`dynamic-field-${cat.id}`}>
-                        <span className="text-[10px] font-bold text-slate-450 dark:text-slate-500 uppercase leading-none truncate" title={cat.nameRu}>
+                        <span className="text-xs font-bold text-slate-450 dark:text-slate-500 uppercase leading-none truncate" title={cat.nameRu}>
                           {cat.nameRu}
                         </span>
                         <CustomSelect
@@ -2052,7 +2052,7 @@ export default function Registry() {
 
         {/* Small compacted search on the right */}
         <div className="lg:col-span-2 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs flex flex-col justify-between text-left">
-          <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase leading-none mb-1">
+          <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase leading-none mb-1">
             Поиск по реестру:
           </label>
           <div className="relative flex-1 flex items-end">
@@ -2104,7 +2104,7 @@ export default function Registry() {
                   >
                     <ZoomOut className="w-3.5 h-3.5" />
                   </button>
-                  <span className="px-2 py-0.5 text-[10px] font-mono font-bold text-slate-600 dark:text-slate-400 self-center">
+                  <span className="px-2 py-0.5 text-xs font-mono font-bold text-slate-600 dark:text-slate-400 self-center">
                     {Math.round(zoom * 100)}%
                   </span>
                   <button 
@@ -2120,7 +2120,7 @@ export default function Registry() {
                 <button 
                   onClick={fitCanvasToCenter}
                   title="Центрировать область со всеми карточками"
-                  className="px-2.5 py-1.5 bg-slate-200/70 dark:bg-slate-850 hover:bg-slate-300 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg font-bold text-[10px] transition-colors flex items-center gap-1 cursor-pointer"
+                  className="px-2.5 py-1.5 bg-slate-200/70 dark:bg-slate-850 hover:bg-slate-300 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
                 >
                   <RefreshCw className="w-3 h-3 text-emerald-600" />
                   Центрировать
@@ -2245,7 +2245,7 @@ export default function Registry() {
                               >
                                 <button
                                   type="button"
-                                  className="w-5 h-5 rounded-full bg-rose-500 hover:bg-rose-600 active:bg-rose-700 text-white flex items-center justify-center text-[10px] font-bold shadow-md hover:scale-110 transition-all border border-white dark:border-slate-900 cursor-pointer"
+                                  className="w-5 h-5 rounded-full bg-rose-500 hover:bg-rose-600 active:bg-rose-700 text-white flex items-center justify-center text-xs font-bold shadow-md hover:scale-110 transition-all border border-white dark:border-slate-900 cursor-pointer"
                                   title="Удалить связь"
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -2379,7 +2379,7 @@ export default function Registry() {
                           <div className="border-t border-slate-105 dark:border-slate-850 animate-fadeIn text-slate-800 dark:text-slate-200">
                             
                             {/* INFO TAG FLUID/DEPT */}
-                            <div className="px-4 py-2 bg-slate-50/40 dark:bg-slate-950/20 text-[10px] text-slate-400 flex justify-between border-b border-slate-100 dark:border-slate-900 font-medium">
+                            <div className="px-4 py-2 bg-slate-50/40 dark:bg-slate-950/20 text-xs text-slate-400 flex justify-between border-b border-slate-100 dark:border-slate-900 font-medium">
                               <span className="truncate max-w-[130px]" title={tag.department}>
                                 Отд: <strong className="text-slate-700 dark:text-slate-200">{tag.department || 'Комплекс'}</strong>
                               </span>
@@ -2389,7 +2389,7 @@ export default function Registry() {
                             </div>
 
                             {/* TAG CREATOR / UPDATER TIMESTAMPS BAR */}
-                            <div className="px-4 py-1.5 bg-sky-50/10 dark:bg-slate-900/10 text-[8.5px] text-slate-400 dark:text-slate-500 font-mono flex flex-wrap justify-between border-b border-slate-100 dark:border-slate-850">
+                            <div className="px-4 py-1.5 bg-sky-50/10 dark:bg-slate-900/10 text-xs text-slate-400 dark:text-slate-500 font-mono flex flex-wrap justify-between border-b border-slate-100 dark:border-slate-850">
                               <span>Создан: <strong>{meta.createdBy || 'Система'}</strong> ({formatDateStr(meta.createdAt || tag.createdAt)})</span>
                               {meta.updatedBy && (
                                 <span className="text-right">Ред: <strong>{meta.updatedBy}</strong> ({formatDateStr(meta.updatedAt)})</span>
@@ -2398,9 +2398,9 @@ export default function Registry() {
 
                             {/* SUB-DESCRIPTIONS LIST (With full tracking timestamps and inline editing capability!) */}
                             <div className="p-3.5 space-y-2 max-h-[220px] overflow-y-auto no-drag">
-                              <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase flex items-center justify-between">
+                              <div className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase flex items-center justify-between">
                                 <span>Подописания ({meta.descriptions.length})</span>
-                                <span className="text-[9px] lowercase italic font-normal">клик на карандаш для ред.</span>
+                                <span className="text-xs lowercase italic font-normal">клик на карандаш для ред.</span>
                               </div>
 
                               {meta.descriptions.map((desc) => {
@@ -2415,16 +2415,16 @@ export default function Registry() {
                                       <div className="space-y-2 pt-1">
                                         <div className="grid grid-cols-2 gap-1.5">
                                           <div className="space-y-0.5">
-                                            <span className="text-[8px] font-bold text-slate-400">Название</span>
+                                            <span className="text-xs font-bold text-slate-400">Название</span>
                                             <input
                                               type="text"
                                               value={editDescForm.text}
                                               onChange={(e) => setEditDescForm(prev => ({ ...prev, text: e.target.value }))}
-                                              className="w-full px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-[11px] text-slate-800 dark:text-slate-100 focus:outline-none"
+                                              className="w-full px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
                                             />
                                           </div>
                                           <div className="space-y-0.5">
-                                            <span className="text-[8px] font-bold text-slate-400">Актуальность</span>
+                                            <span className="text-xs font-bold text-slate-400">Актуальность</span>
                                             <CustomSelect
                                               value={editDescForm.status}
                                               onChange={(val) => setEditDescForm(prev => ({ ...prev, status: val as any }))}
@@ -2434,11 +2434,11 @@ export default function Registry() {
                                         </div>
 
                                         <div className="space-y-0.5">
-                                          <span className="text-[8px] font-bold text-slate-400">Комментарий</span>
+                                          <span className="text-xs font-bold text-slate-400">Комментарий</span>
                                           <textarea
                                             value={editDescForm.comment}
                                             onChange={(e) => setEditDescForm(prev => ({ ...prev, comment: e.target.value }))}
-                                            className="w-full p-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-[11px] text-slate-800 dark:text-slate-100 focus:outline-none"
+                                            className="w-full p-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
                                             rows={2}
                                           />
                                         </div>
@@ -2446,7 +2446,7 @@ export default function Registry() {
                                         <div className="flex justify-end gap-1.5 pt-1">
                                           <button
                                             onClick={() => setEditingDescId(null)}
-                                            className="px-2 py-0.5 text-[10px] text-slate-450 hover:text-slate-650 transition-colors cursor-pointer"
+                                            className="px-2 py-0.5 text-xs text-slate-450 hover:text-slate-650 transition-colors cursor-pointer"
                                           >
                                             Отмена
                                           </button>
@@ -2459,7 +2459,7 @@ export default function Registry() {
                                               });
                                               setEditingDescId(null);
                                             }}
-                                            className="px-2.5 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded cursor-pointer"
+                                            className="px-2.5 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded cursor-pointer"
                                           >
                                             Записать
                                           </button>
@@ -2471,10 +2471,10 @@ export default function Registry() {
                                         <div className="flex items-start justify-between gap-1.5">
                                           <div className="flex items-center gap-1.5 min-w-0">
                                             <div className={`w-1.5 h-1.5 rounded-full ${config.text} bg-current shrink-0`} />
-                                            <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 truncate">{desc.text}</span>
+                                            <span className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">{desc.text}</span>
                                           </div>
                                           <div className="flex items-center gap-1 shrink-0">
-                                            <span className={`inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[7.5px] font-semibold border ${config.bg} ${config.text} ${config.border}`}>
+                                            <span className={`inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-xs font-semibold border ${config.bg} ${config.text} ${config.border}`}>
                                               <StatusIcon className="w-1.5 h-1.5" />
                                               {config.label}
                                             </span>
@@ -2505,13 +2505,13 @@ export default function Registry() {
                                         </div>
 
                                         {desc.comment && (
-                                          <p className="text-[10px] text-slate-500 dark:text-slate-400 pl-2 border-l border-slate-200 dark:border-slate-800 italic leading-snug">
+                                          <p className="text-xs text-slate-500 dark:text-slate-400 pl-2 border-l border-slate-200 dark:border-slate-800 italic leading-snug">
                                             {desc.comment}
                                           </p>
                                         )}
 
                                         {/* Creator / Updater Tracker Row */}
-                                        <div className="flex flex-wrap items-center gap-x-1 gap-y-0.2 text-[7.5px] text-slate-400 dark:text-slate-500 font-mono mt-1 border-t border-slate-100 dark:border-slate-850/40 pt-1 leading-none">
+                                        <div className="flex flex-wrap items-center gap-x-1 gap-y-0.2 text-xs text-slate-400 dark:text-slate-500 font-mono mt-1 border-t border-slate-100 dark:border-slate-850/40 pt-1 leading-none">
                                           <span>Ср: <strong>{desc.createdBy || 'Система'}</strong> {desc.createdAt && `(${formatDateStr(desc.createdAt)})`}</span>
                                           {desc.updatedBy && (
                                             <>
@@ -2536,7 +2536,7 @@ export default function Registry() {
                             {/* QUICK INLINE COMMENT WORK FORM */}
                             <div className="p-3 bg-slate-50 dark:bg-slate-900 border-t border-slate-105 dark:border-slate-850 space-y-2 no-drag text-left text-xs">
                               <div className="flex items-center justify-between">
-                                <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider">Добавить датчик/компонент:</span>
+                                <span className="text-xs text-slate-400 uppercase font-bold tracking-wider">Добавить датчик/компонент:</span>
                               </div>
 
                               <div className="flex gap-1.5">
@@ -2545,7 +2545,7 @@ export default function Registry() {
                                   placeholder="Напр. Вентилятор В-1"
                                   value={quickDescText[tag.id] || ''}
                                   onChange={(e) => setQuickDescText(prev => ({ ...prev, [tag.id]: e.target.value }))}
-                                  className="px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded text-[10px] flex-1 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                  className="px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded text-xs flex-1 text-slate-800 dark:text-slate-100 focus:outline-none"
                                 />
                                 <CustomSelect
                                   value={quickStatus[tag.id] || 'actual'}
@@ -2560,7 +2560,7 @@ export default function Registry() {
                                   placeholder="Замечания..."
                                   value={quickCommentText[tag.id] || ''}
                                   onChange={(e) => setQuickCommentText(prev => ({ ...prev, [tag.id]: e.target.value }))}
-                                  className="px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded text-[10px] flex-1 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                  className="px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded text-xs flex-1 text-slate-800 dark:text-slate-100 focus:outline-none"
                                 />
                                 <button
                                   onClick={() => handleAddDescription(
@@ -2569,7 +2569,7 @@ export default function Registry() {
                                     quickCommentText[tag.id], 
                                     quickStatus[tag.id] || 'actual'
                                   )}
-                                  className="px-3.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white font-bold rounded text-[10px] cursor-pointer"
+                                  className="px-3.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white font-bold rounded text-xs cursor-pointer"
                                 >
                                   +
                                 </button>
@@ -2578,19 +2578,19 @@ export default function Registry() {
 
                             {/* BOTTOM CONTROL ACTIONS UTILITIES */}
                             <div className="p-2.5 bg-slate-100/40 dark:bg-slate-950/40 border-t border-slate-200 dark:border-slate-850 flex items-center justify-between text-xs rounded-b-2xl no-drag">
-                              <span className="text-[9px] text-slate-400 uppercase tracking-widest font-mono">ID: {tag.id.slice(0, 8)}</span>
+                              <span className="text-xs text-slate-400 uppercase tracking-widest font-mono">ID: {tag.id.slice(0, 8)}</span>
                               <div className="flex items-center gap-1.5">
                                 <button
                                   title="Настроить связи / свойства в модали"
                                   onClick={() => setEditingTag(tag)}
-                                  className="flex items-center gap-1 px-2 py-1 hover:text-emerald-600 dark:hover:text-emerald-400 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors text-[10px] font-semibold cursor-pointer"
+                                  className="flex items-center gap-1 px-2 py-1 hover:text-emerald-600 dark:hover:text-emerald-400 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors text-xs font-semibold cursor-pointer"
                                 >
                                   <Edit2 className="w-3 h-3" /> Настройка
                                 </button>
                                 <button
                                   title="Удалить тег с холста"
                                   onClick={() => handleDeleteTag(tag.id)}
-                                  className="p-1 px-2 hover:text-rose-600 text-slate-550 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded transition-colors text-[10px] font-semibold cursor-pointer"
+                                  className="p-1 px-2 hover:text-rose-600 text-slate-550 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded transition-colors text-xs font-semibold cursor-pointer"
                                 >
                                   <Trash2 className="w-3 h-3" /> Удалить
                                 </button>
@@ -2655,7 +2655,7 @@ export default function Registry() {
                       <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
                       👈 LEFT SIDE: Tag Filtering Zone
                     </h3>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Фильтрация по сегментам тега KKS (только латиница и цифры).</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Фильтрация по сегментам тега KKS (только латиница и цифры).</p>
                   </div>
                   <button
                     onClick={() => setAddedTagSegmentsCount(prev => prev + 1)}
@@ -2727,7 +2727,7 @@ export default function Registry() {
                       <div key={`tag-seg-${idx}`} className="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2 relative group transition-all text-xs flex flex-col justify-between">
                         <div>
                           <div className="flex items-center justify-between border-b border-slate-200/40 dark:border-slate-800/45 pb-1 mb-2">
-                            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 uppercase tracking-wider">
+                            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 uppercase tracking-wider">
                               Segment KKS {idx + 1}
                             </span>
                             {idx >= getMaximumTagSegmentLength() && (
@@ -2750,7 +2750,7 @@ export default function Registry() {
 
                           {/* Unified Custom Input */}
                           <div className="space-y-1">
-                            <span className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
+                            <span className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
                               Поиск сегмента:
                             </span>
                             <input
@@ -2776,7 +2776,7 @@ export default function Registry() {
 
                             return (
                               <div className="space-y-1 border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
-                                <span className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
+                                <span className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
                                   Категория фильтра:
                                 </span>
                                 <CustomSelect
@@ -2791,7 +2791,7 @@ export default function Registry() {
 
                                 {activeCatId && (
                                   <div className="bg-white/40 dark:bg-slate-950/20 p-2 rounded border border-slate-200/40 dark:border-slate-800/40 space-y-1">
-                                    <span className="block text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase">
+                                    <span className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">
                                       Каталог:
                                     </span>
                                     <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto style-scrollbar pr-1">
@@ -2803,7 +2803,7 @@ export default function Registry() {
                                             key={opt.id}
                                             type="button"
                                             onClick={() => setActiveTagFilters(prev => ({ ...prev, [idx]: optVal }))}
-                                            className={`px-1.5 py-0.5 border rounded text-[10px] font-mono transition-all duration-150 cursor-pointer border-none ${
+                                            className={`px-1.5 py-0.5 border rounded text-xs font-mono transition-all duration-150 cursor-pointer border-none ${
                                               isSel
                                                 ? 'bg-emerald-600 border-emerald-600 text-white font-bold'
                                                 : 'bg-white hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
@@ -2814,7 +2814,7 @@ export default function Registry() {
                                         );
                                       })}
                                       {categoryOptions.length === 0 && (
-                                        <span className="text-[8px] text-slate-400 dark:text-slate-600 italic">Варианты отсутствуют</span>
+                                        <span className="text-xs text-slate-400 dark:text-slate-600 italic">Варианты отсутствуют</span>
                                       )}
                                     </div>
                                   </div>
@@ -2826,7 +2826,7 @@ export default function Registry() {
                           {/* Base database match list with max-h and scrollbar */}
                           {uniqueList.length > 0 && (
                             <div className="space-y-1 text-left border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
-                              <span className="block text-[8px] font-bold text-slate-400/80 dark:text-slate-500 uppercase tracking-wide">
+                              <span className="block text-xs font-bold text-slate-400/80 dark:text-slate-500 uppercase tracking-wide">
                                 В базе ({uniqueList.length}):
                               </span>
                               <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto style-scrollbar">
@@ -2837,7 +2837,7 @@ export default function Registry() {
                                       key={val}
                                       type="button"
                                       onClick={() => setActiveTagFilters(prev => ({ ...prev, [idx]: val }))}
-                                      className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer font-mono font-semibold transition-all duration-150 border-none uppercase tracking-wider ${
+                                      className={`px-1.5 py-0.5 rounded text-xs cursor-pointer font-mono font-semibold transition-all duration-150 border-none uppercase tracking-wider ${
                                         isSelected
                                           ? 'bg-emerald-600 text-white font-bold'
                                           : 'bg-white hover:bg-slate-150 dark:bg-slate-950 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-800'
@@ -2855,7 +2855,7 @@ export default function Registry() {
                         {/* Dictionary Integration Binding Section */}
                         <div className="space-y-1 border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
                           <div className="space-y-1">
-                            <span className="block text-[9px] font-semibold text-slate-450 dark:text-slate-500 uppercase tracking-wider">
+                            <span className="block text-xs font-semibold text-slate-450 dark:text-slate-500 uppercase tracking-wider">
                               Связать со справочником KKS:
                             </span>
                             <CustomSelect
@@ -2873,10 +2873,10 @@ export default function Registry() {
                           </div>
 
                           {boundDict && (
-                            <div className="space-y-1 mt-1 bg-white/40 dark:bg-slate-950/20 p-2 rounded border border-slate-200/40 dark:border-slate-800/40 text-[10px]">
+                            <div className="space-y-1 mt-1 bg-white/40 dark:bg-slate-950/20 p-2 rounded border border-slate-200/40 dark:border-slate-800/40 text-xs">
                               {/* Main Category */}
                               <div className="space-y-0.5 animate-fadeIn">
-                                <span className="block text-[8px] font-bold text-slate-400 uppercase">1. Главная</span>
+                                <span className="block text-xs font-bold text-slate-400 uppercase">1. Главная</span>
                                 <CustomSelect
                                   value={selection.mainId || ''}
                                   onChange={(val) => handleMainChange(val)}
@@ -2891,7 +2891,7 @@ export default function Registry() {
                               {/* Subcategory */}
                               {selection.mainId && subCategories.length > 0 && (
                                 <div className="space-y-0.5 animate-fadeIn">
-                                  <span className="block text-[8px] font-bold text-slate-400 uppercase">2. Подкатегория</span>
+                                  <span className="block text-xs font-bold text-slate-400 uppercase">2. Подкатегория</span>
                                   <CustomSelect
                                     value={selection.subId || ''}
                                     onChange={(val) => handleSubChange(val)}
@@ -2907,7 +2907,7 @@ export default function Registry() {
                               {/* Sub-subcategory */}
                               {selection.subId && subSubCategories.length > 0 && (
                                 <div className="space-y-0.5 animate-fadeIn">
-                                  <span className="block text-[8px] font-bold text-slate-400 uppercase">3. Подподкатегория</span>
+                                  <span className="block text-xs font-bold text-slate-400 uppercase">3. Подподкатегория</span>
                                   <CustomSelect
                                     value={selection.subSubId || ''}
                                     onChange={(val) => handleSubSubChange(val)}
@@ -2936,7 +2936,7 @@ export default function Registry() {
                       <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
                       👉 RIGHT SIDE: Mark Filtering Zone
                     </h3>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Фильтрация физического состава марки (поддержка любых языков).</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Фильтрация физического состава марки (поддержка любых языков).</p>
                   </div>
                   <button
                     onClick={() => setAddedMarkSegmentsCount(prev => prev + 1)}
@@ -3008,7 +3008,7 @@ export default function Registry() {
                       <div key={`mark-seg-${idx}`} className="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2 relative group transition-all text-xs flex flex-col justify-between">
                         <div>
                           <div className="flex items-center justify-between border-b border-slate-200/40 dark:border-slate-800/45 pb-1 mb-2">
-                            <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1 uppercase tracking-wider">
+                            <span className="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1 uppercase tracking-wider">
                               Segment Mark {idx + 1}
                             </span>
                             {idx >= getMaximumMarkSegmentLength() && (
@@ -3031,7 +3031,7 @@ export default function Registry() {
 
                           {/* Unified Custom Input */}
                           <div className="space-y-1">
-                            <span className="block text-[9px] font-bold text-slate-400 dark:text-slate-550 uppercase tracking-wide">
+                            <span className="block text-xs font-bold text-slate-400 dark:text-slate-550 uppercase tracking-wide">
                               Поиск сегмента:
                             </span>
                             <input
@@ -3057,7 +3057,7 @@ export default function Registry() {
 
                             return (
                               <div className="space-y-1 border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
-                                <span className="block text-[9px] font-bold text-slate-400 dark:text-slate-550 uppercase tracking-wide">
+                                <span className="block text-xs font-bold text-slate-400 dark:text-slate-550 uppercase tracking-wide">
                                   Категория фильтра:
                                 </span>
                                 <CustomSelect
@@ -3072,7 +3072,7 @@ export default function Registry() {
 
                                 {activeCatId && (
                                   <div className="bg-white/40 dark:bg-slate-950/20 p-2 rounded border border-slate-200/40 dark:border-slate-800/40 space-y-1">
-                                    <span className="block text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase">
+                                    <span className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">
                                       Каталог:
                                     </span>
                                     <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto style-scrollbar pr-1">
@@ -3084,7 +3084,7 @@ export default function Registry() {
                                             key={opt.id}
                                             type="button"
                                             onClick={() => setActiveMarkFilters(prev => ({ ...prev, [idx]: optVal }))}
-                                            className={`px-1.5 py-0.5 border rounded text-[10px] font-mono transition-all duration-150 cursor-pointer border-none ${
+                                            className={`px-1.5 py-0.5 border rounded text-xs font-mono transition-all duration-150 cursor-pointer border-none ${
                                               isSel
                                                 ? 'bg-amber-600 border-amber-600 text-white font-bold'
                                                 : 'bg-white hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
@@ -3095,7 +3095,7 @@ export default function Registry() {
                                         );
                                       })}
                                       {categoryOptions.length === 0 && (
-                                        <span className="text-[8px] text-slate-400 dark:text-slate-600 italic">Варианты отсутствуют</span>
+                                        <span className="text-xs text-slate-400 dark:text-slate-600 italic">Варианты отсутствуют</span>
                                       )}
                                     </div>
                                   </div>
@@ -3107,7 +3107,7 @@ export default function Registry() {
                           {/* Base database match list with max-h and scrollbar */}
                           {uniqueList.length > 0 && (
                             <div className="space-y-1 text-left border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
-                              <span className="block text-[8px] font-bold text-slate-400/80 dark:text-slate-500 uppercase tracking-wide">
+                              <span className="block text-xs font-bold text-slate-400/80 dark:text-slate-500 uppercase tracking-wide">
                                 В базе ({uniqueList.length}):
                               </span>
                               <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto style-scrollbar">
@@ -3118,7 +3118,7 @@ export default function Registry() {
                                       key={val}
                                       type="button"
                                       onClick={() => setActiveMarkFilters(prev => ({ ...prev, [idx]: val }))}
-                                      className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer font-mono font-semibold transition-all duration-150 border-none uppercase tracking-wider ${
+                                      className={`px-1.5 py-0.5 rounded text-xs cursor-pointer font-mono font-semibold transition-all duration-150 border-none uppercase tracking-wider ${
                                         isSelected
                                           ? 'bg-amber-600 text-white font-bold'
                                           : 'bg-white hover:bg-slate-150 dark:bg-slate-950 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-800'
@@ -3136,7 +3136,7 @@ export default function Registry() {
                         {/* Dictionary Integration Binding Section */}
                         <div className="space-y-1 border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
                           <div className="space-y-1">
-                            <span className="block text-[9px] font-semibold text-slate-455 dark:text-slate-500 uppercase tracking-wider">
+                            <span className="block text-xs font-semibold text-slate-455 dark:text-slate-500 uppercase tracking-wider">
                               Связать со справочником Mark:
                             </span>
                             <CustomSelect
@@ -3154,10 +3154,10 @@ export default function Registry() {
                           </div>
 
                           {boundDict && (
-                            <div className="space-y-1 mt-1 bg-white/40 dark:bg-slate-950/20 p-2 rounded border border-slate-200/40 dark:border-slate-800/40 text-[10px]">
+                            <div className="space-y-1 mt-1 bg-white/40 dark:bg-slate-950/20 p-2 rounded border border-slate-200/40 dark:border-slate-800/40 text-xs">
                               {/* Main Category */}
                               <div className="space-y-0.5 animate-fadeIn">
-                                <span className="block text-[8px] font-bold text-slate-400 uppercase">1. Главная</span>
+                                <span className="block text-xs font-bold text-slate-400 uppercase">1. Главная</span>
                                 <CustomSelect
                                   value={selection.mainId || ''}
                                   onChange={(val) => handleMainChange(val)}
@@ -3172,7 +3172,7 @@ export default function Registry() {
                               {/* Subcategory */}
                               {selection.mainId && subCategories.length > 0 && (
                                 <div className="space-y-0.5 animate-fadeIn">
-                                  <span className="block text-[8px] font-bold text-slate-400 uppercase">2. Подкатегория</span>
+                                  <span className="block text-xs font-bold text-slate-400 uppercase">2. Подкатегория</span>
                                   <CustomSelect
                                     value={selection.subId || ''}
                                     onChange={(val) => handleSubChange(val)}
@@ -3188,7 +3188,7 @@ export default function Registry() {
                               {/* Sub-subcategory */}
                               {selection.subId && subSubCategories.length > 0 && (
                                 <div className="space-y-0.5 animate-fadeIn">
-                                  <span className="block text-[8px] font-bold text-slate-400 uppercase">3. Подподкатегория</span>
+                                  <span className="block text-xs font-bold text-slate-400 uppercase">3. Подподкатегория</span>
                                   <CustomSelect
                                     value={selection.subSubId || ''}
                                     onChange={(val) => handleSubSubChange(val)}
@@ -3259,7 +3259,7 @@ export default function Registry() {
                   <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1">
                     2. Выберите колонки для Экспорта в Excel (.CSV)
                   </h3>
-                  <p className="text-[11px] text-slate-500">Управляйте структурой скачиваемого файла в зависимости от потребностей верификации состава всех систем.</p>
+                  <p className="text-xs text-slate-500">Управляйте структурой скачиваемого файла в зависимости от потребностей верификации состава всех систем.</p>
                 </div>
 
                 <button
@@ -3414,7 +3414,7 @@ export default function Registry() {
                                 return (
                                   <span 
                                     key={`tag-part-${idx}`} 
-                                    className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold uppercase transition-all ${
+                                    className={`px-2 py-0.5 rounded text-xs font-mono font-bold uppercase transition-all ${
                                       isMatched 
                                         ? 'bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-200 border border-green-300 dark:border-green-800 ring-2 ring-green-400/25' 
                                         : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/40'
@@ -3435,7 +3435,7 @@ export default function Registry() {
                                 return (
                                   <span 
                                     key={`mark-part-${idx}`} 
-                                    className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold uppercase transition-all ${
+                                    className={`px-2 py-0.5 rounded text-xs font-mono font-bold uppercase transition-all ${
                                       isMatched 
                                         ? 'bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-200 border border-green-300 dark:border-green-800 ring-2 ring-green-400/25' 
                                         : 'bg-amber-50 dark:bg-slate-900 text-amber-800 dark:text-amber-400 border border-amber-200/40 dark:border-amber-900/45'
@@ -3450,7 +3450,7 @@ export default function Registry() {
                               )}
                             </div>
                             {t.brand && (
-                              <span className="text-[10px] text-slate-450 dark:text-slate-500 block mt-1 font-medium select-all font-mono">
+                              <span className="text-xs text-slate-450 dark:text-slate-500 block mt-1 font-medium select-all font-mono">
                                 {t.brand}
                               </span>
                             )}
@@ -3461,7 +3461,7 @@ export default function Registry() {
                             <p className="font-bold text-slate-900 dark:text-white select-all">
                               {tMeta.mainName || <span className="italic opacity-50">Без наименования</span>}
                             </p>
-                            <span className="text-[10px] text-slate-400 font-sans block mt-0.5 font-medium leading-relaxed font-mono">
+                            <span className="text-xs text-slate-400 font-sans block mt-0.5 font-medium leading-relaxed font-mono">
                               {t.identifier}
                             </span>
                           </td>
@@ -3469,11 +3469,11 @@ export default function Registry() {
                           {/* COLUMN 4: STATUS / RELEVANCE */}
                           <td className="px-5 py-4">
                             <div className="flex items-center gap-2">
-                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-[10px] font-bold border uppercase tracking-wider ${statusCfg.bg} ${statusCfg.text} ${statusCfg.border}`}>
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-bold border uppercase tracking-wider ${statusCfg.bg} ${statusCfg.text} ${statusCfg.border}`}>
                                 {statusCfg.label}
                               </span>
                               {tMeta.descriptions.length > 0 && (
-                                <span className="text-[10px] text-rose-500 font-bold bg-rose-50 dark:bg-rose-950/20 px-1.5 py-0.5 rounded border border-rose-100 dark:border-rose-900/30">
+                                <span className="text-xs text-rose-500 font-bold bg-rose-50 dark:bg-rose-950/20 px-1.5 py-0.5 rounded border border-rose-100 dark:border-rose-900/30">
                                   Замечаний ({tMeta.descriptions.length})
                                 </span>
                               )}
@@ -3588,8 +3588,8 @@ export default function Registry() {
                             
                             {/* Optional visual pills shown when separate columns are closed */}
                             {!showOptionalTableColumns && (
-                              <div className="flex flex-wrap items-center gap-1.5 mt-1.5 text-[10px] text-slate-450 dark:text-slate-500 font-medium">
-                                <span className="bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-850 px-1.5 py-0.5 rounded text-[10px]" title="Инженерная Дисциплина">
+                              <div className="flex flex-wrap items-center gap-1.5 mt-1.5 text-xs text-slate-450 dark:text-slate-500 font-medium">
+                                <span className="bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-850 px-1.5 py-0.5 rounded text-xs" title="Инженерная Дисциплина">
                                   {t.department || 'Комплексный'}
                                 </span>
                                 <span>•</span>
@@ -3639,7 +3639,7 @@ export default function Registry() {
                                       const config = statusConfig[d.status] || statusConfig.draft;
                                       const Icon = config.icon;
                                       return (
-                                        <div key={d.id} className="flex items-start gap-1 p-1 px-2 bg-slate-50 dark:bg-slate-900 rounded text-[11px] text-slate-700 dark:text-slate-300 border border-slate-100 dark:border-slate-850 text-left">
+                                        <div key={d.id} className="flex items-start gap-1 p-1 px-2 bg-slate-50 dark:bg-slate-900 rounded text-xs text-slate-700 dark:text-slate-300 border border-slate-100 dark:border-slate-850 text-left">
                                           <Icon className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${config.text}`} />
                                           <div className="text-left">
                                             <strong className="text-slate-905 dark:text-slate-105">{d.text}: </strong>
@@ -3717,7 +3717,7 @@ export default function Registry() {
                   <Database className="w-5 h-5 text-emerald-400 font-bold" />
                   <div className="text-left">
                     <h3 className="text-base font-bold font-mono tracking-tight">{editingTag.identifier}</h3>
-                    <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Свойства и структура подописаний</p>
+                    <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Свойства и структура подописаний</p>
                   </div>
                 </div>
                 <button
@@ -3802,7 +3802,7 @@ export default function Registry() {
 
                             return (
                               <div key={cat.id} className="space-y-1">
-                                <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">{cat.nameRu}</span>
+                                <span className="text-xs font-bold text-slate-400 dark:text-slate-500">{cat.nameRu}</span>
                                 <CustomSelect
                                   value={tagDFields[cat.nameRu] || ''}
                                   onChange={(val) => handleUpdateDynamicFields(editingTag.id, { [cat.nameRu]: val })}
@@ -3837,7 +3837,7 @@ export default function Registry() {
                     if (mCats.length > 0) {
                       return (
                         <div className="space-y-2 pb-2 border-b border-slate-200/50 dark:border-slate-800/50">
-                          <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide">Конструктор марки:</p>
+                          <p className="text-xs text-slate-400 font-semibold uppercase tracking-wide">Конструктор марки:</p>
                           <div className="grid grid-cols-3 gap-2">
                             {mCats.map((cat: any) => {
                               const options = mItems
@@ -3846,7 +3846,7 @@ export default function Registry() {
 
                               return (
                                 <div key={cat.id} className="space-y-1">
-                                  <span className="text-[9px] uppercase font-bold text-slate-400">{cat.nameRu}</span>
+                                  <span className="text-xs uppercase font-bold text-slate-400">{cat.nameRu}</span>
                                   <CustomSelect
                                     value={editTagMarkingSelections[cat.id] || ''}
                                     onChange={(val) => {
@@ -3870,7 +3870,7 @@ export default function Registry() {
                             })}
 
                             <div className="space-y-1">
-                              <span className="text-[9px] uppercase font-bold text-slate-400">Разделитель</span>
+                              <span className="text-xs uppercase font-bold text-slate-400">Разделитель</span>
                               <CustomSelect
                                 value={editTagMarkingSeparator}
                                 onChange={(val) => {
@@ -3926,7 +3926,7 @@ export default function Registry() {
                   </h4>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <span className="text-[10px] font-bold text-slate-500">Заголовок описания</span>
+                      <span className="text-xs font-bold text-slate-500">Заголовок описания</span>
                       <input
                         type="text"
                         placeholder="Напр., Датчик TE-101"
@@ -3935,7 +3935,7 @@ export default function Registry() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <span className="text-[10px] font-bold text-slate-500">Статус актуальности</span>
+                      <span className="text-xs font-bold text-slate-500">Статус актуальности</span>
                       <CustomSelect
                         value={modalStatusInput}
                         onChange={(val) => setModalStatusInput(val)}
@@ -3945,7 +3945,7 @@ export default function Registry() {
                   </div>
 
                   <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-slate-500">Комментарии / Замечания</span>
+                    <span className="text-xs font-bold text-slate-500">Комментарии / Замечания</span>
                     <input
                       type="text"
                       placeholder="Введите замечания или лог проверки..."
@@ -4011,7 +4011,7 @@ export default function Registry() {
                               <div className="flex justify-end gap-1.5">
                                 <button
                                   onClick={() => setEditingDescId(null)}
-                                  className="px-2 py-0.5 text-[10px] text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                                  className="px-2 py-0.5 text-xs text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
                                 >
                                   Отмена
                                 </button>
@@ -4024,7 +4024,7 @@ export default function Registry() {
                                     });
                                     setEditingDescId(null);
                                   }}
-                                  className="px-3 py-0.5 bg-emerald-700 hover:bg-emerald-600 text-white text-[10px] font-bold rounded cursor-pointer"
+                                  className="px-3 py-0.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold rounded cursor-pointer"
                                 >
                                   Сохранить
                                 </button>
@@ -4039,7 +4039,7 @@ export default function Registry() {
                                   <div>
                                     <p className="text-xs font-bold text-slate-850 dark:text-slate-100">{desc.text}</p>
                                     {desc.comment && (
-                                      <p className="text-[10px] text-slate-550 dark:text-slate-400 mt-1 pl-1.5 border-l border-slate-200 dark:border-slate-750">
+                                      <p className="text-xs text-slate-550 dark:text-slate-400 mt-1 pl-1.5 border-l border-slate-200 dark:border-slate-750">
                                         {desc.comment}
                                       </p>
                                     )}
@@ -4047,7 +4047,7 @@ export default function Registry() {
                                 </div>
 
                                 <div className="flex items-center gap-2 shrink-0">
-                                  <span className={`inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[7.5px] font-semibold border ${config.bg} ${config.text} ${config.border}`}>
+                                  <span className={`inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-xs font-semibold border ${config.bg} ${config.text} ${config.border}`}>
                                     {config.label}
                                   </span>
                                   <button
@@ -4074,7 +4074,7 @@ export default function Registry() {
                               </div>
 
                               {/* TIMESTAMPS FOR CREATOR / UPDATER */}
-                              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[8px] text-slate-450 dark:text-slate-500 font-mono mt-1 border-t border-slate-100 dark:border-slate-800/40 pt-1 leading-none">
+                              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-450 dark:text-slate-500 font-mono mt-1 border-t border-slate-100 dark:border-slate-800/40 pt-1 leading-none">
                                 <span>Ср: <strong>{desc.createdBy || 'Система'}</strong> {desc.createdAt && `(${formatDateStr(desc.createdAt)})`}</span>
                                 {desc.updatedBy && (
                                   <>
@@ -4160,7 +4160,7 @@ export default function Registry() {
                 <span className="text-xs font-bold text-slate-400 uppercase">Текущие привязки:</span>
                 <div className="flex flex-wrap gap-1.5 min-h-[30px] p-2 rounded-lg bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-850">
                   {bindingBlock.tags.length === 0 ? (
-                    <span className="text-[11px] text-slate-400 italic">Нет привязанного оборудования</span>
+                    <span className="text-xs text-slate-400 italic">Нет привязанного оборудования</span>
                   ) : (
                     bindingBlock.tags.map((t: any) => (
                       <span key={t.id} className="inline-flex items-center gap-1.5 text-xs font-semibold bg-emerald-500/10 dark:bg-emerald-500/20 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 px-2.5 py-1 rounded-md">
@@ -4198,16 +4198,16 @@ export default function Registry() {
                       <div key={t.id} className="flex items-center justify-between p-2 rounded hover:bg-slate-50 dark:hover:bg-slate-900 border border-transparent hover:border-slate-150 dark:hover:border-slate-850 select-none transition-all">
                         <div className="text-left max-w-[70%]">
                           <p className="font-mono text-xs font-bold text-slate-905 dark:text-slate-100">{t.identifier}</p>
-                          <p className="text-[10px] text-slate-400 truncate">{parseTagMetadata(t).mainName || 'Без названия'}</p>
+                          <p className="text-xs text-slate-400 truncate">{parseTagMetadata(t).mainName || 'Без названия'}</p>
                         </div>
                         {isAlreadyBound ? (
-                          <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/50 px-2.5 py-1 rounded">
+                          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/50 px-2.5 py-1 rounded">
                             Активен
                           </span>
                         ) : (
                           <button
                             onClick={() => handlePinTagToComponent(bindingBlock.id, t.id)}
-                            className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[11px] font-bold cursor-pointer border-none"
+                            className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-xs font-bold cursor-pointer border-none"
                           >
                             Привязать
                           </button>
@@ -4274,7 +4274,7 @@ export default function Registry() {
             <div className="min-w-0 flex flex-col md:flex-row md:items-center gap-1 md:gap-2.5">
               <div className="flex items-center gap-2">
                 <span className="font-mono font-bold text-slate-800 dark:text-slate-100 text-sm select-all">{node.identifier}</span>
-                <span className="text-[10px] bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded-full border border-slate-200/60 dark:border-slate-800 font-semibold shrink-0">
+                <span className="text-xs bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded-full border border-slate-200/60 dark:border-slate-800 font-semibold shrink-0">
                   {node.department || 'Комплексный'}
                 </span>
               </div>
@@ -4295,7 +4295,7 @@ export default function Registry() {
                   }`}
                 >
                   <Eye className="w-3.5 h-3.5" />
-                  {configList.length > 0 && <span className="text-[10px] ml-1">{configList.length}</span>}
+                  {configList.length > 0 && <span className="text-xs ml-1">{configList.length}</span>}
                 </button>
                 <div className="flex items-center gap-1">
                   {configList.slice(0, 3).map((d: any, idx: number) => {
@@ -4308,7 +4308,7 @@ export default function Registry() {
                       />
                     );
                   })}
-                  {configList.length > 3 && <span className="text-[9px] font-bold text-slate-400">+{configList.length - 3}</span>}
+                  {configList.length > 3 && <span className="text-xs font-bold text-slate-400">+{configList.length - 3}</span>}
                 </div>
               </div>
             )}
@@ -4342,11 +4342,11 @@ export default function Registry() {
                   <Icon className={`w-4 h-4 shrink-0 mt-0.5 ${s.text}`} />
                   <div>
                     <span className="text-xs font-bold text-slate-800 dark:text-slate-100">{desc.text}</span>
-                    <span className={`inline-block px-1.5 py-0.2 rounded text-[8px] font-semibold ml-2 ${s.bg} ${s.text} ${s.border}`}>
+                    <span className={`inline-block px-1.5 py-0.2 rounded text-xs font-semibold ml-2 ${s.bg} ${s.text} ${s.border}`}>
                       {s.label}
                     </span>
                     {desc.comment && (
-                      <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 italic pl-1.5 border-l border-slate-200 dark:border-slate-800 leading-normal">
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 italic pl-1.5 border-l border-slate-200 dark:border-slate-800 leading-normal">
                         {desc.comment}
                       </p>
                     )}

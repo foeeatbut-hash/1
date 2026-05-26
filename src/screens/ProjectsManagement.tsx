@@ -238,7 +238,7 @@ export default function ProjectsManagement() {
               <span>Загрузка списка проектов...</span>
             </div>
           ) : filteredProjects.length === 0 ? (
-            <div className="py-8 text-center text-[11px] text-slate-400 dark:text-slate-500">
+            <div className="py-8 text-center text-xs text-slate-400 dark:text-slate-500">
               Проекты не найдены
             </div>
           ) : (
@@ -275,19 +275,19 @@ export default function ProjectsManagement() {
                       </span>
                     </div>
                     {isActive && (
-                      <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-400 tracking-wider">
+                      <span className="text-xs uppercase font-mono px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-400 tracking-wider">
                         выбран
                       </span>
                     )}
                   </div>
                   
                   {p.description && (
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">
                       {p.description}
                     </p>
                   )}
 
-                  <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
+                  <div className="flex items-center justify-between text-xs text-slate-400 mt-1">
                     <span className="flex items-center gap-1 font-mono">
                       <Calendar className="w-3 h-3" />
                       <span>{new Date(p.createdAt).toLocaleDateString('ru-RU')}</span>
@@ -326,13 +326,13 @@ export default function ProjectsManagement() {
                   <h1 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
                     <span>{selectedProject.name}</span>
                     {activeProject?.id === selectedProject.id && (
-                      <span className="text-[10px] bg-emerald-700 text-white font-semibold rounded px-2.5 py-0.5 flex items-center gap-1 select-none">
+                      <span className="text-xs bg-emerald-700 text-white font-semibold rounded px-2.5 py-0.5 flex items-center gap-1 select-none">
                         <CheckCircle2 className="w-3 h-3" />
                         <span>Выбран для работы</span>
                       </span>
                     )}
                   </h1>
-                  <p className="text-[11px] text-slate-400 font-mono">ID: {selectedProject.id}</p>
+                  <p className="text-xs text-slate-400 font-mono">ID: {selectedProject.id}</p>
                 </div>
               </div>
 
@@ -479,7 +479,7 @@ export default function ProjectsManagement() {
                     <AlertCircle className="w-4 h-4 text-emerald-650 shrink-0 mt-0.5" />
                     <div>
                       <h4 className="text-xs font-bold text-emerald-800 dark:text-emerald-400">Как работать с проектом?</h4>
-                      <p className="text-[11px] text-emerald-700/90 dark:text-emerald-400/80 mt-1 leading-relaxed">
+                      <p className="text-xs text-emerald-700/90 dark:text-emerald-400/80 mt-1 leading-relaxed">
                         Поставьте галочку у нужного проекта слева в списке или нажмите "Отметить галочкой" вверху. Это переключит фокус MAX на данные выбранного проекта в Проводнике, Списке Тегов и Оборудовании!
                       </p>
                     </div>

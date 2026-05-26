@@ -229,7 +229,7 @@ export default function NotesManagement() {
             <div className="flex flex-col items-center justify-center h-full py-12 text-slate-400 dark:text-slate-500 text-center px-4">
               <FileText className="w-8 h-8 text-slate-350 dark:text-slate-750 mb-2" />
               <p className="text-xs font-semibold">Заметок не найдено</p>
-              <p className="text-[10px] mt-0.5 opacity-80">Нажмите «+ Создать», чтобы добавить новую</p>
+              <p className="text-xs mt-0.5 opacity-80">Нажмите «+ Создать», чтобы добавить новую</p>
             </div>
           ) : (
             filteredNotes.map((note) => {
@@ -271,12 +271,12 @@ export default function NotesManagement() {
                     </div>
                   </div>
 
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 mt-1 font-light leading-relaxed">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mt-1 font-light leading-relaxed">
                     {cleanContent || 'Нет содержимого'}
                   </p>
 
                   <div className="mt-2.5 flex items-center justify-between">
-                    <span className="text-[9px] font-mono text-slate-400 dark:text-slate-500 flex items-center gap-1">
+                    <span className="text-xs font-mono text-slate-400 dark:text-slate-500 flex items-center gap-1">
                       <Calendar className="w-2.5 h-2.5" />
                       {new Date(note.updatedAt).toLocaleDateString()}
                     </span>
@@ -308,19 +308,19 @@ export default function NotesManagement() {
                 {/* Save status notification badge */}
                 <div className="flex items-center gap-1.5 text-xs">
                   {saveStatus === 'saving' && (
-                    <span className="text-amber-600 dark:text-amber-400 flex items-center gap-1 font-mono text-[10px]">
+                    <span className="text-amber-600 dark:text-amber-400 flex items-center gap-1 font-mono text-xs">
                       <RefreshCw className="w-3 h-3 animate-spin" />
                       <span>Сохранение...</span>
                     </span>
                   )}
                   {saveStatus === 'saved' && (
-                    <span className="text-emerald-600 dark:text-emerald-450 flex items-center gap-1 font-mono text-[10px]">
+                    <span className="text-emerald-600 dark:text-emerald-450 flex items-center gap-1 font-mono text-xs">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
                       <span>Сохранено в SQLite</span>
                     </span>
                   )}
                   {saveStatus === 'idle' && (
-                    <span className="text-slate-400 dark:text-slate-500 flex items-center gap-1 font-mono text-[10px]">
+                    <span className="text-slate-400 dark:text-slate-500 flex items-center gap-1 font-mono text-xs">
                       <Save className="w-3 h-3" />
                       <span>Ожидание изменений</span>
                     </span>
@@ -330,7 +330,7 @@ export default function NotesManagement() {
 
               {/* Color Preset Palette */}
               <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-semibold text-slate-450 dark:text-slate-400 uppercase tracking-wider mr-1">Палитра:</span>
+                <span className="text-xs font-semibold text-slate-450 dark:text-slate-400 uppercase tracking-wider mr-1">Палитра:</span>
                 {COLORS.map(colorPreset => {
                   const isCurrent = selectedNote.color === colorPreset.class;
                   return (

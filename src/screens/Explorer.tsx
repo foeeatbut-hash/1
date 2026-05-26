@@ -723,11 +723,11 @@ export default function Explorer() {
         {/* Main Ribbon */}
         <div className="flex items-center gap-4 px-3 py-2 border-b border-slate-200 dark:border-slate-850">
            <div className="flex gap-1 items-center">
-             <button onClick={createFolder} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-[11px] text-slate-705 dark:text-slate-300 text-center leading-[1.15] cursor-pointer">
+             <button onClick={createFolder} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-705 dark:text-slate-300 text-center leading-[1.15] cursor-pointer">
                 <FolderPlus className="w-5 h-5 text-yellow-500 shrink-0 mb-0.5" />
                 <span className="whitespace-pre-line">Новая папка</span>
              </button>
-             <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-[11px] text-slate-700 dark:text-slate-300 text-center leading-[1.15] cursor-pointer">
+             <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-700 dark:text-slate-300 text-center leading-[1.15] cursor-pointer">
                 <Upload className="w-5 h-5 text-green-600 shrink-0 mb-0.5" />
                 <span className="whitespace-pre-line">Загрузить</span>
              </button>
@@ -735,15 +735,15 @@ export default function Explorer() {
              
              <div className="w-px h-10 bg-slate-300 dark:bg-slate-800 mx-1"></div>
 
-             <button onClick={() => clipboard && handlePaste()} disabled={!clipboard} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-[11px] text-slate-700 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
+             <button onClick={() => clipboard && handlePaste()} disabled={!clipboard} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-700 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
                 <Copy className="w-5 h-5 text-yellow-600 shrink-0 mb-0.5" />
                 <span className="whitespace-pre-line">Вставить</span>
              </button>
-             <button onClick={() => setClipboard({ ids: Array.from(selectedIds), type: 'cut' })} disabled={selectedIds.size === 0} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-[11px] text-slate-700 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
+             <button onClick={() => setClipboard({ ids: Array.from(selectedIds), type: 'cut' })} disabled={selectedIds.size === 0} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-700 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
                 <Edit2 className="w-5 h-5 text-slate-500 shrink-0 mb-0.5" />
                 <span className="whitespace-pre-line">Вырезать</span>
              </button>
-             <button onClick={() => setClipboard({ ids: Array.from(selectedIds), type: 'copy' })} disabled={selectedIds.size === 0} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-[11px] text-slate-700 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
+             <button onClick={() => setClipboard({ ids: Array.from(selectedIds), type: 'copy' })} disabled={selectedIds.size === 0} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-700 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
                 <Copy className="w-5 h-5 text-emerald-600 shrink-0 mb-0.5" />
                 <span className="whitespace-pre-line">Копировать</span>
              </button>
@@ -754,7 +754,7 @@ export default function Explorer() {
                   const item = allCurrentItems.find(i => i.id === id);
                   if (item) setRenameValue(item.name);
                 }
-             }} disabled={selectedIds.size !== 1} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-[11px] text-slate-750 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
+             }} disabled={selectedIds.size !== 1} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-750 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
                 <Edit2 className="w-5 h-5 text-slate-600 shrink-0 mb-0.5" />
                 <span className="whitespace-pre-line">Переименовать</span>
              </button>
@@ -763,7 +763,7 @@ export default function Explorer() {
                   const item = allCurrentItems.find(i => i.id === id);
                   if (item) handleDownload(id, item.isFolder);
                 });
-             }} disabled={selectedIds.size === 0 || Array.from(selectedIds).some(id => allCurrentItems.find(i => i.id === id)?.isFolder)} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-[11px] text-slate-705 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
+             }} disabled={selectedIds.size === 0 || Array.from(selectedIds).some(id => allCurrentItems.find(i => i.id === id)?.isFolder)} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-705 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
                 <Download className="w-5 h-5 text-indigo-500 shrink-0 mb-0.5" />
                 <span className="whitespace-pre-line">Скачать</span>
              </button>
@@ -775,7 +775,7 @@ export default function Explorer() {
                    if (item) handleDelete(id, !item.isFolder);
                  });
                }
-             }} disabled={selectedIds.size === 0} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-[11px] text-slate-705 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
+             }} disabled={selectedIds.size === 0} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-705 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
                 <Trash2 className="w-5 h-5 text-red-500 shrink-0 mb-0.5" />
                 <span className="whitespace-pre-line">Удалить</span>
              </button>
@@ -792,7 +792,7 @@ export default function Explorer() {
                </button>
              </div>
              
-             <button onClick={() => setShowPreviewPane(!showPreviewPane)} className={`flex flex-col items-center justify-start pt-1.5 pb-1 px-1 rounded-lg w-[84px] h-[64px] shrink-0 text-[11px] text-slate-705 dark:text-slate-300 text-center leading-[1.15] cursor-pointer ${showPreviewPane ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-750' : 'bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805'}`}>
+             <button onClick={() => setShowPreviewPane(!showPreviewPane)} className={`flex flex-col items-center justify-start pt-1.5 pb-1 px-1 rounded-lg w-[84px] h-[64px] shrink-0 text-xs text-slate-705 dark:text-slate-300 text-center leading-[1.15] cursor-pointer ${showPreviewPane ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-750' : 'bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805'}`}>
                <PanelRight className="w-5 h-5 text-slate-600 shrink-0 mb-0.5" />
                <span className="whitespace-pre-line">Превью</span>
              </button>
@@ -1137,8 +1137,8 @@ export default function Explorer() {
                        <div className="flex flex-col border-b border-slate-100 pb-1 pt-1">
                          <span className="text-slate-500 mb-1.5">Назначенные теги</span>
                          <div className="flex flex-wrap gap-1">
-                           {item.mainTags?.map((t:any) => <span key={t.id} className="bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded text-[10px] font-bold font-mono border border-yellow-200" title="Основной тег">{t.identifier}</span>)}
-                           {item.additionalTags?.map((t:any) => <span key={t.id} className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[10px] font-mono border border-slate-200" title="Дополнительный тег">{t.identifier}</span>)}
+                           {item.mainTags?.map((t:any) => <span key={t.id} className="bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded text-xs font-bold font-mono border border-yellow-200" title="Основной тег">{t.identifier}</span>)}
+                           {item.additionalTags?.map((t:any) => <span key={t.id} className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-xs font-mono border border-slate-200" title="Дополнительный тег">{t.identifier}</span>)}
                          </div>
                        </div>
                        )}
@@ -1586,7 +1586,7 @@ const FileRowItem = React.memo(({
         <div className="relative shrink-0">
            {getFileIcon(item, "w-5 h-5")}
            {!item.isFolder && item.statusCode && (
-              <span className={`absolute -bottom-1 -right-1 text-[8px] font-bold w-3 h-3 flex items-center justify-center rounded-full text-white ${item.statusCode === 'A' ? 'bg-green-500' : item.statusCode === 'B' ? 'bg-teal-500' : item.statusCode === 'C' ? 'bg-yellow-500' : 'bg-red-500'}`}>
+              <span className={`absolute -bottom-1 -right-1 text-xs font-bold w-3 h-3 flex items-center justify-center rounded-full text-white ${item.statusCode === 'A' ? 'bg-green-500' : item.statusCode === 'B' ? 'bg-teal-500' : item.statusCode === 'C' ? 'bg-yellow-500' : 'bg-red-500'}`}>
                 {item.statusCode}
               </span>
            )}
@@ -1670,7 +1670,7 @@ const FileCardItem = React.memo(({
            getFileIcon(item, "w-12 h-12")
          )}
          {!item.isFolder && item.statusCode && (
-            <span className={`absolute bottom-0 right-0 text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full border border-white text-white ${item.statusCode === 'A' ? 'bg-green-500' : item.statusCode === 'B' ? 'bg-teal-500' : item.statusCode === 'C' ? 'bg-yellow-500' : 'bg-red-500'}`}>
+            <span className={`absolute bottom-0 right-0 text-xs font-bold w-4 h-4 flex items-center justify-center rounded-full border border-white text-white ${item.statusCode === 'A' ? 'bg-green-500' : item.statusCode === 'B' ? 'bg-teal-500' : item.statusCode === 'C' ? 'bg-yellow-500' : 'bg-red-500'}`}>
               {item.statusCode}
             </span>
          )}

@@ -43,4 +43,5 @@ contextBridge.exposeInMainWorld('electron', {
   // Simulated updater and existing helper APIs on window.electron
   simulateCheck: () => ipcRenderer.invoke('updater:simulateCheck'),
   simulateDownload: () => ipcRenderer.invoke('updater:simulateDownload'),
+  openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
 });

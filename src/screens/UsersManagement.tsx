@@ -325,7 +325,7 @@ export default function UsersManagement() {
                       className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-mono"
                       placeholder="Например, 4519"
                     />
-                    <p className="text-[10px] text-slate-400 mt-1 dark:text-slate-500">
+                    <p className="text-xs text-slate-400 mt-1 dark:text-slate-500">
                       Используется как логин для входа. Не может содержать символ @ и должен быть уникальным.
                     </p>
                   </div>

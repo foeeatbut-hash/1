@@ -218,7 +218,7 @@ export default function UpdaterWidget() {
   return (
     <div className="bg-slate-100 dark:bg-slate-900/50 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800/40 text-left font-sans">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Автообновления</span>
+        <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Автообновления</span>
         {status !== 'idle' && (
           <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
         )}
@@ -226,23 +226,23 @@ export default function UpdaterWidget() {
 
       <div className="space-y-2">
         {/* Environment Badge */}
-        <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+        <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-mono">
           <span>Версия ПО:</span>
           <span className="font-bold text-slate-700 dark:text-slate-300">v{currentVersion}</span>
         </div>
-        <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-mono pb-1 border-b border-slate-200/50 dark:border-slate-800/50">
+        <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-mono pb-1 border-b border-slate-200/50 dark:border-slate-800/50">
           <span>Режим:</span>
           {isPackaged ? (
-            <span className="text-emerald-600 dark:text-emerald-400 font-bold uppercase text-[10px]">Установочный (PostgreSQL)</span>
+            <span className="text-emerald-600 dark:text-emerald-400 font-bold uppercase text-xs tracking-wider">Установочный (PostgreSQL)</span>
           ) : (
-            <span className="text-amber-600 dark:text-amber-400 font-bold uppercase text-[10px]">Portable (SQLite)</span>
+            <span className="text-amber-600 dark:text-amber-400 font-bold uppercase text-xs tracking-wider">Portable (SQLite)</span>
           )}
         </div>
 
         {/* Action Controls */}
         {!isPackaged && isElectron ? (
           <div className="text-center py-1 bg-amber-500/10 dark:bg-amber-500/5 border border-amber-500/20 rounded">
-            <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400">Режим изолированной разработки</span>
+            <span className="text-xs font-bold text-amber-600 dark:text-amber-400">Режим изолированной разработки</span>
           </div>
         ) : (
           <>
@@ -265,7 +265,7 @@ export default function UpdaterWidget() {
 
             {status === 'available' && (
               <div className="space-y-2">
-                <div className="text-[11px] text-slate-600 dark:text-slate-300 font-semibold">
+                <div className="text-xs text-slate-600 dark:text-slate-300 font-semibold">
                   Доступно ПО версии <span className="font-extrabold text-emerald-600 dark:text-emerald-400">v{version}</span>
                 </div>
                 <button
@@ -280,7 +280,7 @@ export default function UpdaterWidget() {
 
             {status === 'downloading' && (
               <div className="space-y-1.5 py-1">
-                <div className="flex justify-between text-[11px] font-mono font-bold text-slate-500 dark:text-slate-400">
+                <div className="flex justify-between text-xs font-mono font-bold text-slate-500 dark:text-slate-400">
                   <span>Загрузка...</span>
                   <span>{progress}%</span>
                 </div>
@@ -315,7 +315,7 @@ export default function UpdaterWidget() {
         {isAdmin && (
           <button
             onClick={() => setShowPublishModal(true)}
-            className="w-full mt-1.5 py-1 px-3 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-205 rounded text-[11px] font-bold font-sans transition-all flex items-center justify-center gap-1 cursor-pointer border border-slate-300 dark:border-slate-800"
+            className="w-full mt-1.5 py-1 px-3 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-205 rounded text-xs font-bold font-sans transition-all flex items-center justify-center gap-1 cursor-pointer border border-slate-300 dark:border-slate-800"
           >
             <PlusCircle className="w-3.5 h-3.5 text-emerald-500" />
             <span>Опубликовать релиз</span>
@@ -345,7 +345,7 @@ export default function UpdaterWidget() {
                 </div>
               </div>
 
-              <div className="text-[11px] leading-normal bg-blue-500/10 dark:bg-blue-500/5 p-2.5 rounded border border-blue-500/20 text-slate-700 dark:text-blue-300">
+              <div className="text-xs leading-normal bg-blue-500/10 dark:bg-blue-500/5 p-2.5 rounded border border-blue-500/20 text-slate-700 dark:text-blue-300">
                 Загрузка файла выполняется нативными средствами Node.js напрямую в буфер обмена системного процесса, после чего инсталлятор произведет бесшовное перераспределение пакетов.
               </div>
             </div>
@@ -387,13 +387,13 @@ export default function UpdaterWidget() {
 
             <div className="p-5 flex-1 overflow-y-auto space-y-4">
               {/* Info Notification */}
-              <div className="text-[11px] leading-normal bg-amber-500/10 dark:bg-amber-500/5 p-2.5 rounded border border-amber-500/20 text-yellow-800 dark:text-yellow-300">
+              <div className="text-xs leading-normal bg-amber-500/10 dark:bg-amber-500/5 p-2.5 rounded border border-amber-500/20 text-yellow-800 dark:text-yellow-300">
                 Публикация запишет метаданные и прямую ссылку в PostgreSQL. Пользователи в Установочном режиме мгновенно получат предложение об автоматическом фоновом обновлении.
               </div>
 
               {/* Version input */}
               <div className="space-y-1">
-                <label className="text-[11px] font-mono font-bold text-slate-400 uppercase">Номер релиза (версия semver):</label>
+                <label className="text-xs font-mono font-bold text-slate-400 uppercase">Номер релиза (версия semver):</label>
                 <input
                   type="text"
                   value={pubVersion}
@@ -405,7 +405,7 @@ export default function UpdaterWidget() {
 
               {/* File url */}
               <div className="space-y-1">
-                <label className="text-[11px] font-mono font-bold text-slate-400 uppercase">Прямая ссылка на скачивание (установщик .exe):</label>
+                <label className="text-xs font-mono font-bold text-slate-400 uppercase">Прямая ссылка на скачивание (установщик .exe):</label>
                 <input
                   type="text"
                   value={pubFileUrl}
@@ -417,7 +417,7 @@ export default function UpdaterWidget() {
 
               {/* Changelog area */}
               <div className="space-y-1">
-                <label className="text-[11px] font-mono font-bold text-slate-400 uppercase">Список изменений (Changelog):</label>
+                <label className="text-xs font-mono font-bold text-slate-400 uppercase">Список изменений (Changelog):</label>
                 <textarea
                   rows={4}
                   value={pubChangelog}

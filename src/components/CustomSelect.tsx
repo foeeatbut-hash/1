@@ -119,7 +119,7 @@ export default function CustomSelect({
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         onClick={handleToggle}
-        className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded-xl text-slate-850 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-850/50 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-left min-h-8 font-medium"
+        className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded-xl text-slate-850 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-850/50 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-left min-h-8 font-medium"
       >
         <span className="truncate">
           {selectedOption ? selectedOption.label : placeholder}
@@ -155,7 +155,7 @@ export default function CustomSelect({
                   role="option"
                   aria-selected={isSelected}
                   onClick={() => handleSelectOption(opt.value)}
-                  className={`w-full text-left px-3 py-1.5 my-0.5 text-xs rounded-lg transition-all duration-100 flex items-center justify-between border-none cursor-pointer ${
+                  className={`w-full text-left px-3 py-1.5 my-0.5 text-sm rounded-lg transition-all duration-100 flex items-center justify-between border-none cursor-pointer ${
                     isSelected
                       ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold"
                       : isFocused

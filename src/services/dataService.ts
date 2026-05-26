@@ -148,10 +148,11 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   
   useLogStore.getState().addLog('INFO', 'Network Stack', `[${method}] отправка запроса: ${endpoint}`);
   
-  const headers = {
-    'Content-Type': 'application/json',
-    ...(options?.headers || {}),
-  };
+  const headers: Record<string, string> = {};
+  if (options?.body || method !== 'GET') {
+    headers['Content-Type'] = 'application/json';
+  }
+  Object.assign(headers, options?.headers || {});
 
   const config = {
     ...options,

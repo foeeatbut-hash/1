@@ -1,6 +1,43 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+@theme {
+  --color-dark-bg: #0b0f0d;
+  --color-dark-surface: #141a17;
+  --color-dark-panel: #1d2420;
+  --color-dark-border: #222c26;
+  --color-dark-text-main: #e4e9e6;
+  --color-dark-text-muted: #94a39b;
+
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}
 
 @variant dark (&:where(.dark, .dark *));
+
+html, body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.011em;
+}
+
+.dark {
+  --color-slate-950: #0b0f0d;
+  --color-slate-900: #141a17;
+  --color-slate-850: #1d2420;
+  --color-slate-800: #222c26;
+  --color-slate-705: #222c26;
+  --color-slate-700: #222c26;
+  --color-slate-600: #2d3a32;
+  --color-slate-500: #94a39b;
+  --color-slate-400: #94a39b;
+  --color-slate-350: #94a39b;
+  --color-slate-300: #e4e9e6;
+  --color-slate-200: #222c26;
+  --color-slate-100: #e4e9e6;
+  --color-slate-50: #0b0f0d;
+}
 
 /* Custom scrollbar utility classes */
 .scrollbar-thin::-webkit-scrollbar {
@@ -18,7 +55,7 @@
 }
 
 .dark .scrollbar-thin::-webkit-scrollbar-thumb {
-  background-color: #1e293b;
+  background-color: #2d3a32;
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
@@ -26,5 +63,5 @@
 }
 
 .dark .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background-color: #334155;
+  background-color: #3d4f44;
 }

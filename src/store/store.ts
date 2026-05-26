@@ -28,7 +28,12 @@ interface AppState {
   goBack: () => string | null | undefined;
   goForward: () => string | null | undefined;
   clearHistory: () => void;
+  // Sync Status
+  syncStatus: 'idle' | 'saving' | 'success' | 'error';
+  setSyncStatus: (status: 'idle' | 'saving' | 'success' | 'error') => void;
 }
+
+let syncTimeoutId: any = null;
 
 export const useStore = create<AppState>((set, get) => {
   // Apply initial theme on startup
@@ -136,6 +141,22 @@ export const useStore = create<AppState>((set, get) => {
       }
       return undefined;
     },
-    clearHistory: () => set({ explorerHistory: [null], explorerForward: [] })
+    clearHistory: () => set({ explorerHistory: [null], explorerForward: [] }),
+
+    syncStatus: 'idle',
+    setSyncStatus: (status) => {
+      if (syncTimeoutId) {
+        clearTimeout(syncTimeoutId);
+        syncTimeoutId = null;
+      }
+      
+      set({ syncStatus: status });
+      
+      if (status === 'success') {
+        syncTimeoutId = setTimeout(() => {
+          set({ syncStatus: 'idle' });
+        }, 2000);
+      }
+    }
   };
 });

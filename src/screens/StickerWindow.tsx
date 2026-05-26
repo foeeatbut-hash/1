@@ -107,7 +107,7 @@ export default function StickerWindow() {
     return (
       <div className="w-screen h-screen flex flex-col items-center justify-center bg-rose-950 text-rose-250 p-4 text-center select-none">
         <span className="text-sm font-bold">Стикер не найден</span>
-        <span className="text-[10px] mt-1 opacity-85">Возможно, заметка была удалена.</span>
+        <span className="text-xs mt-1 opacity-85">Возможно, заметка была удалена.</span>
         <button onClick={handleClose} className="mt-4 px-2.5 py-1 bg-rose-800 text-white text-xs rounded transition-all">
           Закрыть
         </button>
@@ -130,14 +130,14 @@ export default function StickerWindow() {
         {/* Status icon / indication */}
         <div className="flex items-center gap-1.5" style={{ WebkitAppRegion: 'no-drag' } as any}>
           <div className="w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse" />
-          <span className="text-[10px] font-mono tracking-wide max-w-[100px] truncate opacity-70 font-bold">
+          <span className="text-xs font-mono tracking-wide max-w-[100px] truncate opacity-70 font-bold">
             {note.title || 'Стикер'}
           </span>
           {saveStatus === 'saving' && (
             <RefreshCw className="w-2.5 h-2.5 animate-spin text-indigo-600 dark:text-indigo-400" />
           )}
           {saveStatus === 'saved' && (
-            <div className="text-[9px] font-mono text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
+            <div className="text-xs font-mono text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
               <Check className="w-2.5 h-2.5" />
               <span>Sync</span>
             </div>
