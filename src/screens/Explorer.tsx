@@ -65,6 +65,7 @@ export default function Explorer() {
 
   // Context Menu
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, targetId?: string, isFile?: boolean, isContainer?: boolean } | null>(null);
+  const [hoveredEquipment, setHoveredEquipment] = useState(false);
 
   // Clipboard (for Copy/Paste within app)
   const [clipboard, setClipboard] = useState<{ ids: string[], type: 'copy' | 'cut' } | null>(null);
@@ -116,6 +117,36 @@ export default function Explorer() {
       setProjectTags([]);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleImportToCategory = async (category: string) => {
+    setContextMenu(null);
+    setHoveredEquipment(false);
+    const fileId = contextMenu?.targetId;
+    const projectId = activeProject?.id || 'default';
+    if (!fileId) return;
+
+    try {
+      addToast("Выполняется распределение файла в оборудование...", 'info');
+      const res = await fetch('/api/equipment/import-to-category', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId, category, projectId })
+      });
+      const parsed = await res.json();
+      if (!res.ok) throw new Error(parsed.error || 'Ошибка при импорте');
+      
+      if (parsed.conflictsCount && parsed.conflictsCount > 0) {
+        addToast(`Файл успешно распределен. Найдено конфликтов характеристик: ${parsed.conflictsCount}. Перейдите в Оборудование для их разрешения.`, 'error', () => {
+          navigate('/equipment');
+        });
+      } else {
+        addToast("Оборудование успешно перенесено и распределено по категориям!", 'success');
+      }
+      fetchData();
+    } catch (err: any) {
+      addToast(`Не удалось распределить оборудование: ${err.message}`, 'error');
     }
   };
 
@@ -1188,6 +1219,35 @@ export default function Explorer() {
                   <MenuItem icon={<Download />} label="Скачать" onClick={() => { handleDownload(contextMenu.targetId!, false); setContextMenu(null); }} />
                   <MenuItem icon={<Tag />} label="Назначить теги..." onClick={() => { handleAssignTag(contextMenu.targetId!); setContextMenu(null); }} />
                   <MenuItem icon={<Shield />} label="Назначить отдел..." onClick={() => { handleAssignDepartment(contextMenu.targetId!); setContextMenu(null); }} />
+                  
+                  <div 
+                    onMouseEnter={() => setHoveredEquipment(true)}
+                    onMouseLeave={() => setHoveredEquipment(false)}
+                    className="relative"
+                  >
+                    <button 
+                      className="w-full flex items-center justify-between px-6 py-1.5 hover:bg-[#91C9F7] dark:hover:bg-dark-surface/80 transition-colors text-slate-800 dark:text-dark-text-main focus:outline-none cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Plus className="w-4 h-4 text-slate-600 dark:text-dark-text-muted" />
+                        <span>Добавить в оборудование...</span>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-500" />
+                    </button>
+                    
+                    {hoveredEquipment && (
+                      <div 
+                        className="absolute left-full top-0 ml-1 z-50 bg-[#F2F2F2] dark:bg-dark-panel border border-slate-300 dark:border-dark-border shadow-md py-1 min-w-[220px] text-xs text-slate-800 dark:text-dark-text-main rounded-lg"
+                        onMouseEnter={() => setHoveredEquipment(true)}
+                        onMouseLeave={() => setHoveredEquipment(false)}
+                      >
+                        <MenuItem icon={<span>🏢</span>} label="Центральные кондиционеры" onClick={() => handleImportToCategory('AHU')} />
+                        <MenuItem icon={<span>🌀</span>} label="Радиальные вентиляторы" onClick={() => handleImportToCategory('FAN')} />
+                        <MenuItem icon={<span>🚪</span>} label="Воздушные клапаны" onClick={() => handleImportToCategory('VALVE')} />
+                        <MenuItem icon={<span>🌬️</span>} label="Воздушные завесы" onClick={() => handleImportToCategory('CURTAIN')} />
+                      </div>
+                    )}
+                  </div>
                 </>
               )}
               <div className="h-px bg-slate-300 dark:bg-dark-border my-1 mx-2" />

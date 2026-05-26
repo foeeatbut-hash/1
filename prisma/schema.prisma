@@ -138,6 +138,7 @@ model EquipmentSystem {
   id            String          @id @default(uuid())
   name          String          // e.g. "у1"
   projectId     String
+  category      String          @default("AHU") // Возможные значения: "AHU", "FAN", "VALVE", "CURTAIN"
   fileName      String?         // Added to keep different imported files separate
   project       Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   monoblocks    Monoblock[]
