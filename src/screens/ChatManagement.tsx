@@ -533,7 +533,7 @@ export default function ChatManagement() {
   };
 
   return (
-    <div className="h-[calc(100vh-120px)] flex bg-white dark:bg-slate-900 rounded-xl overflow-hidden shadow-xs border border-slate-200 dark:border-slate-800 transition-colors">
+    <div className="h-full flex bg-white dark:bg-slate-900 rounded-xl overflow-hidden shadow-xs border border-slate-200 dark:border-slate-800 transition-colors">
       
       {/* LEFT PANEL: Users List & Automated Project Rooms */}
       <div className="w-80 flex flex-col border-r border-slate-200 dark:border-slate-800 shrink-0 bg-slate-50/55 dark:bg-slate-900/40 select-none">
@@ -696,9 +696,6 @@ export default function ChatManagement() {
               {messages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center p-6 text-center select-none">
                   <MessageSquare className="w-8 h-8 text-slate-300 dark:text-slate-700 mb-2 animate-bounce" />
-                  <p className="text-xs font-semibold text-slate-400">
-                    Начало диалога в канале
-                  </p>
                   <p className="text-[11px] text-slate-400 mt-1 max-w-xs">
                     Напечатайте текст с инженерными тегами вида <span className="font-mono text-indigo-500 font-bold">#бл2.1</span> или привяжите спецификацию
                   </p>

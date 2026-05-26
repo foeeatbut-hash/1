@@ -288,7 +288,7 @@ export default function Layout() {
             <span className="text-xs font-bold font-sans">Меню</span>
           </button>
         )}
-        <div className={`flex-1 flex flex-col min-h-0 ${location.pathname === '/registry' ? 'overflow-hidden h-full' : 'overflow-y-auto'} ${isSidebarCollapsed ? 'pt-16 p-6' : 'p-6'}`}>
+        <div className={`flex-1 flex flex-col min-h-0 ${location.pathname === '/registry' || location.pathname === '/chat' || location.pathname === '/directory' ? 'overflow-hidden h-full' : 'overflow-y-auto'} ${isSidebarCollapsed ? 'pt-16 p-6' : 'p-6'}`}>
           <Outlet />
         </div>
       </main>

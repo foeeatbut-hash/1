@@ -188,7 +188,7 @@ export default function UniversalGenerator() {
       <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-6 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm transition-colors">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Рабочее место инженера</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Генерация тегов оборудования и материалов.</p>
+          {/* Removed heading description as requested */}
         </div>
         <button 
           onClick={() => setIsSetupMode(!isSetupMode)}
@@ -328,9 +328,7 @@ export default function UniversalGenerator() {
           <div className="bg-slate-900 rounded-xl shadow-lg p-8 pl-10 text-white relative overflow-hidden flex flex-col justify-center min-h-[220px]">
             <div className="absolute top-0 left-0 w-2 h-full bg-gradient-to-b from-emerald-500 to-teal-400"></div>
             
-            <p className="text-slate-400 text-sm font-bold uppercase tracking-widest mb-4 flex items-center gap-2">
-              <Database className="w-4 h-4" /> Предварительный просмотр
-            </p>
+            {/* Removed label as requested */}
             
             <div className="text-4xl md:text-5xl font-mono tracking-tight font-bold break-all text-emerald-400 drop-shadow-md">
               {generatePreview() || <span className="opacity-20 text-slate-500">FORMAT_EMPTY</span>}
