@@ -403,83 +403,280 @@ app.whenReady().then(() => {
     console.warn('[Electron Main] Prisma chat IPC handlers initialization skipped:', chatErr);
   }
 
-  // STAGE 4: Auto-updater setup wrapped strictly inside isPackaged check
-  if (app.isPackaged) {
-    try {
-      // Lazy load electron-updater to prevent crashing in dev environments where it isn't installed
-      const { autoUpdater } = require('electron-updater');
-      
-      autoUpdater.logger = console;
-      autoUpdater.checkForUpdatesAndNotify();
+  // Real auto-updater implementation
+  let latestCachedUpdate: { version: string; fileUrl: string; changelog: string } | null = null;
 
-      autoUpdater.on('checking-for-update', () => {
-        mainWindow?.webContents.send('updater:status', 'checking');
-      });
-
-      autoUpdater.on('update-available', (info: any) => {
-        mainWindow?.webContents.send('updater:status', 'available', {
-          version: info.version,
-          releaseNotes: info.releaseNotes || 'Повышена общая производительность систем.'
-        });
-      });
-
-      autoUpdater.on('download-progress', (progress: any) => {
-        mainWindow?.webContents.send('updater:status', 'downloading', {
-          percent: progress.percent
-        });
-      });
-
-      autoUpdater.on('update-downloaded', (info: any) => {
-        mainWindow?.webContents.send('updater:status', 'downloaded', {
-          version: info.version
-        });
-      });
-
-      autoUpdater.on('error', (err: any) => {
-        console.error('Updater error:', err);
-        mainWindow?.webContents.send('updater:error', err.message);
-      });
-
-      ipcMain.handle('updater:quitAndInstall', () => {
-        autoUpdater.quitAndInstall();
-      });
-    } catch (err) {
-      console.error('Failed to initialize electron-updater:', err);
+  function isNewerVersion(latest: string, current: string): boolean {
+    const latestParts = latest.split('.').map(Number);
+    const currentParts = current.split('.').map(Number);
+    for (let i = 0; i < Math.max(latestParts.length, currentParts.length); i++) {
+      const l = latestParts[i] || 0;
+      const c = currentParts[i] || 0;
+      if (l > c) return true;
+      if (l < c) return false;
     }
-  } else {
-    // Isolated / LOCAL Simulation for Developer Preview
-    console.log('[LOCAL Mode] Simulating electron-updater triggers.');
-    
-    // Simulate check, update found, download loop after some boots
-    ipcMain.handle('updater:simulateCheck', () => {
-      mainWindow?.webContents.send('updater:status', 'checking');
-      
-      setTimeout(() => {
-        mainWindow?.webContents.send('updater:status', 'available', {
-          version: '1.2.0',
-          releaseNotes: '### PDM Sync v1.2.0\n\n- Добавлен высокоскоростной конвейер Socket.io\n- Реализация конфликтов specs тегов\n- Повышение отказоустойчивости СУБД SQLite/PostgreSQL\n- Логирование версий и обновлений'
-        });
-      }, 1500);
-    });
+    return false;
+  }
 
-    ipcMain.handle('updater:simulateDownload', () => {
-      let percent = 0;
-      const interval = setInterval(() => {
-        percent += 20;
-        mainWindow?.webContents.send('updater:status', 'downloading', { percent });
-        if (percent >= 100) {
-          clearInterval(interval);
-          mainWindow?.webContents.send('updater:status', 'downloaded', { version: '1.2.0' });
+  function downloadUpdate(url: string, dest: string, onProgress: (percent: number) => void): Promise<void> {
+    const fs = require('fs');
+    const https = require('https');
+    const http = require('http');
+    const urlModule = require('url');
+
+    return new Promise((resolve, reject) => {
+      let redirectCount = 0;
+
+      function startGet(requestUrl: string) {
+        let parsedUrl;
+        try {
+          parsedUrl = urlModule.parse(requestUrl);
+        } catch (e) {
+          reject(new Error(`Invalid download URL: ${requestUrl}`));
+          return;
         }
-      }, 800);
-    });
+        
+        const protocol = parsedUrl.protocol === 'https:' ? https : http;
 
-    ipcMain.handle('updater:quitAndInstall', () => {
-      console.log('[LOCAL Mode] Simulate relaunch / quitAndInstall.');
-      app.relaunch();
-      app.exit(0);
+        const req = protocol.get(requestUrl, (res: any) => {
+          // Handle redirect (3xx codes)
+          if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            if (redirectCount > 5) {
+              reject(new Error('Prevail redirect limit of 5'));
+              return;
+            }
+            redirectCount++;
+            let nextUrl = res.headers.location;
+            if (!nextUrl.startsWith('http')) {
+              nextUrl = urlModule.resolve(requestUrl, nextUrl);
+            }
+            startGet(nextUrl);
+            return;
+          }
+
+          if (res.statusCode !== 200) {
+            reject(new Error(`Server responded with status code ${res.statusCode}`));
+            return;
+          }
+
+          const totalLength = parseInt(res.headers['content-length'] || '0', 10);
+          let downloadedLength = 0;
+          const fileStream = fs.createWriteStream(dest);
+
+          res.on('data', (chunk: any) => {
+            downloadedLength += chunk.length;
+            if (totalLength > 0) {
+              const percent = Math.min(100, Math.round((downloadedLength / totalLength) * 100));
+              onProgress(percent);
+            }
+          });
+
+          res.pipe(fileStream);
+
+          fileStream.on('finish', () => {
+            fileStream.close();
+            resolve();
+          });
+
+          fileStream.on('error', (err: any) => {
+            fs.unlink(dest, () => {});
+            reject(err);
+          });
+        });
+
+        req.on('error', (err: any) => {
+          reject(err);
+        });
+      }
+
+      startGet(url);
     });
   }
+
+  // Check version and DB app update
+  ipcMain.handle('updater:check', async () => {
+    try {
+      if (!app.isPackaged) {
+        console.log('[Updater] Portable/Dev mode check: Auto-updates are offline.');
+        return { available: false, isDevelopment: true, version: app.getVersion() || '1.0.0-dev' };
+      }
+
+      console.log('[Updater] Production: Checking PostgreSQL databases for update records...');
+      const { PrismaClient } = require('@prisma/client');
+      const prismaInstance = new PrismaClient({
+        datasources: {
+          db: {
+            url: process.env.DATABASE_URL || "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public"
+          }
+        }
+      });
+
+      const dbUpdate = await prismaInstance.appUpdate.findFirst({
+        orderBy: { createdAt: 'desc' }
+      });
+
+      await prismaInstance.$disconnect();
+
+      if (!dbUpdate) {
+        console.log('[Updater] No update packages found in the remote database.');
+        return { available: false, version: app.getVersion() || '1.0.0' };
+      }
+
+      const currentVer = app.getVersion() || '1.0.0';
+      const newestAvailable = isNewerVersion(dbUpdate.version, currentVer);
+
+      console.log(`[Updater] Current version: ${currentVer}. Latest in DB: ${dbUpdate.version}. Update available: ${newestAvailable}`);
+
+      if (newestAvailable) {
+        latestCachedUpdate = {
+          version: dbUpdate.version,
+          changelog: dbUpdate.changelog,
+          fileUrl: dbUpdate.fileUrl
+        };
+        return {
+          available: true,
+          version: dbUpdate.version,
+          changelog: dbUpdate.changelog,
+          fileUrl: dbUpdate.fileUrl,
+          isDevelopment: false
+        };
+      }
+
+      return { available: false, version: currentVer, isDevelopment: false };
+    } catch (err: any) {
+      console.error('[Updater Check Error]', err);
+      return { available: false, error: err.message, isDevelopment: false };
+    }
+  });
+
+  // Download update file in background
+  ipcMain.handle('updater:start-download', async () => {
+    const fs = require('fs');
+    const path = require('path');
+
+    if (!latestCachedUpdate) {
+      throw new Error('No update package metainformation is cached. Ensure updater:check was completed.');
+    }
+
+    try {
+      const installerPath = path.join(app.getPath('temp'), `update-${latestCachedUpdate.version}.exe`);
+      console.log(`[Updater] Starting download: ${latestCachedUpdate.fileUrl} -> ${installerPath}`);
+
+      mainWindow?.webContents.send('updater:status', 'downloading', { percent: 0 });
+
+      let lastPercent = -1;
+      await downloadUpdate(latestCachedUpdate.fileUrl, installerPath, (percent) => {
+        if (percent !== lastPercent) {
+          lastPercent = percent;
+          mainWindow?.webContents.send('updater:status', 'downloading', { percent });
+        }
+      });
+
+      console.log('[Updater] Download completed successfully on disk.');
+      mainWindow?.webContents.send('updater:status', 'downloaded', { version: latestCachedUpdate.version });
+      return { success: true };
+    } catch (err: any) {
+      console.error('[Updater Download Error]', err);
+      mainWindow?.webContents.send('updater:error', err.message);
+      throw err;
+    }
+  });
+
+  // Hot seamless quit & reinstall
+  ipcMain.handle('updater:quitAndInstall', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const { spawn } = require('child_process');
+
+    if (!latestCachedUpdate) {
+      console.error('[Updater] No downloaded update package info cached.');
+      return { success: false, error: 'Информация по пакету обновлений отсутствует.' };
+    }
+
+    const installerPath = path.join(app.getPath('temp'), `update-${latestCachedUpdate.version}.exe`);
+
+    if (!fs.existsSync(installerPath)) {
+      console.error(`[Updater] Installer file does not exist at: ${installerPath}`);
+      return { success: false, error: 'Файл установщика не найден на системном накопителе.' };
+    }
+
+    try {
+      console.log(`[Updater] Spawning silent automatic installer reinstall: "${installerPath}" /S`);
+
+      // Spawn installer with silent /S flag
+      const child = spawn(installerPath, ['/S'], {
+        detached: true,
+        stdio: 'ignore',
+        shell: true
+      });
+      child.unref();
+
+      console.log('[Updater] Exiting main electron application window context to allow overwrite...');
+      app.exit(0);
+      return { success: true };
+    } catch (err: any) {
+      console.error('[Updater Launch Error]', err);
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Get app package status or information
+  ipcMain.handle('updater:is-packaged', () => {
+    return app.isPackaged;
+  });
+
+  ipcMain.handle('updater:version', () => {
+    return app.getVersion() || '1.0.0';
+  });
+
+  // Admin publish release action
+  ipcMain.handle('updater:publish-release', async (event, { version, changelog, fileUrl }) => {
+    try {
+      const { PrismaClient } = require('@prisma/client');
+      const prismaInstance = new PrismaClient({
+        datasources: {
+          db: {
+            url: process.env.DATABASE_URL || "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public"
+          }
+        }
+      });
+
+      const update = await prismaInstance.appUpdate.upsert({
+        where: { version },
+        update: { changelog, fileUrl },
+        create: { version, changelog, fileUrl }
+      });
+
+      await prismaInstance.$disconnect();
+      return { success: true, update };
+    } catch (err: any) {
+      console.error('[Updater Publish Error]', err);
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Maintain outdated mock simulations fallback
+  ipcMain.handle('updater:simulateCheck', () => {
+    mainWindow?.webContents.send('updater:status', 'checking');
+    setTimeout(() => {
+      mainWindow?.webContents.send('updater:status', 'available', {
+        version: '1.2.0',
+        releaseNotes: '### PDM Sync v1.2.0\n\n- Добавлен высокоскоростной конвейер Socket.io\n- Реализация конфликтов specs тегов\n- Повышение стабильности'
+      });
+    }, 1000);
+  });
+
+  ipcMain.handle('updater:simulateDownload', () => {
+    let percent = 0;
+    const interval = setInterval(() => {
+      percent += 20;
+      mainWindow?.webContents.send('updater:status', 'downloading', { percent });
+      if (percent >= 100) {
+        clearInterval(interval);
+        mainWindow?.webContents.send('updater:status', 'downloaded', { version: '1.2.0' });
+      }
+    }, 500);
+  });
 
   // --- STICKER SUB-WINDOW PROVISIONING (STEP 4) ---
   ipcMain.on('window:open-sticker', (event, noteId) => {

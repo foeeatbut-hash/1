@@ -239,3 +239,12 @@ model ChatAttachment {
   fileSize  Int         @default(0)
 }
 
+model AppUpdate {
+  id        String   @id @default(uuid())
+  version   String   @unique
+  changelog String
+  fileUrl   String
+  createdAt DateTime @default(now())
+}
+
+
