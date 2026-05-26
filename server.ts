@@ -163,6 +163,7 @@ app.post('/api/db/save', async (req: Request, res: Response) => {
     return res.status(400).json({ success: false, message: 'Путь к базе данных не указан!' });
   }
   
+  const oldPrisma = prisma;
   try {
     const resolvedPath = path.resolve(databasePath);
     const parentDir = path.dirname(resolvedPath);
@@ -170,53 +171,64 @@ app.post('/api/db/save', async (req: Request, res: Response) => {
       fs.mkdirSync(parentDir, { recursive: true });
     }
     
-    // 1. Disconnect previous prisma client
-    await prisma.$disconnect();
-    
-    // 2. Instantiate new Prisma Client
-    prisma = new PrismaClient({
-      datasources: {
-        db: {
-          url: `file:${resolvedPath}?connection_limit=1&busy_timeout=15000`
-        }
+    // 1. Disconnect previous prisma client with maximum safety
+    try {
+      if (oldPrisma) {
+        console.log('[DB Setup] Disconnecting previous Prisma Client...');
+        await oldPrisma.$disconnect();
       }
-    });
+    } catch (discErr: any) {
+      console.warn('[DB Setup] SQLite WAL file lock or active transactions might still exist:', discErr.message || discErr);
+    }
+
+    // 2. Clear template copying & dynamic schema propagation
+    const templatePath = path.join(process.cwd(), 'prisma/prisma/database.sqlite');
+    const targetFileExists = fs.existsSync(resolvedPath);
+    if (!targetFileExists) {
+      console.log(`[DB Setup] SQLite file does not exist at ${resolvedPath}. Copying schema template from ${templatePath}...`);
+      if (fs.existsSync(templatePath)) {
+        try {
+          fs.copyFileSync(templatePath, resolvedPath);
+          console.log('[DB Setup] SQLite database file successfully initialized from template.');
+        } catch (copyErr: any) {
+          console.error('[DB Setup] Failed to copy SQLite template database:', copyErr);
+          fs.writeFileSync(resolvedPath, '');
+        }
+      } else {
+        console.warn(`[DB Setup] SQLite template not found at ${templatePath}. Creating an empty file.`);
+        fs.writeFileSync(resolvedPath, '');
+      }
+    } else {
+      console.log(`[DB Setup] SQLite file already exists at ${resolvedPath}.`);
+    }
     
-    // 3. Save JSON configuration
+    // 3. Instantiate new Prisma Client
+    try {
+      prisma = new PrismaClient({
+        datasources: {
+          db: {
+            url: `file:${resolvedPath}?connection_limit=1&busy_timeout=15000`
+          }
+        }
+      });
+      // Programmatically check and ensure WAL/Synchronous modes are set correctly
+      await prisma.$executeRawUnsafe('PRAGMA journal_mode=WAL;');
+      await prisma.$executeRawUnsafe('PRAGMA synchronous=NORMAL;');
+    } catch (connErr: any) {
+      console.error('[DB Setup] Failed to establish stable connection on new database. Restoring old client...', connErr);
+      prisma = oldPrisma;
+      return res.status(500).json({
+        success: false,
+        message: `Не удалось стабильно инициализировать новую БД: ${connErr.message}`
+      });
+    }
+    
+    // 4. Save JSON configuration
     const newConfig = {
       databasePath: resolvedPath,
       isConfigured: true
     };
     saveDbConfig(newConfig);
-    
-    // 4. Exec prisma db push
-    console.log(`[DB Setup] Running schema sync on: ${resolvedPath}`);
-    const dbUrl = `file:${resolvedPath}?connection_limit=1&busy_timeout=15000`;
-    
-    await new Promise<void>((resolve, reject) => {
-      exec('npx prisma db push --skip-generate', {
-        env: {
-          ...process.env,
-          DATABASE_URL: dbUrl
-        }
-      }, (err, stdout, stderr) => {
-        if (err) {
-          console.error('[DB Setup] Schema sync error during dynamic override:', stderr || err.message);
-          resolve(); // Resolve because database structure might already be in place or we will check table counts
-        } else {
-          console.log('[DB Setup] Schema sync successfully pushed:', stdout);
-          resolve();
-        }
-      });
-    });
-    
-    // Enable WAL mode programmatically on the newly configured DB to prevent locking database exceptions
-    try {
-      await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL;');
-      await prisma.$queryRawUnsafe('PRAGMA synchronous=NORMAL;');
-    } catch (walErr) {
-      console.warn('[DB Setup] WAL initialization skipped:', walErr);
-    }
     
     // 5. Query and auto-seed if empty
     let seedMessage = '';
@@ -252,6 +264,7 @@ app.post('/api/db/save', async (req: Request, res: Response) => {
     
   } catch (err: any) {
     console.error('[DB Setup] Error during live switchover:', err);
+    prisma = oldPrisma;
     res.status(500).json({
       success: false,
       message: `Ошибка при подключении/инициализации: ${err.message}`
@@ -1167,17 +1180,19 @@ app.post('/api/chat/upload', async (req: Request, res: Response) => {
       fs.mkdirSync(chatFilesDir, { recursive: true });
     }
 
-    const filePath = path.join(chatFilesDir, fileName);
+    // Sanitizing fileName to prevent Path Traversal
+    const sanitizedFileName = path.basename(String(fileName)).replace(/[\/\\]/g, '');
+    const filePath = path.join(chatFilesDir, sanitizedFileName);
     const buffer = Buffer.from(base64Data, 'base64');
     fs.writeFileSync(filePath, buffer);
 
     // Provide a web-accessible relative path (download URL)
-    const relativeUrl = `/chat_files/${encodeURIComponent(fileName)}`;
+    const relativeUrl = `/chat_files/${encodeURIComponent(sanitizedFileName)}`;
 
     res.json({
       success: true,
       filePath: relativeUrl, // This path can be fetched via HTTP in web mode, and is perfect for production/local mode!
-      fileName,
+      fileName: sanitizedFileName,
       fileSize: buffer.length
     });
   } catch (err: any) {

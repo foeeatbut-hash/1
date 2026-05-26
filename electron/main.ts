@@ -28,12 +28,42 @@ app.whenReady().then(() => {
   process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public";
 
   try {
-    const { PrismaClient } = require('@prisma/client');
-    const localPrisma = new PrismaClient();
+    const ispg = app.isPackaged;
+    const { PrismaClient } = ispg ? require('@prisma/client-pg') : require('@prisma/client');
+    
+    let dbUrl = process.env.DATABASE_URL;
+    if (!ispg) {
+      const fs = require('fs');
+      const path = require('path');
+      let sqlitePath = path.join(process.cwd(), 'prisma/prisma/database.sqlite');
+      const DB_CONFIG_FILE = path.join(process.cwd(), 'db-config.json');
+      try {
+        if (fs.existsSync(DB_CONFIG_FILE)) {
+          const content = fs.readFileSync(DB_CONFIG_FILE, 'utf-8');
+          const parsed = JSON.parse(content);
+          if (parsed && typeof parsed.databasePath === 'string') {
+            sqlitePath = parsed.databasePath;
+          }
+        }
+      } catch (e) {}
+      dbUrl = `file:${sqlitePath}?connection_limit=1&busy_timeout=15000`;
+    }
+
+    const localPrisma = new PrismaClient({
+      datasources: {
+        db: {
+          url: dbUrl
+        }
+      }
+    });
     
     // PostgreSQL database connection check & safe Auto-Seed
     (async () => {
       try {
+        if (!app.isPackaged) {
+          console.log('[Electron Main] Portable SQLite mode: Startup connection check skipped in Main process.');
+          return;
+        }
         console.log('[Electron Main] Connecting to PostgreSQL and checking users...');
         const count = await localPrisma.user.count();
         if (count === 0) {
@@ -52,7 +82,9 @@ app.whenReady().then(() => {
       } catch (err: any) {
         console.warn('[Electron Main] Connection/seeding skipped or failed:', err);
       } finally {
-        await localPrisma.$disconnect();
+        try {
+          await localPrisma.$disconnect();
+        } catch (disErr) {}
       }
     })();
   } catch (dbErr) {
@@ -133,8 +165,60 @@ app.whenReady().then(() => {
 
   // --- CHAT IPC HANDLERS ---
   try {
-    const { PrismaClient } = require('@prisma/client');
-    const chatPrisma = new PrismaClient();
+    let chatPrismaInstance: any = null;
+    let lastLoadedDbUrl: string | null = null;
+
+    const getChatPrisma = () => {
+      const ispg = app.isPackaged;
+      
+      let dbUrl = process.env.DATABASE_URL;
+      if (!ispg) {
+        const fs = require('fs');
+        const path = require('path');
+        let sqlitePath = path.join(process.cwd(), 'prisma/prisma/database.sqlite');
+        const DB_CONFIG_FILE = path.join(process.cwd(), 'db-config.json');
+        try {
+          if (fs.existsSync(DB_CONFIG_FILE)) {
+            const content = fs.readFileSync(DB_CONFIG_FILE, 'utf-8');
+            const parsed = JSON.parse(content);
+            if (parsed && typeof parsed.databasePath === 'string') {
+              sqlitePath = parsed.databasePath;
+            }
+          }
+        } catch (e) {}
+        dbUrl = `file:${sqlitePath}?connection_limit=1&busy_timeout=15000`;
+      }
+
+      if (!chatPrismaInstance || lastLoadedDbUrl !== dbUrl) {
+        if (chatPrismaInstance) {
+          try {
+            chatPrismaInstance.$disconnect();
+          } catch (e) {}
+        }
+        
+        const { PrismaClient } = ispg ? require('@prisma/client-pg') : require('@prisma/client');
+        chatPrismaInstance = new PrismaClient({
+          datasources: {
+            db: {
+              url: dbUrl
+            }
+          }
+        });
+        lastLoadedDbUrl = dbUrl;
+      }
+      return chatPrismaInstance;
+    };
+
+    const chatPrisma = new Proxy({}, {
+      get(target, prop) {
+        const client = getChatPrisma();
+        const value = client[prop];
+        if (typeof value === 'function') {
+          return value.bind(client);
+        }
+        return value;
+      }
+    }) as any;
 
     ipcMain.handle('chat:get-messages', async (event, { senderId, receiverId }) => {
       return await chatPrisma.chatMessage.findMany({
@@ -197,10 +281,12 @@ app.whenReady().then(() => {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      const localPath = path.join(dir, fileName);
+      // Sanitizing fileName to prevent Path Traversal
+      const sanitizedFileName = path.basename(fileName).replace(/[\/\\]/g, '');
+      const localPath = path.join(dir, sanitizedFileName);
       const buffer = Buffer.from(base64Data, 'base64');
       fs.writeFileSync(localPath, buffer);
-      return { filePath: localPath, fileName, fileSize: buffer.length };
+      return { filePath: localPath, fileName: sanitizedFileName, fileSize: buffer.length };
     });
 
     ipcMain.handle('chat:open-file', async (event, filePath) => {
