@@ -714,7 +714,7 @@ export default function Explorer() {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
       transition={{ duration: 0.2 }}
-      className="h-full flex flex-col bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-850 rounded-xl shadow-xs overflow-hidden text-sm transition-all" 
+      className="h-full flex flex-col bg-white dark:bg-dark-bg border border-slate-205 dark:border-dark-border rounded-xl shadow-xs overflow-hidden text-sm transition-all" 
       onClick={() => setSelectedIds(new Set())}
     >
       
@@ -771,71 +771,75 @@ export default function Explorer() {
                const confirmed = await openConfirm("Удаление", 'Удалить выбранные элементы?');
                if (confirmed) {
                  selectedIds.forEach(id => {
-                   const item = allCurrentItems.find(i => i.id === id);
-                   if (item) handleDelete(id, !item.isFolder);
-                 });
-               }
-             }} disabled={selectedIds.size === 0} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-705 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
+                    const item = allCurrentItems.find(i => i.id === id);
+                    if (item) handleDelete(id, !item.isFolder);
+                  });
+                  setSelectedIds(new Set());
+                }
+              }} disabled={selectedIds.size === 0} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-705 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
                 <Trash2 className="w-5 h-5 text-red-500 shrink-0 mb-0.5" />
                 <span className="whitespace-pre-line">Удалить</span>
-             </button>
-           </div>
+              </button>
+            </div>
 
-           {/* Right aligned tools */}
-           <div className="ml-auto flex items-center">
-             <div className="flex border border-slate-300 dark:border-slate-800 rounded-lg overflow-hidden mr-4 bg-white dark:bg-slate-950">
-               <button onClick={() => setViewMode('list')} className={`p-1.5 cursor-pointer ${viewMode === 'list' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'bg-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850'}`} title="Списком">
+            {/* Right-aligned tools restored */}
+                            {/* Right aligned tools */}
+           <div className="ml-auto flex items-center pr-2">
+             <div className="flex border border-slate-300 dark:border-dark-border rounded-lg overflow-hidden mr-4 bg-white dark:bg-dark-panel">
+               <button onClick={() => setViewMode('list')} className={`p-1.5 cursor-pointer ${viewMode === 'list' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'bg-transparent text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-surface'}`} title="Списком">
                  <List className="w-4 h-4" />
                </button>
-               <button onClick={() => setViewMode('grid')} className={`p-1.5 cursor-pointer ${viewMode === 'grid' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'bg-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850'}`} title="Сеткой">
+               <button onClick={() => setViewMode('grid')} className={`p-1.5 cursor-pointer ${viewMode === 'grid' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'bg-transparent text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-surface'}`} title="Сеткой">
                  <LayoutGrid className="w-4 h-4" />
                </button>
              </div>
              
-             <button onClick={() => setShowPreviewPane(!showPreviewPane)} className={`flex flex-col items-center justify-start pt-1.5 pb-1 px-1 rounded-lg w-[84px] h-[64px] shrink-0 text-xs text-slate-705 dark:text-slate-300 text-center leading-[1.15] cursor-pointer ${showPreviewPane ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-750' : 'bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805'}`}>
-               <PanelRight className="w-5 h-5 text-slate-600 shrink-0 mb-0.5" />
+             <button onClick={() => setShowPreviewPane(!showPreviewPane)} className={`flex flex-col items-center justify-start pt-1.5 pb-1 px-1 rounded-lg w-[84px] h-[64px] shrink-0 text-xs text-slate-705 dark:text-dark-text-main text-center leading-[1.15] cursor-pointer ${showPreviewPane ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-750' : 'bg-transparent hover:bg-slate-202 dark:hover:bg-dark-panel'}`}>
+               <PanelRight className="w-5 h-5 text-slate-600 dark:text-dark-text-muted shrink-0 mb-0.5" />
                <span className="whitespace-pre-line">Превью</span>
              </button>
            </div>
         </div>
-
+ 
         {/* Address Bar Row */}
-        <div className="flex items-center gap-2 px-2 py-1.5 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
-          <div className="flex items-center gap-1 mr-2 text-slate-500 dark:text-slate-400">
-            <button onClick={() => goBack()} disabled={explorerHistory.length <= 1} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-850 rounded text-slate-700 dark:text-slate-300 disabled:opacity-30 cursor-pointer">
+        <div className="flex items-center gap-2 px-2 py-1.5 border-b border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface">
+          <div className="flex items-center gap-1 mr-2 text-slate-500 dark:text-dark-text-muted">
+            <button onClick={() => goBack()} disabled={explorerHistory.length <= 1} className="p-1.5 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-700 dark:text-dark-text-main disabled:opacity-30 cursor-pointer">
               <ArrowLeft className="w-4 h-4" />
             </button>
-            <button onClick={() => goForward()} disabled={explorerForward.length === 0} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-850 rounded text-slate-700 dark:text-slate-300 disabled:opacity-30 cursor-pointer">
+            <button onClick={() => goForward()} disabled={explorerForward.length === 0} className="p-1.5 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-700 dark:text-dark-text-main disabled:opacity-30 cursor-pointer">
               <ArrowRight className="w-4 h-4" />
             </button>
-            <button onClick={handleNavigateUp} disabled={!currentFolderId} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-850 rounded text-slate-700 dark:text-slate-300 disabled:opacity-30 cursor-pointer">
+            <button onClick={handleNavigateUp} disabled={!currentFolderId} className="p-1.5 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-700 dark:text-dark-text-main disabled:opacity-30 cursor-pointer">
               <ArrowUp className="w-4 h-4" />
             </button>
           </div>
-
-          <div className="flex-1 flex items-center bg-white dark:bg-slate-900 border border-slate-250 dark:border-slate-800 px-2 py-1 rounded-md flex-wrap gap-1 hover:border-emerald-405 transition-colors">
-            <Folder className="w-4 h-4 text-yellow-550 mr-2" />
-            <span className="cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-250 px-1.5 py-0.5 rounded hover:underline" onClick={() => navigateTo(null)}>{activeProject?.name || 'Общий проводник'}</span>
+ 
+          <div className="flex-1 flex items-center bg-white dark:bg-dark-panel border border-slate-250 dark:border-dark-border px-2 py-1 rounded-md flex-wrap gap-1 hover:border-emerald-405 transition-colors">
+            <Folder className="w-4 h-4 text-yellow-555 mr-2" />
+            <span className="cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-surface text-slate-700 dark:text-dark-text-main px-1.5 py-0.5 rounded hover:underline" onClick={() => navigateTo(null)}>{activeProject?.name || 'Общий проводник'}</span>
             {breadcrumbs.map((crumb, idx) => (
               <React.Fragment key={crumb.id}>
-                <ChevronRight className="w-3 h-3 text-slate-400 dark:text-slate-600 mx-0.5" />
-                <span className="cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-250 px-1.5 py-0.5 rounded hover:underline" onClick={() => navigateTo(crumb.id)}>{crumb.name}</span>
+                <ChevronRight className="w-3 h-3 text-slate-400 dark:text-slate-655 mx-0.5" />
+                <span className="cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-surface text-slate-700 dark:text-dark-text-main px-1.5 py-0.5 rounded hover:underline" onClick={() => navigateTo(crumb.id)}>{crumb.name}</span>
               </React.Fragment>
             ))}
           </div>
-
+ 
           <div className="relative w-64 ml-2">
-           <Search className="w-4 h-4 absolute left-2.5 top-2 text-slate-400" />
+           <Search className="w-4 h-4 absolute left-2.5 top-2 text-slate-400 dark:text-dark-text-muted" />
            <input 
              type="text" 
              placeholder={currentFolder ? `Поиск в ${currentFolder.name}` : "Поиск в проводнике"} 
              value={searchQuery}
              onChange={(e) => setSearchQuery(e.target.value)}
-             className="pl-8 pr-4 py-1 w-full border border-slate-250 dark:border-slate-800 focus:outline-none focus:border-emerald-500 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 rounded-lg transition-all focus:ring-1 focus:ring-emerald-500/20"
+             className="pl-8 pr-4 py-1 w-full border border-slate-255 dark:border-dark-border focus:outline-none focus:border-emerald-500 bg-white dark:bg-dark-panel text-slate-800 dark:text-dark-text-main rounded-lg transition-all focus:ring-1 focus:ring-emerald-500/20"
            />
           </div>
         </div>
       </div>
+
+
 
       <div className="flex flex-1 overflow-hidden">
         {/* Tree Sidebar */}
@@ -873,7 +877,7 @@ export default function Explorer() {
         {/* Main Pane - Table View */}
         <div 
           ref={mainPaneRef}
-          className={`flex-1 overflow-y-auto bg-white dark:bg-slate-900 relative select-none scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-800 ${isDragging ? 'bg-emerald-50/10' : ''}`}
+          className={`flex-1 overflow-y-auto bg-white dark:bg-dark-bg relative select-none scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-850 ${isDragging ? 'bg-emerald-50/10' : ''}`}
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           onDragOver={handleDragOver}
           onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
@@ -897,13 +901,13 @@ export default function Explorer() {
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
                 >
-                  <thead className="sticky top-0 bg-white dark:bg-slate-900 shadow-xs border-b border-slate-200 dark:border-slate-800 z-10 text-xs text-slate-500 dark:text-slate-400 font-medium">
+                  <thead className="sticky top-0 bg-white dark:bg-dark-surface shadow-xs border-b border-slate-200 dark:border-dark-border z-10 text-xs text-slate-500 dark:text-dark-text-muted font-medium">
                     <tr>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-slate-800 font-medium cursor-default">Имя</th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-slate-800 font-medium cursor-default">Дата изменения</th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-slate-800 font-medium cursor-default">Тип</th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-slate-800 font-medium cursor-default">Размер</th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-slate-800 font-medium cursor-default">Теги</th>
+                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Имя</th>
+                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Дата изменения</th>
+                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Тип</th>
+                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Размер</th>
+                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Теги</th>
                       <th className="py-2 px-3 font-medium cursor-default">Отдел</th>
                     </tr>
                   </thead>
@@ -923,22 +927,22 @@ export default function Explorer() {
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
                 >
-                  <thead className="sticky top-0 bg-white dark:bg-slate-900 shadow-xs border-b border-slate-200 dark:border-slate-800 z-10 text-xs text-slate-500 dark:text-slate-400 font-medium">
+                  <thead className="sticky top-0 bg-white dark:bg-dark-surface shadow-xs border-b border-slate-200 dark:border-dark-border z-10 text-xs text-slate-500 dark:text-dark-text-muted font-medium">
                     <tr>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-slate-800 font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-850" onClick={() => handleSort('name')}>
+                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('name')}>
                         Имя {sortConfig.key === 'name' && (sortConfig.direction==='asc'?'↑':'↓')}
                       </th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-slate-800 font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-850" onClick={() => handleSort('updatedAt')}>
+                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('updatedAt')}>
                         Дата изменения {sortConfig.key === 'updatedAt' && (sortConfig.direction==='asc'?'↑':'↓')}
                       </th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-slate-800 font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-850" onClick={() => handleSort('type')}>
+                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('type')}>
                         Тип {sortConfig.key === 'type' && (sortConfig.direction==='asc'?'↑':'↓')}
                       </th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-slate-800 font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-850" onClick={() => handleSort('size')}>
+                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('size')}>
                         Размер {sortConfig.key === 'size' && (sortConfig.direction==='asc'?'↑':'↓')}
                       </th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-slate-800 font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-850">Теги</th>
-                      <th className="py-2 px-3 font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-850">Отдел</th>
+                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel">Теги</th>
+                      <th className="py-2 px-3 font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel">Отдел</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1074,10 +1078,10 @@ export default function Explorer() {
 
         {/* Preview Pane */}
         {showPreviewPane && (
-          <div className="w-64 border-l border-slate-200 bg-slate-50 overflow-y-auto flex flex-col flex-shrink-0">
+          <div className="w-64 border-l border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-surface overflow-y-auto flex flex-col flex-shrink-0">
              {(() => {
-                if (selectedIds.size === 0) return <div className="p-4 text-center text-slate-500 text-xs mt-10">Выберите файл для предпросмотра.</div>;
-                if (selectedIds.size > 1) return <div className="p-4 text-center text-slate-500 text-xs mt-10">Выбрано элементов: {selectedIds.size}.</div>;
+                if (selectedIds.size === 0) return <div className="p-4 text-center text-slate-500 dark:text-dark-text-muted text-xs mt-10">Выберите файл для предпросмотра.</div>;
+                if (selectedIds.size > 1) return <div className="p-4 text-center text-slate-500 dark:text-dark-text-muted text-xs mt-10">Выбрано элементов: {selectedIds.size}.</div>;
 
                 const id = Array.from(selectedIds)[0];
                 const item = allCurrentItems.find(i => i.id === id);
@@ -1087,8 +1091,8 @@ export default function Explorer() {
                   return (
                      <div className="p-4 flex flex-col items-center mt-10">
                        <Folder className="w-16 h-16 text-yellow-500 fill-yellow-200 mb-4" />
-                       <h3 className="font-semibold text-slate-800 text-center break-words w-full">{item.name}</h3>
-                       <p className="text-xs text-slate-500 mt-2">Папка с файлами</p>
+                       <h3 className="font-semibold text-slate-800 dark:text-dark-text-main text-center break-words w-full">{item.name}</h3>
+                       <p className="text-xs text-slate-500 dark:text-dark-text-muted mt-2">Папка с файлами</p>
                      </div>
                   );
                 }
@@ -1099,11 +1103,11 @@ export default function Explorer() {
 
                 return (
                   <div className="p-4 flex flex-col">
-                     <div className="flex-1 flex items-center justify-center min-h-[240px] max-h-[300px] bg-white border border-slate-200 rounded mb-4 overflow-hidden relative shadow-sm">
+                     <div className="flex-1 flex items-center justify-center min-h-[240px] max-h-[300px] bg-white dark:bg-dark-panel border border-slate-200 dark:border-dark-border rounded mb-4 overflow-hidden relative shadow-sm">
                         {isImage && item.content ? (
                           <img src={item.content} alt={item.name} className="max-w-full max-h-full object-contain" />
                         ) : (isPdf || isText) && item.content ? (
-                          <iframe src={item.content} className="w-full h-full border-0 bg-white" title={item.name} sandbox="" />
+                          <iframe src={item.content} className="w-full h-full border-0 bg-white dark:bg-dark-panel" title={item.name} sandbox="" />
                         ) : (
                           <div className="text-center text-slate-400 flex flex-col items-center">
                              {getFileIcon(item, "w-12 h-12 mb-2")}
@@ -1112,30 +1116,30 @@ export default function Explorer() {
                         )}
                      </div>
                      
-                     <h3 className="font-semibold text-slate-800 mb-2 break-words text-sm">{item.name}</h3>
+                     <h3 className="font-semibold text-slate-800 dark:text-dark-text-main mb-2 break-words text-sm">{item.name}</h3>
                      
                      <div className="space-y-2 text-xs mt-2">
                        <div className="flex justify-between border-b border-slate-100 pb-1">
-                         <span className="text-slate-500">Размер</span>
-                         <span className="text-slate-800">{formatSize(item.size)}</span>
+                         <span className="text-slate-500 dark:text-dark-text-muted">Размер</span>
+                         <span className="text-slate-800 dark:text-dark-text-main">{formatSize(item.size)}</span>
                        </div>
                        <div className="flex justify-between border-b border-slate-100 pb-1">
-                         <span className="text-slate-500">Тип</span>
-                         <span className="text-slate-800 flex-1 text-right truncate ml-2">{item.type}</span>
+                         <span className="text-slate-500 dark:text-dark-text-muted">Тип</span>
+                         <span className="text-slate-800 dark:text-dark-text-main flex-1 text-right truncate ml-2">{item.type}</span>
                        </div>
                        <div className="flex justify-between border-b border-slate-100 pb-1">
-                         <span className="text-slate-500">Дата изменения</span>
-                         <span className="text-slate-800">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : ''}</span>
+                         <span className="text-slate-500 dark:text-dark-text-muted">Дата изменения</span>
+                         <span className="text-slate-800 dark:text-dark-text-main">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : ''}</span>
                        </div>
                        {item.department && item.department !== "Unassigned" && (
                        <div className="flex justify-between border-b border-slate-100 pb-1">
-                         <span className="text-slate-500">Отдел</span>
+                         <span className="text-slate-500 dark:text-dark-text-muted">Отдел</span>
                          <span className="text-slate-800 font-medium text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-300 px-1.5 py-0.5 rounded">{item.department}</span>
                        </div>
                        )}
                        {((item.mainTags && item.mainTags.length > 0) || (item.additionalTags && item.additionalTags.length > 0)) && (
                        <div className="flex flex-col border-b border-slate-100 pb-1 pt-1">
-                         <span className="text-slate-500 mb-1.5">Назначенные теги</span>
+                         <span className="text-slate-500 dark:text-dark-text-muted mb-1.5">Назначенные теги</span>
                          <div className="flex flex-wrap gap-1">
                            {item.mainTags?.map((t:any) => <span key={t.id} className="bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded text-xs font-bold font-mono border border-yellow-200" title="Основной тег">{t.identifier}</span>)}
                            {item.additionalTags?.map((t:any) => <span key={t.id} className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-xs font-mono border border-slate-200" title="Дополнительный тег">{t.identifier}</span>)}
@@ -1151,7 +1155,7 @@ export default function Explorer() {
       </div>
 
       {/* StatusBar */}
-      <div className="h-6 bg-[#F3F4F6] border-t border-slate-300 flex items-center px-4 text-xs text-slate-600 gap-4 flex-shrink-0">
+      <div className="h-6 bg-[#F3F4F6] dark:bg-dark-surface border-t border-slate-300 dark:border-dark-border flex items-center px-4 text-xs text-slate-600 dark:text-dark-text-muted gap-4 flex-shrink-0">
           <span>{allCurrentItems.length} элементов</span>
           {selectedIds.size > 0 && <span>выбрано: {selectedIds.size}</span>}
       </div>
@@ -1159,7 +1163,7 @@ export default function Explorer() {
       {/* Context Menu */}
       {contextMenu && (
         <div 
-          className="fixed z-50 bg-[#F2F2F2] border border-slate-300 shadow-md py-1 min-w-[220px] text-xs text-slate-800"
+          className="fixed z-50 bg-[#F2F2F2] dark:bg-dark-panel border border-slate-300 dark:border-dark-border shadow-md py-1 min-w-[220px] text-xs text-slate-800 dark:text-dark-text-main rounded-lg"
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -1168,7 +1172,7 @@ export default function Explorer() {
               <MenuItem icon={<FolderPlus />} label="Новая папка" onClick={() => { createFolder(); setContextMenu(null); }} />
               <MenuItem icon={<FileIcon />} label="Новый текстовый документ" onClick={() => { createEmptyFile("Новый документ.txt", "TXT", ""); setContextMenu(null); }} />
               <MenuItem icon={<Upload />} label="Загрузить" onClick={() => { fileInputRef.current?.click(); setContextMenu(null); }} />
-              <div className="h-px bg-slate-300 my-1 mx-2" />
+              <div className="h-px bg-slate-300 dark:bg-dark-border my-1 mx-2" />
               {clipboard && (
                  <MenuItem icon={<Copy />} label="Вставить" onClick={() => { handlePaste(); setContextMenu(null); }} />
               )}
@@ -1186,7 +1190,7 @@ export default function Explorer() {
                   <MenuItem icon={<Shield />} label="Назначить отдел..." onClick={() => { handleAssignDepartment(contextMenu.targetId!); setContextMenu(null); }} />
                 </>
               )}
-              <div className="h-px bg-slate-300 my-1 mx-2" />
+              <div className="h-px bg-slate-300 dark:bg-dark-border my-1 mx-2" />
               <MenuItem icon={<Edit2 />} label="Вырезать" onClick={() => { setClipboard({ ids: Array.from(selectedIds), type: 'cut' }); setContextMenu(null); }} />
               <MenuItem icon={<Copy />} label="Копировать" onClick={() => { setClipboard({ ids: Array.from(selectedIds), type: 'copy' }); setContextMenu(null); }} />
               <MenuItem icon={<Edit2 />} label="Переименовать" onClick={() => { 
@@ -1458,8 +1462,8 @@ export default function Explorer() {
 // Subcomponents
 
 const MenuItem = ({ icon, label, onClick, className = '' }: any) => (
-  <button onClick={onClick} className={`w-full flex items-center gap-3 px-6 py-1 hover:bg-[#91C9F7] transition-colors ${className}`}>
-    {React.cloneElement(icon, { className: 'w-4 h-4 text-slate-600' })}
+  <button onClick={onClick} className={`w-full flex items-center gap-3 px-6 py-1 hover:bg-[#91C9F7] dark:hover:bg-dark-surface/80 transition-colors text-slate-800 dark:text-dark-text-main focus:outline-none ${className}`}>
+    {React.cloneElement(icon, { className: 'w-4 h-4 text-slate-600 dark:text-dark-text-muted' })}
     <span>{label}</span>
   </button>
 );
@@ -1580,7 +1584,7 @@ const FileRowItem = React.memo(({
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
-      className={`cursor-default ${isSelected ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-900 dark:text-emerald-100' : 'hover:bg-slate-100 dark:hover:bg-slate-800'} ${isCut ? 'opacity-50' : ''}`}
+      className={`cursor-default transition-colors ${isSelected ? 'bg-emerald-100 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-100' : 'hover:bg-slate-100 dark:hover:bg-dark-panel/65'} ${isCut ? 'opacity-50' : ''}`}
     >
       <td className="py-1.5 px-3 flex items-center gap-2">
         <div className="relative shrink-0">
@@ -1609,13 +1613,13 @@ const FileRowItem = React.memo(({
           <span className="truncate max-w-[200px] text-slate-800 dark:text-slate-100">{item.name}</span>
         )}
       </td>
-      <td className="py-1.5 px-3 text-sm text-slate-500">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : ''}</td>
-      <td className="py-1.5 px-3 text-sm text-slate-500">{item.isFolder ? 'Папка с файлами' : (item.type || 'Файл')}</td>
-      <td className="py-1.5 px-3 text-sm text-slate-500 text-right">{!item.isFolder ? formatSize(item.size) : ''}</td>
-      <td className="py-1.5 px-3 text-sm text-slate-500">
+      <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : ''}</td>
+      <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted">{item.isFolder ? 'Папка с файлами' : (item.type || 'Файл')}</td>
+      <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted text-right">{!item.isFolder ? formatSize(item.size) : ''}</td>
+      <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted">
          {!item.isFolder && [...(item.mainTags||[]), ...(item.additionalTags||[])].map((t:any) => t.identifier).join(', ')}
       </td>
-      <td className="py-1.5 px-3 text-xs text-slate-500">{!item.isFolder && item.department !== 'Unassigned' ? item.department : ''}</td>
+      <td className="py-1.5 px-3 text-xs text-slate-500 dark:text-dark-text-muted">{!item.isFolder && item.department !== 'Unassigned' ? item.department : ''}</td>
     </tr>
   );
 });
@@ -1659,7 +1663,7 @@ const FileCardItem = React.memo(({
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
-      className={`w-28 flex flex-col items-center gap-2 p-2 rounded border border-transparent cursor-default transition-all ${isSelected ? 'bg-emerald-105 dark:bg-emerald-950/35 border-emerald-300 dark:border-emerald-800' : 'hover:bg-slate-100 dark:hover:bg-slate-800 hover:border-slate-200 dark:hover:border-slate-700'} ${isCut ? 'opacity-50' : ''}`}
+      className={`w-28 flex flex-col items-center gap-2 p-2 rounded border border-transparent cursor-default transition-all ${isSelected ? 'bg-emerald-105 dark:bg-emerald-950/35 border-emerald-300 dark:border-emerald-800' : 'hover:bg-slate-100 dark:hover:bg-dark-panel hover:border-slate-200 dark:hover:border-dark-border'} ${isCut ? 'opacity-50' : ''}`}
     >
        <div className="w-16 h-16 flex items-center justify-center relative select-none">
          {item.isFolder ? (

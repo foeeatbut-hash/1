@@ -160,19 +160,19 @@ export default function Dashboard() {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -15 }}
       transition={{ duration: 0.25 }}
-      className="max-w-6xl mx-auto space-y-6 text-slate-800 dark:text-slate-100 font-sans select-none"
+      className="max-w-6xl mx-auto space-y-6 text-slate-800 dark:text-dark-text-main font-sans select-none"
     >
       {/* WELCOME HEADER BLOCK */}
-      <header className="p-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs relative overflow-hidden transition-all">
+      <header className="p-6 bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-2xl shadow-xs relative overflow-hidden transition-all">
         <div className="absolute top-0 right-0 p-8 opacity-5 text-slate-900 dark:text-white pointer-events-none">
           <Database className="w-48 h-48" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-dark-text-main">
             С возвращением, {user?.name || 'Инженер'}
           </h1>
-          <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
-            <span className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-md font-mono text-slate-655 font-bold">
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-dark-text-muted">
+            <span className="flex items-center gap-1 bg-slate-100 dark:bg-dark-panel px-2.5 py-1 rounded-md font-mono text-slate-655 font-bold dark:text-dark-text-main">
               <User className="w-3.5 h-3.5" />
               <span>Табельный номер ID: {user?.symbol || 'RaupovKhKh'}</span>
             </span>
@@ -188,15 +188,15 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* PANEL: LAST CHANGES LOG */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col overflow-hidden">
-          <div className="border-b border-slate-100 dark:border-slate-800 px-5 py-4 bg-slate-50/50 dark:bg-slate-900/40 flex items-center justify-between">
-            <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+        <div className="bg-white dark:bg-dark-surface rounded-2xl border border-slate-200 dark:border-dark-border shadow-xs flex flex-col overflow-hidden">
+          <div className="border-b border-slate-100 dark:border-dark-border px-5 py-4 bg-slate-50/50 dark:bg-dark-surface/40 flex items-center justify-between">
+            <h2 className="text-sm font-bold text-slate-900 dark:text-dark-text-main flex items-center gap-2">
               <History className="w-4 h-4 text-emerald-600" />
               <span>Последние изменения</span>
             </h2>
             <button
               onClick={() => navigate('/logs')}
-              className="text-xs text-emerald-700 dark:text-emerald-400 hover:text-emerald-650 dark:hover:text-emerald-350 cursor-pointer font-bold flex items-center gap-0.5"
+              className="text-xs text-emerald-700 dark:text-emerald-400 hover:text-emerald-650 dark:hover:text-emerald-300 cursor-pointer font-bold flex items-center gap-0.5"
             >
               <span>Посмотреть все</span>
               <ArrowRight className="w-3.5 h-3.5" />
@@ -219,23 +219,23 @@ export default function Dashboard() {
                   <div
                     key={log.id}
                     onClick={() => handleRowClick(log.targetRoute)}
-                    className="p-3 bg-slate-50 dark:bg-slate-950/50 hover:bg-slate-100/80 dark:hover:bg-slate-900/80 border border-slate-200/50 dark:border-slate-800 rounded-xl transition-all cursor-pointer flex items-start gap-3 relative group"
+                    className="p-3 bg-slate-50 dark:bg-dark-bg/50 hover:bg-slate-100/80 dark:hover:bg-dark-panel/60 border border-slate-200/50 dark:border-dark-border rounded-xl transition-all cursor-pointer flex items-start gap-3 relative group"
                   >
-                    <div className="shrink-0 w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center font-bold text-xs uppercase text-slate-600 dark:text-slate-400">
+                    <div className="shrink-0 w-8 h-8 rounded-full bg-slate-200 dark:bg-dark-panel flex items-center justify-center font-bold text-xs uppercase text-slate-600 dark:text-dark-text-muted">
                       {log.userSymbol.slice(0, 2)}
                     </div>
                     
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2.5">
-                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate">
+                        <span className="text-xs font-bold text-slate-700 dark:text-dark-text-main truncate">
                           {log.userName} ({log.userSymbol})
                         </span>
-                        <span className="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1 font-mono shrink-0">
+                        <span className="text-xs text-slate-400 dark:text-dark-text-muted flex items-center gap-1 font-mono shrink-0">
                           <Clock className="w-3 h-3" />
                           <span>{formatRelativeTime(log.createdAt)}</span>
                         </span>
                       </div>
-                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 truncate">
+                      <p className="text-xs text-slate-600 dark:text-dark-text-muted mt-1 truncate">
                         {log.description}
                       </p>
                     </div>
@@ -251,15 +251,15 @@ export default function Dashboard() {
         </div>
 
         {/* PANEL: LATEST NOTES PREVIEW GRID */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col overflow-hidden">
-          <div className="border-b border-slate-100 dark:border-slate-800 px-5 py-4 bg-slate-50/50 dark:bg-slate-900/40 flex items-center justify-between">
-            <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+        <div className="bg-white dark:bg-dark-surface rounded-2xl border border-slate-200 dark:border-dark-border shadow-xs flex flex-col overflow-hidden">
+          <div className="border-b border-slate-100 dark:border-dark-border px-5 py-4 bg-slate-50/50 dark:bg-dark-surface/40 flex items-center justify-between">
+            <h2 className="text-sm font-bold text-slate-900 dark:text-dark-text-main flex items-center gap-2">
               <FileText className="w-4 h-4 text-emerald-600" />
               <span>Мои заметки</span>
             </h2>
             <button
               onClick={() => navigate('/notes')}
-              className="text-xs text-emerald-700 dark:text-emerald-400 hover:text-emerald-650 dark:hover:text-emerald-350 cursor-pointer font-bold flex items-center gap-0.5"
+              className="text-xs text-emerald-700 dark:text-emerald-400 hover:text-emerald-650 dark:hover:text-emerald-300 cursor-pointer font-bold flex items-center gap-0.5"
             >
               <span>Посмотреть все</span>
               <ArrowRight className="w-3.5 h-3.5" />
@@ -290,14 +290,14 @@ export default function Dashboard() {
                     <div
                       key={note.id}
                       className={`p-3.5 rounded-xl border relative flex flex-col justify-between hover:shadow-md transition-all group overflow-hidden ${
-                        note.color || 'bg-slate-50 dark:bg-slate-800 border-slate-200'
+                        note.color || 'bg-slate-50 dark:bg-dark-bg/50 dark:border-dark-border'
                       }`}
                     >
                       <div>
-                        <h3 className="text-slate-850 dark:text-white font-bold text-xs truncate max-w-[170px]">
+                        <h3 className="text-slate-850 dark:text-dark-text-main font-bold text-xs truncate max-w-[170px]">
                           {note.title || 'Инженерная заметка'}
                         </h3>
-                        <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-3 mt-1.5 leading-relaxed font-light">
+                        <p className="text-xs text-slate-600 dark:text-dark-text-muted line-clamp-3 mt-1.5 leading-relaxed font-light">
                           {plainContent || 'Заметка не заполнена'}
                         </p>
                       </div>
@@ -305,13 +305,13 @@ export default function Dashboard() {
                       <div className="mt-4 pt-2.5 border-t border-black/5 dark:border-white/5 flex items-center justify-between gap-1">
                         <button
                           onClick={() => navigate('/notes')}
-                          className="text-xs font-bold text-indigo-700 dark:text-indigo-455 hover:underline cursor-pointer"
+                          className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
                         >
                           Перейти в Блокнот
                         </button>
                         <button
                           onClick={(e) => handleOpenSticker(e, note.id)}
-                          className="p-1.5 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 rounded-lg text-slate-600 dark:text-slate-300 hover:text-slate-900 cursor-pointer flex items-center gap-1 text-xs transition-all"
+                          className="p-1.5 bg-black/5 dark:bg-dark-panel hover:bg-black/10 dark:hover:bg-dark-panel rounded-lg text-slate-600 dark:text-dark-text-muted hover:text-slate-900 dark:hover:text-dark-text-main cursor-pointer flex items-center gap-1 text-xs transition-all"
                           title="Открепить стикер (поверх других приложений ОС)"
                         >
                           <ExternalLink className="w-3 h-3" />
@@ -328,9 +328,9 @@ export default function Dashboard() {
         </div>
 
         {/* PANEL: PROJECTS SELECTION */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col overflow-hidden">
-          <div className="border-b border-slate-100 dark:border-slate-800 px-5 py-4 bg-slate-50/50 dark:bg-slate-900/40 flex items-center justify-between">
-            <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+        <div className="bg-white dark:bg-dark-surface rounded-2xl border border-slate-200 dark:border-dark-border shadow-xs flex flex-col overflow-hidden">
+          <div className="border-b border-slate-100 dark:border-dark-border px-5 py-4 bg-slate-50/50 dark:bg-dark-surface/40 flex items-center justify-between">
+            <h2 className="text-sm font-bold text-slate-900 dark:text-dark-text-main flex items-center gap-2">
               <Layers className="w-4 h-4 text-emerald-600" />
               <span>Проекты</span>
             </h2>
@@ -338,7 +338,7 @@ export default function Dashboard() {
               {user?.role === 'ADMIN' && (
                 <button
                   onClick={handleCreateProjectDirect}
-                  className="text-xs text-slate-500 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 font-bold flex items-center gap-0.5 cursor-pointer"
+                  className="text-xs text-slate-500 dark:text-dark-text-muted hover:text-emerald-600 dark:hover:text-emerald-400 font-bold flex items-center gap-0.5 cursor-pointer"
                   title="Быстрое создание проекта"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -383,8 +383,8 @@ export default function Dashboard() {
                       onClick={() => handleToggleActiveProject(proj)}
                       className={`p-3 rounded-xl border transition-all cursor-pointer flex items-start gap-2.5 relative group ${
                         isActive
-                          ? 'bg-emerald-50/40 dark:bg-emerald-995/10 border-emerald-300 dark:border-emerald-800 shadow-xs'
-                          : 'bg-slate-50 dark:bg-slate-950/50 hover:bg-slate-100/80 dark:hover:bg-slate-900/80 border-slate-200 dark:border-slate-800/80'
+                          ? 'bg-emerald-50/40 dark:bg-emerald-950/15 border-emerald-300 dark:border-emerald-800 shadow-xs'
+                          : 'bg-slate-50 dark:bg-dark-bg/50 hover:bg-slate-100/80 dark:hover:bg-dark-panel/60 border-slate-200 dark:border-dark-border'
                       }`}
                     >
                       <button
@@ -398,20 +398,20 @@ export default function Dashboard() {
                         {isActive ? (
                           <CheckSquare className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                         ) : (
-                          <Square className="w-4 h-4 text-slate-400 dark:text-slate-650" />
+                          <Square className="w-4 h-4 text-slate-400 dark:text-dark-text-muted" />
                         )}
                       </button>
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
-                          <span className={`text-xs font-bold leading-tight truncate ${isActive ? 'text-emerald-850 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-200'}`}>
+                          <span className={`text-xs font-bold leading-tight truncate ${isActive ? 'text-emerald-850 dark:text-emerald-400' : 'text-slate-800 dark:text-dark-text-main'}`}>
                             {proj.name}
                           </span>
-                          <span className="text-xs font-mono font-semibold text-slate-400 dark:text-slate-500 uppercase shrink-0">
+                          <span className="text-xs font-mono font-semibold text-slate-400 dark:text-dark-text-muted uppercase shrink-0">
                             {proj.status === 'ACTIVE' ? 'Активен' : 'Архив'}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-1 leading-normal font-light">
+                        <p className="text-xs text-slate-500 dark:text-dark-text-muted mt-1 line-clamp-1 leading-normal font-light">
                           {proj.description || 'Инженерно-проектная документация.'}
                         </p>
                       </div>
