@@ -93,6 +93,7 @@ interface ActiveConnectionDrag {
   startY: number;
   currentX: number;
   currentY: number;
+  reconnectTargetId?: string;
 }
 
 export default function Registry() {
@@ -855,7 +856,7 @@ export default function Registry() {
 
         const dragData = {
           sourceId: parentId,
-          side: 'right', // Start from parent and follow mouse
+          side: 'right' as const, // Start from parent and follow mouse
           startX: portX,
           startY: portY,
           currentX: canvasX,

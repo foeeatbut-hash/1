@@ -8,6 +8,7 @@ import ModalProvider from './ModalProvider';
 import UpdaterWidget from './UpdaterWidget';
 import { dataService } from '../services/dataService';
 import { useLogStore } from '../store/logStore';
+import { ENV_CONFIG } from '../config/env';
 
 export default function Layout() {
   const { user, setUser, activeProject, theme, toggleTheme, syncStatus } = useStore();
@@ -19,17 +20,84 @@ export default function Layout() {
 
   const [dbLocation, setDbLocation] = useState('');
   const [dbDisplayLocation, setDbDisplayLocation] = useState('');
+  const [dbType, setDbType] = useState<'LOCAL' | 'REMOTE' | string>('LOCAL');
+  const [remoteUrl, setRemoteUrl] = useState('');
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [isSavingDb, setIsSavingDb] = useState(false);
+  const [dbStatusMessage, setDbStatusMessage] = useState<{ text: string; success: boolean } | null>(null);
 
   const addLog = useLogStore((state) => state.addLog);
 
   React.useEffect(() => {
     dataService.getDbConfig()
-      .then((config) => {
+      .then((config: any) => {
         setDbLocation(config.databasePath);
         setDbDisplayLocation(config.displayPath || config.databasePath);
+        setDbType(config.current_db_type || 'LOCAL');
+        setRemoteUrl(config.database_url || '');
       })
       .catch(() => {});
   }, []);
+
+  const handleDbSwitch = async (targetType: string, urlKey: string) => {
+    setIsSavingDb(true);
+    setDbStatusMessage(null);
+    try {
+      const resp = await fetch(`${ENV_CONFIG.apiUrl}/db/switch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          current_db_type: targetType,
+          database_url: urlKey
+        })
+      });
+      const data = await resp.json();
+      if (data.success) {
+        setDbStatusMessage({ text: data.message, success: true });
+        
+        // Refresh active state
+        const config = await dataService.getDbConfig() as any;
+        setDbLocation(config.databasePath);
+        setDbDisplayLocation(config.displayPath || config.databasePath);
+        setDbType(config.current_db_type || 'LOCAL');
+        setRemoteUrl(config.database_url || '');
+        
+        alert(data.message || 'Подключение успешно обновлено!');
+        window.location.reload();
+      } else {
+        setDbStatusMessage({ text: data.message || 'Ошибка подключения!', success: false });
+      }
+    } catch (err: any) {
+      setDbStatusMessage({ text: `Ошибка запроса: ${err.message}`, success: false });
+    } finally {
+      setIsSavingDb(false);
+    }
+  };
+
+  const handleDbTest = async () => {
+    setIsTestingConnection(true);
+    setDbStatusMessage(null);
+    try {
+      const resp = await fetch(`${ENV_CONFIG.apiUrl}/db/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          current_db_type: dbType,
+          database_url: remoteUrl
+        })
+      });
+      const data = await resp.json();
+      if (data.success) {
+        setDbStatusMessage({ text: data.message, success: true });
+      } else {
+        setDbStatusMessage({ text: data.message, success: false });
+      }
+    } catch (err: any) {
+      setDbStatusMessage({ text: `Ошибка при проверке: ${err.message}`, success: false });
+    } finally {
+      setIsTestingConnection(false);
+    }
+  };
 
   // Глобальный перехват событий для детального логирования действий пользователя
   const handleGlobalClick = React.useCallback((e: MouseEvent) => {
@@ -376,33 +444,23 @@ export default function Layout() {
           <div className="flex items-center justify-between gap-1 mb-1.5">
             <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-slate-400 dark:text-dark-text-muted">
               <Database className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-450" />
-              <span>База SQLite</span>
+              <span>{dbType === 'LOCAL' ? 'Локальная БД' : 'Совместная БД'}</span>
             </div>
             <button
               type="button"
-              onClick={() => {
-                if (window.confirm('Сменить размещение базы данных SQLite? Вас перенаправит на экран выбора пути.')) {
-                  fetch('/api/db/save', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ databasePath: dbLocation, isConfigured: false })
-                  }).then(() => {
-                    setUser(null);
-                    window.location.reload();
-                  });
-                }
-              }}
+              onClick={() => setIsProfileMenuOpen(true)}
               className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-350 cursor-pointer font-bold uppercase transition"
-              title="Сменить путь"
+              title="Настройки подключения"
             >
-              Сменить
+              Настройки
             </button>
           </div>
           <div 
-            className="font-mono text-[10px] text-slate-500 dark:text-slate-400 leading-tight truncate bg-slate-100 dark:bg-dark-panel border border-slate-200 dark:border-dark-border px-2 py-1 rounded"
+            className="font-mono text-[10px] text-slate-500 dark:text-slate-400 leading-tight truncate bg-slate-100 dark:bg-dark-panel border border-slate-200 dark:border-dark-border px-2 py-1 rounded cursor-pointer"
             title={dbLocation}
+            onClick={() => setIsProfileMenuOpen(true)}
           >
-            {dbDisplayLocation || 'Не настроена'}
+            {dbType === 'LOCAL' ? 'production.sqlite' : dbDisplayLocation || 'Активно'}
           </div>
         </div>
         
@@ -464,34 +522,98 @@ export default function Layout() {
 
                   {/* Active Database path display widget */}
                   <div className="bg-slate-50 dark:bg-dark-surface/40 p-2.5 rounded-xl border border-slate-150 dark:border-dark-border text-left">
-                    <div className="flex items-center gap-1.2 text-xs text-slate-400 dark:text-dark-text-muted font-bold uppercase tracking-wider mb-1 font-sans">
-                      <Database className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                      <span>База данных (SQLite):</span>
+                    <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-dark-text-muted font-bold uppercase tracking-wider mb-2 font-sans">
+                      <Database className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <span>База данных</span>
                     </div>
-                    <p 
-                      className="font-mono text-xs text-slate-600 dark:text-dark-text-muted break-all select-all p-1.5 bg-slate-100 dark:bg-dark-panel border border-slate-250 dark:border-dark-border rounded leading-normal" 
-                      title={dbLocation}
-                    >
-                      {dbDisplayLocation || 'Не настроена'}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (window.confirm('Сменить размещение базы данных SQLite? Вас перенаправит на экран выбора пути.')) {
-                          setUser(null);
-                          fetch('/api/db/save', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ databasePath: dbLocation, isConfigured: false })
-                          }).then(() => {
-                            window.location.reload();
-                          });
-                        }
-                      }}
-                      className="mt-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-bold hover:underline cursor-pointer block"
-                    >
-                      Сменить файл БД →
-                    </button>
+
+                    <div className="grid grid-cols-2 gap-1.5 mb-2.5">
+                      <button
+                        type="button"
+                        onClick={() => setDbType('LOCAL')}
+                        className={`py-1 px-1.5 rounded-lg border text-[11px] font-semibold transition text-center cursor-pointer ${
+                          dbType === 'LOCAL'
+                            ? 'bg-emerald-600 text-white border-emerald-700'
+                            : 'bg-white dark:bg-dark-panel text-slate-600 dark:text-dark-text-muted border-slate-200 dark:border-dark-border hover:bg-slate-100 dark:hover:bg-dark-surface'
+                        }`}
+                      >
+                        Локальная
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDbType('REMOTE')}
+                        className={`py-1 px-1.5 rounded-lg border text-[11px] font-semibold transition text-center cursor-pointer ${
+                          dbType === 'REMOTE'
+                            ? 'bg-emerald-600 text-white border-emerald-700'
+                            : 'bg-white dark:bg-dark-panel text-slate-600 dark:text-dark-text-muted border-slate-200 dark:border-dark-border hover:bg-slate-100 dark:hover:bg-dark-surface'
+                        }`}
+                      >
+                        Сеть / PostgreSQL
+                      </button>
+                    </div>
+
+                    {dbType === 'LOCAL' ? (
+                      <div className="flex flex-col gap-1.5">
+                        <p className="text-[10px] text-slate-500 dark:text-dark-text-muted leading-tight">
+                          База production.sqlite в профиле пользователя. Работает автономно.
+                        </p>
+                        <p 
+                          className="font-mono text-[9px] text-slate-600 dark:text-dark-text-muted bg-white dark:bg-dark-panel p-1.5 border border-slate-200 dark:border-dark-border rounded leading-tight select-all truncate"
+                          title={dbLocation}
+                        >
+                          {dbDisplayLocation || 'production.sqlite'}
+                        </p>
+                        <button
+                          type="button"
+                          disabled={isSavingDb}
+                          onClick={() => handleDbSwitch('LOCAL', '')}
+                          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold py-1 px-3 rounded-lg transition text-center cursor-pointer disabled:opacity-50"
+                        >
+                          {isSavingDb ? 'Подключение...' : 'Включить Локальный режим'}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-1.5">
+                        <p className="text-[10px] text-slate-500 dark:text-dark-text-muted leading-tight">
+                          Адрес удаленного подключения PostgreSQL:
+                        </p>
+                        <input
+                          type="text"
+                          value={remoteUrl}
+                          onChange={(e) => setRemoteUrl(e.target.value)}
+                          placeholder="postgresql://user:password@host:5432/dbname"
+                          className="w-full font-mono text-[10px] bg-white dark:bg-dark-panel text-slate-850 dark:text-dark-text-main p-1.5 border border-slate-200 dark:border-dark-border rounded outline-none focus:border-emerald-500"
+                        />
+                        <div className="grid grid-cols-2 gap-1.5 mt-1">
+                          <button
+                            type="button"
+                            disabled={isTestingConnection}
+                            onClick={handleDbTest}
+                            className="bg-slate-100 hover:bg-slate-200 dark:bg-dark-surface dark:hover:bg-dark-panel text-slate-700 dark:text-dark-text-main text-[10px] font-semibold py-1 px-1.5 rounded-lg transition text-center cursor-pointer disabled:opacity-50"
+                          >
+                            {isTestingConnection ? 'Проверка...' : 'Тестировать'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isSavingDb}
+                            onClick={() => handleDbSwitch('REMOTE', remoteUrl)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold py-1 px-1.5 rounded-lg transition text-center cursor-pointer disabled:opacity-50"
+                          >
+                            {isSavingDb ? 'Загрузка...' : 'Сохранить'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {dbStatusMessage && (
+                      <div className={`mt-2 p-1 text-[9px] font-bold text-center rounded leading-tight ${
+                        dbStatusMessage.success 
+                          ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-450' 
+                          : 'bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-450'
+                      }`}>
+                        {dbStatusMessage.text}
+                      </div>
+                    )}
                   </div>
 
                   {/* Auto-Updater System Panel */}

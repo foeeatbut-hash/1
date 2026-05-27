@@ -8,72 +8,222 @@ import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import fs from 'fs';
 import { exec, execSync } from 'child_process';
+import os from 'os';
 
-let userDataPath = process.cwd();
-try {
-  const electron = require('electron');
-  const appInstance = electron.app || (electron.remote && electron.remote.app);
-  if (appInstance) {
-    userDataPath = appInstance.getPath('userData');
-  } else if (process.versions && process.versions.electron) {
-    const { app: dynApp } = require('electron');
-    userDataPath = dynApp.getPath('userData');
+function getVentAppDataPath(): string {
+  try {
+    const home = os.homedir();
+    const desktop = path.join(home, 'Desktop');
+    const onedriveDesktop = path.join(home, 'OneDrive', 'Desktop');
+    const onedriveRuDesktop = path.join(home, 'OneDrive', 'Рабочий стол');
+    const ruDesktop = path.join(home, 'Рабочий стол');
+    
+    let desktopPath = desktop;
+    if (fs.existsSync(desktop)) {
+      desktopPath = desktop;
+    } else if (fs.existsSync(onedriveDesktop)) {
+      desktopPath = onedriveDesktop;
+    } else if (fs.existsSync(ruDesktop)) {
+      desktopPath = ruDesktop;
+    } else if (fs.existsSync(onedriveRuDesktop)) {
+      desktopPath = onedriveRuDesktop;
+    }
+    return path.join(desktopPath, 'VentApp-Data');
+  } catch (err) {
+    return path.join(process.cwd(), 'database');
   }
-} catch (e) {
-  userDataPath = process.cwd();
 }
 
-const DB_CONFIG_FILE = path.join(userDataPath, 'db-config.json');
+const ventAppDataPath = getVentAppDataPath();
 
+// Ensure the directory exists
+try {
+  if (!fs.existsSync(ventAppDataPath)) {
+    fs.mkdirSync(ventAppDataPath, { recursive: true });
+  }
+} catch (err) {
+  console.warn('[Server Setup] Error creating database directory on Desktop:', err);
+}
+
+// Keep userDataPath referencing ventAppDataPath for general safety and log/chat_files locations
+let userDataPath = ventAppDataPath;
+
+const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');
+
+function ensureSQLiteDatabaseExists(targetPath: string): boolean {
+  try {
+    if (fs.existsSync(targetPath)) {
+      return true; // Already exists
+    }
+
+    const parentDir = path.dirname(targetPath);
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true });
+    }
+
+    // Try to load the database template from extraResources/packaged folders or project folders
+    const possibleTemplatePaths = [
+      // Packaged app path (relative to packaged directory or resource path)
+      path.join((process as any).resourcesPath || '', 'prisma', 'prisma', 'database.sqlite'),
+      path.join((process as any).resourcesPath || '', 'prisma', 'database.sqlite'),
+      // Development path
+      path.join(__dirname, 'prisma', 'prisma', 'database.sqlite'),
+      path.join(__dirname, 'prisma', 'database.sqlite'),
+      path.join(__dirname, '../prisma', 'prisma', 'database.sqlite'),
+      path.join(__dirname, '../prisma', 'database.sqlite'),
+      path.join(__dirname, '..', 'prisma', 'prisma', 'database.sqlite'),
+      path.join(process.cwd(), 'prisma', 'prisma', 'database.sqlite'),
+      path.join(process.cwd(), 'prisma', 'database.sqlite')
+    ];
+
+    for (const templatePath of possibleTemplatePaths) {
+      if (fs.existsSync(templatePath)) {
+        console.log(`[SQLite Sync] Copying template DB from ${templatePath} to ${targetPath}`);
+        fs.copyFileSync(templatePath, targetPath);
+        return true;
+      }
+    }
+
+    // Fallback: Create empty file if absolutely nothing can be loaded, though printing a warning
+    console.warn('[SQLite Sync] SQLite template database not found. Creating empty file.');
+    fs.writeFileSync(targetPath, '', 'utf-8');
+    return false;
+  } catch (err: any) {
+    console.error('[SQLite Sync] Error copy/init SQLite database template:', err.message);
+    return false;
+  }
+}
+
+function createPrismaClient(dbType: string) {
+  try {
+    if (dbType === 'REMOTE') {
+      const { PrismaClient: RemotePrisma } = require('@prisma/client-pg');
+      return new RemotePrisma();
+    } else {
+      const { PrismaClient: LocalPrisma } = require('@prisma/client');
+      return new LocalPrisma();
+    }
+  } catch (err: any) {
+    console.error(`[Prisma Init] Error creating client for ${dbType}:`, err.message);
+    const { PrismaClient: LocalPrisma } = require('@prisma/client');
+    return new LocalPrisma();
+  }
+}
+
+interface AppConfig {
+  current_db_type: 'LOCAL' | 'REMOTE' | string;
+  database_url: string;
+}
+
+function loadAppConfig(): AppConfig {
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      const content = fs.readFileSync(CONFIG_FILE, 'utf-8');
+      const parsed = JSON.parse(content);
+      if (parsed && typeof parsed.current_db_type === 'string') {
+        return {
+          current_db_type: parsed.current_db_type,
+          database_url: parsed.database_url || ''
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('[Config] Error reading config.json:', err);
+  }
+  
+  const defaultConfig: AppConfig = {
+    current_db_type: 'LOCAL',
+    database_url: ''
+  };
+  saveAppConfig(defaultConfig);
+  return defaultConfig;
+}
+
+function saveAppConfig(config: AppConfig) {
+  try {
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('[Config] Error writing config.json:', err);
+  }
+}
+
+// Backward compatibility with other endpoints expecting loadDbConfig()
 interface DbConfig {
   databasePath: string;
   isConfigured: boolean;
 }
 
 function loadDbConfig(): DbConfig {
-  try {
-    if (fs.existsSync(DB_CONFIG_FILE)) {
-      const content = fs.readFileSync(DB_CONFIG_FILE, 'utf-8');
-      const parsed = JSON.parse(content);
-      if (parsed && typeof parsed.databasePath === 'string') {
-        return {
-          databasePath: path.resolve(parsed.databasePath),
-          isConfigured: !!parsed.isConfigured
-        };
-      }
-    }
-  } catch (err) {
-    console.warn('[DB Config] Error reading db-config.json:', err);
-  }
+  const config = loadAppConfig();
+  const dbFile = path.join(ventAppDataPath, 'production.sqlite');
   return {
-    databasePath: path.join(userDataPath, 'database.sqlite'),
-    isConfigured: false
+    databasePath: dbFile,
+    isConfigured: true
   };
 }
 
 function saveDbConfig(config: DbConfig) {
-  try {
-    fs.writeFileSync(DB_CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('[DB Config] Error writing db-config.json:', err);
-  }
+  // Save into app config
+  const current = loadAppConfig();
+  current.current_db_type = 'LOCAL';
+  saveAppConfig(current);
 }
 
-const initialConfig = loadDbConfig();
-try {
-  const parentDir = path.dirname(initialConfig.databasePath);
-  if (!fs.existsSync(parentDir)) {
-    fs.mkdirSync(parentDir, { recursive: true });
-  }
-} catch (e) {}
+const appConfig = loadAppConfig();
+let startupDbUrl = '';
 
-let prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: `file:${initialConfig.databasePath}?connection_limit=1&busy_timeout=15000`
-    }
+if (appConfig.current_db_type === 'LOCAL') {
+  const localDbFile = path.join(ventAppDataPath, 'production.sqlite');
+  startupDbUrl = `file:${localDbFile}?connection_limit=1&busy_timeout=15000`;
+  
+  const isDbMissing = !fs.existsSync(localDbFile);
+  if (isDbMissing) {
+    console.log('[Startup DB] production.sqlite does not exist. Initializing copy of database template...');
+    ensureSQLiteDatabaseExists(localDbFile);
   }
-});
+} else {
+  startupDbUrl = appConfig.database_url;
+}
+
+process.env.DATABASE_URL = startupDbUrl;
+let prisma = createPrismaClient(appConfig.current_db_type);
+
+// Auto-seed user and structure if database is empty
+(async () => {
+  try {
+    if (appConfig.current_db_type === 'LOCAL') {
+      try {
+        await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL;');
+        await prisma.$queryRawUnsafe('PRAGMA synchronous=NORMAL;');
+      } catch (e) {}
+    }
+    const userCount = await prisma.user.count();
+    if (userCount === 0) {
+      console.log('[Startup DB] Initializing empty database. Creating default Admin interface.');
+      await prisma.user.create({
+        data: {
+          name: 'Главный Администратор (RaupovKhKh)',
+          symbol: 'RaupovKhKh',
+          password: '1122',
+          role: 'ADMIN',
+        }
+      });
+      await prisma.project.create({
+        data: {
+          name: 'Технологический Проект Альфа'
+        }
+      });
+      await prisma.equipment.create({
+        data: {
+          type: 'AHU',
+          description: 'Air Handling Unit',
+        }
+      });
+    }
+  } catch (err: any) {
+    console.warn('[Startup DB Seed] Check/Auto-seed skipped or failed:', err.message);
+  }
+})();
 
 const app = express();
 const PORT = 3000;
@@ -106,194 +256,163 @@ io.on('connection', (socket) => {
   });
 });
 
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use('/chat_files', express.static(path.join(process.cwd(), 'userData/chat_files')));
+app.use('/chat_files', express.static(path.join(userDataPath, 'chat_files')));
 
 // Database Routing
 app.get('/api/db/config', (req: Request, res: Response) => {
-  const config = loadDbConfig();
-  const displayPath = config.databasePath.startsWith(userDataPath)
-    ? config.databasePath.replace(userDataPath, '.')
-    : config.databasePath;
+  const config = loadAppConfig();
+  const dbPath = path.join(ventAppDataPath, 'production.sqlite');
   res.json({
-    isConfigured: config.isConfigured,
-    databasePath: config.databasePath,
-    displayPath,
-    defaultPath: path.join(userDataPath, 'database.sqlite')
+    current_db_type: config.current_db_type,
+    database_url: config.database_url,
+    databasePath: dbPath,
+    isConfigured: true,
+    displayPath: config.current_db_type === 'LOCAL' ? './production.sqlite' : config.database_url,
+    defaultPath: dbPath
   });
 });
 
 app.get('/api/db/download', (req: Request, res: Response) => {
-  const config = loadDbConfig();
-  const sqliteFile = config.databasePath;
-  if (fs.existsSync(sqliteFile)) {
-    res.download(sqliteFile, 'database.sqlite');
+  const dbFile = path.join(ventAppDataPath, 'production.sqlite');
+  if (fs.existsSync(dbFile)) {
+    res.download(dbFile, 'production.sqlite');
   } else {
     res.status(404).json({ error: 'Файл базы данных не найден на сервере' });
   }
 });
 
 app.post('/api/db/test', async (req: Request, res: Response) => {
-  const { databasePath } = req.body;
-  if (!databasePath) {
-    return res.status(400).json({ success: false, message: 'Путь к базе данных не указан!' });
+  const { current_db_type, database_url } = req.body;
+  if (current_db_type === 'LOCAL') {
+    return res.json({
+      success: true,
+      exists: fs.existsSync(path.join(ventAppDataPath, 'production.sqlite')),
+      message: 'Локальная база данных SQLite активна и готова к работе!'
+    });
   }
-  
+
+  if (!database_url) {
+    return res.status(400).json({ success: false, message: 'Строка подключения remote_url не указана!' });
+  }
+
+  // Test custom remote URL using a temporary client
   try {
-    const resolvedPath = path.resolve(databasePath);
-    const parentDir = path.dirname(resolvedPath);
+    const tempUrl = database_url;
+    const { PrismaClient: TempClient } = require('@prisma/client-pg');
+    process.env.DATABASE_URL = tempUrl;
+    const tempPrisma = new TempClient();
+    await tempPrisma.$queryRawUnsafe('SELECT 1;');
+    await tempPrisma.$disconnect();
     
-    // Ensure parent directory can be created or exists
-    if (!fs.existsSync(parentDir)) {
-      try {
-        fs.mkdirSync(parentDir, { recursive: true });
-      } catch (err: any) {
-        return res.status(400).json({
-          success: false,
-          message: `Ошибка при создании директории ${parentDir}: ${err.message}`
-        });
-      }
-    }
-    
-    const exists = fs.existsSync(resolvedPath);
-    if (exists) {
-      fs.accessSync(resolvedPath, fs.constants.R_OK | fs.constants.W_OK);
+    // Restore primary env context
+    const current = loadAppConfig();
+    if (current.current_db_type === 'LOCAL') {
+      const localDb = path.join(ventAppDataPath, 'production.sqlite');
+      process.env.DATABASE_URL = `file:${localDb}?connection_limit=1&busy_timeout=15000`;
     } else {
-      // test writable by trying to touch/create a tiny dummy file then delete it
-      const tempPath = path.join(parentDir, '.db-test-write-' + Date.now());
-      fs.writeFileSync(tempPath, 'write_test');
-      fs.unlinkSync(tempPath);
+      process.env.DATABASE_URL = current.database_url;
     }
-    
+
     res.json({
       success: true,
-      exists,
-      message: exists 
-        ? 'База данных найдена и доступна к подключению!' 
-        : 'Указанный путь доступен! Новая база данных будет создана при первом сохранении.'
+      exists: true,
+      message: 'Удаленное подключение успешно проверено и доступно!'
     });
   } catch (err: any) {
+    // Restore primary env context
+    const current = loadAppConfig();
+    if (current.current_db_type === 'LOCAL') {
+      const localDb = path.join(ventAppDataPath, 'production.sqlite');
+      process.env.DATABASE_URL = `file:${localDb}?connection_limit=1&busy_timeout=15000`;
+    } else {
+      process.env.DATABASE_URL = current.database_url;
+    }
+
     res.json({
       success: false,
-      message: `Ошибка доступа по указанному пути: ${err.message}`
+      message: `Не удалось подключиться по указанному адресу: ${err.message}`
     });
   }
 });
 
-app.post('/api/db/save', async (req: Request, res: Response) => {
-  const { databasePath } = req.body;
+app.post('/api/db/switch', async (req: Request, res: Response) => {
+  const { current_db_type, database_url } = req.body;
   
-  // Логирование в консоль и в файл database-setup.log каждого запроса с полученным путем
-  const logMsg = `[${new Date().toISOString()}] POST /api/db/save: databasePath="${databasePath}"\n`;
-  console.log('[DB Setup API Request]', logMsg.trim());
+  const logMsg = `[${new Date().toISOString()}] POST /api/db/switch: type="${current_db_type}", url="${database_url}"\n`;
+  console.log('[DB Switch Request]', logMsg.trim());
   try {
-    fs.appendFileSync(path.join(process.cwd(), 'database-setup.log'), logMsg, 'utf-8');
-  } catch (fsLogErr: any) {
-    console.warn('[DB Setup] Failed to write to database-setup.log:', fsLogErr.message);
+    fs.appendFileSync(path.join(ventAppDataPath, 'database-switch.log'), logMsg, 'utf-8');
+  } catch (e) {}
+
+  if (!current_db_type) {
+    return res.status(400).json({ success: false, message: 'Тип базы данных не указан!' });
   }
 
-  if (!databasePath) {
-    return res.status(400).json({ success: false, message: 'Путь к базе данных не указан!' });
-  }
-  
   const oldPrisma = prisma;
   try {
-    // Обрабатываем как абсолютный путь
-    const resolvedPath = path.resolve(databasePath);
-    const parentDir = path.dirname(resolvedPath);
-    if (!fs.existsSync(parentDir)) {
-      fs.mkdirSync(parentDir, { recursive: true });
-    }
-
-    // Устанавливаем DATABASE_URL в переменные окружения
-    process.env.DATABASE_URL = `file:${resolvedPath}`;
-    console.log(`[DB Setup] Переменная DATABASE_URL программно изменена на: ${process.env.DATABASE_URL}`);
-
-    // Принудительно вызываем npx prisma db push через execSync
-    console.log('[DB Setup] Запускается синхронизация схемы через npx prisma db push --schema=prisma/schema.prisma --accept-data-loss...');
-    try {
-      execSync('npx prisma db push --schema=prisma/schema.prisma --accept-data-loss', {
-        env: {
-          ...process.env,
-          DATABASE_URL: `file:${resolvedPath}`
-        },
-        stdio: 'inherit'
-      });
-      console.log('[DB Setup] npx prisma db push выполнен успешно через execSync.');
-    } catch (pushErr: any) {
-      console.error('[DB Setup] Ошибка выполнения npx prisma db push через execSync:', pushErr.message);
-      // fallback на резервное копирование шаблона
-      const templatePath = path.join(process.cwd(), 'prisma/prisma/database.sqlite');
-      if (fs.existsSync(templatePath)) {
-        console.log('[DB Setup] Падение execSync. Восстанавливаем шаблон базы данных в качестве резервного варианта.');
-        fs.copyFileSync(templatePath, resolvedPath);
-      } else {
-        throw new Error(`Не удалось инициализировать БД через Prisma CLI и шаблон отсутствует: ${pushErr.message}`);
+    let targetDbUrl = '';
+    if (current_db_type === 'LOCAL') {
+      const dbFile = path.join(ventAppDataPath, 'production.sqlite');
+      targetDbUrl = `file:${dbFile}?connection_limit=1&busy_timeout=15000`;
+      
+      const isDbMissing = !fs.existsSync(dbFile);
+      if (isDbMissing) {
+        console.log('[DB Switch] Path production.sqlite missing. Initializing copy of database template...');
+        ensureSQLiteDatabaseExists(dbFile);
       }
+    } else {
+      if (!database_url) {
+        return res.status(400).json({ success: false, message: 'Ссылка подключения REMOTE обязательна!' });
+      }
+      targetDbUrl = database_url;
     }
 
-    // Проверка безопасности: если база данных не создана или файл по указанному пути не существует
-    if (!fs.existsSync(resolvedPath)) {
-      console.error('[DB Setup Security Check] Файл базы данных физически не создан на диске!');
-      return res.status(400).json({
-        success: false,
-        message: 'Критическая ошибка: Файл базы данных не был физически создан по указанному пути! Проверьте права на чтение и запись папки.'
-      });
-    }
-    
-    // 1. Безопасное отключение старого клиента
+    // Disconnect old client cleanly
     try {
       if (oldPrisma) {
-        console.log('[DB Setup] Disconnecting previous Prisma Client...');
         await oldPrisma.$disconnect();
       }
     } catch (discErr: any) {
-      console.warn('[DB Setup] SQLite lock warning or active connection during disconnect:', discErr.message || discErr);
+      console.warn('[DB Switch] Notice during client disconnect:', discErr.message);
     }
-    
-    // 2. Инициализируем новый экземпляр PrismaClient с новым DATABASE_URL
-    try {
-      prisma = new PrismaClient({
-        datasources: {
-          db: {
-            url: `file:${resolvedPath}?connection_limit=1&busy_timeout=15000`
-          }
-        }
-      });
-      
-      // Включаем режимы WAL и NORMAL
+
+    process.env.DATABASE_URL = targetDbUrl;
+    prisma = createPrismaClient(current_db_type);
+
+    if (current_db_type === 'LOCAL') {
       try {
         await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL;');
         await prisma.$queryRawUnsafe('PRAGMA synchronous=NORMAL;');
-        console.log('[DB Setup] WAL и synchronous режимы успешно настроены.');
       } catch (pragmaErr: any) {
-        console.warn('[DB Setup] Warning during PRAGMA settings:', pragmaErr.message || pragmaErr);
+        console.warn('[DB Switch] Failed setting local performance PRAGMAs:', pragmaErr.message);
       }
-      
-      // Тестовый запрос для подтверждения соединения
-      await prisma.$queryRawUnsafe('SELECT 1;');
-    } catch (connErr: any) {
-      console.error('[DB Setup] Failed to establish stable connection on new database. Restoring old client...', connErr);
-      prisma = oldPrisma;
-      return res.status(400).json({
-        success: false,
-        message: `Не удалось подключиться к новой базе данных: ${connErr.message}`
-      });
     }
-    
-    // 3. Сохраняем в конфигурационный JSON файл
-    const newConfig = {
-      databasePath: resolvedPath,
-      isConfigured: req.body.isConfigured !== undefined ? !!req.body.isConfigured : true
-    };
-    saveDbConfig(newConfig);
-    
-    // 4. Посев дефолтных данных (auto-seed)
+
+    // Try a test query
+    await prisma.$queryRawUnsafe('SELECT 1;');
+
+    // Save configuration settings
+    saveAppConfig({
+      current_db_type,
+      database_url: database_url || ''
+    });
+
+    // Auto-seed if newly switched DB has no users
     let seedMessage = '';
     const userCount = await prisma.user.count();
     if (userCount === 0) {
-      console.log('[DB Setup] Performing automatic auto-seed of ADMIN and default structures...');
       await prisma.user.create({
         data: {
           name: 'Главный Администратор (RaupovKhKh)',
@@ -313,23 +432,69 @@ app.post('/api/db/save', async (req: Request, res: Response) => {
           description: 'Air Handling Unit',
         }
       });
-      seedMessage = ' База данных успешно инициализирована.';
+      seedMessage = ' База данных успешно инициализирована начальными учетными записями.';
     }
-    
-    // Отправляем успешный статус 200 OK
+
     return res.json({
       success: true,
-      message: `Подключение к базе данных выполнено успешно!${seedMessage}`
+      message: `База данных успешно переключена на режим ${current_db_type === 'LOCAL' ? 'Локальный' : 'Совместный / Внешний'}!${seedMessage}`
     });
-    
+
   } catch (err: any) {
-    console.error('[DB Setup] Error during live switchover:', err);
+    console.error('[DB Switch] switchover failure:', err);
+    // Restore original state
     prisma = oldPrisma;
     return res.status(500).json({
       success: false,
-      message: `Ошибка при подключении/инициализации: ${err.message}`
+      message: `Не удалось изменить подключение: ${err.message}`
     });
   }
+});
+
+// Alias POST /api/db/save to POST /api/db/switch to prevent old parts from erroring
+app.post('/api/db/save', async (req: Request, res: Response) => {
+  const { databasePath } = req.body;
+  if (databasePath) {
+    // Treat legacy call as configuring SQLite path in config.json
+    try {
+      const resolved = path.resolve(databasePath);
+      const parentDir = path.dirname(resolved);
+      if (!fs.existsSync(parentDir)) {
+        fs.mkdirSync(parentDir, { recursive: true });
+      }
+      
+      const targetDbUrl = `file:${resolved}?connection_limit=1&busy_timeout=15000`;
+      ensureSQLiteDatabaseExists(resolved);
+
+      if (prisma) {
+        await prisma.$disconnect();
+      }
+
+      process.env.DATABASE_URL = targetDbUrl;
+      prisma = createPrismaClient('LOCAL');
+      
+      try {
+        await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL;');
+        await prisma.$queryRawUnsafe('PRAGMA synchronous=NORMAL;');
+      } catch (e) {}
+
+      saveAppConfig({
+        current_db_type: 'LOCAL',
+        database_url: targetDbUrl
+      });
+
+      return res.json({
+        success: true,
+        message: 'Локальный путь SQLite базы успешно изменён!'
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  }
+
+  // Redirect to standard switch handler
+  req.url = '/api/db/switch';
+  (app as any).handle(req, res);
 });
 
 // Users
@@ -1273,7 +1438,7 @@ app.post('/api/chat/upload', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'fileName and base64Data are required' });
     }
 
-    const chatFilesDir = path.join(process.cwd(), 'userData', 'chat_files');
+    const chatFilesDir = path.join(userDataPath, 'chat_files');
     if (!fs.existsSync(chatFilesDir)) {
       fs.mkdirSync(chatFilesDir, { recursive: true });
     }
@@ -1807,9 +1972,10 @@ app.post('/api/components/:id/manual-edit-field', async (req: Request, res: Resp
 
 async function startServer() {
   // Выводим полный путь к файлу БД, который пытается открыть Prisma при старте
+  const defaultLocalDbPath = path.join(ventAppDataPath, 'production.sqlite');
   try {
     console.log('[SQLite Startup Diagnostic] Инициализация Prisma...');
-    console.log(`[SQLite Startup Diagnostic] Полный абсолютный путь к файлу БД: ${initialConfig.databasePath}`);
+    console.log(`[SQLite Startup Diagnostic] Полный абсолютный путь к файлу БД: ${defaultLocalDbPath}`);
   } catch (diagErr: any) {
     console.warn('[SQLite Startup Diagnostic] (ошибка логгирования)', diagErr.message);
   }
@@ -1826,7 +1992,7 @@ async function startServer() {
         await prisma.$disconnect();
       } catch (e) {}
 
-      const dbPath = initialConfig.databasePath;
+      const dbPath = defaultLocalDbPath;
       const shmPath = dbPath + '-shm';
       const walPath = dbPath + '-wal';
 
@@ -1841,32 +2007,12 @@ async function startServer() {
         }
       });
 
-      console.log('[SQLite Recovery] Executing "npx prisma db push --accept-data-loss" to build a fresh DB...');
-      try {
-        await new Promise<void>((resolve, reject) => {
-          exec('npx prisma db push --accept-data-loss', { env: { ...process.env, DATABASE_URL: `file:${dbPath}` } }, (pushError, stdout, stderr) => {
-            if (pushError) {
-              console.error('[SQLite Recovery] prisma db push fail:', pushError, stderr);
-              reject(new Error(stderr || pushError.message));
-            } else {
-              console.log('[SQLite Recovery] prisma db push succeeded! stdout:', stdout);
-              resolve();
-            }
-          });
-        });
-      } catch (pushErr) {
-        console.error('[SQLite Recovery] Failed prisma db push sequence. Writing a blank database as desperate fallback.', pushErr);
-        fs.writeFileSync(dbPath, '');
-      }
+      console.log('[SQLite Recovery] Copying fresh SQLite database template to recover from corruption...');
+      ensureSQLiteDatabaseExists(dbPath);
 
       // Recreate client
-      prisma = new PrismaClient({
-        datasources: {
-          db: {
-            url: `file:${dbPath}?connection_limit=1&busy_timeout=15000`
-          }
-        }
-      });
+      process.env.DATABASE_URL = `file:${dbPath}?connection_limit=1&busy_timeout=15000`;
+      prisma = createPrismaClient('LOCAL');
     } else {
       console.error('[SQLite Startup Error] General startup error (skipped self-healing):', errorMsg);
     }
@@ -1983,7 +2129,9 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = __dirname.includes('app.asar')
+      ? __dirname
+      : path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));

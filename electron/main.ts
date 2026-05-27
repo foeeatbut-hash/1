@@ -35,52 +35,93 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  createWindow();
-
-  // Configure default dynamic SQLite or PostgreSQL connection string
   const fs = require('fs');
   const path = require('path');
-  const userDataPath = app.getPath('userData');
-  const DB_CONFIG_FILE = path.join(userDataPath, 'db-config.json');
-  
-  let sqlitePath = path.join(userDataPath, 'database.sqlite');
-  let hasSQLiteConfig = false;
+
+  let ventAppDataPath = '';
   try {
-    if (fs.existsSync(DB_CONFIG_FILE)) {
-      const content = fs.readFileSync(DB_CONFIG_FILE, 'utf-8');
-      const parsed = JSON.parse(content);
-      if (parsed && typeof parsed.databasePath === 'string') {
-        sqlitePath = path.resolve(parsed.databasePath);
-        hasSQLiteConfig = true;
+    const desktopPath = app.getPath('desktop');
+    ventAppDataPath = path.join(desktopPath, 'VentApp-Data');
+  } catch (e) {
+    const home = require('os').homedir();
+    const desktop = path.join(home, 'Desktop');
+    const onedriveDesktop = path.join(home, 'OneDrive', 'Desktop');
+    const onedriveRuDesktop = path.join(home, 'OneDrive', 'Рабочий стол');
+    const ruDesktop = path.join(home, 'Рабочий стол');
+    
+    let destDesktop = desktop;
+    if (fs.existsSync(desktop)) {
+      destDesktop = desktop;
+    } else if (fs.existsSync(onedriveDesktop)) {
+      destDesktop = onedriveDesktop;
+    } else if (fs.existsSync(ruDesktop)) {
+      destDesktop = ruDesktop;
+    } else if (fs.existsSync(onedriveRuDesktop)) {
+      destDesktop = onedriveRuDesktop;
+    }
+    ventAppDataPath = path.join(destDesktop, 'VentApp-Data');
+  }
+
+  // Ensure directory exists
+  try {
+    if (!fs.existsSync(ventAppDataPath)) {
+      fs.mkdirSync(ventAppDataPath, { recursive: true });
+    }
+  } catch (e) {}
+
+  // Начиная со сборки в Production (asar), автоматически запускаем встроенный Express-сервер на порту 3000
+  if (app.isPackaged) {
+    const startupLogPath = path.join(ventAppDataPath, 'server-startup.log');
+    try {
+      fs.writeFileSync(startupLogPath, `[${new Date().toISOString()}] Инициализация встроенного Express-сервера...\n`, 'utf-8');
+      require(path.join(__dirname, '../dist/server.cjs'));
+      fs.appendFileSync(startupLogPath, `[${new Date().toISOString()}] Модуль сервера успешно подключен через require().\n`, 'utf-8');
+    } catch (err: any) {
+      console.error('[Electron Main] Сбой при автоматическом запуске встроенного Express-сервера:', err);
+      try {
+        fs.appendFileSync(startupLogPath, `[${new Date().toISOString()}] СБОЙ ЗАПУСКА: ${err.message}\nStack:\n${err.stack}\n`, 'utf-8');
+      } catch (writeErr) {}
+    }
+  }
+
+  createWindow();
+
+  const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');
+  let currentDbType = 'LOCAL';
+  let databaseUrlSetting = '';
+
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+      if (parsed && typeof parsed.current_db_type === 'string') {
+        currentDbType = parsed.current_db_type;
+        databaseUrlSetting = parsed.database_url || '';
       }
     }
   } catch (e) {}
 
-  if (!process.env.DATABASE_URL) {
-    if (!app.isPackaged || hasSQLiteConfig) {
-      process.env.DATABASE_URL = `file:${sqlitePath}?connection_limit=1&busy_timeout=15000`;
-    } else {
-      process.env.DATABASE_URL = "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public";
-    }
+  let finalDbUrl = '';
+  if (currentDbType === 'LOCAL') {
+    const localDbPath = path.join(ventAppDataPath, 'production.sqlite');
+    finalDbUrl = `file:${localDbPath}?connection_limit=1&busy_timeout=15000`;
+  } else {
+    finalDbUrl = databaseUrlSetting || "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public";
   }
 
-  try {
-    const ispg = app.isPackaged;
-    const { PrismaClient } = ispg ? require('@prisma/client-pg') : require('@prisma/client');
-    const dbUrl = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = finalDbUrl;
 
-    const localPrisma = new PrismaClient({
-      datasources: {
-        db: {
-          url: dbUrl
-        }
-      }
-    });
+  try {
+    const { PrismaClient } = (currentDbType === 'REMOTE') ? require('@prisma/client-pg') : require('@prisma/client');
+    const dbUrl = process.env.DATABASE_URL;
+    if (dbUrl) {
+      process.env.DATABASE_URL = dbUrl;
+    }
+    const localPrisma = new PrismaClient();
     
     // PostgreSQL database connection check & safe Auto-Seed
     (async () => {
       try {
-        if (!app.isPackaged) {
+        if (currentDbType === 'LOCAL') {
           console.log('[Electron Main] Portable SQLite mode: Startup connection check skipped in Main process.');
           return;
         }
@@ -233,25 +274,51 @@ app.whenReady().then(() => {
       
       const fs = require('fs');
       const path = require('path');
-      const userDataPath = app.getPath('userData');
-      const DB_CONFIG_FILE = path.join(userDataPath, 'db-config.json');
       
-      let sqlitePath = path.join(userDataPath, 'database.sqlite');
-      let hasSQLite = false;
+      let ventAppDataPath = '';
       try {
-        if (fs.existsSync(DB_CONFIG_FILE)) {
-          const content = fs.readFileSync(DB_CONFIG_FILE, 'utf-8');
-          const parsed = JSON.parse(content);
-          if (parsed && typeof parsed.databasePath === 'string') {
-            sqlitePath = path.resolve(parsed.databasePath);
-            hasSQLite = true;
+        const desktopPath = app.getPath('desktop');
+        ventAppDataPath = path.join(desktopPath, 'VentApp-Data');
+      } catch (e) {
+        const home = require('os').homedir();
+        const desktop = path.join(home, 'Desktop');
+        const onedriveDesktop = path.join(home, 'OneDrive', 'Desktop');
+        const onedriveRuDesktop = path.join(home, 'OneDrive', 'Рабочий стол');
+        const ruDesktop = path.join(home, 'Рабочий стол');
+        
+        let destDesktop = desktop;
+        if (fs.existsSync(desktop)) {
+          destDesktop = desktop;
+        } else if (fs.existsSync(onedriveDesktop)) {
+          destDesktop = onedriveDesktop;
+        } else if (fs.existsSync(ruDesktop)) {
+          destDesktop = ruDesktop;
+        } else if (fs.existsSync(onedriveRuDesktop)) {
+          destDesktop = onedriveRuDesktop;
+        }
+        ventAppDataPath = path.join(destDesktop, 'VentApp-Data');
+      }
+
+      const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');
+      let currentDbType = 'LOCAL';
+      let databaseUrlSetting = '';
+
+      try {
+        if (fs.existsSync(CONFIG_FILE)) {
+          const parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+          if (parsed && typeof parsed.current_db_type === 'string') {
+            currentDbType = parsed.current_db_type;
+            databaseUrlSetting = parsed.database_url || '';
           }
         }
       } catch (e) {}
 
-      let dbUrl = process.env.DATABASE_URL;
-      if (!dbUrl || dbUrl.startsWith('file:') || hasSQLite || !ispg) {
-        dbUrl = `file:${sqlitePath}?connection_limit=1&busy_timeout=15000`;
+      let dbUrl = '';
+      if (currentDbType === 'LOCAL') {
+        const localDbPath = path.join(ventAppDataPath, 'production.sqlite');
+        dbUrl = `file:${localDbPath}?connection_limit=1&busy_timeout=15000`;
+      } else {
+        dbUrl = databaseUrlSetting || "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public";
       }
 
       if (!chatPrismaInstance || lastLoadedDbUrl !== dbUrl) {
@@ -262,13 +329,8 @@ app.whenReady().then(() => {
         }
         
         const { PrismaClient } = ispg ? require('@prisma/client-pg') : require('@prisma/client');
-        chatPrismaInstance = new PrismaClient({
-          datasources: {
-            db: {
-              url: dbUrl
-            }
-          }
-        });
+        process.env.DATABASE_URL = dbUrl;
+        chatPrismaInstance = new PrismaClient();
         lastLoadedDbUrl = dbUrl;
       }
       return chatPrismaInstance;
@@ -664,13 +726,10 @@ app.whenReady().then(() => {
 
       console.log('[Updater] Production: Checking PostgreSQL databases for update records...');
       const { PrismaClient } = require('@prisma/client');
-      const prismaInstance = new PrismaClient({
-        datasources: {
-          db: {
-            url: process.env.DATABASE_URL || "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public"
-          }
-        }
-      });
+      if (!process.env.DATABASE_URL) {
+        process.env.DATABASE_URL = "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public";
+      }
+      const prismaInstance = new PrismaClient();
 
       const dbUpdate = await prismaInstance.appUpdate.findFirst({
         orderBy: { createdAt: 'desc' }
@@ -794,13 +853,10 @@ app.whenReady().then(() => {
   ipcMain.handle('updater:publish-release', async (event, { version, changelog, fileUrl }) => {
     try {
       const { PrismaClient } = require('@prisma/client');
-      const prismaInstance = new PrismaClient({
-        datasources: {
-          db: {
-            url: process.env.DATABASE_URL || "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public"
-          }
-        }
-      });
+      if (!process.env.DATABASE_URL) {
+        process.env.DATABASE_URL = "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public";
+      }
+      const prismaInstance = new PrismaClient();
 
       const update = await prismaInstance.appUpdate.upsert({
         where: { version },

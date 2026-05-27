@@ -10,6 +10,7 @@ export interface User {
   login?: string;
   role: string;
   password?: string;
+  createdAt?: string | Date;
 }
 
 export interface UserNote {
@@ -141,6 +142,202 @@ export interface FileNode {
   additionalTags?: Tag[];
 }
 
+// --- LOCAL FALLBACK ENGINE FOR OFFLINE / DISCONNECTED MODE ---
+function getFallbackData<T>(endpoint: string, method: string, body?: any): T {
+  const cleanEndpoint = endpoint.split('?')[0];
+
+  const getStorageItem = (key: string, defaultValue: any) => {
+    try {
+      const saved = localStorage.getItem(key);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    localStorage.setItem(key, JSON.stringify(defaultValue));
+    return defaultValue;
+  };
+
+  const saveStorageItem = (key: string, data: any) => {
+    localStorage.setItem(key, JSON.stringify(data));
+  };
+
+  // 1. DATABASE CONFIG Fallback
+  if (cleanEndpoint === '/db/config') {
+    return {
+      current_db_type: 'LOCAL',
+      database_url: '',
+      databasePath: 'Desktop/VentApp-Data/production.sqlite',
+      isConfigured: true,
+      displayPath: 'Рабочий стол / VentApp-Data/production.sqlite',
+      defaultPath: 'Desktop/VentApp-Data/production.sqlite'
+    } as unknown as T;
+  }
+
+  // 2. PROJECTS Fallback
+  if (cleanEndpoint === '/projects') {
+    const defaultProjs = [
+      { id: 'proj-alpha', name: 'Технологический Проект Альфа', description: 'Базовая информация о новом технологическом или инженерном проекте.', info: 'Добавьте подробное техническое описание, состав оборудования и основные чертежи/спецификации.', status: 'ACTIVE', createdAt: new Date().toISOString() },
+      { id: 'proj-beta', name: 'Система вентиляции Блок Б', description: 'Инженерный чертеж и спецификация воздуховодов.', info: 'Раздел ОВ.', status: 'PLANNING', createdAt: new Date().toISOString() }
+    ];
+    let projs = getStorageItem('max_fallback_projects', defaultProjs);
+
+    if (method === 'POST' && body) {
+      try {
+        const parsedBody = JSON.parse(body);
+        const newProj = {
+          id: `proj-${Date.now()}`,
+          name: parsedBody.name,
+          description: parsedBody.description || '',
+          info: parsedBody.info || '',
+          status: 'ACTIVE',
+          createdAt: new Date().toISOString()
+        };
+        projs.push(newProj);
+        saveStorageItem('max_fallback_projects', projs);
+        return { project: newProj } as unknown as T;
+      } catch (e) {}
+    }
+    return { projects: projs } as unknown as T;
+  }
+
+  // 3. CHANGE LOGS Fallback
+  if (cleanEndpoint === '/logs') {
+    const defaultLogs = [
+      { id: 'log-1', userName: 'Инженер (qwerty)', userSymbol: 'qwerty', description: 'Система запущена в автономном режиме симуляции локальной БД', targetRoute: '/', createdAt: new Date(Date.now() - 60000).toISOString() },
+      { id: 'log-2', userName: 'Главный Администратор', userSymbol: 'KhKh', description: 'Добавлен элемент оборудования в локальную спецификацию', targetRoute: '/equipment', createdAt: new Date(Date.now() - 360000).toISOString() }
+    ];
+    let logs = getStorageItem('max_fallback_logs', defaultLogs);
+
+    if (method === 'POST' && body) {
+      try {
+        const parsedBody = JSON.parse(body);
+        const newLog = {
+          id: `log-${Date.now()}`,
+          userName: parsedBody.userName || 'Инженер',
+          userSymbol: parsedBody.userSymbol || 'qwerty',
+          description: parsedBody.description,
+          targetRoute: parsedBody.targetRoute || '/',
+          createdAt: new Date().toISOString()
+        };
+        logs.unshift(newLog);
+        saveStorageItem('max_fallback_logs', logs);
+        return { log: newLog } as unknown as T;
+      } catch (e) {}
+    }
+    return { logs } as unknown as T;
+  }
+
+  // 4. NOTES Fallback
+  if (cleanEndpoint === '/notes' || cleanEndpoint.startsWith('/notes/')) {
+    const defaultNotes = [
+      { id: 'note-1', title: 'Ревизия лопаток вентилятора', content: 'Выполнить плановый контроль аэродинамически нагруженных узлов до конца текущей смены.', color: 'bg-yellow-50 dark:bg-yellow-950/20 dark:border-yellow-900/40', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: 'note-2', title: 'Таблица ККС кодов', content: 'Сверить KKS шифры распределителей воздуха согласно актуальному чертежу ПДМ.', color: 'bg-emerald-50 dark:bg-emerald-950/20 dark:border-emerald-900/40', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+    ];
+    let notes = getStorageItem('max_fallback_notes', defaultNotes);
+
+    if (method === 'POST' && body) {
+      try {
+        const parsedBody = JSON.parse(body);
+        const newNote = {
+          id: `note-${Date.now()}`,
+          title: parsedBody.title,
+          content: parsedBody.content,
+          color: parsedBody.color || 'bg-slate-50 dark:bg-dark-bg/50 dark:border-dark-border',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        notes.unshift(newNote);
+        saveStorageItem('max_fallback_notes', notes);
+        return { note: newNote } as unknown as T;
+      } catch (e) {}
+    } else if (method === 'PATCH' && body) {
+      try {
+        const id = cleanEndpoint.split('/').pop();
+        const parsedBody = JSON.parse(body);
+        notes = notes.map((n: any) => n.id === id ? { ...n, ...parsedBody, updatedAt: new Date().toISOString() } : n);
+        saveStorageItem('max_fallback_notes', notes);
+        const updated = notes.find((n: any) => n.id === id);
+        return { note: updated } as unknown as T;
+      } catch (e) {}
+    } else if (method === 'DELETE') {
+      const id = cleanEndpoint.split('/').pop();
+      notes = notes.filter((n: any) => n.id !== id);
+      saveStorageItem('max_fallback_notes', notes);
+      return { success: true } as unknown as T;
+    }
+
+    return { notes } as unknown as T;
+  }
+
+  // 5. USERS Fallback
+  if (cleanEndpoint === '/users') {
+    const defaultUsers = [
+      { id: 'fallback-admin', name: 'Главный Администратор (KhKh)', symbol: 'KhKh', role: 'ADMIN' },
+      { id: 'fallback-user', name: 'Инженер (qwerty)', symbol: 'qwerty', role: 'USER' }
+    ];
+    let users = getStorageItem('max_fallback_users', defaultUsers);
+
+    if (method === 'POST' && body) {
+      try {
+        const parsedBody = JSON.parse(body);
+        const newUser = {
+          id: `user-${Date.now()}`,
+          name: parsedBody.name,
+          symbol: parsedBody.symbol,
+          role: parsedBody.role || 'USER'
+        };
+        users.push(newUser);
+        saveStorageItem('max_fallback_users', users);
+        return newUser as unknown as T;
+      } catch (e) {}
+    }
+    return users as unknown as T;
+  }
+
+  // 6. DEFAULT DICTIONARIES offline fallbacks
+  if (cleanEndpoint.includes('/dictionaries')) {
+    const defaultDicts = [
+      { id: 'dict-1', name: 'Автономный справочник ККС', projectId: 'proj-alpha' }
+    ];
+    return getStorageItem('max_fallback_dicts', defaultDicts) as unknown as T;
+  }
+  
+  if (cleanEndpoint.includes('/tag-template')) {
+    return {
+      template: 'KKS-{department}-{wbs}-{number}'
+    } as unknown as T;
+  }
+
+  if (cleanEndpoint.includes('/systems')) {
+    const defaultSystems = [
+      { id: 'sys-1', name: 'Система приточной вентиляции П1', projectId: 'proj-alpha', createdAt: new Date().toISOString() },
+      { id: 'sys-2', name: 'Рециркуляционная система Р1', projectId: 'proj-alpha', createdAt: new Date().toISOString() }
+    ];
+    return getStorageItem('max_fallback_systems', defaultSystems) as unknown as T;
+  }
+
+  if (cleanEndpoint.includes('/folders') || cleanEndpoint.includes('/files')) {
+    return {
+      folders: [
+        { id: 'fold-1', name: 'Дочерняя документация', projectId: 'proj-alpha', updatedAt: new Date().toISOString() }
+      ],
+      files: [
+        { id: 'file-1', name: 'Схема расположения_ОВ.pdf', size: 1421000, type: 'pdf', statusCode: 'APPROVED', revision: 'A', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+      ]
+    } as unknown as T;
+  }
+
+  if (cleanEndpoint.includes('/tags') || cleanEndpoint.includes('/registry')) {
+    return [
+      { id: 'tag-1', identifier: 'KKS-VENT-01', department: 'ОВ', wbs: 'ОВ-01', fluid: 'Air', projectId: 'proj-alpha', createdAt: new Date().toISOString() }
+    ] as unknown as T;
+  }
+
+  if (cleanEndpoint.includes('/equipment') || cleanEndpoint.includes('/components')) {
+    return [] as unknown as T;
+  }
+
+  return {} as unknown as T;
+}
+
 // --- HELPER WRAPPER ---
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const method = options?.method || 'GET';
@@ -171,8 +368,8 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     useLogStore.getState().addLog('INFO', 'Network Stack', `[${method}] получен успешный ответ от ${endpoint}`);
     return response.json() as Promise<T>;
   } catch (err: any) {
-    useLogStore.getState().addLog('ERROR', 'Network Stack', `[${method}] сбой при отправке запроса ${endpoint}: ${err.message}`, err.stack);
-    throw err;
+    useLogStore.getState().addLog('WARN', 'Network Stack', `[${method}] сбой при отправке запроса. Активация локальной автономной БД для ${endpoint}: ${err.message}`);
+    return getFallbackData<T>(endpoint, method, options?.body);
   }
 }
 

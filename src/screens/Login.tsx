@@ -17,11 +17,13 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
   
   const [dbPath, setDbPath] = useState('');
   const [dbDisplayPath, setDbDisplayPath] = useState('');
+  const [dbType, setDbType] = useState('LOCAL');
 
   useEffect(() => {
     async function loadDbConfig() {
       try {
-        const config = await dataService.getDbConfig();
+        const config = await dataService.getDbConfig() as any;
+        setDbType(config.current_db_type || 'LOCAL');
         setDbPath(config.databasePath || '');
         setDbDisplayPath(config.displayPath || '');
       } catch (err) {
@@ -264,21 +266,14 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
       {/* Footer section with database picker on bottom left and version on bottom right */}
       <div className="w-full flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-4 border-t border-slate-200/40 dark:border-slate-800/40 mt-auto">
         <div className="flex items-center gap-2">
-          {onConfigureDatabase && (
-            <button
-              type="button"
-              onClick={onConfigureDatabase}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-emerald-500/30 dark:hover:border-emerald-500/30 rounded-lg text-slate-600 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-all font-sans font-semibold shadow-xs cursor-pointer text-xs"
-              title="Сменить расположение sqlite файла базы данных"
-            >
-              <Database className="w-4 h-4 text-emerald-600 dark:text-emerald-450" />
-              <span>База данных (SQLite)</span>
-            </button>
-          )}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-600 dark:text-slate-400 font-sans font-semibold text-xs">
+            <Database className="w-4 h-4 text-emerald-600 dark:text-emerald-455" />
+            <span>База данных: {dbType === 'LOCAL' ? 'Локальная SQLite' : 'Сеть / PostgreSQL'}</span>
+          </div>
           
           {dbDisplayPath && (
             <span className="font-mono text-[10px] text-slate-450 dark:text-slate-500 max-w-xs truncate hidden sm:inline" title={dbPath}>
-              ({dbDisplayPath})
+              ({dbType === 'LOCAL' ? 'production.sqlite' : dbDisplayPath})
             </span>
           )}
         </div>
