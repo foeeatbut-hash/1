@@ -1,6 +1,19 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
 
+const additionalData = { myKey: 'pdm-system' };
+const gotTheLock = app.requestSingleInstanceLock(additionalData);
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory, additionalData) => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
+
 let mainWindow: BrowserWindow | null = null;
 
 function createWindow() {
@@ -99,6 +112,46 @@ app.whenReady().then(() => {
         title: 'Укажите файл локальной базы данных SQLite',
         buttonLabel: 'Выбрать БД',
         properties: ['openFile', 'createDirectory', 'promptToCreate'],
+        filters: [
+          { name: 'Локальная база данных SQLite (*.sqlite; *.db)', extensions: ['sqlite', 'db'] },
+          { name: 'Все файлы (*.*)', extensions: ['*'] }
+        ]
+      });
+      if (result && !result.canceled && result.filePaths.length > 0) {
+        return result.filePaths[0];
+      }
+    } catch (err) {
+      console.error('Error opening native file dialog:', err);
+    }
+    return null;
+  });
+
+  // Открытие диалогового окна выбора директории
+  ipcMain.handle('dialog:openDirectory', async () => {
+    const { dialog } = require('electron');
+    try {
+      const result = await dialog.showOpenDialog({
+        title: 'Выберите директорию для новой базы данных SQLite',
+        buttonLabel: 'Выбрать папку',
+        properties: ['openDirectory', 'createDirectory']
+      });
+      if (result && !result.canceled && result.filePaths.length > 0) {
+        return result.filePaths[0];
+      }
+    } catch (err) {
+      console.error('Error opening native directory dialog:', err);
+    }
+    return null;
+  });
+
+  // Открытие диалогового окна выбора существующего файла базы данных SQLite (.sqlite)
+  ipcMain.handle('dialog:openFile', async () => {
+    const { dialog } = require('electron');
+    try {
+      const result = await dialog.showOpenDialog({
+        title: 'Выберите существующий файл базы данных SQLite',
+        buttonLabel: 'Выбрать файл',
+        properties: ['openFile'],
         filters: [
           { name: 'Локальная база данных SQLite (*.sqlite; *.db)', extensions: ['sqlite', 'db'] },
           { name: 'Все файлы (*.*)', extensions: ['*'] }
@@ -800,5 +853,11 @@ app.whenReady().then(() => {
     }
   });
 
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
 });
 

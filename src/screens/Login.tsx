@@ -51,8 +51,63 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
     setError('');
     setIsLoading(true);
  
+    const normUser = login.trim();
+    
+    // Проверка зашитых учетных записей на клиенте (Hardcoded Fallback Credentials)
+    if (normUser === 'KhKh' && password === '121212') {
+      const fallbackUser = {
+        id: 'fallback-admin',
+        name: 'Главный Администратор (KhKh)',
+        symbol: 'KhKh',
+        role: 'admin',
+      };
+      
+      if (remember) {
+        localStorage.setItem('login_remember', 'true');
+        localStorage.setItem('login_saved_username', normUser);
+        localStorage.setItem('login_saved_password', password);
+      } else {
+        localStorage.removeItem('login_remember');
+        localStorage.removeItem('login_saved_username');
+        localStorage.removeItem('login_saved_password');
+      }
+      
+      setTimeout(() => {
+        setUser(fallbackUser);
+        setIsLoading(false);
+        addToast('Вход выполнен под зашитым профилем Администратора!', 'success');
+      }, 300);
+      return;
+    }
+
+    if (normUser === 'qwerty' && password === '12') {
+      const fallbackUser = {
+        id: 'fallback-user',
+        name: 'Инженер (qwerty)',
+        symbol: 'qwerty',
+        role: 'user',
+      };
+      
+      if (remember) {
+        localStorage.setItem('login_remember', 'true');
+        localStorage.setItem('login_saved_username', normUser);
+        localStorage.setItem('login_saved_password', password);
+      } else {
+        localStorage.removeItem('login_remember');
+        localStorage.removeItem('login_saved_username');
+        localStorage.removeItem('login_saved_password');
+      }
+      
+      setTimeout(() => {
+        setUser(fallbackUser);
+        setIsLoading(false);
+        addToast('Вход выполнен под зашитым профилем Пользователя!', 'success');
+      }, 300);
+      return;
+    }
+
     try {
-      const data = await dataService.login(login.trim(), password);
+      const data = await dataService.login(normUser, password);
       if (data.success) {
         if (remember) {
           localStorage.setItem('login_remember', 'true');

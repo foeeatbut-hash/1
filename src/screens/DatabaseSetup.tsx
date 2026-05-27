@@ -3,7 +3,7 @@ import { dataService } from '../services/dataService';
 import { useToastStore } from '../store/toastStore';
 import { useStore } from '../store/store';
 import { motion, AnimatePresence } from 'motion/react';
-import { Database, FolderOpen, Loader2, AlertCircle, CheckCircle, Info, Sun, Moon, Download } from 'lucide-react';
+import { Database, FolderOpen, Loader2, AlertCircle, CheckCircle, Info, Sun, Moon, FileText, PlusCircle } from 'lucide-react';
 
 interface DatabaseSetupProps {
   onConfigured: () => void;
@@ -14,26 +14,43 @@ export default function DatabaseSetup({ onConfigured }: DatabaseSetupProps) {
   const toggleTheme = useStore((state) => state.toggleTheme);
   const { addToast } = useToastStore();
 
-  const [dbPath, setDbPath] = useState('');
-  const [defaultPath, setDefaultPath] = useState('');
+  // Режим выбора: 'create' (Вариант А) или 'existing' (Вариант Б)
+  const [setupMode, setSetupMode] = useState<'create' | 'existing'>('create');
+
+  // Состояния для Варианта А (Создание новой БД)
+  const [directoryPath, setDirectoryPath] = useState('');
+  const [newDbFileName, setNewDbFileName] = useState('vostok_project');
+
+  // Состояния для Варианта Б (Выбор существующей БД)
+  const [existingDbPath, setExistingDbPath] = useState('');
+
   const [isTesting, setIsTesting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; exists: boolean; message: string } | null>(null);
   const [isElectron, setIsElectron] = useState(false);
 
   useEffect(() => {
-    // Detect if we are running inside Electron
+    // Проверка, запущены ли в среде Electron
     const win = window as any;
     if (win.electron && win.electron.ipcRenderer) {
       setIsElectron(true);
     }
 
-    // Fetch current dynamic config
+    // Загрузка начальной конфигурации из БД
     async function loadConfig() {
       try {
         const config = await dataService.getDbConfig();
-        setDbPath(config.databasePath || config.defaultPath);
-        setDefaultPath(config.defaultPath);
+        const pathVal = config.databasePath || config.defaultPath;
+        setExistingDbPath(pathVal);
+        
+        // Разделяем директорию и имя по возможности для новой БД по умолчанию
+        const separator = pathVal.includes('\\') ? '\\' : '/';
+        const lastIndex = pathVal.lastIndexOf(separator);
+        if (lastIndex !== -1) {
+          setDirectoryPath(pathVal.substring(0, lastIndex));
+        } else {
+          setDirectoryPath(config.defaultPath.substring(0, config.defaultPath.lastIndexOf(separator)) || '.');
+        }
       } catch (err: any) {
         addToast('Не удалось загрузить текущую конфигурацию СУБД', 'error');
       }
@@ -41,42 +58,110 @@ export default function DatabaseSetup({ onConfigured }: DatabaseSetupProps) {
     loadConfig();
   }, []);
 
-  const handleBrowse = async () => {
+  // Кнопка из Варианта А: Выбор папки через нативное окно Electron
+  const handleBrowseDirectory = async () => {
     const win = window as any;
     if (win.electron && win.electron.ipcRenderer) {
       try {
-        const selectedPath = await win.electron.ipcRenderer.invoke('database:select-file');
-        if (selectedPath) {
-          setDbPath(selectedPath);
+        const selectedDir = await win.electron.ipcRenderer.invoke('dialog:openDirectory');
+        if (selectedDir) {
+          setDirectoryPath(selectedDir);
+          setSetupMode('create');
           setTestResult(null);
-          addToast('Файл выбран из Проводника!', 'info');
+          addToast('Директория выбрана успешно!', 'success');
         }
       } catch (err: any) {
         addToast(`Ошибка открытия Проводника: ${err.message}`, 'error');
       }
     } else {
-      addToast('Выбор проводника доступен только при запуске в приложении Electron!', 'info');
+      // Имитация или ручной ввод в Web-версии
+      const dir = prompt('Введите путь к папке вручную:', directoryPath || '/projects/db');
+      if (dir) {
+        setDirectoryPath(dir);
+        setSetupMode('create');
+        setTestResult(null);
+      }
     }
   };
 
-  const handleTestConnection = async () => {
-    if (!dbPath.trim()) {
-      addToast('Пожалуйста, укажите путь к файлу базы данных!', 'info');
-      return;
+  // Кнопка из Варианта Б: Выбор существующего файла через нативное окно Electron
+  const handleBrowseExistingFile = async () => {
+    const win = window as any;
+    if (win.electron && win.electron.ipcRenderer) {
+      try {
+        const selectedFile = await win.electron.ipcRenderer.invoke('dialog:openFile');
+        if (selectedFile) {
+          setExistingDbPath(selectedFile);
+          setSetupMode('existing');
+          setTestResult(null);
+          addToast('Файл базы данных выбран!', 'success');
+        }
+      } catch (err: any) {
+        addToast(`Ошибка открытия Проводника: ${err.message}`, 'error');
+      }
+    } else {
+      // Ручной ввод в Web-версии
+      const file = prompt('Введите полный путь к БД sqlite вручную:', existingDbPath || '/projects/db/database.sqlite');
+      if (file) {
+        setExistingDbPath(file);
+        setSetupMode('existing');
+        setTestResult(null);
+      }
     }
-    setIsTesting(true);
+  };
+
+  // Вычисление итогового пути для Варианта А
+  const getCompiledNewDbPath = () => {
+    if (!directoryPath) return '';
+    const separator = directoryPath.includes('\\') ? '\\' : '/';
+    let cleanFileName = newDbFileName.trim();
+    if (!cleanFileName) cleanFileName = 'database';
+    
+    // Автоматически добавляем расширение .sqlite, если его нет
+    const extension = '.sqlite';
+    if (!cleanFileName.toLowerCase().endsWith(extension)) {
+      cleanFileName = `${cleanFileName}${extension}`;
+    }
+    
+    const hasTrailingSlash = directoryPath.endsWith('/') || directoryPath.endsWith('\\');
+    return `${directoryPath}${hasTrailingSlash ? '' : separator}${cleanFileName}`;
+  };
+
+  // Метод отправки формы - "Подключить и запустить систему"
+  const handleConnectAndRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    let pathToSend = '';
+    if (setupMode === 'create') {
+      if (!directoryPath) {
+        addToast('Пожалуйста, выберите директорию для создания базы данных!', 'info');
+        return;
+      }
+      pathToSend = getCompiledNewDbPath();
+    } else {
+      if (!existingDbPath) {
+        addToast('Пожалуйста, укажите существующий файл базы данных!', 'info');
+        return;
+      }
+      pathToSend = existingDbPath.trim();
+    }
+
+    setIsSaving(true);
     setTestResult(null);
     try {
-      const res = await dataService.testDbConnection(dbPath.trim());
-      setTestResult({
-        success: res.success,
-        exists: res.exists,
-        message: res.message
-      });
+      addToast('Инициализация базы данных и применение миграций Prisma...', 'info');
+      const res = await dataService.saveDbConfig(pathToSend);
       if (res.success) {
-        addToast('Проверка пути завершена успешно!', 'success');
+        addToast(res.message || 'СУБД успешно подключена!', 'success');
+        // Запуск интерфейса приложения
+        onConfigured();
       } else {
-        addToast(res.message || 'Ошибка проверки пути.', 'error');
+        setTestResult({
+          success: false,
+          exists: false,
+          message: res.message || 'Не удалось настроить БД.'
+        });
+        addToast(res.message || 'Не удалось подключить базу данных.', 'error');
       }
     } catch (err: any) {
       setTestResult({
@@ -84,30 +169,7 @@ export default function DatabaseSetup({ onConfigured }: DatabaseSetupProps) {
         exists: false,
         message: err.message || 'Ошибка подключения.'
       });
-      addToast(`Ошибка: ${err.message}`, 'error');
-    } finally {
-      setIsTesting(false);
-    }
-  };
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!dbPath.trim()) {
-      addToast('Пожалуйста, укажите путь к файлу базы данных!', 'info');
-      return;
-    }
-    setIsSaving(true);
-    try {
-      const res = await dataService.saveDbConfig(dbPath.trim());
-      if (res.success) {
-        addToast(res.message || 'Конфигурация успешно применена!', 'success');
-        // Notify the parent component that setup is successfully configured
-        onConfigured();
-      } else {
-        addToast(res.message || 'Не удалось сохранить конфигурацию.', 'error');
-      }
-    } catch (err: any) {
-      addToast(`Ошибка при сохранении: ${err.message}`, 'error');
+      addToast(`Критическая ошибка: ${err.message}`, 'error');
     } finally {
       setIsSaving(false);
     }
@@ -118,7 +180,7 @@ export default function DatabaseSetup({ onConfigured }: DatabaseSetupProps) {
       id="db-setup-screen-root"
       className="min-h-screen w-full flex flex-col justify-between bg-slate-50 dark:bg-slate-950 font-sans text-slate-800 dark:text-slate-100 transition-colors duration-250 relative p-4"
     >
-      {/* Floating theme switcher */}
+      {/* Переключатель темы */}
       <div className="absolute top-4 right-4 z-40">
         <button
           type="button"
@@ -130,195 +192,224 @@ export default function DatabaseSetup({ onConfigured }: DatabaseSetupProps) {
         </button>
       </div>
 
-      <div className="flex-1 flex items-center justify-center py-8">
+      <div className="flex-1 flex items-center justify-center py-6">
         <motion.div
           initial={{ opacity: 0, scale: 0.98, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           transition={{ duration: 0.3 }}
-          className="w-full max-w-lg bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl transition-all"
+          className="w-full max-w-xl bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl transition-all"
         >
-          {/* Header */}
+          {/* Шапка */}
           <div className="flex items-center gap-3.5 mb-6">
             <div className="p-3 bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-xl">
               <Database className="w-6 h-6" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Конфигурация СУБД</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Укажите размещение файла базы данных SQLite</p>
+              <h2 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">Настройка источников данных СУБД</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Выберите локальный сценарий подключения ККС СУБД SQLite</p>
             </div>
           </div>
 
-          <div className="space-y-5">
-            {/* Context Notice info */}
-            <div className="p-3.5 bg-slate-50 dark:bg-slate-950/40 border border-slate-150 dark:border-slate-850 rounded-xl text-xs text-slate-600 dark:text-slate-400 leading-relaxed flex gap-2 w-full">
-              <Info className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-              <div>
-                Вы запускаете программу локально. Для синхронизации чертежей и тегов, выберите или укажите путь к файлу БД. Если указанного файла не существует, система создаст его автоматически.
+          <form onSubmit={handleConnectAndRegister} className="space-y-6">
+            {/* Вариант А: Создание новой базы данных */}
+            <div 
+              onClick={() => setSetupMode('create')}
+              className={`p-5 rounded-xl border transition-all cursor-pointer relative ${
+                setupMode === 'create'
+                  ? 'border-emerald-500 bg-emerald-500/5 dark:bg-emerald-500/10 shadow-md ring-1 ring-emerald-500/30'
+                  : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20 hover:border-slate-300'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className={`p-1.5 rounded-lg ${setupMode === 'create' ? 'bg-emerald-500/25 text-emerald-600 dark:text-emerald-400' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'}`}>
+                    <PlusCircle className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">Вариант А: Создать новую базу данных</h3>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-450">Инициализация чистой структуры таблиц в указанной директории</p>
+                  </div>
+                </div>
+                <input
+                  type="radio"
+                  name="setupMode"
+                  checked={setupMode === 'create'}
+                  onChange={() => setSetupMode('create')}
+                  className="w-4.5 h-4.5 text-emerald-600 border-slate-300 focus:ring-emerald-500 accent-emerald-500"
+                />
               </div>
-            </div>
 
-            {/* Create & Download database section */}
-            <div className="p-3.5 bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-slate-700 dark:text-slate-300 leading-normal flex flex-col sm:flex-row items-center justify-between gap-3 w-full">
-              <div className="flex gap-2 items-start text-left">
-                <Database className="w-4.5 h-4.5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+              {/* Две строки Варианта А */}
+              <div className="space-y-3.5 mt-2 ml-1" onClick={(e) => e.stopPropagation()}>
+                {/* Строка 1: Выбор директории */}
                 <div>
-                  <p className="font-extrabold text-slate-900 dark:text-white">Скачать шаблон базы данных (.sqlite)</p>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-450 mt-0.5 leading-relaxed">Скачайте готовую пустую базу данных PDM-системы, сохраните её на Рабочий стол или в любую удобную папку, а затем укажите путь к ней ниже.</p>
+                  <label className="block text-[10px] font-bold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1">
+                    Строка 1: Путь к директории новой БД
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={directoryPath}
+                      onChange={(e) => {
+                        setDirectoryPath(e.target.value);
+                        setTestResult(null);
+                      }}
+                      className="flex-1 px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-white placeholder-slate-450 focus:outline-none focus:ring-1 focus:ring-emerald-550 focus:border-emerald-550 font-mono"
+                      placeholder="Например: D:\PDM_Data"
+                      required={setupMode === 'create'}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleBrowseDirectory}
+                      className="px-3 py-2 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-750 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
+                    >
+                      <FolderOpen className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Обзор/Выбрать папку</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Строка 2: Название файла */}
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1">
+                    Строка 2: Название нового файла базы данных (.sqlite добавится автоматически)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={newDbFileName}
+                      onChange={(e) => {
+                        setNewDbFileName(e.target.value);
+                        setTestResult(null);
+                      }}
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-white placeholder-slate-450 focus:outline-none focus:ring-1 focus:ring-emerald-555 focus:border-emerald-555 font-semibold"
+                      placeholder="Пример: database или vostok_project"
+                      required={setupMode === 'create'}
+                    />
+                    <span className="absolute right-3.5 top-2.5 text-xs font-bold text-slate-400 dark:text-slate-600 select-none">
+                      .sqlite
+                    </span>
+                  </div>
+                  {directoryPath && (
+                    <p className="text-[10px] font-mono text-slate-400 dark:text-slate-500 mt-1 truncate">
+                      Будет сформирован путь: <span className="text-emerald-600 dark:text-emerald-450 font-semibold">{getCompiledNewDbPath()}</span>
+                    </p>
+                  )}
                 </div>
               </div>
-              <a
-                href="/api/db/download"
-                download="database.sqlite"
-                className="px-3.5 py-2.5 bg-emerald-750 hover:bg-emerald-650 text-white font-extrabold text-[11px] rounded-lg shadow-sm font-sans flex items-center gap-1.5 transition-all cursor-pointer shrink-0"
-              >
-                <Download className="w-4 h-4" />
-                <span>Скачать .sqlite</span>
-              </a>
             </div>
 
-            {/* Path Form Input */}
-            <form onSubmit={handleSave} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1.5">
-                  Путь к файлу базы данных (.sqlite / .db)
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    id="db-path-input"
-                    type="text"
-                    value={dbPath}
-                    onChange={(e) => {
-                      setDbPath(e.target.value);
-                      setTestResult(null);
-                    }}
-                    className="flex-1 px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-450 dark:placeholder-slate-650 focus:outline-none focus:ring-2 focus:ring-emerald-555/20 focus:border-emerald-555 transition-all font-mono"
-                    placeholder="Пример: C:\pdm\database.sqlite"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={handleBrowse}
-                    className="px-3.5 bg-white dark:bg-slate-850 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-750 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 shadow-sm"
-                    title={isElectron ? "Выбрать расположение через Проводник Windows" : "Проводник доступен только в приложении Electron"}
-                  >
-                    <FolderOpen className="w-4 h-4 text-emerald-600" />
-                    <span>Проводник</span>
-                  </button>
+            {/* Вариант Б: Выбор существующей базы данных */}
+            <div 
+              onClick={() => setSetupMode('existing')}
+              className={`p-5 rounded-xl border transition-all cursor-pointer relative ${
+                setupMode === 'existing'
+                  ? 'border-emerald-500 bg-emerald-500/5 dark:bg-emerald-500/10 shadow-md ring-1 ring-emerald-500/30'
+                  : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20 hover:border-slate-300'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className={`p-1.5 rounded-lg ${setupMode === 'existing' ? 'bg-emerald-500/25 text-emerald-600 dark:text-emerald-400' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'}`}>
+                    <FileText className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">Вариант Б: Выбрать существующую базу данных</h3>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-450">Использование файла готовой PDM-системы (*.sqlite, *.db)</p>
+                  </div>
                 </div>
-                {!isElectron && (
-                  <p className="text-xs text-amber-650 dark:text-amber-400 mt-1 font-semibold">
-                    * Запустите программу в Electron, чтобы выбирать файл кликом через Проводник Windows.
-                  </p>
-                )}
+                <input
+                  type="radio"
+                  name="setupMode"
+                  checked={setupMode === 'existing'}
+                  onChange={() => setSetupMode('existing')}
+                  className="w-4.5 h-4.5 text-emerald-600 border-slate-300 focus:ring-emerald-500 accent-emerald-500"
+                />
               </div>
 
-              {/* Status Connection Indicator */}
-              <AnimatePresence mode="wait">
-                {testResult && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -5 }}
-                    className={`flex items-start gap-2.5 p-3.5 rounded-lg border text-xs leading-normal ${
-                      testResult.success
-                        ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-400'
-                        : 'bg-rose-500/10 border-rose-500/20 text-rose-700 dark:text-rose-400'
-                    }`}
-                  >
-                    {testResult.success ? (
-                      <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    ) : (
-                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    )}
-                    <div>
-                      <p className="font-semibold">{testResult.success ? 'Путь проверен!' : 'Ошибка проверки'}</p>
-                      <p className="mt-0.5 opacity-90">{testResult.message}</p>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Useful Copy Templates */}
-              <div className="space-y-1.5 pt-1">
-                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Шаблоны размещения для копирования:</p>
-                <div className="grid grid-cols-1 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDbPath(defaultPath);
-                      setTestResult(null);
-                    }}
-                    className="p-2.5 bg-slate-50 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 rounded-lg text-left text-xs font-mono text-slate-600 dark:text-slate-300 hover:border-emerald-500 dark:hover:border-emerald-500 hover:bg-slate-100 transition-all cursor-pointer"
-                  >
-                    <p className="text-xs font-sans font-bold text-emerald-600 mb-0.5">Внутренняя папка программы (по умолчанию):</p>
-                    {defaultPath}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDbPath('C:\\pdm\\pdm_database.sqlite');
-                      setTestResult(null);
-                    }}
-                    className="p-2.5 bg-slate-50 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 rounded-lg text-left text-xs font-mono text-slate-600 dark:text-slate-300 hover:border-emerald-500 dark:hover:border-emerald-500 hover:bg-slate-100 transition-all cursor-pointer"
-                  >
-                    <p className="text-xs font-sans font-bold text-emerald-600 mb-0.5">Локальная папка диска C:</p>
-                    C:\pdm\pdm_database.sqlite
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDbPath('//NAS-SERVER/SharedFolder/database.sqlite');
-                      setTestResult(null);
-                    }}
-                    className="p-2.5 bg-slate-50 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 rounded-lg text-left text-xs font-mono text-slate-600 dark:text-slate-300 hover:border-emerald-500 dark:hover:border-emerald-500 hover:bg-slate-100 transition-all cursor-pointer"
-                  >
-                    <p className="text-xs font-sans font-bold text-emerald-600 mb-0.5">Сетевой сервер / Общая папка NAS:</p>
-                    {"\\\\NAS-SERVER\\SharedFolder\\database.sqlite"}
-                  </button>
+              {/* ОДНА СТРОКА ВАРИАНТА Б */}
+              <div className="space-y-3 mt-2 ml-1" onClick={(e) => e.stopPropagation()}>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1">
+                    Строка 3: Файл существующей sqlite базы данных
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={existingDbPath}
+                      onChange={(e) => {
+                        setExistingDbPath(e.target.value);
+                        setTestResult(null);
+                      }}
+                      className="flex-1 px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-white placeholder-slate-450 focus:outline-none focus:ring-1 focus:ring-emerald-555 focus:border-emerald-555 font-mono"
+                      placeholder="Пример: C:\pdm_project\database.sqlite"
+                      required={setupMode === 'existing'}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleBrowseExistingFile}
+                      className="px-3 py-2 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-750 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
+                    >
+                      <Database className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Выбрать файл базы данных</span>
+                    </button>
+                  </div>
                 </div>
               </div>
+            </div>
 
-              {/* Action buttons */}
-              <div className="flex gap-3 pt-4 border-t border-slate-150 dark:border-slate-800">
-                <button
-                  type="button"
-                  disabled={isTesting || isSaving}
-                  onClick={handleTestConnection}
-                  className="flex-1 h-11 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-750 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-slate-800 text-sm font-semibold rounded-lg shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+            {/* Блок результатов */}
+            <AnimatePresence mode="wait">
+              {testResult && (
+                <motion.div
+                  initial={{ opacity: 0, y: -5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -5 }}
+                  className="flex items-start gap-2.5 p-3.5 rounded-lg border bg-rose-500/10 border-rose-500/20 text-rose-700 dark:text-rose-400 text-xs"
                 >
-                  {isTesting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
-                      <span>Проверка пути...</span>
-                    </>
-                  ) : (
-                    <span>Проверить путь</span>
-                  )}
-                </button>
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold">Сбой подключения</p>
+                    <p className="mt-0.5 opacity-90">{testResult.message}</p>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-                <button
-                  id="save-db-button"
-                  type="submit"
-                  disabled={isTesting || isSaving}
-                  className="flex-1 h-11 bg-emerald-700 hover:bg-emerald-600 active:bg-emerald-850 disabled:bg-emerald-800/50 text-white text-sm font-semibold rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  {isSaving ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Подключение...</span>
-                    </>
-                  ) : (
-                    <span>Подключить СУБД</span>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
+            {/* Общая кнопка пуска ККС СУБД */}
+            <div className="pt-2">
+              <button
+                id="connect-and-system-launch"
+                type="submit"
+                disabled={isSaving}
+                className="w-full h-12 bg-emerald-700 hover:bg-emerald-600 active:bg-emerald-800 disabled:bg-emerald-800/50 text-white text-sm font-semibold rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer font-sans"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="w-4.5 h-4.5 animate-spin mr-1" />
+                    <span>Инициализация СУБД...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="w-4.5 h-4.5 mr-1" />
+                    <span>Подключить и запустить систему</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+
+          {/* Предупреждение о Web версии */}
+          {!isElectron && (
+            <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-4 text-center leading-normal">
+              ⚠️ Вы используете приложение в браузере. Пути к файлам будут обработаны на сервере. При запуске через Electron станет доступен нативный Проводник ОС Windows.
+            </p>
+          )}
         </motion.div>
       </div>
 
-      <div className="w-full text-center py-4 text-xs font-mono text-slate-400 dark:text-slate-600 tracking-wider">
-        KKS Database Engine / Версия 1.10
+      <div className="w-full text-center py-4 text-[10px] font-mono text-slate-400 dark:text-slate-600 tracking-wider uppercase">
+        Vostok KKS Safe Storage Engine & DB Connector / Версия 1.2.0
       </div>
     </div>
   );

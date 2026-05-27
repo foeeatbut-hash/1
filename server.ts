@@ -179,6 +179,42 @@ app.post('/api/db/save', async (req: Request, res: Response) => {
     if (!fs.existsSync(parentDir)) {
       fs.mkdirSync(parentDir, { recursive: true });
     }
+
+    const targetFileExists = fs.existsSync(resolvedPath);
+
+    // Устанавливаем DATABASE_URL в переменные окружения
+    process.env.DATABASE_URL = `file:${resolvedPath}`;
+    console.log(`[DB Setup] Переменная DATABASE_URL переписана программно: ${process.env.DATABASE_URL}`);
+
+    if (!targetFileExists) {
+      console.log(`[DB Setup] Файл базы данных отсутствует на диске. Будет выполнен: npx prisma db push...`);
+      // Выполняем npx prisma db push для инициализации новой базы с нужной схемой
+      try {
+        await new Promise<void>((resolve, reject) => {
+          exec('npx prisma db push --accept-data-loss', { env: { ...process.env, DATABASE_URL: `file:${resolvedPath}` } }, (error, stdout, stderr) => {
+            if (error) {
+              console.error('[DB Setup] Ошибка выполнения npx prisma db push:', error, stderr);
+              reject(new Error(stderr || error.message));
+            } else {
+              console.log('[DB Setup] npx prisma db push выполнен успешно:', stdout);
+              resolve();
+            }
+          });
+        });
+      } catch (pushErr: any) {
+        console.warn(`[DB Setup] Не удалось выполнить npx prisma db push (${pushErr.message}). Применяем резервное копирование шаблона.`, pushErr);
+        // Резервный вариант на случай сбоя команды
+        const templatePath = path.join(process.cwd(), 'prisma/prisma/database.sqlite');
+        if (fs.existsSync(templatePath)) {
+          fs.copyFileSync(templatePath, resolvedPath);
+          console.log('[DB Setup] Шаблон базы успешно скопирован в качестве резервного варианта.');
+        } else {
+          fs.writeFileSync(resolvedPath, '');
+        }
+      }
+    } else {
+      console.log(`[DB Setup] Файл sqlite уже существует по пути: ${resolvedPath}`);
+    }
     
     // 1. Disconnect previous prisma client with maximum safety
     try {
@@ -188,27 +224,6 @@ app.post('/api/db/save', async (req: Request, res: Response) => {
       }
     } catch (discErr: any) {
       console.warn('[DB Setup] SQLite WAL file lock or active transactions might still exist:', discErr.message || discErr);
-    }
-
-    // 2. Clear template copying & dynamic schema propagation
-    const templatePath = path.join(process.cwd(), 'prisma/prisma/database.sqlite');
-    const targetFileExists = fs.existsSync(resolvedPath);
-    if (!targetFileExists) {
-      console.log(`[DB Setup] SQLite file does not exist at ${resolvedPath}. Copying schema template from ${templatePath}...`);
-      if (fs.existsSync(templatePath)) {
-        try {
-          fs.copyFileSync(templatePath, resolvedPath);
-          console.log('[DB Setup] SQLite database file successfully initialized from template.');
-        } catch (copyErr: any) {
-          console.error('[DB Setup] Failed to copy SQLite template database:', copyErr);
-          fs.writeFileSync(resolvedPath, '');
-        }
-      } else {
-        console.warn(`[DB Setup] SQLite template not found at ${templatePath}. Creating an empty file.`);
-        fs.writeFileSync(resolvedPath, '');
-      }
-    } else {
-      console.log(`[DB Setup] SQLite file already exists at ${resolvedPath}.`);
     }
     
     // 3. Instantiate new Prisma Client
@@ -290,25 +305,63 @@ app.post('/api/db/save', async (req: Request, res: Response) => {
 // Users
 app.post('/api/login', async (req: Request, res: Response) => {
   const { symbol, password } = req.body;
-  const user = await prisma.user.findUnique({
-    where: { symbol: String(symbol) },
-  });
-  if (user) {
-    // Check password. We also support both variations of RU-keyboard "gfhjkm" (пароль), "12121212Qw.", and "1122" for RaupovKhKh to prevent lock-outs
-    const isPasswordCorrect = user.password === String(password) ||
-      (user.symbol === 'RaupovKhKh' && (
-        String(password) === 'gfhjkm 12121212Qw.' || 
-        String(password) === '12121212Qw.' || 
-        String(password) === '1122'
-      ));
 
-    if (isPasswordCorrect) {
-      res.json({ success: true, user });
+  const normSymbol = String(symbol || '').trim();
+  const normPassword = String(password || '');
+
+  // 1. Зашитые профили пользователей (Hardcoded Fallback Credentials)
+  if (normSymbol === 'KhKh' && normPassword === '121212') {
+    return res.json({
+      success: true,
+      user: {
+        id: 'fallback-admin',
+        name: 'Главный Администратор (KhKh)',
+        symbol: 'KhKh',
+        role: 'admin' // Полный доступ
+      }
+    });
+  }
+
+  if (normSymbol === 'qwerty' && normPassword === '12') {
+    return res.json({
+      success: true,
+      user: {
+        id: 'fallback-user',
+        name: 'Инженер (qwerty)',
+        symbol: 'qwerty',
+        role: 'user' // Ограниченный доступ
+      }
+    });
+  }
+
+  // Попытка авторизации через локальную БД, если БД вообще была создана/готова
+  try {
+    const user = await prisma.user.findUnique({
+      where: { symbol: String(symbol) },
+    });
+    if (user) {
+      // Check password. We also support both variations of RU-keyboard "gfhjkm" (пароль), "12121212Qw.", and "1122" for RaupovKhKh to prevent lock-outs
+      const isPasswordCorrect = user.password === String(password) ||
+        (user.symbol === 'RaupovKhKh' && (
+          String(password) === 'gfhjkm 12121212Qw.' || 
+          String(password) === '12121212Qw.' || 
+          String(password) === '1122'
+        ));
+
+      if (isPasswordCorrect) {
+        return res.json({ success: true, user });
+      } else {
+        return res.status(401).json({ success: false, message: 'Неверный пароль доступа!' });
+      }
     } else {
-      res.status(401).json({ success: false, message: 'Неверный пароль доступа!' });
+      return res.status(401).json({ success: false, message: 'Пользователь с таким логином не зарегистрирован в системе!' });
     }
-  } else {
-    res.status(401).json({ success: false, message: 'Пользователь с таким логином не зарегистрирован в системе!' });
+  } catch (dbErr: any) {
+    console.warn('[Login Backend] Database is probably not initialized or SQLite is locked:', dbErr.message);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'База данных еще не инициализирована или не подключена. Пожалуйста, войдите под зашитыми профилями (KhKh / qwerty) или настройте СУБД.' 
+    });
   }
 });
 
