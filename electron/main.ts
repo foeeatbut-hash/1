@@ -37,30 +37,37 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
 
-  // Configure default dynamic PostgreSQL connection string
-  process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public";
+  // Configure default dynamic SQLite or PostgreSQL connection string
+  const fs = require('fs');
+  const path = require('path');
+  const userDataPath = app.getPath('userData');
+  const DB_CONFIG_FILE = path.join(userDataPath, 'db-config.json');
+  
+  let sqlitePath = path.join(userDataPath, 'database.sqlite');
+  let hasSQLiteConfig = false;
+  try {
+    if (fs.existsSync(DB_CONFIG_FILE)) {
+      const content = fs.readFileSync(DB_CONFIG_FILE, 'utf-8');
+      const parsed = JSON.parse(content);
+      if (parsed && typeof parsed.databasePath === 'string') {
+        sqlitePath = path.resolve(parsed.databasePath);
+        hasSQLiteConfig = true;
+      }
+    }
+  } catch (e) {}
+
+  if (!process.env.DATABASE_URL) {
+    if (!app.isPackaged || hasSQLiteConfig) {
+      process.env.DATABASE_URL = `file:${sqlitePath}?connection_limit=1&busy_timeout=15000`;
+    } else {
+      process.env.DATABASE_URL = "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public";
+    }
+  }
 
   try {
     const ispg = app.isPackaged;
     const { PrismaClient } = ispg ? require('@prisma/client-pg') : require('@prisma/client');
-    
-    let dbUrl = process.env.DATABASE_URL;
-    if (!ispg) {
-      const fs = require('fs');
-      const path = require('path');
-      let sqlitePath = path.join(process.cwd(), 'prisma/prisma/database.sqlite');
-      const DB_CONFIG_FILE = path.join(process.cwd(), 'db-config.json');
-      try {
-        if (fs.existsSync(DB_CONFIG_FILE)) {
-          const content = fs.readFileSync(DB_CONFIG_FILE, 'utf-8');
-          const parsed = JSON.parse(content);
-          if (parsed && typeof parsed.databasePath === 'string') {
-            sqlitePath = parsed.databasePath;
-          }
-        }
-      } catch (e) {}
-      dbUrl = `file:${sqlitePath}?connection_limit=1&busy_timeout=15000`;
-    }
+    const dbUrl = process.env.DATABASE_URL;
 
     const localPrisma = new PrismaClient({
       datasources: {
@@ -224,21 +231,26 @@ app.whenReady().then(() => {
     const getChatPrisma = () => {
       const ispg = app.isPackaged;
       
-      let dbUrl = process.env.DATABASE_URL;
-      if (!ispg) {
-        const fs = require('fs');
-        const path = require('path');
-        let sqlitePath = path.join(process.cwd(), 'prisma/prisma/database.sqlite');
-        const DB_CONFIG_FILE = path.join(process.cwd(), 'db-config.json');
-        try {
-          if (fs.existsSync(DB_CONFIG_FILE)) {
-            const content = fs.readFileSync(DB_CONFIG_FILE, 'utf-8');
-            const parsed = JSON.parse(content);
-            if (parsed && typeof parsed.databasePath === 'string') {
-              sqlitePath = parsed.databasePath;
-            }
+      const fs = require('fs');
+      const path = require('path');
+      const userDataPath = app.getPath('userData');
+      const DB_CONFIG_FILE = path.join(userDataPath, 'db-config.json');
+      
+      let sqlitePath = path.join(userDataPath, 'database.sqlite');
+      let hasSQLite = false;
+      try {
+        if (fs.existsSync(DB_CONFIG_FILE)) {
+          const content = fs.readFileSync(DB_CONFIG_FILE, 'utf-8');
+          const parsed = JSON.parse(content);
+          if (parsed && typeof parsed.databasePath === 'string') {
+            sqlitePath = path.resolve(parsed.databasePath);
+            hasSQLite = true;
           }
-        } catch (e) {}
+        }
+      } catch (e) {}
+
+      let dbUrl = process.env.DATABASE_URL;
+      if (!dbUrl || dbUrl.startsWith('file:') || hasSQLite || !ispg) {
         dbUrl = `file:${sqlitePath}?connection_limit=1&busy_timeout=15000`;
       }
 
@@ -856,8 +868,6 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  app.quit();
 });
 

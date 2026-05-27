@@ -7,9 +7,23 @@ import { parseExcel, parseXML, importParsedDataToDB } from './server/excelParser
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import fs from 'fs';
-import { exec } from 'child_process';
+import { exec, execSync } from 'child_process';
 
-const DB_CONFIG_FILE = path.join(process.cwd(), 'db-config.json');
+let userDataPath = process.cwd();
+try {
+  const electron = require('electron');
+  const appInstance = electron.app || (electron.remote && electron.remote.app);
+  if (appInstance) {
+    userDataPath = appInstance.getPath('userData');
+  } else if (process.versions && process.versions.electron) {
+    const { app: dynApp } = require('electron');
+    userDataPath = dynApp.getPath('userData');
+  }
+} catch (e) {
+  userDataPath = process.cwd();
+}
+
+const DB_CONFIG_FILE = path.join(userDataPath, 'db-config.json');
 
 interface DbConfig {
   databasePath: string;
@@ -23,7 +37,7 @@ function loadDbConfig(): DbConfig {
       const parsed = JSON.parse(content);
       if (parsed && typeof parsed.databasePath === 'string') {
         return {
-          databasePath: parsed.databasePath,
+          databasePath: path.resolve(parsed.databasePath),
           isConfigured: !!parsed.isConfigured
         };
       }
@@ -32,7 +46,7 @@ function loadDbConfig(): DbConfig {
     console.warn('[DB Config] Error reading db-config.json:', err);
   }
   return {
-    databasePath: path.join(process.cwd(), 'prisma/prisma/database.sqlite'),
+    databasePath: path.join(userDataPath, 'database.sqlite'),
     isConfigured: false
   };
 }
@@ -99,19 +113,20 @@ app.use('/chat_files', express.static(path.join(process.cwd(), 'userData/chat_fi
 // Database Routing
 app.get('/api/db/config', (req: Request, res: Response) => {
   const config = loadDbConfig();
-  const displayPath = config.databasePath.startsWith(process.cwd())
-    ? config.databasePath.replace(process.cwd(), '.')
+  const displayPath = config.databasePath.startsWith(userDataPath)
+    ? config.databasePath.replace(userDataPath, '.')
     : config.databasePath;
   res.json({
     isConfigured: config.isConfigured,
     databasePath: config.databasePath,
     displayPath,
-    defaultPath: path.join(process.cwd(), 'prisma/prisma/database.sqlite')
+    defaultPath: path.join(userDataPath, 'database.sqlite')
   });
 });
 
 app.get('/api/db/download', (req: Request, res: Response) => {
-  const sqliteFile = path.join(process.cwd(), 'prisma/prisma/database.sqlite');
+  const config = loadDbConfig();
+  const sqliteFile = config.databasePath;
   if (fs.existsSync(sqliteFile)) {
     res.download(sqliteFile, 'database.sqlite');
   } else {
@@ -168,65 +183,76 @@ app.post('/api/db/test', async (req: Request, res: Response) => {
 
 app.post('/api/db/save', async (req: Request, res: Response) => {
   const { databasePath } = req.body;
+  
+  // Логирование в консоль и в файл database-setup.log каждого запроса с полученным путем
+  const logMsg = `[${new Date().toISOString()}] POST /api/db/save: databasePath="${databasePath}"\n`;
+  console.log('[DB Setup API Request]', logMsg.trim());
+  try {
+    fs.appendFileSync(path.join(process.cwd(), 'database-setup.log'), logMsg, 'utf-8');
+  } catch (fsLogErr: any) {
+    console.warn('[DB Setup] Failed to write to database-setup.log:', fsLogErr.message);
+  }
+
   if (!databasePath) {
     return res.status(400).json({ success: false, message: 'Путь к базе данных не указан!' });
   }
   
   const oldPrisma = prisma;
   try {
+    // Обрабатываем как абсолютный путь
     const resolvedPath = path.resolve(databasePath);
     const parentDir = path.dirname(resolvedPath);
     if (!fs.existsSync(parentDir)) {
       fs.mkdirSync(parentDir, { recursive: true });
     }
 
-    const targetFileExists = fs.existsSync(resolvedPath);
-
     // Устанавливаем DATABASE_URL в переменные окружения
     process.env.DATABASE_URL = `file:${resolvedPath}`;
-    console.log(`[DB Setup] Переменная DATABASE_URL переписана программно: ${process.env.DATABASE_URL}`);
+    console.log(`[DB Setup] Переменная DATABASE_URL программно изменена на: ${process.env.DATABASE_URL}`);
 
-    if (!targetFileExists) {
-      console.log(`[DB Setup] Файл базы данных отсутствует на диске. Будет выполнен: npx prisma db push...`);
-      // Выполняем npx prisma db push для инициализации новой базы с нужной схемой
-      try {
-        await new Promise<void>((resolve, reject) => {
-          exec('npx prisma db push --accept-data-loss', { env: { ...process.env, DATABASE_URL: `file:${resolvedPath}` } }, (error, stdout, stderr) => {
-            if (error) {
-              console.error('[DB Setup] Ошибка выполнения npx prisma db push:', error, stderr);
-              reject(new Error(stderr || error.message));
-            } else {
-              console.log('[DB Setup] npx prisma db push выполнен успешно:', stdout);
-              resolve();
-            }
-          });
-        });
-      } catch (pushErr: any) {
-        console.warn(`[DB Setup] Не удалось выполнить npx prisma db push (${pushErr.message}). Применяем резервное копирование шаблона.`, pushErr);
-        // Резервный вариант на случай сбоя команды
-        const templatePath = path.join(process.cwd(), 'prisma/prisma/database.sqlite');
-        if (fs.existsSync(templatePath)) {
-          fs.copyFileSync(templatePath, resolvedPath);
-          console.log('[DB Setup] Шаблон базы успешно скопирован в качестве резервного варианта.');
-        } else {
-          fs.writeFileSync(resolvedPath, '');
-        }
+    // Принудительно вызываем npx prisma db push через execSync
+    console.log('[DB Setup] Запускается синхронизация схемы через npx prisma db push --schema=prisma/schema.prisma --accept-data-loss...');
+    try {
+      execSync('npx prisma db push --schema=prisma/schema.prisma --accept-data-loss', {
+        env: {
+          ...process.env,
+          DATABASE_URL: `file:${resolvedPath}`
+        },
+        stdio: 'inherit'
+      });
+      console.log('[DB Setup] npx prisma db push выполнен успешно через execSync.');
+    } catch (pushErr: any) {
+      console.error('[DB Setup] Ошибка выполнения npx prisma db push через execSync:', pushErr.message);
+      // fallback на резервное копирование шаблона
+      const templatePath = path.join(process.cwd(), 'prisma/prisma/database.sqlite');
+      if (fs.existsSync(templatePath)) {
+        console.log('[DB Setup] Падение execSync. Восстанавливаем шаблон базы данных в качестве резервного варианта.');
+        fs.copyFileSync(templatePath, resolvedPath);
+      } else {
+        throw new Error(`Не удалось инициализировать БД через Prisma CLI и шаблон отсутствует: ${pushErr.message}`);
       }
-    } else {
-      console.log(`[DB Setup] Файл sqlite уже существует по пути: ${resolvedPath}`);
+    }
+
+    // Проверка безопасности: если база данных не создана или файл по указанному пути не существует
+    if (!fs.existsSync(resolvedPath)) {
+      console.error('[DB Setup Security Check] Файл базы данных физически не создан на диске!');
+      return res.status(400).json({
+        success: false,
+        message: 'Критическая ошибка: Файл базы данных не был физически создан по указанному пути! Проверьте права на чтение и запись папки.'
+      });
     }
     
-    // 1. Disconnect previous prisma client with maximum safety
+    // 1. Безопасное отключение старого клиента
     try {
       if (oldPrisma) {
         console.log('[DB Setup] Disconnecting previous Prisma Client...');
         await oldPrisma.$disconnect();
       }
     } catch (discErr: any) {
-      console.warn('[DB Setup] SQLite WAL file lock or active transactions might still exist:', discErr.message || discErr);
+      console.warn('[DB Setup] SQLite lock warning or active connection during disconnect:', discErr.message || discErr);
     }
     
-    // 3. Instantiate new Prisma Client
+    // 2. Инициализируем новый экземпляр PrismaClient с новым DATABASE_URL
     try {
       prisma = new PrismaClient({
         datasources: {
@@ -235,32 +261,35 @@ app.post('/api/db/save', async (req: Request, res: Response) => {
           }
         }
       });
-      // Programmatically check and ensure WAL/Synchronous modes are set correctly
+      
+      // Включаем режимы WAL и NORMAL
       try {
         await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL;');
         await prisma.$queryRawUnsafe('PRAGMA synchronous=NORMAL;');
+        console.log('[DB Setup] WAL и synchronous режимы успешно настроены.');
       } catch (pragmaErr: any) {
         console.warn('[DB Setup] Warning during PRAGMA settings:', pragmaErr.message || pragmaErr);
       }
-      // Simple query testing to verify connection is stable
+      
+      // Тестовый запрос для подтверждения соединения
       await prisma.$queryRawUnsafe('SELECT 1;');
     } catch (connErr: any) {
       console.error('[DB Setup] Failed to establish stable connection on new database. Restoring old client...', connErr);
       prisma = oldPrisma;
-      return res.status(500).json({
+      return res.status(400).json({
         success: false,
-        message: `Не удалось стабильно инициализировать новую БД: ${connErr.message}`
+        message: `Не удалось подключиться к новой базе данных: ${connErr.message}`
       });
     }
     
-    // 4. Save JSON configuration
+    // 3. Сохраняем в конфигурационный JSON файл
     const newConfig = {
       databasePath: resolvedPath,
       isConfigured: req.body.isConfigured !== undefined ? !!req.body.isConfigured : true
     };
     saveDbConfig(newConfig);
     
-    // 5. Query and auto-seed if empty
+    // 4. Посев дефолтных данных (auto-seed)
     let seedMessage = '';
     const userCount = await prisma.user.count();
     if (userCount === 0) {
@@ -287,7 +316,8 @@ app.post('/api/db/save', async (req: Request, res: Response) => {
       seedMessage = ' База данных успешно инициализирована.';
     }
     
-    res.json({
+    // Отправляем успешный статус 200 OK
+    return res.json({
       success: true,
       message: `Подключение к базе данных выполнено успешно!${seedMessage}`
     });
@@ -295,7 +325,7 @@ app.post('/api/db/save', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('[DB Setup] Error during live switchover:', err);
     prisma = oldPrisma;
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: `Ошибка при подключении/инициализации: ${err.message}`
     });
@@ -309,7 +339,7 @@ app.post('/api/login', async (req: Request, res: Response) => {
   const normSymbol = String(symbol || '').trim();
   const normPassword = String(password || '');
 
-  // 1. Зашитые профили пользователей (Hardcoded Fallback Credentials)
+  // 1. Зашитые профили пользователей (Hardcoded Fallback Credentials - Исправлен регистр ролей на ADMIN и USER)
   if (normSymbol === 'KhKh' && normPassword === '121212') {
     return res.json({
       success: true,
@@ -317,7 +347,7 @@ app.post('/api/login', async (req: Request, res: Response) => {
         id: 'fallback-admin',
         name: 'Главный Администратор (KhKh)',
         symbol: 'KhKh',
-        role: 'admin' // Полный доступ
+        role: 'ADMIN' // Полный доступ (исправлено на верхний регистр)
       }
     });
   }
@@ -329,7 +359,7 @@ app.post('/api/login', async (req: Request, res: Response) => {
         id: 'fallback-user',
         name: 'Инженер (qwerty)',
         symbol: 'qwerty',
-        role: 'user' // Ограниченный доступ
+        role: 'USER' // Ограниченный доступ (исправлено на верхний регистр)
       }
     });
   }
@@ -1776,6 +1806,72 @@ app.post('/api/components/:id/manual-edit-field', async (req: Request, res: Resp
 
 
 async function startServer() {
+  // Выводим полный путь к файлу БД, который пытается открыть Prisma при старте
+  try {
+    console.log('[SQLite Startup Diagnostic] Инициализация Prisma...');
+    console.log(`[SQLite Startup Diagnostic] Полный абсолютный путь к файлу БД: ${initialConfig.databasePath}`);
+  } catch (diagErr: any) {
+    console.warn('[SQLite Startup Diagnostic] (ошибка логгирования)', diagErr.message);
+  }
+
+  // SQLite dynamic DB integrity / corruption self-healing check
+  try {
+    await prisma.$queryRawUnsafe('SELECT 1;');
+    console.log('[SQLite] Integrity check: connection successfully verified');
+  } catch (error: any) {
+    const errorMsg = String(error.message || error || '');
+    if (errorMsg.includes('malformed') || errorMsg.includes('disk image') || errorMsg.includes('SqliteError') || errorMsg.includes('database.sqlite is not stable')) {
+      console.warn('[SQLite] Database corruption detected! Initiating dynamic self-healing...', errorMsg);
+      try {
+        await prisma.$disconnect();
+      } catch (e) {}
+
+      const dbPath = initialConfig.databasePath;
+      const shmPath = dbPath + '-shm';
+      const walPath = dbPath + '-wal';
+
+      [dbPath, shmPath, walPath].forEach(f => {
+        try {
+          if (fs.existsSync(f)) {
+            fs.unlinkSync(f);
+            console.log(`[SQLite Recovery] Deleted corrupt file: ${f}`);
+          }
+        } catch (delError) {
+          console.error(`[SQLite Recovery] Failed to delete file ${f}:`, delError);
+        }
+      });
+
+      console.log('[SQLite Recovery] Executing "npx prisma db push --accept-data-loss" to build a fresh DB...');
+      try {
+        await new Promise<void>((resolve, reject) => {
+          exec('npx prisma db push --accept-data-loss', { env: { ...process.env, DATABASE_URL: `file:${dbPath}` } }, (pushError, stdout, stderr) => {
+            if (pushError) {
+              console.error('[SQLite Recovery] prisma db push fail:', pushError, stderr);
+              reject(new Error(stderr || pushError.message));
+            } else {
+              console.log('[SQLite Recovery] prisma db push succeeded! stdout:', stdout);
+              resolve();
+            }
+          });
+        });
+      } catch (pushErr) {
+        console.error('[SQLite Recovery] Failed prisma db push sequence. Writing a blank database as desperate fallback.', pushErr);
+        fs.writeFileSync(dbPath, '');
+      }
+
+      // Recreate client
+      prisma = new PrismaClient({
+        datasources: {
+          db: {
+            url: `file:${dbPath}?connection_limit=1&busy_timeout=15000`
+          }
+        }
+      });
+    } else {
+      console.error('[SQLite Startup Error] General startup error (skipped self-healing):', errorMsg);
+    }
+  }
+
   // Enable Write-Ahead Logging (WAL) mode for SQLite to prevent database disk image malformed exceptions during multi-user write operations
   try {
     await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL;');

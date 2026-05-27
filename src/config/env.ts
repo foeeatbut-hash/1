@@ -27,7 +27,7 @@ export const ENV = {
 
 export const ENV_CONFIG = {
   isLocalMode,
-  apiUrl: isLocalMode ? '/api' : 'http://192.168.1.100:5000/api',
+  apiUrl: isLocalMode ? 'http://localhost:3000/api' : 'http://192.168.1.100:5000/api',
   socketUrl: isLocalMode ? 'ws://localhost:3000' : 'ws://192.168.1.100:5000',
   updatesUrl: 'http://192.168.1.100/updates/'
 };
