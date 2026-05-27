@@ -110,6 +110,15 @@ app.get('/api/db/config', (req: Request, res: Response) => {
   });
 });
 
+app.get('/api/db/download', (req: Request, res: Response) => {
+  const sqliteFile = path.join(process.cwd(), 'prisma/prisma/database.sqlite');
+  if (fs.existsSync(sqliteFile)) {
+    res.download(sqliteFile, 'database.sqlite');
+  } else {
+    res.status(404).json({ error: 'Файл базы данных не найден на сервере' });
+  }
+});
+
 app.post('/api/db/test', async (req: Request, res: Response) => {
   const { databasePath } = req.body;
   if (!databasePath) {
@@ -212,8 +221,14 @@ app.post('/api/db/save', async (req: Request, res: Response) => {
         }
       });
       // Programmatically check and ensure WAL/Synchronous modes are set correctly
-      await prisma.$executeRawUnsafe('PRAGMA journal_mode=WAL;');
-      await prisma.$executeRawUnsafe('PRAGMA synchronous=NORMAL;');
+      try {
+        await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL;');
+        await prisma.$queryRawUnsafe('PRAGMA synchronous=NORMAL;');
+      } catch (pragmaErr: any) {
+        console.warn('[DB Setup] Warning during PRAGMA settings:', pragmaErr.message || pragmaErr);
+      }
+      // Simple query testing to verify connection is stable
+      await prisma.$queryRawUnsafe('SELECT 1;');
     } catch (connErr: any) {
       console.error('[DB Setup] Failed to establish stable connection on new database. Restoring old client...', connErr);
       prisma = oldPrisma;
@@ -226,7 +241,7 @@ app.post('/api/db/save', async (req: Request, res: Response) => {
     // 4. Save JSON configuration
     const newConfig = {
       databasePath: resolvedPath,
-      isConfigured: true
+      isConfigured: req.body.isConfigured !== undefined ? !!req.body.isConfigured : true
     };
     saveDbConfig(newConfig);
     

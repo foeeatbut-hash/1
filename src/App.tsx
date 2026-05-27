@@ -90,7 +90,7 @@ function AnimatedRoutes() {
   }
 
   if (!user) {
-    return <Login />;
+    return <Login onConfigureDatabase={() => setDbConfigured(false)} />;
   }
 
   return (

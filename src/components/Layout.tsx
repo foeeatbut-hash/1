@@ -370,6 +370,41 @@ export default function Layout() {
             
           </nav>
         </div>
+
+        {/* Раздел Смены базы данных на виду */}
+        <div className="px-4 py-3 border-t border-slate-200 dark:border-dark-border bg-slate-50/50 dark:bg-dark-surface/50 text-left shrink-0">
+          <div className="flex items-center justify-between gap-1 mb-1.5">
+            <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-slate-400 dark:text-dark-text-muted">
+              <Database className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-450" />
+              <span>База SQLite</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm('Сменить размещение базы данных SQLite? Вас перенаправит на экран выбора пути.')) {
+                  fetch('/api/db/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ databasePath: dbLocation, isConfigured: false })
+                  }).then(() => {
+                    setUser(null);
+                    window.location.reload();
+                  });
+                }
+              }}
+              className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-350 cursor-pointer font-bold uppercase transition"
+              title="Сменить путь"
+            >
+              Сменить
+            </button>
+          </div>
+          <div 
+            className="font-mono text-[10px] text-slate-500 dark:text-slate-400 leading-tight truncate bg-slate-100 dark:bg-dark-panel border border-slate-200 dark:border-dark-border px-2 py-1 rounded"
+            title={dbLocation}
+          >
+            {dbDisplayLocation || 'Не настроена'}
+          </div>
+        </div>
         
         <div className="p-4 border-t border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-surface shrink-0 relative">
           <AnimatePresence>

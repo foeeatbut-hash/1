@@ -3,7 +3,7 @@ import { dataService } from '../services/dataService';
 import { useToastStore } from '../store/toastStore';
 import { useStore } from '../store/store';
 import { motion, AnimatePresence } from 'motion/react';
-import { Database, FolderOpen, Loader2, AlertCircle, CheckCircle, Info, Sun, Moon } from 'lucide-react';
+import { Database, FolderOpen, Loader2, AlertCircle, CheckCircle, Info, Sun, Moon, Download } from 'lucide-react';
 
 interface DatabaseSetupProps {
   onConfigured: () => void;
@@ -155,6 +155,25 @@ export default function DatabaseSetup({ onConfigured }: DatabaseSetupProps) {
               <div>
                 Вы запускаете программу локально. Для синхронизации чертежей и тегов, выберите или укажите путь к файлу БД. Если указанного файла не существует, система создаст его автоматически.
               </div>
+            </div>
+
+            {/* Create & Download database section */}
+            <div className="p-3.5 bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-slate-700 dark:text-slate-300 leading-normal flex flex-col sm:flex-row items-center justify-between gap-3 w-full">
+              <div className="flex gap-2 items-start text-left">
+                <Database className="w-4.5 h-4.5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-extrabold text-slate-900 dark:text-white">Скачать шаблон базы данных (.sqlite)</p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-450 mt-0.5 leading-relaxed">Скачайте готовую пустую базу данных PDM-системы, сохраните её на Рабочий стол или в любую удобную папку, а затем укажите путь к ней ниже.</p>
+                </div>
+              </div>
+              <a
+                href="/api/db/download"
+                download="database.sqlite"
+                className="px-3.5 py-2.5 bg-emerald-750 hover:bg-emerald-650 text-white font-extrabold text-[11px] rounded-lg shadow-sm font-sans flex items-center gap-1.5 transition-all cursor-pointer shrink-0"
+              >
+                <Download className="w-4 h-4" />
+                <span>Скачать .sqlite</span>
+              </a>
             </div>
 
             {/* Path Form Input */}

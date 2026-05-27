@@ -1,15 +1,35 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
-import { Lock, User, Eye, EyeOff, Loader2, AlertCircle, Sun, Moon } from 'lucide-react';
+import { Lock, User, Eye, EyeOff, Loader2, AlertCircle, Sun, Moon, Database } from 'lucide-react';
 
-export default function Login() {
+interface LoginProps {
+  onConfigureDatabase?: () => void;
+}
+
+export default function Login({ onConfigureDatabase }: LoginProps) {
   const setUser = useStore((state) => state.setUser);
   const theme = useStore((state) => state.theme);
   const toggleTheme = useStore((state) => state.toggleTheme);
   const { addToast } = useToastStore();
+  
+  const [dbPath, setDbPath] = useState('');
+  const [dbDisplayPath, setDbDisplayPath] = useState('');
+
+  useEffect(() => {
+    async function loadDbConfig() {
+      try {
+        const config = await dataService.getDbConfig();
+        setDbPath(config.databasePath || '');
+        setDbDisplayPath(config.displayPath || '');
+      } catch (err) {
+        console.warn('Failed to fetch DB config in Login:', err);
+      }
+    }
+    loadDbConfig();
+  }, []);
   
   const [remember, setRemember] = useState(() => {
     return localStorage.getItem('login_remember') === 'true';
@@ -186,9 +206,31 @@ export default function Login() {
         </motion.div>
       </div>
 
-      {/* Version info centered cleanly at the very bottom */}
-      <div className="w-full text-center py-4 text-xs font-mono text-slate-400 dark:text-slate-600 tracking-wider">
-        Версия 0.01
+      {/* Footer section with database picker on bottom left and version on bottom right */}
+      <div className="w-full flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-4 border-t border-slate-200/40 dark:border-slate-800/40 mt-auto">
+        <div className="flex items-center gap-2">
+          {onConfigureDatabase && (
+            <button
+              type="button"
+              onClick={onConfigureDatabase}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-emerald-500/30 dark:hover:border-emerald-500/30 rounded-lg text-slate-600 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-all font-sans font-semibold shadow-xs cursor-pointer text-xs"
+              title="Сменить расположение sqlite файла базы данных"
+            >
+              <Database className="w-4 h-4 text-emerald-600 dark:text-emerald-450" />
+              <span>База данных (SQLite)</span>
+            </button>
+          )}
+          
+          {dbDisplayPath && (
+            <span className="font-mono text-[10px] text-slate-450 dark:text-slate-500 max-w-xs truncate hidden sm:inline" title={dbPath}>
+              ({dbDisplayPath})
+            </span>
+          )}
+        </div>
+        
+        <div className="text-xs font-mono text-slate-400 dark:text-slate-600 tracking-wider">
+          Версия 0.01
+        </div>
       </div>
     </div>
   );
