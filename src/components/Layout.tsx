@@ -460,7 +460,7 @@ export default function Layout() {
             title={dbLocation}
             onClick={() => setIsProfileMenuOpen(true)}
           >
-            {dbType === 'LOCAL' ? 'production.sqlite' : dbDisplayLocation || 'Активно'}
+            {dbType === 'LOCAL' ? 'database.sqlite' : dbDisplayLocation || 'Активно'}
           </div>
         </div>
         
@@ -555,13 +555,13 @@ export default function Layout() {
                     {dbType === 'LOCAL' ? (
                       <div className="flex flex-col gap-1.5">
                         <p className="text-[10px] text-slate-500 dark:text-dark-text-muted leading-tight">
-                          База production.sqlite в профиле пользователя. Работает автономно.
+                          База database.sqlite в профиле пользователя. Работает автономно.
                         </p>
                         <p 
                           className="font-mono text-[9px] text-slate-600 dark:text-dark-text-muted bg-white dark:bg-dark-panel p-1.5 border border-slate-200 dark:border-dark-border rounded leading-tight select-all truncate"
                           title={dbLocation}
                         >
-                          {dbDisplayLocation || 'production.sqlite'}
+                          {dbDisplayLocation || 'database.sqlite'}
                         </p>
                         <button
                           type="button"

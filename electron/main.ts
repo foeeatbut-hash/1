@@ -40,26 +40,18 @@ app.whenReady().then(() => {
 
   let ventAppDataPath = '';
   try {
-    const desktopPath = app.getPath('desktop');
-    ventAppDataPath = path.join(desktopPath, 'VentApp-Data');
-  } catch (e) {
-    const home = require('os').homedir();
-    const desktop = path.join(home, 'Desktop');
-    const onedriveDesktop = path.join(home, 'OneDrive', 'Desktop');
-    const onedriveRuDesktop = path.join(home, 'OneDrive', 'Рабочий стол');
-    const ruDesktop = path.join(home, 'Рабочий стол');
+    const baseDir = process.env.APPDATA || 
+      (process.platform === 'darwin' 
+        ? path.join(require('os').homedir(), 'Library', 'Application Support') 
+        : path.join(require('os').homedir(), '.config'));
     
-    let destDesktop = desktop;
-    if (fs.existsSync(desktop)) {
-      destDesktop = desktop;
-    } else if (fs.existsSync(onedriveDesktop)) {
-      destDesktop = onedriveDesktop;
-    } else if (fs.existsSync(ruDesktop)) {
-      destDesktop = ruDesktop;
-    } else if (fs.existsSync(onedriveRuDesktop)) {
-      destDesktop = onedriveRuDesktop;
+    ventAppDataPath = path.join(baseDir, 'pdm-app');
+  } catch (e) {
+    try {
+      ventAppDataPath = app.getPath('userData');
+    } catch (err) {
+      ventAppDataPath = path.join(require('os').homedir(), 'pdm-app');
     }
-    ventAppDataPath = path.join(destDesktop, 'VentApp-Data');
   }
 
   // Ensure directory exists
@@ -102,7 +94,7 @@ app.whenReady().then(() => {
 
   let finalDbUrl = '';
   if (currentDbType === 'LOCAL') {
-    const localDbPath = path.join(ventAppDataPath, 'production.sqlite');
+    const localDbPath = path.join(ventAppDataPath, 'database.sqlite');
     finalDbUrl = `file:${localDbPath}?connection_limit=1&busy_timeout=15000`;
   } else {
     finalDbUrl = databaseUrlSetting || "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public";
@@ -315,7 +307,7 @@ app.whenReady().then(() => {
 
       let dbUrl = '';
       if (currentDbType === 'LOCAL') {
-        const localDbPath = path.join(ventAppDataPath, 'production.sqlite');
+        const localDbPath = path.join(ventAppDataPath, 'database.sqlite');
         dbUrl = `file:${localDbPath}?connection_limit=1&busy_timeout=15000`;
       } else {
         dbUrl = databaseUrlSetting || "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public";

@@ -273,7 +273,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
           
           {dbDisplayPath && (
             <span className="font-mono text-[10px] text-slate-450 dark:text-slate-500 max-w-xs truncate hidden sm:inline" title={dbPath}>
-              ({dbType === 'LOCAL' ? 'production.sqlite' : dbDisplayPath})
+              ({dbType === 'LOCAL' ? 'database.sqlite' : dbDisplayPath})
             </span>
           )}
         </div>

@@ -1,7 +1,6 @@
 import 'express-async-errors';
 import express, { Request, Response } from 'express';
 import path from 'path';
-import { createServer as createViteServer } from 'vite';
 import { PrismaClient } from '@prisma/client';
 import { parseExcel, parseXML, importParsedDataToDB } from './server/excelParser.js';
 import { createServer } from 'http';
@@ -12,25 +11,40 @@ import os from 'os';
 
 function getVentAppDataPath(): string {
   try {
-    const home = os.homedir();
-    const desktop = path.join(home, 'Desktop');
-    const onedriveDesktop = path.join(home, 'OneDrive', 'Desktop');
-    const onedriveRuDesktop = path.join(home, 'OneDrive', 'Рабочий стол');
-    const ruDesktop = path.join(home, 'Рабочий стол');
+    // Определяем, запущен ли сервер в продакшене/упакованной версии или в Electron
+    const isElectronEnv = 
+      !!(process as any).resourcesPath || 
+      process.env.ELECTRON === 'true' || 
+      process.env.NODE_ENV === 'production';
     
-    let desktopPath = desktop;
-    if (fs.existsSync(desktop)) {
-      desktopPath = desktop;
-    } else if (fs.existsSync(onedriveDesktop)) {
-      desktopPath = onedriveDesktop;
-    } else if (fs.existsSync(ruDesktop)) {
-      desktopPath = ruDesktop;
-    } else if (fs.existsSync(onedriveRuDesktop)) {
-      desktopPath = onedriveRuDesktop;
+    if (isElectronEnv) {
+      const baseDir = process.env.APPDATA || 
+        (process.platform === 'darwin' 
+          ? path.join(os.homedir(), 'Library', 'Application Support') 
+          : path.join(os.homedir(), '.config'));
+      
+      const targetDir = path.join(baseDir, 'pdm-app');
+      // Принудительно создаем папку, если ее нет
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+      return targetDir;
+    } else {
+      // В режиме разработки используем локальную папку проекта для удобства тестирования в AI Studio
+      const devDir = path.join(process.cwd(), 'database');
+      if (!fs.existsSync(devDir)) {
+        fs.mkdirSync(devDir, { recursive: true });
+      }
+      return devDir;
     }
-    return path.join(desktopPath, 'VentApp-Data');
   } catch (err) {
-    return path.join(process.cwd(), 'database');
+    const fallbackDir = path.join(process.cwd(), 'database');
+    try {
+      if (!fs.existsSync(fallbackDir)) {
+        fs.mkdirSync(fallbackDir, { recursive: true });
+      }
+    } catch (e) {}
+    return fallbackDir;
   }
 }
 
@@ -42,7 +56,7 @@ try {
     fs.mkdirSync(ventAppDataPath, { recursive: true });
   }
 } catch (err) {
-  console.warn('[Server Setup] Error creating database directory on Desktop:', err);
+  console.warn('[Server Setup] Error creating database directory:', err);
 }
 
 // Keep userDataPath referencing ventAppDataPath for general safety and log/chat_files locations
@@ -155,7 +169,7 @@ interface DbConfig {
 
 function loadDbConfig(): DbConfig {
   const config = loadAppConfig();
-  const dbFile = path.join(ventAppDataPath, 'production.sqlite');
+  const dbFile = path.join(ventAppDataPath, 'database.sqlite');
   return {
     databasePath: dbFile,
     isConfigured: true
@@ -173,20 +187,89 @@ const appConfig = loadAppConfig();
 let startupDbUrl = '';
 
 if (appConfig.current_db_type === 'LOCAL') {
-  const localDbFile = path.join(ventAppDataPath, 'production.sqlite');
-  startupDbUrl = `file:${localDbFile}?connection_limit=1&busy_timeout=15000`;
+  const dbPath = path.join(ventAppDataPath, 'database.sqlite');
   
-  const isDbMissing = !fs.existsSync(localDbFile);
+  // 1. Проверяем, существует ли папка приложения, и создаем ее перед PrismaClient
+  const dbDir = path.dirname(dbPath);
+  if (!fs.existsSync(dbDir)) {
+    fs.mkdirSync(dbDir, { recursive: true });
+  }
+
+  startupDbUrl = `file:${dbPath}?connection_limit=1&busy_timeout=15000`;
+  
+  const isDbMissing = !fs.existsSync(dbPath);
   if (isDbMissing) {
-    console.log('[Startup DB] production.sqlite does not exist. Initializing copy of database template...');
-    ensureSQLiteDatabaseExists(localDbFile);
+    console.log('[Startup DB] database.sqlite does not exist. Initializing copy of database template...');
+    ensureSQLiteDatabaseExists(dbPath);
   }
 } else {
   startupDbUrl = appConfig.database_url;
 }
 
+// 2. Принудительно переписываем DATABASE_URL
 process.env.DATABASE_URL = startupDbUrl;
-let prisma = createPrismaClient(appConfig.current_db_type);
+console.log(`[Startup DB] Итоговый DATABASE_URL: ${process.env.DATABASE_URL}`);
+
+// 3. Автоматическое развертывание таблиц (prisma db push) из кода
+if (appConfig.current_db_type === 'LOCAL') {
+  try {
+    console.log('[Startup DB Schema Sync] Запуск программного развертывания структуры базы данных...');
+    
+    // Находим schema.prisma в разных возможных местах
+    const possibleSchemaPaths = [
+      path.join(process.cwd(), 'prisma', 'schema.prisma'),
+      path.join(__dirname, 'prisma', 'schema.prisma'),
+      path.join(__dirname, '..', 'prisma', 'schema.prisma'),
+      path.join((process as any).resourcesPath || '', 'prisma', 'schema.prisma'),
+    ];
+    
+    let schemaPath = '';
+    for (const p of possibleSchemaPaths) {
+      if (fs.existsSync(p)) {
+        schemaPath = p;
+        break;
+      }
+    }
+    
+    if (schemaPath) {
+      console.log(`[Startup DB Schema Sync] Схема найдена, выполняем prisma db push --schema="${schemaPath}"...`);
+      const execOptions = {
+        env: {
+          ...process.env,
+          DATABASE_URL: startupDbUrl
+        },
+        stdio: 'inherit' as const
+      };
+      execSync(`npx prisma db push --schema="${schemaPath}" --accept-data-loss`, execOptions);
+      console.log('[Startup DB Schema Sync] Структура SQLite базы данных успешно синхронизирована.');
+    } else {
+      console.warn(`[Startup DB Schema Sync] Файл схемы Prisma не найден во время запуска. Пропускаем db push.`);
+    }
+  } catch (pushErr: any) {
+    console.error('[Startup DB Schema Sync] Не удалось выполнить программный push схемы в SQLite базу:', pushErr.message || pushErr);
+  }
+}
+
+// 4. Оборачиваем инициализацию PrismaClient в try/catch с подробным логированием
+let prisma: any;
+try {
+  console.log(`[Prisma Client Init] Создание экземпляра PrismaClient для режима: ${appConfig.current_db_type}`);
+  prisma = createPrismaClient(appConfig.current_db_type);
+} catch (initErr: any) {
+  console.error('[Prisma Client Init Error] Критическая ошибка конструирования PrismaClient:', initErr);
+  try {
+    const errorLogPath = path.join(ventAppDataPath, 'database-critical-init-error.log');
+    fs.appendFileSync(
+      errorLogPath,
+      `[${new Date().toISOString()}] CRITICAL CLIENT CONSTRUCTION ERROR:\n${initErr.message || initErr}\nStack:\n${initErr.stack}\n`,
+      'utf-8'
+    );
+  } catch (fsErr) {}
+  
+  // Создаем дефолтный локальный клиент на всякий случай
+  const { PrismaClient: LocalPrisma } = require('@prisma/client');
+  prisma = new LocalPrisma();
+}
 
 // Auto-seed user and structure if database is empty
 (async () => {
@@ -273,21 +356,21 @@ app.use('/chat_files', express.static(path.join(userDataPath, 'chat_files')));
 // Database Routing
 app.get('/api/db/config', (req: Request, res: Response) => {
   const config = loadAppConfig();
-  const dbPath = path.join(ventAppDataPath, 'production.sqlite');
+  const dbPath = path.join(ventAppDataPath, 'database.sqlite');
   res.json({
     current_db_type: config.current_db_type,
     database_url: config.database_url,
     databasePath: dbPath,
     isConfigured: true,
-    displayPath: config.current_db_type === 'LOCAL' ? './production.sqlite' : config.database_url,
+    displayPath: config.current_db_type === 'LOCAL' ? './database.sqlite' : config.database_url,
     defaultPath: dbPath
   });
 });
 
 app.get('/api/db/download', (req: Request, res: Response) => {
-  const dbFile = path.join(ventAppDataPath, 'production.sqlite');
+  const dbFile = path.join(ventAppDataPath, 'database.sqlite');
   if (fs.existsSync(dbFile)) {
-    res.download(dbFile, 'production.sqlite');
+    res.download(dbFile, 'database.sqlite');
   } else {
     res.status(404).json({ error: 'Файл базы данных не найден на сервере' });
   }
@@ -298,7 +381,7 @@ app.post('/api/db/test', async (req: Request, res: Response) => {
   if (current_db_type === 'LOCAL') {
     return res.json({
       success: true,
-      exists: fs.existsSync(path.join(ventAppDataPath, 'production.sqlite')),
+      exists: fs.existsSync(path.join(ventAppDataPath, 'database.sqlite')),
       message: 'Локальная база данных SQLite активна и готова к работе!'
     });
   }
@@ -319,7 +402,7 @@ app.post('/api/db/test', async (req: Request, res: Response) => {
     // Restore primary env context
     const current = loadAppConfig();
     if (current.current_db_type === 'LOCAL') {
-      const localDb = path.join(ventAppDataPath, 'production.sqlite');
+      const localDb = path.join(ventAppDataPath, 'database.sqlite');
       process.env.DATABASE_URL = `file:${localDb}?connection_limit=1&busy_timeout=15000`;
     } else {
       process.env.DATABASE_URL = current.database_url;
@@ -334,7 +417,7 @@ app.post('/api/db/test', async (req: Request, res: Response) => {
     // Restore primary env context
     const current = loadAppConfig();
     if (current.current_db_type === 'LOCAL') {
-      const localDb = path.join(ventAppDataPath, 'production.sqlite');
+      const localDb = path.join(ventAppDataPath, 'database.sqlite');
       process.env.DATABASE_URL = `file:${localDb}?connection_limit=1&busy_timeout=15000`;
     } else {
       process.env.DATABASE_URL = current.database_url;
@@ -364,12 +447,12 @@ app.post('/api/db/switch', async (req: Request, res: Response) => {
   try {
     let targetDbUrl = '';
     if (current_db_type === 'LOCAL') {
-      const dbFile = path.join(ventAppDataPath, 'production.sqlite');
+      const dbFile = path.join(ventAppDataPath, 'database.sqlite');
       targetDbUrl = `file:${dbFile}?connection_limit=1&busy_timeout=15000`;
       
       const isDbMissing = !fs.existsSync(dbFile);
       if (isDbMissing) {
-        console.log('[DB Switch] Path production.sqlite missing. Initializing copy of database template...');
+        console.log('[DB Switch] Path database.sqlite missing. Initializing copy of database template...');
         ensureSQLiteDatabaseExists(dbFile);
       }
     } else {
@@ -1972,7 +2055,7 @@ app.post('/api/components/:id/manual-edit-field', async (req: Request, res: Resp
 
 async function startServer() {
   // Выводим полный путь к файлу БД, который пытается открыть Prisma при старте
-  const defaultLocalDbPath = path.join(ventAppDataPath, 'production.sqlite');
+  const defaultLocalDbPath = path.join(ventAppDataPath, 'database.sqlite');
   try {
     console.log('[SQLite Startup Diagnostic] Инициализация Prisma...');
     console.log(`[SQLite Startup Diagnostic] Полный абсолютный путь к файлу БД: ${defaultLocalDbPath}`);
@@ -2123,11 +2206,16 @@ async function startServer() {
   });
 
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
+    try {
+      const viteModule = eval('require')('vite');
+      const vite = await viteModule.createServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } catch (viteErr: any) {
+      console.error('[Vite Setup] Error initializing dynamic Vite middleware in dev env:', viteErr.message || viteErr);
+    }
   } else {
     const distPath = __dirname.includes('app.asar')
       ? __dirname

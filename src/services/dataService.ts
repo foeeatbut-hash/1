@@ -164,10 +164,10 @@ function getFallbackData<T>(endpoint: string, method: string, body?: any): T {
     return {
       current_db_type: 'LOCAL',
       database_url: '',
-      databasePath: 'Desktop/VentApp-Data/production.sqlite',
+      databasePath: 'AppData/Roaming/pdm-app/database.sqlite',
       isConfigured: true,
-      displayPath: 'Рабочий стол / VentApp-Data/production.sqlite',
-      defaultPath: 'Desktop/VentApp-Data/production.sqlite'
+      displayPath: 'Профиль / pdm-app/database.sqlite',
+      defaultPath: 'AppData/Roaming/pdm-app/database.sqlite'
     } as unknown as T;
   }
 
