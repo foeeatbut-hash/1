@@ -15,7 +15,8 @@ function getVentAppDataPath(): string {
     const isElectronEnv = 
       !!(process as any).resourcesPath || 
       process.env.ELECTRON === 'true' || 
-      process.env.NODE_ENV === 'production';
+      process.env.NODE_ENV === 'production' ||
+      __dirname.includes('app.asar');
     
     if (isElectronEnv) {
       const baseDir = process.env.APPDATA || 
@@ -49,14 +50,36 @@ function getVentAppDataPath(): string {
 }
 
 const ventAppDataPath = getVentAppDataPath();
+const logFilePath = path.join(ventAppDataPath, 'backend-init.log');
 
-// Ensure the directory exists
+function logInit(message: string) {
+  const timestamp = new Date().toISOString();
+  const msg = `[${timestamp}] ${message}\n`;
+  console.log(message);
+  try {
+    fs.appendFileSync(logFilePath, msg, 'utf-8');
+  } catch (err) {
+    console.error('Failed to write to local log file:', err);
+  }
+}
+
+// 1. Создаем изолированную функцию логирования старта бэкенда и пишем все чихи
+logInit('«[1] Логирование запущено»');
+logInit(`«[2] NODE_ENV = ${process.env.NODE_ENV}, platform = ${process.platform}, isPackaged = ${__dirname.includes('app.asar') || !!(process as any).resourcesPath}»`);
+
+const dbPath = path.join(ventAppDataPath, 'database.sqlite');
+logInit(`«[3] Путь к БД определен как ${dbPath}»`);
+
+// Ensure the directory exists and write log point 4
 try {
   if (!fs.existsSync(ventAppDataPath)) {
     fs.mkdirSync(ventAppDataPath, { recursive: true });
+    logInit(`«[4] Директория проверена/создана: ${ventAppDataPath} (успешно создана с нуля)»`);
+  } else {
+    logInit(`«[4] Директория проверена/создана: ${ventAppDataPath} (уже существовала)»`);
   }
-} catch (err) {
-  console.warn('[Server Setup] Error creating database directory:', err);
+} catch (err: any) {
+  logInit(`[Error] «Ошибка при проверке/создании директории ${ventAppDataPath}: ${err.message}»`);
 }
 
 // Keep userDataPath referencing ventAppDataPath for general safety and log/chat_files locations
@@ -67,6 +90,7 @@ const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');
 function ensureSQLiteDatabaseExists(targetPath: string): boolean {
   try {
     if (fs.existsSync(targetPath)) {
+      logInit(`[SQLite Copy] Target database file already exists at: ${targetPath}. Skipping template copying.`);
       return true; // Already exists
     }
 
@@ -90,20 +114,23 @@ function ensureSQLiteDatabaseExists(targetPath: string): boolean {
       path.join(process.cwd(), 'prisma', 'database.sqlite')
     ];
 
+    logInit(`[SQLite Copy] Looking for database template...`);
     for (const templatePath of possibleTemplatePaths) {
+      logInit(` - Checking possible template path: ${templatePath}`);
       if (fs.existsSync(templatePath)) {
-        console.log(`[SQLite Sync] Copying template DB from ${templatePath} to ${targetPath}`);
+        logInit(`[SQLite Copy] Found template DB at ${templatePath}. Copying template DB to ${targetPath}`);
         fs.copyFileSync(templatePath, targetPath);
+        logInit(`[SQLite Copy] Done cloning database.sqlite template.`);
         return true;
       }
     }
 
     // Fallback: Create empty file if absolutely nothing can be loaded, though printing a warning
-    console.warn('[SQLite Sync] SQLite template database not found. Creating empty file.');
+    logInit('[SQLite Copy Warning] SQLite template database not found. Creating empty sqlite file fallback.');
     fs.writeFileSync(targetPath, '', 'utf-8');
     return false;
   } catch (err: any) {
-    console.error('[SQLite Sync] Error copy/init SQLite database template:', err.message);
+    logInit(`[SQLite Copy Error] Exception copying SQLite database template: ${err.message}\nStack: ${err.stack}`);
     return false;
   }
 }
@@ -118,7 +145,7 @@ function createPrismaClient(dbType: string) {
       return new LocalPrisma();
     }
   } catch (err: any) {
-    console.error(`[Prisma Init] Error creating client for ${dbType}:`, err.message);
+    logInit(`[Prisma Client Builder Exception] Error creating client for ${dbType}: ${err.message}\nStack: ${err.stack}`);
     const { PrismaClient: LocalPrisma } = require('@prisma/client');
     return new LocalPrisma();
   }
@@ -141,8 +168,8 @@ function loadAppConfig(): AppConfig {
         };
       }
     }
-  } catch (err) {
-    console.warn('[Config] Error reading config.json:', err);
+  } catch (err: any) {
+    logInit(`[AppConfig Error] Warning reading config.json: ${err.message}`);
   }
   
   const defaultConfig: AppConfig = {
@@ -156,8 +183,8 @@ function loadAppConfig(): AppConfig {
 function saveAppConfig(config: AppConfig) {
   try {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('[Config] Error writing config.json:', err);
+  } catch (err: any) {
+    logInit(`[AppConfig Error] Exception writing config.json: ${err.message}`);
   }
 }
 
@@ -199,8 +226,10 @@ if (appConfig.current_db_type === 'LOCAL') {
   
   const isDbMissing = !fs.existsSync(dbPath);
   if (isDbMissing) {
-    console.log('[Startup DB] database.sqlite does not exist. Initializing copy of database template...');
+    logInit('[Startup DB] database.sqlite does not exist. Initializing copy of database template...');
     ensureSQLiteDatabaseExists(dbPath);
+  } else {
+    logInit('[Startup DB] database.sqlite already exists in AppData folder.');
   }
 } else {
   startupDbUrl = appConfig.database_url;
@@ -208,55 +237,67 @@ if (appConfig.current_db_type === 'LOCAL') {
 
 // 2. Принудительно переписываем DATABASE_URL
 process.env.DATABASE_URL = startupDbUrl;
-console.log(`[Startup DB] Итоговый DATABASE_URL: ${process.env.DATABASE_URL}`);
+logInit(`[Startup DB] Принудительно установлен DATABASE_URL: ${process.env.DATABASE_URL}`);
 
-// 3. Автоматическое развертывание таблиц (prisma db push) из кода
+// 3. Автоматическое развертывание таблиц (prisma db push) из кода - ИСКЛЮЧИТЕЛЬНО В РАЗРАБОТКЕ
 if (appConfig.current_db_type === 'LOCAL') {
-  try {
-    console.log('[Startup DB Schema Sync] Запуск программного развертывания структуры базы данных...');
-    
-    // Находим schema.prisma в разных возможных местах
-    const possibleSchemaPaths = [
-      path.join(process.cwd(), 'prisma', 'schema.prisma'),
-      path.join(__dirname, 'prisma', 'schema.prisma'),
-      path.join(__dirname, '..', 'prisma', 'schema.prisma'),
-      path.join((process as any).resourcesPath || '', 'prisma', 'schema.prisma'),
-    ];
-    
-    let schemaPath = '';
-    for (const p of possibleSchemaPaths) {
-      if (fs.existsSync(p)) {
-        schemaPath = p;
-        break;
+  const isProduction = 
+    process.env.NODE_ENV === 'production' || 
+    __dirname.includes('app.asar') || 
+    !!(process as any).resourcesPath;
+
+  if (!isProduction) {
+    try {
+      logInit('[Startup DB Schema Sync] Development environment detected. Running programmatic schema sync (prisma db push)...');
+      
+      // Находим schema.prisma в разных возможных местах
+      const possibleSchemaPaths = [
+        path.join(process.cwd(), 'prisma', 'schema.prisma'),
+        path.join(__dirname, 'prisma', 'schema.prisma'),
+        path.join(__dirname, '..', 'prisma', 'schema.prisma'),
+        path.join((process as any).resourcesPath || '', 'prisma', 'schema.prisma'),
+      ];
+      
+      let schemaPath = '';
+      for (const p of possibleSchemaPaths) {
+        if (fs.existsSync(p)) {
+          schemaPath = p;
+          break;
+        }
       }
+      
+      if (schemaPath) {
+        logInit(`[Startup DB Schema Sync] Schema found. Running npx prisma db push --schema="${schemaPath}"...`);
+        const execOptions = {
+          env: {
+            ...process.env,
+            DATABASE_URL: startupDbUrl
+          }
+        };
+        execSync(`npx prisma db push --schema="${schemaPath}" --accept-data-loss`, execOptions);
+        logInit('[Startup DB Schema Sync] SQLite database structure has been successfully pushed and updated.');
+      } else {
+        logInit('[Startup DB Schema Sync Warning] Prisma schema.prisma path not found. Skipping schema push.');
+      }
+    } catch (pushErr: any) {
+      logInit(`[Startup DB Schema Sync Exception] Failed during npx prisma db push: ${pushErr.message}\nStack: ${pushErr.stack}`);
     }
-    
-    if (schemaPath) {
-      console.log(`[Startup DB Schema Sync] Схема найдена, выполняем prisma db push --schema="${schemaPath}"...`);
-      const execOptions = {
-        env: {
-          ...process.env,
-          DATABASE_URL: startupDbUrl
-        },
-        stdio: 'inherit' as const
-      };
-      execSync(`npx prisma db push --schema="${schemaPath}" --accept-data-loss`, execOptions);
-      console.log('[Startup DB Schema Sync] Структура SQLite базы данных успешно синхронизирована.');
-    } else {
-      console.warn(`[Startup DB Schema Sync] Файл схемы Prisma не найден во время запуска. Пропускаем db push.`);
-    }
-  } catch (pushErr: any) {
-    console.error('[Startup DB Schema Sync] Не удалось выполнить программный push схемы в SQLite базу:', pushErr.message || pushErr);
+  } else {
+    logInit('[Startup DB Schema Sync] Production mode / Packaged app detected. Skipping executing shell command "npx prisma db push" to avoid starting slow/crashing shells.');
   }
 }
 
 // 4. Оборачиваем инициализацию PrismaClient в try/catch с подробным логированием
-let prisma: any;
+let prisma: any = null;
+let isPrismaAvailable = false;
+
 try {
-  console.log(`[Prisma Client Init] Создание экземпляра PrismaClient для режима: ${appConfig.current_db_type}`);
+  logInit(`[Prisma Client Init] Creating PrismaClient instance for mode: ${appConfig.current_db_type}`);
   prisma = createPrismaClient(appConfig.current_db_type);
+  isPrismaAvailable = true;
+  logInit(`[Prisma Client Init] PrismaClient instance constructed successfully.`);
 } catch (initErr: any) {
-  console.error('[Prisma Client Init Error] Критическая ошибка конструирования PrismaClient:', initErr);
+  logInit(`[Prisma Client Init Exception] Critical error constructing PrismaClient: ${initErr.message}\nStack: ${initErr.stack}`);
   try {
     const errorLogPath = path.join(ventAppDataPath, 'database-critical-init-error.log');
     fs.appendFileSync(
@@ -266,23 +307,46 @@ try {
     );
   } catch (fsErr) {}
   
-  // Создаем дефолтный локальный клиент на всякий случай
-  const { PrismaClient: LocalPrisma } = require('@prisma/client');
-  prisma = new LocalPrisma();
+  try {
+    logInit('[Prisma Client Init Recovery] Attempting to construct fallback Local PrismaClient...');
+    const { PrismaClient: LocalPrisma } = require('@prisma/client');
+    prisma = new LocalPrisma();
+    isPrismaAvailable = true;
+    logInit('[Prisma Client Init Recovery] Fallback PrismaClient constructed.');
+  } catch (fallbackErr: any) {
+    logInit(`[Prisma Client Init Recovery Exception] Failed to construct fallback PrismaClient: ${fallbackErr.message}\nStack: ${fallbackErr.stack}`);
+    prisma = null;
+    isPrismaAvailable = false;
+  }
 }
 
-// Auto-seed user and structure if database is empty
+// Auto-seed user and structure if database is empty - securely wrapped to avoid startup crashes
 (async () => {
+  if (!prisma || !isPrismaAvailable) {
+    logInit('[Startup DB Feed Skip] Prisma is not constructed; skipping auto-seed check.');
+    return;
+  }
   try {
+    logInit('[Startup DB Connection Check] Executing test connection with $connect()...');
+    await prisma.$connect();
+    logInit('[Startup DB Connection Check] Successful connection established.');
+
     if (appConfig.current_db_type === 'LOCAL') {
       try {
+        logInit('[Startup DB Config] Optimizing dynamic SQLite engine WAL journaling mode...');
         await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL;');
         await prisma.$queryRawUnsafe('PRAGMA synchronous=NORMAL;');
-      } catch (e) {}
+        logInit('[Startup DB Config] Local pragmas configured successfully.');
+      } catch (pragmaErr: any) {
+        logInit(`[Startup DB Config Warning] Skipping SQLite tuning pragmas: ${pragmaErr.message}`);
+      }
     }
+    
+    logInit('[Startup DB Feed Check] Verifying records in User table...');
     const userCount = await prisma.user.count();
+    logInit(`[Startup DB Feed Check] Found ${userCount} users registered.`);
     if (userCount === 0) {
-      console.log('[Startup DB] Initializing empty database. Creating default Admin interface.');
+      logInit('[Startup DB Feed] Seeding default administrator account...');
       await prisma.user.create({
         data: {
           name: 'Главный Администратор (RaupovKhKh)',
@@ -302,9 +366,10 @@ try {
           description: 'Air Handling Unit',
         }
       });
+      logInit('[Startup DB Feed] Initial schema seeding finished.');
     }
   } catch (err: any) {
-    console.warn('[Startup DB Seed] Check/Auto-seed skipped or failed:', err.message);
+    logInit(`[Startup DB Seed Exception] Verifying / Seeding skipped or threw exception: ${err.message}\nStack: ${err.stack}`);
   }
 })();
 
@@ -2052,152 +2117,166 @@ app.post('/api/components/:id/manual-edit-field', async (req: Request, res: Resp
   }
 });
 
-
 async function startServer() {
   // Выводим полный путь к файлу БД, который пытается открыть Prisma при старте
   const defaultLocalDbPath = path.join(ventAppDataPath, 'database.sqlite');
   try {
-    console.log('[SQLite Startup Diagnostic] Инициализация Prisma...');
-    console.log(`[SQLite Startup Diagnostic] Полный абсолютный путь к файлу БД: ${defaultLocalDbPath}`);
+    logInit('[SQLite Startup Diagnostic] Инициализация Prisma перед стартом сервера...');
+    logInit(`[SQLite Startup Diagnostic] Полный абсолютный путь к файлу БД: ${defaultLocalDbPath}`);
   } catch (diagErr: any) {
     console.warn('[SQLite Startup Diagnostic] (ошибка логгирования)', diagErr.message);
   }
 
-  // SQLite dynamic DB integrity / corruption self-healing check
-  try {
-    await prisma.$queryRawUnsafe('SELECT 1;');
-    console.log('[SQLite] Integrity check: connection successfully verified');
-  } catch (error: any) {
-    const errorMsg = String(error.message || error || '');
-    if (errorMsg.includes('malformed') || errorMsg.includes('disk image') || errorMsg.includes('SqliteError') || errorMsg.includes('database.sqlite is not stable')) {
-      console.warn('[SQLite] Database corruption detected! Initiating dynamic self-healing...', errorMsg);
-      try {
-        await prisma.$disconnect();
-      } catch (e) {}
-
-      const dbPath = defaultLocalDbPath;
-      const shmPath = dbPath + '-shm';
-      const walPath = dbPath + '-wal';
-
-      [dbPath, shmPath, walPath].forEach(f => {
+  if (!prisma || !isPrismaAvailable) {
+    logInit('[startServer Warning] Prisma client is NOT constructed or not available. Skipping database self-healing checks. Moving straight to starting Express listener.');
+  } else {
+    // SQLite dynamic DB integrity / corruption self-healing check
+    try {
+      await prisma.$queryRawUnsafe('SELECT 1;');
+      logInit('[SQLite] Integrity check: connection successfully verified with SELECT 1.');
+    } catch (error: any) {
+      const errorMsg = String(error.message || error || '');
+      logInit(`[SQLite Integrity Check failed] General SQLite connect check threw: ${errorMsg}`);
+      if (errorMsg.includes('malformed') || errorMsg.includes('disk image') || errorMsg.includes('SqliteError') || errorMsg.includes('database.sqlite is not stable')) {
+        logInit('[SQLite] Database corruption detected! Initiating dynamic self-healing...');
         try {
-          if (fs.existsSync(f)) {
-            fs.unlinkSync(f);
-            console.log(`[SQLite Recovery] Deleted corrupt file: ${f}`);
+          await prisma.$disconnect();
+        } catch (e) {}
+
+        const dbPath = defaultLocalDbPath;
+        const shmPath = dbPath + '-shm';
+        const walPath = dbPath + '-wal';
+
+        [dbPath, shmPath, walPath].forEach(f => {
+          try {
+            if (fs.existsSync(f)) {
+              fs.unlinkSync(f);
+              logInit(`[SQLite Recovery] Deleted corrupt file: ${f}`);
+            }
+          } catch (delError: any) {
+            logInit(`[SQLite Recovery Exception] Failed to delete file ${f}: ${delError.message}`);
           }
-        } catch (delError) {
-          console.error(`[SQLite Recovery] Failed to delete file ${f}:`, delError);
+        });
+
+        logInit('[SQLite Recovery] Copying fresh SQLite database template to recover from corruption...');
+        ensureSQLiteDatabaseExists(dbPath);
+
+        // Recreate client
+        process.env.DATABASE_URL = `file:${dbPath}?connection_limit=1&busy_timeout=15000`;
+        try {
+          prisma = createPrismaClient('LOCAL');
+          isPrismaAvailable = true;
+          logInit('[SQLite Recovery] Constructed fresh PrismaClient successfully.');
+        } catch (recreationErr: any) {
+          logInit(`[SQLite Recovery Failure] Critical error reconstructing client: ${recreationErr.message}`);
+          prisma = null;
+          isPrismaAvailable = false;
         }
-      });
-
-      console.log('[SQLite Recovery] Copying fresh SQLite database template to recover from corruption...');
-      ensureSQLiteDatabaseExists(dbPath);
-
-      // Recreate client
-      process.env.DATABASE_URL = `file:${dbPath}?connection_limit=1&busy_timeout=15000`;
-      prisma = createPrismaClient('LOCAL');
-    } else {
-      console.error('[SQLite Startup Error] General startup error (skipped self-healing):', errorMsg);
-    }
-  }
-
-  // Enable Write-Ahead Logging (WAL) mode for SQLite to prevent database disk image malformed exceptions during multi-user write operations
-  try {
-    await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL;');
-    await prisma.$queryRawUnsafe('PRAGMA synchronous=NORMAL;');
-    console.log('[SQLite] WAL (Write-Ahead Logging) Mode and synchronous=NORMAL successfully enabled.');
-  } catch (error) {
-    console.warn('[SQLite] SQLite WAL mode pragma check skipped:', error);
-  }
-
-  // Ensure database is seeded with initial user and project if empty
-  try {
-    const userCount = await prisma.user.count();
-    if (userCount === 0) {
-      console.log('No users found in database. Performing automatic initial seed...');
-      const admin = await prisma.user.create({
-        data: {
-          name: 'Главный Администратор (RaupovKhKh)',
-          symbol: 'RaupovKhKh',
-          password: '1122',
-          role: 'ADMIN',
-        }
-      });
-      console.log('Created initial admin user:', admin.symbol);
-
-      const project = await prisma.project.create({
-        data: {
-          name: 'Технологический Проект Альфа',
-        }
-      });
-      console.log('Created initial project:', project.name);
-
-      await prisma.equipment.create({
-        data: {
-          type: 'AHU',
-          description: 'Air Handling Unit',
-        }
-      });
+      } else {
+        logInit('[SQLite Startup Connection Error] Skipping self-healing as error is not structural corruption.');
+      }
     }
 
-    // Seed dummy notes if none exist
-    const notesCount = await prisma.userNote.count();
-    if (notesCount === 0) {
-      console.log('Seeding initial notes...');
-      await prisma.userNote.createMany({
-        data: [
-          {
-            title: 'Заметки по проекту вентиляции',
-            content: '<p>Проверить производительность <strong>AHU-2</strong> согласно обновленному ТЗ.</p><p>Учесть параметры сопротивления воздушного тракта и настроить частотные преобразователи.</p>',
-            color: 'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200',
-            equipmentId: 'AHU-2'
-          },
-          {
-            title: 'Согласование схем автоматики',
-            content: '<p>Выполнить сверку сигналов КИПиА для щита вентиляции. Особое внимание уделить датчикам перепада давления.</p>',
-            color: 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-250',
-            equipmentId: 'AHU'
-          }
-        ]
-      });
-    }
+    if (prisma && isPrismaAvailable) {
+      // Enable Write-Ahead Logging (WAL) mode for SQLite to prevent database disk image malformed exceptions during multi-user write operations
+      try {
+        await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL;');
+        await prisma.$queryRawUnsafe('PRAGMA synchronous=NORMAL;');
+        logInit('[SQLite] WAL (Write-Ahead Logging) Mode and synchronous=NORMAL successfully enabled.');
+      } catch (error: any) {
+        logInit(`[SQLite WAL Setting skip] SQLite WAL mode pragma check skipped/failed: ${error.message}`);
+      }
 
-    // Seed dummy logs if none exist
-    const logsCount = await prisma.systemChangeLog.count();
-    if (logsCount === 0) {
-      console.log('Seeding initial changelogs...');
-      await prisma.systemChangeLog.createMany({
-        data: [
-          {
-            userName: 'Главный Администратор (RaupovKhKh)',
-            userSymbol: 'RaupovKhKh',
-            description: 'Обновлены спецификации вентилятора по тегу AHU-2',
-            targetRoute: '/explorer',
-          },
-          {
-            userName: 'Главный Администратор (RaupovKhKh)',
-            userSymbol: 'RaupovKhKh',
-            description: 'Добавлен новый чертеж КМД-102 в папку Проекты',
-            targetRoute: '/explorer',
-          },
-          {
-            userName: 'Главный Администратор (RaupovKhKh)',
-            userSymbol: 'RaupovKhKh',
-            description: 'Сформирована сводная ведомость по оборудованию Проекта Альфа',
-            targetRoute: '/',
-          },
-          {
-            userName: 'Главный Администратор (RaupovKhKh)',
-            userSymbol: 'RaupovKhKh',
-            description: 'Изменен статус проекта на Активный',
-            targetRoute: '/',
-          }
-        ]
-      });
-    }
+      // Ensure database is seeded with initial user and project if empty
+      try {
+        const userCount = await prisma.user.count();
+        if (userCount === 0) {
+          logInit('[Database Seeder] No users found in database. Performing automatic initial seed...');
+          const admin = await prisma.user.create({
+            data: {
+              name: 'Главный Администратор (RaupovKhKh)',
+              symbol: 'RaupovKhKh',
+              password: '1122',
+              role: 'ADMIN',
+            }
+          });
+          logInit(`[Database Seeder] Created initial admin user: ${admin.symbol}`);
 
-  } catch (e) {
-    console.error('Database auto-seeding error:', e);
+          const project = await prisma.project.create({
+            data: {
+              name: 'Технологический Проект Альфа',
+            }
+          });
+          logInit(`[Database Seeder] Created initial project: ${project.name}`);
+
+          await prisma.equipment.create({
+            data: {
+              type: 'AHU',
+              description: 'Air Handling Unit',
+            }
+          });
+        }
+
+        // Seed dummy notes if none exist
+        const notesCount = await prisma.userNote.count();
+        if (notesCount === 0) {
+          logInit('[Database Seeder] Seeding initial notes...');
+          await prisma.userNote.createMany({
+            data: [
+              {
+                title: 'Заметки по проекту вентиляции',
+                content: '<p>Проверить производительность <strong>AHU-2</strong> согласно обновленному ТЗ.</p><p>Учесть параметры сопротивления воздушного тракта и настроить частотные преобразователи.</p>',
+                color: 'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200',
+                equipmentId: 'AHU-2'
+              },
+              {
+                title: 'Согласование схем автоматики',
+                content: '<p>Выполнить сверку сигналов КИПиА для щита вентиляции. Особое внимание уделить датчикам перепада давления.</p>',
+                color: 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-250',
+                equipmentId: 'AHU'
+              }
+            ]
+          });
+        }
+
+        // Seed dummy logs if none exist
+        const logsCount = await prisma.systemChangeLog.count();
+        if (logsCount === 0) {
+          logInit('[Database Seeder] Seeding initial changelogs...');
+          await prisma.systemChangeLog.createMany({
+            data: [
+              {
+                userName: 'Главный Администратор (RaupovKhKh)',
+                userSymbol: 'RaupovKhKh',
+                description: 'Обновлены спецификации вентилятора по тегу AHU-2',
+                targetRoute: '/explorer',
+              },
+              {
+                userName: 'Главный Администратор (RaupovKhKh)',
+                userSymbol: 'RaupovKhKh',
+                description: 'Добавлен новый чертеж КМД-102 в папку Проекты',
+                targetRoute: '/explorer',
+              },
+              {
+                userName: 'Главный Администратор (RaupovKhKh)',
+                userSymbol: 'RaupovKhKh',
+                description: 'Сформирована сводная ведомость по оборудованию Проекта Альфа',
+                targetRoute: '/',
+              },
+              {
+                userName: 'Главный Администратор (RaupovKhKh)',
+                userSymbol: 'RaupovKhKh',
+                description: 'Изменен статус проекта на Активный',
+                targetRoute: '/',
+              }
+            ]
+          });
+        }
+
+      } catch (e: any) {
+        logInit(`[Database Seeder error] Seeding failed/skipped: ${e.message}`);
+      }
+    }
   }
 
   app.use((err: any, req: Request, res: Response, next: any) => {
@@ -2218,8 +2297,8 @@ async function startServer() {
     }
   } else {
     const distPath = __dirname.includes('app.asar')
-      ? __dirname
-      : path.join(process.cwd(), 'dist');
+       ? __dirname
+       : path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
@@ -2227,7 +2306,7 @@ async function startServer() {
   }
 
   httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    logInit(`[Server listener started] Express backend server successfully running on port ${PORT}`);
   });
 }
 
