@@ -61,7 +61,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
         id: 'fallback-admin',
         name: 'Главный Администратор (KhKh)',
         symbol: 'KhKh',
-        role: 'admin',
+        role: 'ADMIN',
       };
       
       if (remember) {
@@ -87,7 +87,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
         id: 'fallback-user',
         name: 'Инженер (qwerty)',
         symbol: 'qwerty',
-        role: 'user',
+        role: 'USER',
       };
       
       if (remember) {
