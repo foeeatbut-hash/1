@@ -135,19 +135,30 @@ function ensureSQLiteDatabaseExists(targetPath: string): boolean {
   }
 }
 
-function createPrismaClient(dbType: string) {
+// Prisma 7: рантайм-клиент больше не читает DATABASE_URL из окружения,
+// подключение задается только через driver adapter.
+function buildSqliteAdapter(dbUrl: string) {
+  const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
+  // better-sqlite3 не понимает query-параметры в URL (?connection_limit=...) — отрезаем их
+  const cleanUrl = dbUrl.split('?')[0];
+  return new PrismaBetterSqlite3({ url: cleanUrl, timeout: 15000 });
+}
+
+function createPrismaClient(dbType: string, dbUrl: string) {
   try {
     if (dbType === 'REMOTE') {
       const { PrismaClient: RemotePrisma } = require('@prisma/client-pg');
-      return new RemotePrisma();
+      const { PrismaPg } = require('@prisma/adapter-pg');
+      return new RemotePrisma({ adapter: new PrismaPg({ connectionString: dbUrl }) });
     } else {
       const { PrismaClient: LocalPrisma } = require('@prisma/client');
-      return new LocalPrisma();
+      return new LocalPrisma({ adapter: buildSqliteAdapter(dbUrl) });
     }
   } catch (err: any) {
     logInit(`[Prisma Client Builder Exception] Error creating client for ${dbType}: ${err.message}\nStack: ${err.stack}`);
     const { PrismaClient: LocalPrisma } = require('@prisma/client');
-    return new LocalPrisma();
+    const fallbackUrl = `file:${path.join(ventAppDataPath, 'database.sqlite')}`;
+    return new LocalPrisma({ adapter: buildSqliteAdapter(fallbackUrl) });
   }
 }
 
@@ -293,7 +304,7 @@ let isPrismaAvailable = false;
 
 try {
   logInit(`[Prisma Client Init] Creating PrismaClient instance for mode: ${appConfig.current_db_type}`);
-  prisma = createPrismaClient(appConfig.current_db_type);
+  prisma = createPrismaClient(appConfig.current_db_type, startupDbUrl);
   isPrismaAvailable = true;
   logInit(`[Prisma Client Init] PrismaClient instance constructed successfully.`);
 } catch (initErr: any) {
@@ -309,8 +320,7 @@ try {
   
   try {
     logInit('[Prisma Client Init Recovery] Attempting to construct fallback Local PrismaClient...');
-    const { PrismaClient: LocalPrisma } = require('@prisma/client');
-    prisma = new LocalPrisma();
+    prisma = createPrismaClient('LOCAL', `file:${path.join(ventAppDataPath, 'database.sqlite')}`);
     isPrismaAvailable = true;
     logInit('[Prisma Client Init Recovery] Fallback PrismaClient constructed.');
   } catch (fallbackErr: any) {
@@ -457,21 +467,9 @@ app.post('/api/db/test', async (req: Request, res: Response) => {
 
   // Test custom remote URL using a temporary client
   try {
-    const tempUrl = database_url;
-    const { PrismaClient: TempClient } = require('@prisma/client-pg');
-    process.env.DATABASE_URL = tempUrl;
-    const tempPrisma = new TempClient();
+    const tempPrisma = createPrismaClient('REMOTE', database_url);
     await tempPrisma.$queryRawUnsafe('SELECT 1;');
     await tempPrisma.$disconnect();
-    
-    // Restore primary env context
-    const current = loadAppConfig();
-    if (current.current_db_type === 'LOCAL') {
-      const localDb = path.join(ventAppDataPath, 'database.sqlite');
-      process.env.DATABASE_URL = `file:${localDb}?connection_limit=1&busy_timeout=15000`;
-    } else {
-      process.env.DATABASE_URL = current.database_url;
-    }
 
     res.json({
       success: true,
@@ -479,15 +477,6 @@ app.post('/api/db/test', async (req: Request, res: Response) => {
       message: 'Удаленное подключение успешно проверено и доступно!'
     });
   } catch (err: any) {
-    // Restore primary env context
-    const current = loadAppConfig();
-    if (current.current_db_type === 'LOCAL') {
-      const localDb = path.join(ventAppDataPath, 'database.sqlite');
-      process.env.DATABASE_URL = `file:${localDb}?connection_limit=1&busy_timeout=15000`;
-    } else {
-      process.env.DATABASE_URL = current.database_url;
-    }
-
     res.json({
       success: false,
       message: `Не удалось подключиться по указанному адресу: ${err.message}`
@@ -537,7 +526,7 @@ app.post('/api/db/switch', async (req: Request, res: Response) => {
     }
 
     process.env.DATABASE_URL = targetDbUrl;
-    prisma = createPrismaClient(current_db_type);
+    prisma = createPrismaClient(current_db_type, targetDbUrl);
 
     if (current_db_type === 'LOCAL') {
       try {
@@ -619,7 +608,7 @@ app.post('/api/db/save', async (req: Request, res: Response) => {
       }
 
       process.env.DATABASE_URL = targetDbUrl;
-      prisma = createPrismaClient('LOCAL');
+      prisma = createPrismaClient('LOCAL', targetDbUrl);
       
       try {
         await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL;');
@@ -2164,7 +2153,7 @@ async function startServer() {
         // Recreate client
         process.env.DATABASE_URL = `file:${dbPath}?connection_limit=1&busy_timeout=15000`;
         try {
-          prisma = createPrismaClient('LOCAL');
+          prisma = createPrismaClient('LOCAL', process.env.DATABASE_URL);
           isPrismaAvailable = true;
           logInit('[SQLite Recovery] Constructed fresh PrismaClient successfully.');
         } catch (recreationErr: any) {
