@@ -225,6 +225,8 @@ function createPrismaClient(dbType: string, dbUrl: string) {
 interface AppConfig {
   current_db_type: 'LOCAL' | 'REMOTE' | string;
   database_url: string;
+  local_db_path?: string;  // Пользовательский путь к файлу SQLite (пусто = стандартный в AppData)
+  crash_log_dir?: string;  // Папка для аварийных crash-логов (пусто = AppData/pdm-app/logs)
 }
 
 function loadAppConfig(): AppConfig {
@@ -235,20 +237,33 @@ function loadAppConfig(): AppConfig {
       if (parsed && typeof parsed.current_db_type === 'string') {
         return {
           current_db_type: parsed.current_db_type,
-          database_url: parsed.database_url || ''
+          database_url: parsed.database_url || '',
+          local_db_path: parsed.local_db_path || '',
+          crash_log_dir: parsed.crash_log_dir || ''
         };
       }
     }
   } catch (err: any) {
     logInit(`[AppConfig Error] Warning reading config.json: ${err.message}`);
   }
-  
+
   const defaultConfig: AppConfig = {
     current_db_type: 'LOCAL',
-    database_url: ''
+    database_url: '',
+    local_db_path: '',
+    crash_log_dir: ''
   };
   saveAppConfig(defaultConfig);
   return defaultConfig;
+}
+
+// Возвращает фактический путь к локальной базе: пользовательский или стандартный в AppData
+function resolveLocalDbPath(config: AppConfig): string {
+  const custom = String(config.local_db_path || '').trim();
+  if (custom) {
+    return path.resolve(custom);
+  }
+  return path.join(ventAppDataPath, 'database.sqlite');
 }
 
 function saveAppConfig(config: AppConfig) {
@@ -285,9 +300,10 @@ const appConfig = loadAppConfig();
 let startupDbUrl = '';
 
 if (appConfig.current_db_type === 'LOCAL') {
-  const dbPath = path.join(ventAppDataPath, 'database.sqlite');
-  
-  // 1. Проверяем, существует ли папка приложения, и создаем ее перед PrismaClient
+  const dbPath = resolveLocalDbPath(appConfig);
+  logInit(`[Startup DB] Активный путь локальной базы: ${dbPath}${appConfig.local_db_path ? ' (пользовательский)' : ' (стандартный)'}`);
+
+  // 1. Проверяем, существует ли папка базы, и создаем ее перед PrismaClient
   const dbDir = path.dirname(dbPath);
   if (!fs.existsSync(dbDir)) {
     fs.mkdirSync(dbDir, { recursive: true });
@@ -486,19 +502,32 @@ app.use('/chat_files', express.static(path.join(userDataPath, 'chat_files')));
 // Database Routing
 app.get('/api/db/config', (req: Request, res: Response) => {
   const config = loadAppConfig();
-  const dbPath = path.join(ventAppDataPath, 'database.sqlite');
+  const dbPath = resolveLocalDbPath(config);
   res.json({
     current_db_type: config.current_db_type,
     database_url: config.database_url,
     databasePath: dbPath,
     isConfigured: true,
-    displayPath: config.current_db_type === 'LOCAL' ? './database.sqlite' : config.database_url,
-    defaultPath: dbPath
+    displayPath: config.current_db_type === 'LOCAL' ? dbPath : config.database_url,
+    defaultPath: path.join(ventAppDataPath, 'database.sqlite'),
+    local_db_path: config.local_db_path || '',
+    crash_log_dir: config.crash_log_dir || ''
   });
 });
 
+// Настройка папки для аварийных crash-логов
+app.post('/api/config/logs', (req: Request, res: Response) => {
+  const { crash_log_dir } = req.body;
+  const current = loadAppConfig();
+  if (typeof crash_log_dir === 'string') {
+    current.crash_log_dir = crash_log_dir.trim();
+  }
+  saveAppConfig(current);
+  res.json({ success: true, crash_log_dir: current.crash_log_dir || '' });
+});
+
 app.get('/api/db/download', (req: Request, res: Response) => {
-  const dbFile = path.join(ventAppDataPath, 'database.sqlite');
+  const dbFile = resolveLocalDbPath(loadAppConfig());
   if (fs.existsSync(dbFile)) {
     res.download(dbFile, 'database.sqlite');
   } else {
@@ -511,7 +540,7 @@ app.post('/api/db/test', async (req: Request, res: Response) => {
   if (current_db_type === 'LOCAL') {
     return res.json({
       success: true,
-      exists: fs.existsSync(path.join(ventAppDataPath, 'database.sqlite')),
+      exists: fs.existsSync(resolveLocalDbPath(loadAppConfig())),
       message: 'Локальная база данных SQLite активна и готова к работе!'
     });
   }
@@ -540,7 +569,7 @@ app.post('/api/db/test', async (req: Request, res: Response) => {
 });
 
 app.post('/api/db/switch', async (req: Request, res: Response) => {
-  const { current_db_type, database_url } = req.body;
+  const { current_db_type, database_url, database_path } = req.body;
   
   const logMsg = `[${new Date().toISOString()}] POST /api/db/switch: type="${current_db_type}", url="${database_url}"\n`;
   console.log('[DB Switch Request]', logMsg.trim());
@@ -554,9 +583,20 @@ app.post('/api/db/switch', async (req: Request, res: Response) => {
 
   const oldPrisma = prisma;
   try {
+    const existingConfig = loadAppConfig();
+    // database_path: undefined = оставить текущий путь, '' = вернуть стандартный, иначе — новый путь
+    let nextLocalPath = existingConfig.local_db_path || '';
+    if (typeof database_path === 'string') {
+      nextLocalPath = database_path.trim();
+    }
+
     let targetDbUrl = '';
     if (current_db_type === 'LOCAL') {
-      const dbFile = path.join(ventAppDataPath, 'database.sqlite');
+      const dbFile = nextLocalPath ? path.resolve(nextLocalPath) : path.join(ventAppDataPath, 'database.sqlite');
+      const parentDir = path.dirname(dbFile);
+      if (!fs.existsSync(parentDir)) {
+        fs.mkdirSync(parentDir, { recursive: true });
+      }
       targetDbUrl = `file:${dbFile}?connection_limit=1&busy_timeout=15000`;
       ensureHealthyLocalDb(dbFile);
     } else {
@@ -592,8 +632,10 @@ app.post('/api/db/switch', async (req: Request, res: Response) => {
 
     // Save configuration settings
     saveAppConfig({
+      ...existingConfig,
       current_db_type,
-      database_url: database_url || ''
+      database_url: database_url || '',
+      local_db_path: nextLocalPath
     });
 
     // Auto-seed if newly switched DB has no users
@@ -666,8 +708,10 @@ app.post('/api/db/save', async (req: Request, res: Response) => {
       } catch (e) {}
 
       saveAppConfig({
+        ...loadAppConfig(),
         current_db_type: 'LOCAL',
-        database_url: targetDbUrl
+        database_url: '',
+        local_db_path: resolved
       });
 
       return res.json({

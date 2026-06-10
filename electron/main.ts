@@ -92,22 +92,36 @@ app.whenReady().then(() => {
   createWindow();
 
   const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');
-  let currentDbType = 'LOCAL';
-  let databaseUrlSetting = '';
 
-  try {
-    if (fs.existsSync(CONFIG_FILE)) {
-      const parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
-      if (parsed && typeof parsed.current_db_type === 'string') {
-        currentDbType = parsed.current_db_type;
-        databaseUrlSetting = parsed.database_url || '';
+  // Читает config.json: тип БД, удаленный URL, пользовательский путь SQLite и папку crash-логов
+  const readAppConfig = () => {
+    const result = { currentDbType: 'LOCAL', databaseUrlSetting: '', localDbPath: '', crashLogDir: '' };
+    try {
+      if (fs.existsSync(CONFIG_FILE)) {
+        const parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+        if (parsed && typeof parsed.current_db_type === 'string') {
+          result.currentDbType = parsed.current_db_type;
+          result.databaseUrlSetting = parsed.database_url || '';
+          result.localDbPath = parsed.local_db_path || '';
+          result.crashLogDir = parsed.crash_log_dir || '';
+        }
       }
-    }
-  } catch (e) {}
+    } catch (e) {}
+    return result;
+  };
+
+  const resolveLocalDbPath = (localDbPathSetting: string) => {
+    const custom = String(localDbPathSetting || '').trim();
+    return custom ? path.resolve(custom) : path.join(ventAppDataPath, 'database.sqlite');
+  };
+
+  const startupConfig = readAppConfig();
+  const currentDbType = startupConfig.currentDbType;
+  const databaseUrlSetting = startupConfig.databaseUrlSetting;
 
   let finalDbUrl = '';
   if (currentDbType === 'LOCAL') {
-    const localDbPath = path.join(ventAppDataPath, 'database.sqlite');
+    const localDbPath = resolveLocalDbPath(startupConfig.localDbPath);
     finalDbUrl = `file:${localDbPath}?connection_limit=1&busy_timeout=15000`;
   } else {
     finalDbUrl = databaseUrlSetting || "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public";
@@ -215,14 +229,20 @@ app.whenReady().then(() => {
   });
 
   // --- LOGGING SYSTEM IPC HANDLERS ---
+  // Метка времени для имен файлов логов: дата + часы-минуты-секунды
+  const buildLogTimestamp = () => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+  };
+
   ipcMain.handle('log:save-dialog', async (event, text: string) => {
     const { dialog } = require('electron');
     const fs = require('fs');
     try {
-      const dateStr = new Date().toISOString().split('T')[0];
       const result = await dialog.showSaveDialog({
         title: 'Экспорт журнала логов',
-        defaultPath: `pdm_action_log_${dateStr}.txt`,
+        defaultPath: `pdm_action_log_${buildLogTimestamp()}.txt`,
         filters: [
           { name: 'Текстовый файл (*.txt)', extensions: ['txt'] },
           { name: 'Все файлы (*.*)', extensions: ['*'] }
@@ -240,23 +260,28 @@ app.whenReady().then(() => {
   });
 
   ipcMain.on('log:emergency-save', (event, text: string) => {
-    const fs = require('fs');
-    const path = require('path');
     try {
-      const timestamp = Date.now();
-      const fileName = `pdm-crash-log-${timestamp}.txt`;
-      
-      let targetPath;
-      try {
-        targetPath = path.join(app.getPath('desktop'), fileName);
-      } catch (desktopErr) {
-        const appDataDir = path.join(app.getPath('userData'), 'crashes');
-        if (!fs.existsSync(appDataDir)) {
-          fs.mkdirSync(appDataDir, { recursive: true });
-        }
-        targetPath = path.join(appDataDir, fileName);
+      const fileName = `pdm-crash-log-${buildLogTimestamp()}.txt`;
+
+      // Папка из настроек (config.json -> crash_log_dir); по умолчанию AppData/pdm-app/logs,
+      // чтобы не засорять рабочий стол
+      const cfg = readAppConfig();
+      let targetDir = String(cfg.crashLogDir || '').trim();
+      if (!targetDir) {
+        targetDir = path.join(ventAppDataPath, 'logs');
       }
-      
+      try {
+        if (!fs.existsSync(targetDir)) {
+          fs.mkdirSync(targetDir, { recursive: true });
+        }
+      } catch (mkErr) {
+        targetDir = path.join(ventAppDataPath, 'logs');
+        if (!fs.existsSync(targetDir)) {
+          fs.mkdirSync(targetDir, { recursive: true });
+        }
+      }
+
+      const targetPath = path.join(targetDir, fileName);
       fs.writeFileSync(targetPath, text, 'utf-8');
       console.log(`[Emergency Log Saved] Saved crash log to: ${targetPath}`);
     } catch (err) {
@@ -293,25 +318,14 @@ app.whenReady().then(() => {
 
     const getChatPrisma = () => {
       // Используем ту же папку данных (pdm-app) и тот же config.json, что и Express-сервер
-      let currentDbType = 'LOCAL';
-      let databaseUrlSetting = '';
-
-      try {
-        if (fs.existsSync(CONFIG_FILE)) {
-          const parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
-          if (parsed && typeof parsed.current_db_type === 'string') {
-            currentDbType = parsed.current_db_type;
-            databaseUrlSetting = parsed.database_url || '';
-          }
-        }
-      } catch (e) {}
+      const cfg = readAppConfig();
 
       let dbUrl = '';
-      if (currentDbType === 'LOCAL') {
-        const localDbPath = path.join(ventAppDataPath, 'database.sqlite');
+      if (cfg.currentDbType === 'LOCAL') {
+        const localDbPath = resolveLocalDbPath(cfg.localDbPath);
         dbUrl = `file:${localDbPath}?connection_limit=1&busy_timeout=15000`;
       } else {
-        dbUrl = databaseUrlSetting || "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public";
+        dbUrl = cfg.databaseUrlSetting || "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public";
       }
 
       if (!chatPrismaInstance || lastLoadedDbUrl !== dbUrl) {
@@ -321,7 +335,7 @@ app.whenReady().then(() => {
           } catch (e) {}
         }
 
-        chatPrismaInstance = createDbClient(currentDbType, dbUrl);
+        chatPrismaInstance = createDbClient(cfg.currentDbType, dbUrl);
         lastLoadedDbUrl = dbUrl;
       }
       return chatPrismaInstance;

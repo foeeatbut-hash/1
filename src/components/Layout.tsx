@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
-import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check } from 'lucide-react';
+import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ToastProvider from './ToastProvider';
 import ModalProvider from './ModalProvider';
@@ -22,6 +22,7 @@ export default function Layout() {
   const [dbDisplayLocation, setDbDisplayLocation] = useState('');
   const [dbType, setDbType] = useState<'LOCAL' | 'REMOTE' | string>('LOCAL');
   const [activeDbType, setActiveDbType] = useState<'LOCAL' | 'REMOTE' | string>('LOCAL');
+  const [crashLogDir, setCrashLogDir] = useState('');
   const [remoteUrl, setRemoteUrl] = useState('');
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [isSavingDb, setIsSavingDb] = useState(false);
@@ -37,11 +38,12 @@ export default function Layout() {
         setDbType(config.current_db_type || 'LOCAL');
         setActiveDbType(config.current_db_type || 'LOCAL');
         setRemoteUrl(config.database_url || '');
+        setCrashLogDir(config.crash_log_dir || '');
       })
       .catch(() => {});
   }, []);
 
-  const handleDbSwitch = async (targetType: string, urlKey: string) => {
+  const handleDbSwitch = async (targetType: string, urlKey: string, dbPath?: string) => {
     setIsSavingDb(true);
     setDbStatusMessage(null);
     try {
@@ -50,7 +52,8 @@ export default function Layout() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           current_db_type: targetType,
-          database_url: urlKey
+          database_url: urlKey,
+          ...(typeof dbPath === 'string' ? { database_path: dbPath } : {})
         })
       });
       const data = await resp.json();
@@ -74,6 +77,61 @@ export default function Layout() {
       setDbStatusMessage({ text: `Ошибка запроса: ${err.message}`, success: false });
     } finally {
       setIsSavingDb(false);
+    }
+  };
+
+  // Выбор существующего файла БД (например, созданного другим пользователем)
+  const handlePickDbFile = async () => {
+    const win = window as any;
+    if (!win.electron?.ipcRenderer?.invoke) {
+      alert('Выбор файла доступен только в приложении PDM System (Electron).');
+      return;
+    }
+    try {
+      const filePath = await win.electron.ipcRenderer.invoke('database:select-file');
+      if (filePath) {
+        await handleDbSwitch('LOCAL', '', String(filePath));
+      }
+    } catch (err: any) {
+      setDbStatusMessage({ text: `Ошибка выбора файла: ${err.message}`, success: false });
+    }
+  };
+
+  const handleResetDbPath = async () => {
+    if (!confirm('Вернуть стандартное расположение базы данных (папка профиля AppData/pdm-app)?')) return;
+    await handleDbSwitch('LOCAL', '', '');
+  };
+
+  const saveCrashLogDir = async (dir: string) => {
+    try {
+      const resp = await fetch(`${ENV_CONFIG.apiUrl}/config/logs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ crash_log_dir: dir })
+      });
+      const data = await resp.json();
+      if (data.success) {
+        setCrashLogDir(data.crash_log_dir || '');
+        addLog('INFO', 'Система', `Папка для crash-логов изменена: ${data.crash_log_dir || 'по умолчанию (AppData/pdm-app/logs)'}`);
+      }
+    } catch (err: any) {
+      addLog('ERROR', 'Система', `Не удалось сохранить папку crash-логов: ${err.message}`);
+    }
+  };
+
+  const handlePickCrashLogDir = async () => {
+    const win = window as any;
+    if (!win.electron?.ipcRenderer?.invoke) {
+      alert('Выбор папки доступен только в приложении PDM System (Electron).');
+      return;
+    }
+    try {
+      const dirPath = await win.electron.ipcRenderer.invoke('dialog:openDirectory');
+      if (dirPath) {
+        await saveCrashLogDir(String(dirPath));
+      }
+    } catch (err: any) {
+      addLog('ERROR', 'Система', `Ошибка выбора папки: ${err.message}`);
     }
   };
 
@@ -566,6 +624,24 @@ export default function Layout() {
                         >
                           {dbDisplayLocation || 'database.sqlite'}
                         </p>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <button
+                            type="button"
+                            disabled={isSavingDb}
+                            onClick={handlePickDbFile}
+                            className="bg-slate-100 hover:bg-slate-200 dark:bg-dark-surface dark:hover:bg-dark-panel text-slate-700 dark:text-dark-text-main text-[10px] font-semibold py-1 px-1.5 rounded-lg transition text-center cursor-pointer disabled:opacity-50"
+                          >
+                            Выбрать файл БД…
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isSavingDb}
+                            onClick={handleResetDbPath}
+                            className="bg-slate-100 hover:bg-slate-200 dark:bg-dark-surface dark:hover:bg-dark-panel text-slate-700 dark:text-dark-text-main text-[10px] font-semibold py-1 px-1.5 rounded-lg transition text-center cursor-pointer disabled:opacity-50"
+                          >
+                            Стандартный путь
+                          </button>
+                        </div>
                         <button
                           type="button"
                           disabled={isSavingDb}
@@ -617,6 +693,39 @@ export default function Layout() {
                         {dbStatusMessage.text}
                       </div>
                     )}
+                  </div>
+
+                  {/* Crash-log directory settings */}
+                  <div className="bg-slate-50 dark:bg-dark-surface/40 p-2.5 rounded-xl border border-slate-150 dark:border-dark-border text-left">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-dark-text-muted font-bold uppercase tracking-wider mb-1.5 font-sans">
+                      <Terminal className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <span>Crash-логи</span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 dark:text-dark-text-muted leading-tight mb-1.5">
+                      Папка для аварийных журналов при закрытии приложения:
+                    </p>
+                    <p
+                      className="font-mono text-[9px] text-slate-600 dark:text-dark-text-muted bg-white dark:bg-dark-panel p-1.5 border border-slate-200 dark:border-dark-border rounded leading-tight select-all truncate mb-1.5"
+                      title={crashLogDir || 'AppData/pdm-app/logs (по умолчанию)'}
+                    >
+                      {crashLogDir || 'AppData/pdm-app/logs (по умолчанию)'}
+                    </p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={handlePickCrashLogDir}
+                        className="bg-slate-100 hover:bg-slate-200 dark:bg-dark-surface dark:hover:bg-dark-panel text-slate-700 dark:text-dark-text-main text-[10px] font-semibold py-1 px-1.5 rounded-lg transition text-center cursor-pointer"
+                      >
+                        Выбрать папку…
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => saveCrashLogDir('')}
+                        className="bg-slate-100 hover:bg-slate-200 dark:bg-dark-surface dark:hover:bg-dark-panel text-slate-700 dark:text-dark-text-main text-[10px] font-semibold py-1 px-1.5 rounded-lg transition text-center cursor-pointer"
+                      >
+                        По умолчанию
+                      </button>
+                    </div>
                   </div>
 
                   {/* Auto-Updater System Panel */}
