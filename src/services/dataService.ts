@@ -368,6 +368,11 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     useLogStore.getState().addLog('INFO', 'Network Stack', `[${method}] получен успешный ответ от ${endpoint}`);
     return response.json() as Promise<T>;
   } catch (err: any) {
+    // Для входа автономный fallback не используется: пользователь должен
+    // увидеть настоящую причину отказа сервера (неверный пароль и т.п.)
+    if (endpoint.split('?')[0] === '/login') {
+      throw err;
+    }
     useLogStore.getState().addLog('WARN', 'Network Stack', `[${method}] сбой при отправке запроса. Активация локальной автономной БД для ${endpoint}: ${err.message}`);
     return getFallbackData<T>(endpoint, method, options?.body);
   }

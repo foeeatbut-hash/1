@@ -718,9 +718,14 @@ app.post('/api/login', async (req: Request, res: Response) => {
 
   // Попытка авторизации через локальную БД, если БД вообще была создана/готова
   try {
-    const user = await prisma.user.findUnique({
-      where: { symbol: String(symbol) },
+    // Логин не чувствителен к регистру: RaupovKhkh == RaupovKhKh
+    let user = await prisma.user.findUnique({
+      where: { symbol: normSymbol },
     });
+    if (!user) {
+      const allUsers = await prisma.user.findMany();
+      user = allUsers.find((u: any) => String(u.symbol).toLowerCase() === normSymbol.toLowerCase()) || null;
+    }
     if (user) {
       // Check password. We also support both variations of RU-keyboard "gfhjkm" (пароль), "12121212Qw.", and "1122" for RaupovKhKh to prevent lock-outs
       const isPasswordCorrect = user.password === String(password) ||
