@@ -19,7 +19,12 @@ import {
   Clock,
   Camera,
   Brush,
-  Trash2
+  Trash2,
+  Reply,
+  Pencil,
+  Copy,
+  Smile,
+  CornerDownRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -90,6 +95,8 @@ export default function ChatManagement() {
     fetchGroups,
     fetchMessages,
     sendMessage,
+    editMessage,
+    deleteMessage,
     uploadFile,
     openFile,
     startPolling,
@@ -99,6 +106,10 @@ export default function ChatManagement() {
   } = useChatStore();
 
   const [messageText, setMessageText] = useState('');
+  const [replyTarget, setReplyTarget] = useState<ChatMessage | null>(null);
+  const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
+  const [conversationSearch, setConversationSearch] = useState('');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [stagedAttachments, setStagedAttachments] = useState<{ fileName: string; filePath: string; fileSize: number }[]>([]);
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
   const [selectedElementName, setSelectedElementName] = useState<string | null>(null);
@@ -347,13 +358,20 @@ export default function ChatManagement() {
 
     setIsSendingMessage(true);
     try {
-      await sendMessage(
-        user.id,
-        messageText,
-        selectedElementId,
-        activeProject?.id || null,
-        stagedAttachments
-      );
+      if (editingMessage) {
+        await editMessage(user.id, editingMessage.id, messageText);
+        setEditingMessage(null);
+      } else {
+        await sendMessage(
+          user.id,
+          messageText,
+          selectedElementId,
+          activeProject?.id || null,
+          stagedAttachments,
+          replyTarget?.id || null
+        );
+        setReplyTarget(null);
+      }
 
       setMessageText('');
       setStagedAttachments([]);
@@ -364,6 +382,65 @@ export default function ChatManagement() {
     } finally {
       setIsSendingMessage(false);
     }
+  };
+
+  // Действия над сообщением (как в обычных мессенджерах)
+  const handleStartReply = (msg: ChatMessage) => {
+    setEditingMessage(null);
+    setReplyTarget(msg);
+    messageInputRef.current?.focus();
+  };
+
+  const handleStartEdit = (msg: ChatMessage) => {
+    setReplyTarget(null);
+    setEditingMessage(msg);
+    setMessageText(msg.content);
+    messageInputRef.current?.focus();
+  };
+
+  const handleCancelComposeMode = () => {
+    if (editingMessage) setMessageText('');
+    setReplyTarget(null);
+    setEditingMessage(null);
+  };
+
+  const handleCopyMessage = async (msg: ChatMessage) => {
+    try {
+      await navigator.clipboard.writeText(msg.content);
+      addToast('Текст сообщения скопирован', 'success');
+    } catch (e) {
+      addToast('Не удалось скопировать', 'error');
+    }
+  };
+
+  const handleDeleteMessage = async (msg: ChatMessage) => {
+    if (!user) return;
+    if (!confirm('Удалить это сообщение безвозвратно?')) return;
+    try {
+      await deleteMessage(user.id, msg.id);
+      addToast('Сообщение удалено', 'success');
+    } catch (err: any) {
+      addToast(err.message || 'Не удалось удалить сообщение', 'error');
+    }
+  };
+
+  const EMOJIS = ['👍','✅','❌','🔥','⚠️','📐','🔧','⚙️','📊','📁','💡','🚀','👌','🙏','😀','😄','😅','🤔','😐','😢','💪','🤝','📌','⏰','❗','❓','🟢','🔴'];
+
+  const insertEmoji = (emoji: string) => {
+    const el = messageInputRef.current;
+    if (el) {
+      const start = el.selectionStart ?? messageText.length;
+      const end = el.selectionEnd ?? messageText.length;
+      const next = messageText.slice(0, start) + emoji + messageText.slice(end);
+      setMessageText(next);
+      requestAnimationFrame(() => {
+        el.focus();
+        el.setSelectionRange(start + emoji.length, start + emoji.length);
+      });
+    } else {
+      setMessageText(prev => prev + emoji);
+    }
+    setShowEmojiPicker(false);
   };
 
   const handleEquipmentClick = (elementId: string) => {
@@ -387,6 +464,11 @@ export default function ChatManagement() {
   );
 
   const allHistoryAttachments = messages.flatMap(m => m.attachments || []);
+
+  // Поиск по текущей переписке
+  const visibleMessages = conversationSearch.trim()
+    ? messages.filter(m => m.content.toLowerCase().includes(conversationSearch.trim().toLowerCase()))
+    : messages;
 
   // TAG CLICK RESOLVER: Finds component element by Tag name and triggers navigation+highlight in Equipment Tree
   const handleTagClick = async (tag: string) => {
@@ -706,19 +788,43 @@ export default function ChatManagement() {
                 ) : null}
               </div>
               
-              <button
-                type="button"
-                onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
-                className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors cursor-pointer"
-                title="Подробная информация"
-              >
-                {isRightPanelOpen ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Поиск по сообщениям текущей переписки */}
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-400" />
+                  <input
+                    type="text"
+                    value={conversationSearch}
+                    onChange={(e) => setConversationSearch(e.target.value)}
+                    placeholder="Поиск в переписке..."
+                    className="w-44 pl-8 pr-7 py-1.5 bg-slate-100/70 dark:bg-slate-950 border border-transparent dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all"
+                  />
+                  {conversationSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setConversationSearch('')}
+                      className="absolute right-1.5 top-1.5 p-0.5 text-slate-400 hover:text-rose-500 cursor-pointer"
+                      title="Сбросить поиск"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
+                  className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors cursor-pointer"
+                  title="Подробная информация"
+                >
+                  {isRightPanelOpen ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+                </button>
+              </div>
             </div>
 
             {/* Conversation Messages Lists */}
             <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50 dark:bg-slate-900/20">
-              {messages.length === 0 ? (
+              {visibleMessages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center p-6 text-center select-none">
                   <MessageSquare className="w-8 h-8 text-slate-300 dark:text-slate-700 mb-2 animate-bounce" />
                   <p className="text-xs text-slate-400 mt-1 max-w-xs">
@@ -726,10 +832,10 @@ export default function ChatManagement() {
                   </p>
                 </div>
               ) : (
-                messages.map((msg, msgIndex) => {
+                visibleMessages.map((msg, msgIndex) => {
                   const isMe = msg.senderId === user?.id;
                   const msgDay = new Date(msg.createdAt).toDateString();
-                  const prevDay = msgIndex > 0 ? new Date(messages[msgIndex - 1].createdAt).toDateString() : null;
+                  const prevDay = msgIndex > 0 ? new Date(visibleMessages[msgIndex - 1].createdAt).toDateString() : null;
                   const showDaySeparator = msgDay !== prevDay;
                   const dayLabel = (() => {
                     const d = new Date(msg.createdAt);
@@ -749,7 +855,7 @@ export default function ChatManagement() {
                       </div>
                     )}
                     <div 
-                      className={`flex gap-3 max-w-[85%] ${isMe ? 'ml-auto flex-row-reverse' : 'mr-auto'}`}
+                      className={`group flex gap-3 max-w-[85%] ${isMe ? 'ml-auto flex-row-reverse' : 'mr-auto'}`}
                     >
                       <div className="w-8 h-8 rounded-full bg-slate-150 dark:bg-slate-800 shrink-0 border border-slate-250 dark:border-slate-750 flex items-center justify-center text-xs font-bold text-slate-600 dark:text-slate-400">
                         {(msg.sender?.name || 'С').charAt(0)}
@@ -765,6 +871,49 @@ export default function ChatManagement() {
                             <Clock className="w-2.5 h-2.5" />
                             {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
+                          {msg.editedAt && (
+                            <span className="italic text-slate-400/80" title={`Изменено ${new Date(msg.editedAt).toLocaleString('ru-RU')}`}>(изменено)</span>
+                          )}
+
+                          {/* Панель действий над сообщением (по наведению) */}
+                          <span className={`opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 ${isMe ? 'mr-1' : 'ml-1'}`}>
+                            <button
+                              type="button"
+                              onClick={() => handleStartReply(msg)}
+                              className="p-1 rounded hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer"
+                              title="Ответить"
+                            >
+                              <Reply className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyMessage(msg)}
+                              className="p-1 rounded hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 cursor-pointer"
+                              title="Копировать текст"
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                            {isMe && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEdit(msg)}
+                                  className="p-1 rounded hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 cursor-pointer"
+                                  title="Изменить"
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteMessage(msg)}
+                                  className="p-1 rounded hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 cursor-pointer"
+                                  title="Удалить"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </>
+                            )}
+                          </span>
                         </div>
 
                         {/* Speech bubble bubble text */}
@@ -773,6 +922,17 @@ export default function ChatManagement() {
                             ? 'bg-indigo-50/90 dark:bg-indigo-950/25 border-indigo-200 dark:border-indigo-900/40 text-slate-900 dark:text-indigo-150 rounded-tr-none' 
                             : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850/60 text-slate-800 dark:text-slate-150 rounded-tl-none'
                         }`}>
+                          {msg.replyTo && (
+                            <div className="mb-2 pl-2 border-l-2 border-indigo-400 dark:border-indigo-500 text-xs select-none">
+                              <div className="font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
+                                <CornerDownRight className="w-3 h-3" />
+                                {msg.replyTo.sender?.name || 'Сообщение'}
+                              </div>
+                              <div className="text-slate-500 dark:text-slate-400 truncate max-w-[260px]">
+                                {(msg.replyTo.content || '').slice(0, 120) || 'Вложение'}
+                              </div>
+                            </div>
+                          )}
                           <FormattedMessage text={msg.content} onTagClick={handleTagClick} />
 
                           {/* Interactive Equipment Link */}
@@ -832,6 +992,33 @@ export default function ChatManagement() {
 
             {/* Input Form Panel */}
             <form onSubmit={handleSend} className="p-3 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2 shrink-0 relative">
+              {(replyTarget || editingMessage) && (
+                <div className="flex items-center justify-between gap-2 px-3 py-2 bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/50 rounded-lg select-none">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {editingMessage ? (
+                      <Pencil className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    ) : (
+                      <Reply className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+                        {editingMessage ? 'Редактирование сообщения' : `Ответ: ${replyTarget?.sender?.name || ''}`}
+                      </div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                        {(editingMessage?.content || replyTarget?.content || '').slice(0, 120)}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCancelComposeMode}
+                    className="p-1 text-slate-400 hover:text-rose-500 rounded cursor-pointer shrink-0"
+                    title="Отменить"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
               
               {/* Autocomplete suggestions dropdown panel right above input bar */}
               {autocompleteSuggestions.length > 0 && (
@@ -941,6 +1128,32 @@ export default function ChatManagement() {
                   <Camera className="w-4 h-4" />
                 </button>
 
+                {/* Emoji picker */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                    className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors"
+                    title="Эмодзи"
+                  >
+                    <Smile className="w-4 h-4" />
+                  </button>
+                  {showEmojiPicker && (
+                    <div className="absolute bottom-full left-0 mb-2 p-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl grid grid-cols-7 gap-1 z-50 w-64">
+                      {EMOJIS.map(em => (
+                        <button
+                          key={em}
+                          type="button"
+                          onClick={() => insertEmoji(em)}
+                          className="w-8 h-8 flex items-center justify-center text-lg rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors"
+                        >
+                          {em}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {/* Main Text Area Input */}
                 <input
                   type="text"
@@ -966,6 +1179,9 @@ export default function ChatManagement() {
                         setAutocompleteSuggestions([]);
                         setActiveTagQuery(null);
                       }
+                    } else if (e.key === 'Escape' && (replyTarget || editingMessage)) {
+                      e.preventDefault();
+                      handleCancelComposeMode();
                     }
                   }}
                   onKeyUp={(e) => {

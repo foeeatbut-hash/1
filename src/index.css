@@ -11,9 +11,91 @@
 
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Нестандартные оттенки, используемые в верстке: без явного определения
+     Tailwind не генерирует такие классы и цвет молча не применяется
+     (особенно заметно в темной теме). Ссылаемся на ближайший стандартный шаг,
+     чтобы работал и dark-ремаппинг переменных ниже. */
+  --color-amber-205: var(--color-amber-200);
+  --color-amber-450: var(--color-amber-400);
+  --color-amber-650: var(--color-amber-600);
+  --color-amber-955: var(--color-amber-950);
+  --color-emerald-105: var(--color-emerald-100);
+  --color-emerald-150: var(--color-emerald-100);
+  --color-emerald-250: var(--color-emerald-200);
+  --color-emerald-350: var(--color-emerald-300);
+  --color-emerald-405: var(--color-emerald-400);
+  --color-emerald-450: var(--color-emerald-400);
+  --color-emerald-455: var(--color-emerald-500);
+  --color-emerald-550: var(--color-emerald-500);
+  --color-emerald-555: var(--color-emerald-600);
+  --color-emerald-650: var(--color-emerald-600);
+  --color-emerald-750: var(--color-emerald-700);
+  --color-emerald-850: var(--color-emerald-800);
+  --color-emerald-955: var(--color-emerald-950);
+  --color-emerald-995: var(--color-emerald-950);
+  --color-indigo-150: var(--color-indigo-100);
+  --color-indigo-205: var(--color-indigo-200);
+  --color-indigo-250: var(--color-indigo-200);
+  --color-indigo-505: var(--color-indigo-500);
+  --color-indigo-650: var(--color-indigo-600);
+  --color-indigo-850: var(--color-indigo-800);
+  --color-indigo-855: var(--color-indigo-900);
+  --color-purple-750: var(--color-purple-700);
+  --color-red-105: var(--color-red-100);
+  --color-red-154: var(--color-red-200);
+  --color-red-450: var(--color-red-400);
+  --color-red-650: var(--color-red-600);
+  --color-red-655: var(--color-red-700);
+  --color-rose-250: var(--color-rose-200);
+  --color-rose-350: var(--color-rose-300);
+  --color-rose-450: var(--color-rose-400);
+  --color-rose-550: var(--color-rose-500);
+  --color-rose-605: var(--color-rose-600);
+  --color-rose-650: var(--color-rose-600);
+  --color-rose-905: var(--color-rose-900);
+  --color-sky-450: var(--color-sky-400);
+  --color-sky-850: var(--color-sky-800);
+  --color-slate-105: var(--color-slate-100);
+  --color-slate-150: var(--color-slate-100);
+  --color-slate-202: var(--color-slate-200);
+  --color-slate-205: var(--color-slate-200);
+  --color-slate-250: var(--color-slate-200);
+  --color-slate-255: var(--color-slate-300);
+  --color-slate-350: var(--color-slate-300);
+  --color-slate-405: var(--color-slate-400);
+  --color-slate-410: var(--color-slate-400);
+  --color-slate-450: var(--color-slate-400);
+  --color-slate-455: var(--color-slate-500);
+  --color-slate-503: var(--color-slate-500);
+  --color-slate-550: var(--color-slate-500);
+  --color-slate-555: var(--color-slate-600);
+  --color-slate-605: var(--color-slate-600);
+  --color-slate-650: var(--color-slate-600);
+  --color-slate-655: var(--color-slate-700);
+  --color-slate-705: var(--color-slate-700);
+  --color-slate-707: var(--color-slate-700);
+  --color-slate-750: var(--color-slate-700);
+  --color-slate-755: var(--color-slate-800);
+  --color-slate-805: var(--color-slate-800);
+  --color-slate-850: var(--color-slate-800);
+  --color-slate-855: var(--color-slate-900);
+  --color-slate-905: var(--color-slate-900);
+  --color-slate-955: var(--color-slate-950);
+  --color-slate-990: var(--color-slate-950);
+  --color-yellow-250: var(--color-yellow-200);
+  --color-yellow-405: var(--color-yellow-400);
+  --color-yellow-555: var(--color-yellow-600);
+  --color-yellow-650: var(--color-yellow-600);
 }
 
 @variant dark (&:where(.dark, .dark *));
+
+/* Нативные контролы (скроллбары, календарь у input[type=date], чекбоксы)
+   должны рисоваться в темной гамме при темной теме */
+.dark {
+  color-scheme: dark;
+}
 
 html, body {
   font-family: var(--font-sans);

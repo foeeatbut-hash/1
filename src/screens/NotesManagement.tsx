@@ -6,7 +6,7 @@ import RichTextEditor from '../components/RichTextEditor';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Plus, Search, BookOpen, Calendar, Trash2, ExternalLink, 
-  Sparkles, Save, FileText, CheckCircle2, CloudLightning, RefreshCw 
+  Save, FileText, CheckCircle2, RefreshCw, Pin, PinOff, Copy, Download
 } from 'lucide-react';
 
 const COLORS = [
@@ -28,6 +28,41 @@ export default function NotesManagement() {
   // Auto-save states
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Все несохраненные поля копятся здесь: debounce перезапускается на каждое изменение,
+  // и без объединения сохранялось бы только последнее поле (потеря правок)
+  const pendingFieldsRef = useRef<Partial<UserNote>>({});
+  const pendingNoteIdRef = useRef<string | null>(null);
+
+  // Закрепленные заметки (хранится локально для пользователя)
+  const [pinnedIds, setPinnedIds] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(`pdm_pinned_notes_${user?.id || 'anon'}`) || '[]');
+    } catch (e) { return []; }
+  });
+
+  const togglePin = (e: React.MouseEvent, noteId: string) => {
+    e.stopPropagation();
+    setPinnedIds(prev => {
+      const next = prev.includes(noteId) ? prev.filter(id => id !== noteId) : [noteId, ...prev];
+      try { localStorage.setItem(`pdm_pinned_notes_${user?.id || 'anon'}`, JSON.stringify(next)); } catch (err) {}
+      return next;
+    });
+  };
+
+  // Немедленно сохраняет накопленные изменения (при переключении заметки, Ctrl+S, размонтировании)
+  const flushPendingSave = async () => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+    const noteId = pendingNoteIdRef.current;
+    const payload = pendingFieldsRef.current;
+    if (noteId && Object.keys(payload).length > 0) {
+      pendingFieldsRef.current = {};
+      pendingNoteIdRef.current = null;
+      await saveNoteToDb(noteId, payload);
+    }
+  };
 
   // Load all notes
   const loadNotes = async (selectIdAfterLoad?: string) => {
@@ -138,12 +173,72 @@ export default function NotesManagement() {
       clearTimeout(autoSaveTimerRef.current);
     }
 
-    // Debounce backend update by 1000ms
+    // Debounce backend update by 1000ms, накапливая ВСЕ изменённые поля
+    pendingFieldsRef.current = { ...pendingFieldsRef.current, ...fields };
+    pendingNoteIdRef.current = selectedNote.id;
     setSaveStatus('saving');
     autoSaveTimerRef.current = setTimeout(() => {
-      saveNoteToDb(selectedNote.id, fields);
+      const noteId = pendingNoteIdRef.current;
+      const payload = pendingFieldsRef.current;
+      pendingFieldsRef.current = {};
+      pendingNoteIdRef.current = null;
+      if (noteId) saveNoteToDb(noteId, payload);
     }, 1000);
   };
+
+  // Переключение заметки: сначала сохраняем несохраненное в предыдущей
+  const handleSelectNote = (note: UserNote) => {
+    if (selectedNote?.id === note.id) return;
+    flushPendingSave();
+    setSelectedNote(note);
+  };
+
+  // Дублировать заметку
+  const handleDuplicateNote = async (e: React.MouseEvent, note: UserNote) => {
+    e.stopPropagation();
+    try {
+      const copy = await dataService.createNote({
+        title: `${note.title} (копия)`,
+        content: note.content,
+        color: note.color
+      });
+      addToast('Создана копия заметки', 'success');
+      await loadNotes(copy.id);
+    } catch (err: any) {
+      addToast(err.message || 'Не удалось создать копию', 'error');
+    }
+  };
+
+  // Экспорт заметки в текстовый файл
+  const handleExportNote = (e: React.MouseEvent, note: UserNote) => {
+    e.stopPropagation();
+    try {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = note.content || '';
+      const text = `${note.title}\n${'='.repeat(Math.max(8, note.title.length))}\n\n${tmp.innerText}`;
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${(note.title || 'заметка').replace(/[\\/:*?"<>|]/g, '_')}.txt`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      addToast('Заметка экспортирована в TXT', 'success');
+    } catch (err: any) {
+      addToast('Не удалось экспортировать заметку', 'error');
+    }
+  };
+
+  // Ctrl+S — мгновенное сохранение
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        flushPendingSave();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  });
 
   // Open sticker window / external link
   const handleOpenSticker = (e: React.MouseEvent, noteId: string) => {
@@ -168,18 +263,36 @@ export default function NotesManagement() {
     }
   };
 
-  // Cleanup auto-save on unmount
+  // Cleanup auto-save on unmount: не теряем несохраненные изменения
   useEffect(() => {
     return () => {
-      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      flushPendingSave();
     };
   }, []);
 
-  // Filter notes based on search query
-  const filteredNotes = notes.filter(note => 
-    note.title.toLowerCase().includes(search.toLowerCase()) || 
-    note.content.toLowerCase().includes(search.toLowerCase())
-  );
+  // Filter notes based on search query; закрепленные сверху, далее свежие
+  const filteredNotes = notes
+    .filter(note =>
+      note.title.toLowerCase().includes(search.toLowerCase()) ||
+      note.content.toLowerCase().includes(search.toLowerCase())
+    )
+    .sort((a, b) => {
+      const pinA = pinnedIds.includes(a.id) ? 1 : 0;
+      const pinB = pinnedIds.includes(b.id) ? 1 : 0;
+      if (pinA !== pinB) return pinB - pinA;
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    });
+
+  // Счетчик слов и символов выбранной заметки
+  const noteStats = (() => {
+    if (!selectedNote) return null;
+    const tmp = typeof document !== 'undefined' ? document.createElement('div') : null;
+    if (!tmp) return null;
+    tmp.innerHTML = selectedNote.content || '';
+    const text = tmp.innerText.trim();
+    const words = text ? text.split(/\s+/).length : 0;
+    return { words, chars: text.length };
+  })();
 
   return (
     <motion.div 
@@ -240,7 +353,7 @@ export default function NotesManagement() {
               return (
                 <div
                   key={note.id}
-                  onClick={() => setSelectedNote(note)}
+                  onClick={() => handleSelectNote(note)}
                   className={`p-3 rounded-xl border transition-all cursor-pointer relative group text-left ${
                     isSelected 
                       ? 'bg-slate-100/85 dark:bg-slate-800/80 border-slate-300 dark:border-slate-700 shadow-xs' 
@@ -248,12 +361,34 @@ export default function NotesManagement() {
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2.5">
-                    <h3 className="text-xs font-bold text-slate-800 dark:text-white truncate flex-1">
-                      {note.title || 'Новая заметка'}
+                    <h3 className="text-xs font-bold text-slate-800 dark:text-white truncate flex-1 flex items-center gap-1">
+                      {pinnedIds.includes(note.id) && <Pin className="w-3 h-3 text-amber-500 shrink-0" />}
+                      <span className="truncate">{note.title || 'Новая заметка'}</span>
                     </h3>
                     
                     {/* Action buttons appear on hover */}
                     <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity shrink-0">
+                      <button
+                        onClick={(e) => togglePin(e, note.id)}
+                        className="p-1 text-slate-400 hover:text-amber-500 rounded transition-colors"
+                        title={pinnedIds.includes(note.id) ? 'Открепить из верха списка' : 'Закрепить вверху списка'}
+                      >
+                        {pinnedIds.includes(note.id) ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+                      </button>
+                      <button
+                        onClick={(e) => handleDuplicateNote(e, note)}
+                        className="p-1 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded transition-colors"
+                        title="Дублировать заметку"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={(e) => handleExportNote(e, note)}
+                        className="p-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded transition-colors"
+                        title="Экспорт в TXT"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </button>
                       <button
                         onClick={(e) => handleOpenSticker(e, note.id)}
                         className="p-1 text-slate-400 hover:text-sky-600 dark:hover:text-sky-400 rounded transition-colors"
@@ -278,7 +413,7 @@ export default function NotesManagement() {
                   <div className="mt-2.5 flex items-center justify-between">
                     <span className="text-xs font-mono text-slate-400 dark:text-slate-500 flex items-center gap-1">
                       <Calendar className="w-2.5 h-2.5" />
-                      {new Date(note.updatedAt).toLocaleDateString()}
+                      {new Date(note.updatedAt).toLocaleDateString('ru-RU')} {new Date(note.updatedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
                     </span>
                     
                     {/* Tiny Color indicator dot */}
@@ -326,6 +461,11 @@ export default function NotesManagement() {
                     </span>
                   )}
                 </div>
+                {noteStats && (
+                  <span className="text-xs font-mono text-slate-400 dark:text-slate-500 select-none" title="Слов / символов (Ctrl+S — сохранить сейчас)">
+                    {noteStats.words} слов · {noteStats.chars} симв.
+                  </span>
+                )}
               </div>
 
               {/* Color Preset Palette */}

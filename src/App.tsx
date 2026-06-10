@@ -76,6 +76,15 @@ function AnimatedRoutes() {
     }
   }, [user]);
 
+  // Окно-стикер открывается отдельным окном Electron: не требуем повторного входа
+  if (location.pathname === '/sticker') {
+    return (
+      <Suspense fallback={<ScreenLoader />}>
+        <StickerWindow />
+      </Suspense>
+    );
+  }
+
   if (!user) {
     return <Login />;
   }

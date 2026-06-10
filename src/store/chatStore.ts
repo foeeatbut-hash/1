@@ -37,6 +37,13 @@ export interface ChatMessage {
     name: string;
     itemCode: string;
   } | null;
+  replyToId?: string | null;
+  replyTo?: {
+    id: string;
+    content: string;
+    sender?: { id: string; name: string } | null;
+  } | null;
+  editedAt?: string | null;
 }
 
 export interface ChatUser {
@@ -74,8 +81,11 @@ interface ChatState {
     content: string,
     linkedElementId?: string | null,
     linkedProjectId?: string | null,
-    attachments?: { fileName: string; filePath: string; fileSize: number }[]
+    attachments?: { fileName: string; filePath: string; fileSize: number }[],
+    replyToId?: string | null
   ) => Promise<void>;
+  editMessage: (currentUserId: string, messageId: string, content: string) => Promise<void>;
+  deleteMessage: (currentUserId: string, messageId: string) => Promise<void>;
   uploadFile: (fileName: string, base64Data: string) => Promise<{ filePath: string; fileName: string; fileSize: number }>;
   openFile: (filePath: string) => Promise<void>;
   startPolling: (currentUserId: string) => void;
@@ -89,14 +99,13 @@ let pollTimer: NodeJS.Timeout | null = null;
 
 // Обновляет messages только если список реально изменился — опрос каждые 3 секунды
 // не должен дергать перерисовку и скролл без новых сообщений
+const messagesSignature = (list: any[]) =>
+  list.map(m => `${m.id}:${m.editedAt || ''}`).join('|');
+
 const setMessagesIfChanged = (set: any, get: any, data: any[]) => {
   const prev = get().messages || [];
-  if (Array.isArray(data) && prev.length === data.length) {
-    const lastPrev = prev[prev.length - 1];
-    const lastNew = data[data.length - 1];
-    if ((!lastPrev && !lastNew) || (lastPrev && lastNew && lastPrev.id === lastNew.id)) {
-      return;
-    }
+  if (Array.isArray(data) && messagesSignature(prev) === messagesSignature(data)) {
+    return;
   }
   set({ messages: data });
 };
@@ -265,7 +274,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
     },
 
-    sendMessage: async (currentUserId, content, linkedElementId = null, linkedProjectId = null, attachments = []) => {
+    sendMessage: async (currentUserId, content, linkedElementId = null, linkedProjectId = null, attachments = [], replyToId = null) => {
       const { activeReceiverId, activeGroupId, activeType } = get();
 
       try {
@@ -277,7 +286,8 @@ export const useChatStore = create<ChatState>((set, get) => {
             content,
             linkedElementId,
             linkedProjectId,
-            attachments
+            attachments,
+            replyToId
           };
           if (ENV.isProduction) {
             const url = `${ENV.serverUrl}/api/chat/messages`;
@@ -319,7 +329,8 @@ export const useChatStore = create<ChatState>((set, get) => {
             content,
             linkedElementId,
             linkedProjectId,
-            attachments
+            attachments,
+            replyToId
           };
           if (ENV.isProduction) {
             const url = `${ENV.serverUrl}/api/chat/group-messages`;
@@ -355,7 +366,50 @@ export const useChatStore = create<ChatState>((set, get) => {
         }
       } catch (err) {
         console.error('[ChatStore] Error sending message:', err);
+        throw err;
       }
+    },
+
+    // Редактирование своего сообщения
+    editMessage: async (currentUserId, messageId, content) => {
+      const win = window as any;
+      let updated: ChatMessage | null = null;
+      if (win.electron && win.electron.ipcRenderer) {
+        updated = await win.electron.ipcRenderer.invoke('chat:edit-message', {
+          messageId, userId: currentUserId, content
+        });
+      } else {
+        const res = await fetch(`/api/chat/messages/${messageId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: currentUserId, content })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Не удалось изменить сообщение');
+        updated = data;
+      }
+      if (updated) {
+        set((state) => ({ messages: state.messages.map(m => m.id === messageId ? updated! : m) }));
+      }
+    },
+
+    // Удаление своего сообщения
+    deleteMessage: async (currentUserId, messageId) => {
+      const win = window as any;
+      if (win.electron && win.electron.ipcRenderer) {
+        await win.electron.ipcRenderer.invoke('chat:delete-message', {
+          messageId, userId: currentUserId
+        });
+      } else {
+        const res = await fetch(`/api/chat/messages/${messageId}?userId=${encodeURIComponent(currentUserId)}`, {
+          method: 'DELETE'
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Не удалось удалить сообщение');
+        }
+      }
+      set((state) => ({ messages: state.messages.filter(m => m.id !== messageId) }));
     },
 
     uploadFile: async (fileName, base64Data) => {

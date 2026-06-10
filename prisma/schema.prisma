@@ -231,6 +231,10 @@ model ChatMessage {
   linkedProjectId String?
   linkedProject   Project?          @relation("LinkedProject", fields: [linkedProjectId], references: [id], onDelete: SetNull)
   attachments     ChatAttachment[]
+  replyToId       String?           // Ответ на сообщение (цитата)
+  replyTo         ChatMessage?      @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies         ChatMessage[]     @relation("MessageReplies")
+  editedAt        DateTime?         // Когда сообщение было отредактировано
 }
 
 model ChatAttachment {

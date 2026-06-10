@@ -223,6 +223,17 @@ function ensureSchemaColumns(dbPath: string) {
           logInit('[DB Migrate] Добавлена колонка User.validUntil');
         }
       }
+      const msgCols = db.prepare('PRAGMA table_info("ChatMessage")').all() as Array<{ name: string }>;
+      if (msgCols.length > 0) {
+        if (!msgCols.find(c => c.name === 'replyToId')) {
+          db.exec('ALTER TABLE "ChatMessage" ADD COLUMN "replyToId" TEXT');
+          logInit('[DB Migrate] Добавлена колонка ChatMessage.replyToId');
+        }
+        if (!msgCols.find(c => c.name === 'editedAt')) {
+          db.exec('ALTER TABLE "ChatMessage" ADD COLUMN "editedAt" DATETIME');
+          logInit('[DB Migrate] Добавлена колонка ChatMessage.editedAt');
+        }
+      }
     } finally {
       db.close();
     }
@@ -1701,7 +1712,8 @@ app.get('/api/chat/messages', async (req: Request, res: Response) => {
         attachments: true,
         sender: { select: { id: true, name: true, symbol: true, role: true } },
         receiver: { select: { id: true, name: true, symbol: true, role: true } },
-        linkedElement: true
+        linkedElement: true,
+        replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
       },
       orderBy: { createdAt: 'asc' }
     });
@@ -1715,7 +1727,7 @@ app.get('/api/chat/messages', async (req: Request, res: Response) => {
 // 2. Send message
 app.post('/api/chat/messages', async (req: Request, res: Response) => {
   try {
-    const { senderId, receiverId, content, linkedElementId, linkedProjectId, attachments } = req.body;
+    const { senderId, receiverId, content, linkedElementId, linkedProjectId, attachments, replyToId } = req.body;
     if (!senderId || !receiverId) {
       return res.status(400).json({ error: 'senderId and receiverId are required' });
     }
@@ -1727,6 +1739,7 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
         content: String(content || ''),
         linkedElementId: linkedElementId ? String(linkedElementId) : null,
         linkedProjectId: linkedProjectId ? String(linkedProjectId) : null,
+        replyToId: replyToId ? String(replyToId) : null,
       }
     });
 
@@ -1750,7 +1763,8 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
         attachments: true,
         sender: { select: { id: true, name: true, symbol: true, role: true } },
         receiver: { select: { id: true, name: true, symbol: true, role: true } },
-        linkedElement: true
+        linkedElement: true,
+        replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
       }
     });
 
@@ -1758,6 +1772,57 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
     io.emit('chat:message_received', fullMessage);
 
     res.json(fullMessage);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// Редактирование своего сообщения
+app.put('/api/chat/messages/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { userId, content } = req.body;
+    const msg = await prisma.chatMessage.findUnique({ where: { id } });
+    if (!msg) {
+      return res.status(404).json({ error: 'Сообщение не найдено' });
+    }
+    if (msg.senderId !== String(userId)) {
+      return res.status(403).json({ error: 'Можно редактировать только свои сообщения' });
+    }
+    const updated = await prisma.chatMessage.update({
+      where: { id },
+      data: { content: String(content || ''), editedAt: new Date() },
+      include: {
+        attachments: true,
+        sender: { select: { id: true, name: true, symbol: true, role: true } },
+        receiver: { select: { id: true, name: true, symbol: true, role: true } },
+        linkedElement: true,
+        replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
+      }
+    });
+    io.emit('chat:message_updated', updated);
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Удаление своего сообщения
+app.delete('/api/chat/messages/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = String(req.query.userId || (req.body && req.body.userId) || '');
+    const msg = await prisma.chatMessage.findUnique({ where: { id } });
+    if (!msg) {
+      return res.status(404).json({ error: 'Сообщение не найдено' });
+    }
+    if (msg.senderId !== userId) {
+      return res.status(403).json({ error: 'Можно удалять только свои сообщения' });
+    }
+    await prisma.chatMessage.delete({ where: { id } });
+    io.emit('chat:message_deleted', { id });
+    res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1960,7 +2025,8 @@ app.get('/api/chat/group-messages', async (req: Request, res: Response) => {
       include: {
         attachments: true,
         sender: { select: { id: true, name: true, symbol: true, role: true } },
-        linkedElement: true
+        linkedElement: true,
+        replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
       },
       orderBy: { createdAt: 'asc' }
     });
@@ -1973,7 +2039,7 @@ app.get('/api/chat/group-messages', async (req: Request, res: Response) => {
 // Send message to group
 app.post('/api/chat/group-messages', async (req: Request, res: Response) => {
   try {
-    const { senderId, groupId, content, linkedElementId, linkedProjectId, attachments } = req.body;
+    const { senderId, groupId, content, linkedElementId, linkedProjectId, attachments, replyToId } = req.body;
     if (!senderId || !groupId) {
       return res.status(400).json({ error: 'senderId and groupId are required' });
     }
@@ -1985,6 +2051,7 @@ app.post('/api/chat/group-messages', async (req: Request, res: Response) => {
         content: String(content || ''),
         linkedElementId: linkedElementId ? String(linkedElementId) : null,
         linkedProjectId: linkedProjectId ? String(linkedProjectId) : null,
+        replyToId: replyToId ? String(replyToId) : null,
       }
     });
 
@@ -2006,7 +2073,8 @@ app.post('/api/chat/group-messages', async (req: Request, res: Response) => {
       include: {
         attachments: true,
         sender: { select: { id: true, name: true, symbol: true, role: true } },
-        linkedElement: true
+        linkedElement: true,
+        replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
       }
     });
 

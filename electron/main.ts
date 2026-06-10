@@ -380,13 +380,14 @@ app.whenReady().then(() => {
           attachments: true,
           sender: { select: { id: true, name: true, symbol: true, role: true } },
           receiver: { select: { id: true, name: true, symbol: true, role: true } },
-          linkedElement: true
+          linkedElement: true,
+          replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
         },
         orderBy: { createdAt: 'asc' }
       });
     });
 
-    handleDb('chat:send-message', async (event, { senderId, receiverId, content, linkedElementId, linkedProjectId, attachments }) => {
+    handleDb('chat:send-message', async (event, { senderId, receiverId, content, linkedElementId, linkedProjectId, attachments, replyToId }) => {
       const msg = await chatPrisma.chatMessage.create({
         data: {
           senderId,
@@ -394,6 +395,7 @@ app.whenReady().then(() => {
           content,
           linkedElementId: linkedElementId || null,
           linkedProjectId: linkedProjectId || null,
+          replyToId: replyToId || null,
         }
       });
 
@@ -416,7 +418,8 @@ app.whenReady().then(() => {
           attachments: true,
           sender: { select: { id: true, name: true, symbol: true, role: true } },
           receiver: { select: { id: true, name: true, symbol: true, role: true } },
-          linkedElement: true
+          linkedElement: true,
+          replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
         }
       });
     });
@@ -507,13 +510,14 @@ app.whenReady().then(() => {
         include: {
           attachments: true,
           sender: { select: { id: true, name: true, symbol: true, role: true } },
-          linkedElement: true
+          linkedElement: true,
+          replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
         },
         orderBy: { createdAt: 'asc' }
       });
     });
 
-    handleDb('chat:send-group-message', async (event, { senderId, groupId, content, linkedElementId, linkedProjectId, attachments }) => {
+    handleDb('chat:send-group-message', async (event, { senderId, groupId, content, linkedElementId, linkedProjectId, attachments, replyToId }) => {
       const msg = await chatPrisma.chatMessage.create({
         data: {
           senderId,
@@ -521,6 +525,7 @@ app.whenReady().then(() => {
           content,
           linkedElementId: linkedElementId || null,
           linkedProjectId: linkedProjectId || null,
+          replyToId: replyToId || null,
         }
       });
 
@@ -542,9 +547,37 @@ app.whenReady().then(() => {
         include: {
           attachments: true,
           sender: { select: { id: true, name: true, symbol: true, role: true } },
-          linkedElement: true
+          linkedElement: true,
+          replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
         }
       });
+    });
+
+    // Редактирование своего сообщения
+    handleDb('chat:edit-message', async (event, { messageId, userId, content }) => {
+      const msg = await chatPrisma.chatMessage.findUnique({ where: { id: messageId } });
+      if (!msg) throw new Error('Сообщение не найдено');
+      if (msg.senderId !== userId) throw new Error('Можно редактировать только свои сообщения');
+      return await chatPrisma.chatMessage.update({
+        where: { id: messageId },
+        data: { content: String(content || ''), editedAt: new Date() },
+        include: {
+          attachments: true,
+          sender: { select: { id: true, name: true, symbol: true, role: true } },
+          receiver: { select: { id: true, name: true, symbol: true, role: true } },
+          linkedElement: true,
+          replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
+        }
+      });
+    });
+
+    // Удаление своего сообщения
+    handleDb('chat:delete-message', async (event, { messageId, userId }) => {
+      const msg = await chatPrisma.chatMessage.findUnique({ where: { id: messageId } });
+      if (!msg) throw new Error('Сообщение не найдено');
+      if (msg.senderId !== userId) throw new Error('Можно удалять только свои сообщения');
+      await chatPrisma.chatMessage.delete({ where: { id: messageId } });
+      return { success: true };
     });
 
     // Feature 3: Screen capture
