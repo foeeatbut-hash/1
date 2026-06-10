@@ -1,6 +1,8 @@
 node_modules/
 build/
 database/
+dist-electron/
+release/
 *.sqlite-wal
 *.sqlite-shm
 dist/
