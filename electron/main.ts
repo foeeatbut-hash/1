@@ -269,6 +269,26 @@ app.whenReady().then(() => {
     let chatPrismaInstance: any = null;
     let lastLoadedDbUrl: string | null = null;
 
+    // Обертка для IPC: вместо многострочного код-фрейма Prisma в renderer уходит суть ошибки
+    const handleDb = (channel: string, fn: (...args: any[]) => Promise<any>) => {
+      ipcMain.handle(channel, async (...args: any[]) => {
+        try {
+          return await fn(...args);
+        } catch (err: any) {
+          const rawMsg = String(err?.message || err);
+          let friendly: string;
+          if (rawMsg.includes('malformed') || rawMsg.includes('disk image')) {
+            friendly = 'База данных повреждена. Перезапустите приложение — она будет автоматически восстановлена из шаблона.';
+          } else {
+            const lines = rawMsg.split('\n').map(l => l.trim()).filter(Boolean);
+            friendly = lines[lines.length - 1] || rawMsg;
+          }
+          console.error(`[IPC ${channel}] ${friendly}`);
+          throw new Error(friendly);
+        }
+      });
+    };
+
     const getChatPrisma = () => {
       // Используем ту же папку данных (pdm-app) и тот же config.json, что и Express-сервер
       let currentDbType = 'LOCAL';
@@ -316,7 +336,7 @@ app.whenReady().then(() => {
       }
     }) as any;
 
-    ipcMain.handle('chat:get-messages', async (event, { senderId, receiverId }) => {
+    handleDb('chat:get-messages', async (event, { senderId, receiverId }) => {
       return await chatPrisma.chatMessage.findMany({
         where: {
           OR: [
@@ -334,7 +354,7 @@ app.whenReady().then(() => {
       });
     });
 
-    ipcMain.handle('chat:send-message', async (event, { senderId, receiverId, content, linkedElementId, linkedProjectId, attachments }) => {
+    handleDb('chat:send-message', async (event, { senderId, receiverId, content, linkedElementId, linkedProjectId, attachments }) => {
       const msg = await chatPrisma.chatMessage.create({
         data: {
           senderId,
@@ -369,7 +389,7 @@ app.whenReady().then(() => {
       });
     });
 
-    ipcMain.handle('chat:upload-file', async (event, { fileName, base64Data }) => {
+    handleDb('chat:upload-file', async (event, { fileName, base64Data }) => {
       const fs = require('fs');
       const path = require('path');
       const { app } = require('electron');
@@ -385,7 +405,7 @@ app.whenReady().then(() => {
       return { filePath: localPath, fileName: sanitizedFileName, fileSize: buffer.length };
     });
 
-    ipcMain.handle('chat:open-file', async (event, filePath) => {
+    handleDb('chat:open-file', async (event, filePath) => {
       const { shell } = require('electron');
       const fs = require('fs');
       if (fs.existsSync(filePath)) {
@@ -438,7 +458,7 @@ app.whenReady().then(() => {
       }
     };
 
-    ipcMain.handle('chat:get-groups', async () => {
+    handleDb('chat:get-groups', async () => {
       await ensureProjectChatGroupsIPC();
       return await chatPrisma.chatGroup.findMany({
         include: {
@@ -449,7 +469,7 @@ app.whenReady().then(() => {
       });
     });
 
-    ipcMain.handle('chat:get-group-messages', async (event, { groupId }) => {
+    handleDb('chat:get-group-messages', async (event, { groupId }) => {
       return await chatPrisma.chatMessage.findMany({
         where: { chatGroupId: groupId },
         include: {
@@ -461,7 +481,7 @@ app.whenReady().then(() => {
       });
     });
 
-    ipcMain.handle('chat:send-group-message', async (event, { senderId, groupId, content, linkedElementId, linkedProjectId, attachments }) => {
+    handleDb('chat:send-group-message', async (event, { senderId, groupId, content, linkedElementId, linkedProjectId, attachments }) => {
       const msg = await chatPrisma.chatMessage.create({
         data: {
           senderId,
@@ -506,7 +526,7 @@ app.whenReady().then(() => {
     });
 
     // Chat ComponentElement Search handler
-    ipcMain.handle('chat:search-element', async (event, { tag }) => {
+    handleDb('chat:search-element', async (event, { tag }) => {
       return await chatPrisma.componentElement.findFirst({
         where: {
           OR: [
@@ -524,7 +544,7 @@ app.whenReady().then(() => {
     });
 
     // Chat ComponentElement Autocomplete handler
-    ipcMain.handle('chat:autocomplete-tags', async (event, { query, projectId }) => {
+    handleDb('chat:autocomplete-tags', async (event, { query, projectId }) => {
       const cleanQuery = query ? String(query).toLowerCase() : '';
       const cleanProjId = projectId ? String(projectId) : undefined;
 

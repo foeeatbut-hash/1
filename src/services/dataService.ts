@@ -360,7 +360,7 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     const response = await fetch(url, config);
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({}));
-      const errorMsg = errorBody.message || `Http request failed: ${response.status}`;
+      const errorMsg = errorBody.message || errorBody.error || `Http request failed: ${response.status}`;
       useLogStore.getState().addLog('ERROR', 'Network Stack', `[${method}] запрос ${endpoint} завершился с ошибкой: ${errorMsg}`);
       throw new Error(errorMsg);
     }

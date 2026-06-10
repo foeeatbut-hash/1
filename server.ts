@@ -144,6 +144,66 @@ function buildSqliteAdapter(dbUrl: string) {
   return new PrismaBetterSqlite3({ url: cleanUrl, timeout: 15000 });
 }
 
+// Полная проверка целостности локальной SQLite-базы с автоматическим восстановлением.
+// SELECT 1 проходит даже на битом файле, поэтому используем PRAGMA integrity_check.
+function ensureHealthyLocalDb(dbPath: string) {
+  if (!fs.existsSync(dbPath)) {
+    logInit('[DB Health] Файл базы данных отсутствует — создаем из шаблона...');
+    ensureSQLiteDatabaseExists(dbPath);
+    return;
+  }
+
+  let problem = '';
+  try {
+    const Database = require('better-sqlite3');
+    const db = new Database(dbPath);
+    try {
+      const integrity = db.pragma('integrity_check') as Array<{ integrity_check: string }>;
+      const ok = Array.isArray(integrity) && integrity.length > 0 &&
+        String(integrity[0].integrity_check ?? integrity[0]).toLowerCase() === 'ok';
+      if (!ok) {
+        problem = `integrity_check провален: ${JSON.stringify(integrity).slice(0, 300)}`;
+      } else {
+        const tables = db.prepare("SELECT count(*) AS c FROM sqlite_master WHERE type='table'").get() as { c: number };
+        if (!tables || tables.c === 0) {
+          problem = 'файл базы пуст — таблицы отсутствуют';
+        }
+      }
+    } finally {
+      db.close();
+    }
+  } catch (err: any) {
+    problem = `файл не открывается как SQLite-база (${err.message})`;
+  }
+
+  if (!problem) {
+    logInit('[DB Health] Проверка целостности локальной базы пройдена успешно.');
+    return;
+  }
+
+  logInit(`[DB Health] ВНИМАНИЕ: локальная база данных повреждена — ${problem}. Запускаю автоматическое восстановление.`);
+  const backupPath = `${dbPath}.corrupt-${Date.now()}.bak`;
+  try {
+    fs.renameSync(dbPath, backupPath);
+    logInit(`[DB Health] Поврежденный файл сохранен как резервная копия: ${backupPath}`);
+  } catch (renameErr: any) {
+    try {
+      fs.unlinkSync(dbPath);
+      logInit('[DB Health] Поврежденный файл удален (резервную копию создать не удалось).');
+    } catch (delErr: any) {
+      logInit(`[DB Health] Не удалось удалить поврежденный файл: ${delErr.message}`);
+      return;
+    }
+  }
+  for (const suffix of ['-wal', '-shm']) {
+    try {
+      if (fs.existsSync(dbPath + suffix)) fs.unlinkSync(dbPath + suffix);
+    } catch (e) {}
+  }
+  ensureSQLiteDatabaseExists(dbPath);
+  logInit('[DB Health] База данных автоматически восстановлена из чистого шаблона.');
+}
+
 function createPrismaClient(dbType: string, dbUrl: string) {
   try {
     if (dbType === 'REMOTE') {
@@ -234,14 +294,9 @@ if (appConfig.current_db_type === 'LOCAL') {
   }
 
   startupDbUrl = `file:${dbPath}?connection_limit=1&busy_timeout=15000`;
-  
-  const isDbMissing = !fs.existsSync(dbPath);
-  if (isDbMissing) {
-    logInit('[Startup DB] database.sqlite does not exist. Initializing copy of database template...');
-    ensureSQLiteDatabaseExists(dbPath);
-  } else {
-    logInit('[Startup DB] database.sqlite already exists in AppData folder.');
-  }
+
+  // Проверяем целостность и при повреждении автоматически восстанавливаем базу из шаблона
+  ensureHealthyLocalDb(dbPath);
 } else {
   startupDbUrl = appConfig.database_url;
 }
@@ -503,12 +558,7 @@ app.post('/api/db/switch', async (req: Request, res: Response) => {
     if (current_db_type === 'LOCAL') {
       const dbFile = path.join(ventAppDataPath, 'database.sqlite');
       targetDbUrl = `file:${dbFile}?connection_limit=1&busy_timeout=15000`;
-      
-      const isDbMissing = !fs.existsSync(dbFile);
-      if (isDbMissing) {
-        console.log('[DB Switch] Path database.sqlite missing. Initializing copy of database template...');
-        ensureSQLiteDatabaseExists(dbFile);
-      }
+      ensureHealthyLocalDb(dbFile);
     } else {
       if (!database_url) {
         return res.status(400).json({ success: false, message: 'Ссылка подключения REMOTE обязательна!' });
@@ -2269,8 +2319,18 @@ async function startServer() {
   }
 
   app.use((err: any, req: Request, res: Response, next: any) => {
+    const rawMsg = String(err?.message || err || 'Internal server error');
+    // Берем суть ошибки Prisma — последняя строка вместо простыни с код-фреймом
+    const lines = rawMsg.split('\n').map(l => l.trim()).filter(Boolean);
+    let friendly = lines[lines.length - 1] || rawMsg;
+    if (rawMsg.includes('malformed') || rawMsg.includes('disk image')) {
+      friendly = 'База данных повреждена (database disk image is malformed). Перезапустите приложение — база будет автоматически восстановлена из шаблона.';
+    } else if (!prisma || !isPrismaAvailable) {
+      friendly = 'База данных не инициализирована: клиент Prisma не был создан при старте. Подробности в backend-init.log.';
+    }
+    logInit(`[API ERROR] ${req.method} ${req.originalUrl}: ${friendly}`);
     console.error('Unhandled error:', err);
-    res.status(500).json({ error: err.message || 'Internal server error' });
+    res.status(500).json({ error: friendly, message: friendly });
   });
 
   if (process.env.NODE_ENV !== "production") {
