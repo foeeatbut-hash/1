@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client-sqlite';
 const prisma = new PrismaClient();
 async function main() {
   const p = await prisma.project.create({ data: { name: "test" } });

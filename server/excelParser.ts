@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client-sqlite';
 import { compareSpecs, detectTypeMismatch } from './specUtils.js';
 
 export interface ParseResult {

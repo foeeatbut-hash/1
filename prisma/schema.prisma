@@ -3,6 +3,7 @@
 
 generator client {
   provider = "prisma-client-js"
+  output   = "../prisma-clients/client-sqlite"
 }
 
 datasource db {

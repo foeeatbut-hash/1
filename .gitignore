@@ -13,3 +13,8 @@ coverage/
 !.env.example
 
 /src/generated/prisma
+prisma-clients/**
+!prisma-clients/client-sqlite/
+!prisma-clients/client-sqlite/package.json
+!prisma-clients/client-pg/
+!prisma-clients/client-pg/package.json
