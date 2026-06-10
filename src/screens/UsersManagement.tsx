@@ -83,8 +83,8 @@ export default function UsersManagement() {
         isActive: editActive,
         validUntil: editValidUntil ? new Date(`${editValidUntil}T23:59:59`).toISOString() : null,
       });
-      if (res && res.success === false) {
-        throw new Error(res.message || 'Не удалось сохранить изменения');
+      if (!res || res.success !== true) {
+        throw new Error((res && res.message) || 'Сервер недоступен — изменения не сохранены');
       }
       addToast('Профиль сотрудника обновлен', 'success');
       setEditUser(null);
@@ -102,8 +102,8 @@ export default function UsersManagement() {
     setIsEditSubmitting(true);
     try {
       const res = await dataService.deleteUser(editUser.id);
-      if (res && res.success === false) {
-        throw new Error(res.message || 'Не удалось удалить профиль');
+      if (!res || res.success !== true) {
+        throw new Error((res && res.message) || 'Сервер недоступен — профиль не удален');
       }
       addToast('Профиль удален', 'success');
       setEditUser(null);

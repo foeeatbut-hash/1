@@ -635,8 +635,10 @@ app.whenReady().then(() => {
   let latestCachedUpdate: { version: string; fileUrl: string; changelog: string } | null = null;
 
   function isNewerVersion(latest: string, current: string): boolean {
-    const latestParts = latest.split('.').map(Number);
-    const currentParts = current.split('.').map(Number);
+    // Суффиксы вида "-beta" дают NaN при Number() и ломают сравнение — оставляем только цифры и точки
+    const clean = (v: string) => String(v || '').replace(/[^0-9.]/g, '');
+    const latestParts = clean(latest).split('.').map(Number);
+    const currentParts = clean(current).split('.').map(Number);
     for (let i = 0; i < Math.max(latestParts.length, currentParts.length); i++) {
       const l = latestParts[i] || 0;
       const c = currentParts[i] || 0;

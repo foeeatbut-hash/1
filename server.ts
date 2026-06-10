@@ -1542,6 +1542,9 @@ app.post('/api/tags/generate', async (req: Request, res: Response) => {
     if (suffix && seqStr.endsWith(suffix)) {
       seqStr = seqStr.slice(0, -suffix.length);
     }
+    // Учитываем только чисто числовые последовательности: parseInt("001_V2") вернул бы 1,
+    // а длина 6 испортила бы автоопределение паддинга
+    if (!/^\d+$/.test(seqStr)) continue;
     const seqNum = parseInt(seqStr, 10);
     if (!isNaN(seqNum)) {
       maxSeq = Math.max(maxSeq, seqNum);

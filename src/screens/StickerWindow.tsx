@@ -22,6 +22,9 @@ export default function StickerWindow() {
   // Auto-save states
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Накапливаем все несохраненные поля: debounce-таймер перезапускается на каждое
+  // изменение, и без объединения сохранялся бы только последний fields (потеря правок)
+  const pendingFieldsRef = useRef<Partial<UserNote>>({});
 
   // Extract note ID from URL param
   const query = new URLSearchParams(location.search);
@@ -58,9 +61,12 @@ export default function StickerWindow() {
     }
 
     setSaveStatus('saving');
+    pendingFieldsRef.current = { ...pendingFieldsRef.current, ...fields };
     autoSaveTimerRef.current = setTimeout(async () => {
+      const payload = pendingFieldsRef.current;
+      pendingFieldsRef.current = {};
       try {
-        await dataService.updateNote(note.id, fields);
+        await dataService.updateNote(note.id, payload);
         setSaveStatus('saved');
       } catch (err) {
         setSaveStatus('error');
