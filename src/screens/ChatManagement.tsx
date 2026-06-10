@@ -166,7 +166,10 @@ export default function ChatManagement() {
   const [isDrawing, setIsDrawing] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const lastMessageIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Initial loading
@@ -223,10 +226,28 @@ export default function ChatManagement() {
     };
   }, [user?.id, activeReceiverId, activeGroupId]);
 
-  // Scroll on message add
+  // Scroll on message add: только при новых сообщениях и только если пользователь у низа
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const lastId = messages.length > 0 ? messages[messages.length - 1].id : null;
+    if (lastId === lastMessageIdRef.current) return;
+    const isFirstLoad = lastMessageIdRef.current === null;
+    lastMessageIdRef.current = lastId;
+
+    const container = messagesContainerRef.current;
+    const nearBottom = !container ||
+      container.scrollHeight - container.scrollTop - container.clientHeight < 160;
+    const lastMsg = messages[messages.length - 1];
+    const isOwn = lastMsg && lastMsg.senderId === user?.id;
+
+    if (isFirstLoad || nearBottom || isOwn) {
+      chatEndRef.current?.scrollIntoView({ behavior: isFirstLoad ? 'auto' : 'smooth' });
+    }
   }, [messages]);
+
+  // При смене собеседника/группы сбрасываем трекер последнего сообщения
+  useEffect(() => {
+    lastMessageIdRef.current = null;
+  }, [activeReceiverId, activeGroupId]);
 
   // Load project equipment components for dialog picker
   useEffect(() => {
@@ -319,10 +340,12 @@ export default function ChatManagement() {
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+    if (isSendingMessage) return;
     if (!messageText.trim() && stagedAttachments.length === 0 && !selectedElementId) {
       return;
     }
 
+    setIsSendingMessage(true);
     try {
       await sendMessage(
         user.id,
@@ -338,6 +361,8 @@ export default function ChatManagement() {
       setSelectedElementName(null);
     } catch (err: any) {
       addToast('Ошибка отправки сообщения: ' + err.message, 'error');
+    } finally {
+      setIsSendingMessage(false);
     }
   };
 
@@ -692,7 +717,7 @@ export default function ChatManagement() {
             </div>
 
             {/* Conversation Messages Lists */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50 dark:bg-slate-900/20">
+            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50 dark:bg-slate-900/20">
               {messages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center p-6 text-center select-none">
                   <MessageSquare className="w-8 h-8 text-slate-300 dark:text-slate-700 mb-2 animate-bounce" />
@@ -701,11 +726,29 @@ export default function ChatManagement() {
                   </p>
                 </div>
               ) : (
-                messages.map((msg) => {
+                messages.map((msg, msgIndex) => {
                   const isMe = msg.senderId === user?.id;
+                  const msgDay = new Date(msg.createdAt).toDateString();
+                  const prevDay = msgIndex > 0 ? new Date(messages[msgIndex - 1].createdAt).toDateString() : null;
+                  const showDaySeparator = msgDay !== prevDay;
+                  const dayLabel = (() => {
+                    const d = new Date(msg.createdAt);
+                    const today = new Date();
+                    const yesterday = new Date(); yesterday.setDate(today.getDate() - 1);
+                    if (d.toDateString() === today.toDateString()) return 'Сегодня';
+                    if (d.toDateString() === yesterday.toDateString()) return 'Вчера';
+                    return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
+                  })();
                   return (
+                    <React.Fragment key={msg.id}>
+                    {showDaySeparator && (
+                      <div className="flex items-center gap-3 my-2 select-none">
+                        <div className="flex-1 h-px bg-slate-200 dark:bg-slate-800" />
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">{dayLabel}</span>
+                        <div className="flex-1 h-px bg-slate-200 dark:bg-slate-800" />
+                      </div>
+                    )}
                     <div 
-                      key={msg.id} 
                       className={`flex gap-3 max-w-[85%] ${isMe ? 'ml-auto flex-row-reverse' : 'mr-auto'}`}
                     >
                       <div className="w-8 h-8 rounded-full bg-slate-150 dark:bg-slate-800 shrink-0 border border-slate-250 dark:border-slate-750 flex items-center justify-center text-xs font-bold text-slate-600 dark:text-slate-400">
@@ -780,6 +823,7 @@ export default function ChatManagement() {
                         </div>
                       </div>
                     </div>
+                    </React.Fragment>
                   );
                 })
               )}

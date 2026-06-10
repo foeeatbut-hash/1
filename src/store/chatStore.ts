@@ -87,6 +87,21 @@ interface ChatState {
 let socketInstance: Socket | null = null;
 let pollTimer: NodeJS.Timeout | null = null;
 
+// Обновляет messages только если список реально изменился — опрос каждые 3 секунды
+// не должен дергать перерисовку и скролл без новых сообщений
+const setMessagesIfChanged = (set: any, get: any, data: any[]) => {
+  const prev = get().messages || [];
+  if (Array.isArray(data) && prev.length === data.length) {
+    const lastPrev = prev[prev.length - 1];
+    const lastNew = data[data.length - 1];
+    if ((!lastPrev && !lastNew) || (lastPrev && lastNew && lastPrev.id === lastNew.id)) {
+      return;
+    }
+  }
+  set({ messages: data });
+};
+
+
 export const useChatStore = create<ChatState>((set, get) => {
   return {
     messages: [],
@@ -171,7 +186,7 @@ export const useChatStore = create<ChatState>((set, get) => {
             const res = await fetch(url);
             if (res.ok) {
               const data = await res.json();
-              set({ messages: data });
+              setMessagesIfChanged(set, get, data);
             } else {
               throw new Error('Failed response');
             }
@@ -182,12 +197,12 @@ export const useChatStore = create<ChatState>((set, get) => {
                 senderId: currentUserId,
                 receiverId: activeReceiverId
               });
-              set({ messages: data });
+              setMessagesIfChanged(set, get, data);
             } else {
               const res = await fetch(`/api/chat/messages?senderId=${currentUserId}&receiverId=${activeReceiverId}`);
               if (res.ok) {
                 const data = await res.json();
-                set({ messages: data });
+                setMessagesIfChanged(set, get, data);
               } else {
                 throw new Error('Failed response');
               }
@@ -201,7 +216,7 @@ export const useChatStore = create<ChatState>((set, get) => {
             const res = await fetch(url);
             if (res.ok) {
               const data = await res.json();
-              set({ messages: data });
+              setMessagesIfChanged(set, get, data);
             } else {
               throw new Error('Failed response');
             }
@@ -211,12 +226,12 @@ export const useChatStore = create<ChatState>((set, get) => {
               const data = await win.electron.ipcRenderer.invoke('chat:get-group-messages', {
                 groupId: activeGroupId
               });
-              set({ messages: data });
+              setMessagesIfChanged(set, get, data);
             } else {
               const res = await fetch(`/api/chat/group-messages?groupId=${activeGroupId}`);
               if (res.ok) {
                 const data = await res.json();
-                set({ messages: data });
+                setMessagesIfChanged(set, get, data);
               } else {
                 throw new Error('Failed response');
               }

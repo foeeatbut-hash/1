@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu } from 'electron';
 import path from 'path';
 
 const additionalData = { myKey: 'pdm-system' };
@@ -33,6 +33,16 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
+    minWidth: 960,
+    minHeight: 620,
+    backgroundColor: '#0f172a',
+    autoHideMenuBar: true,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#0f172a',
+      symbolColor: '#94a3b8',
+      height: 36
+    },
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -48,6 +58,9 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Убираем стандартное меню File/Edit/View/Window
+  Menu.setApplicationMenu(null);
+
   const fs = require('fs');
   const path = require('path');
 
@@ -74,22 +87,25 @@ app.whenReady().then(() => {
     }
   } catch (e) {}
 
-  // Начиная со сборки в Production (asar), автоматически запускаем встроенный Express-сервер на порту 3000
-  if (app.isPackaged) {
-    const startupLogPath = path.join(ventAppDataPath, 'server-startup.log');
-    try {
-      fs.writeFileSync(startupLogPath, `[${new Date().toISOString()}] Инициализация встроенного Express-сервера...\n`, 'utf-8');
-      require(path.join(__dirname, '../dist/server.cjs'));
-      fs.appendFileSync(startupLogPath, `[${new Date().toISOString()}] Модуль сервера успешно подключен через require().\n`, 'utf-8');
-    } catch (err: any) {
-      console.error('[Electron Main] Сбой при автоматическом запуске встроенного Express-сервера:', err);
-      try {
-        fs.appendFileSync(startupLogPath, `[${new Date().toISOString()}] СБОЙ ЗАПУСКА: ${err.message}\nStack:\n${err.stack}\n`, 'utf-8');
-      } catch (writeErr) {}
-    }
-  }
-
+  // Сначала показываем окно (быстрый отклик для пользователя),
+  // встроенный Express-сервер поднимаем сразу после — не блокируя создание окна
   createWindow();
+
+  if (app.isPackaged) {
+    setImmediate(() => {
+      const startupLogPath = path.join(ventAppDataPath, 'server-startup.log');
+      try {
+        fs.writeFileSync(startupLogPath, `[${new Date().toISOString()}] Инициализация встроенного Express-сервера...\n`, 'utf-8');
+        require(path.join(__dirname, '../dist/server.cjs'));
+        fs.appendFileSync(startupLogPath, `[${new Date().toISOString()}] Модуль сервера успешно подключен через require().\n`, 'utf-8');
+      } catch (err: any) {
+        console.error('[Electron Main] Сбой при автоматическом запуске встроенного Express-сервера:', err);
+        try {
+          fs.appendFileSync(startupLogPath, `[${new Date().toISOString()}] СБОЙ ЗАПУСКА: ${err.message}\nStack:\n${err.stack}\n`, 'utf-8');
+        } catch (writeErr) {}
+      }
+    });
+  }
 
   const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');
 
