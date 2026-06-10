@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist dist-electron release server.js",
     "lint": "tsc --noEmit",
-    "build:electron": "npx prisma generate --schema=prisma/schema.prisma && npx prisma generate --schema=prisma/schema.postgresql.prisma && esbuild electron/main.ts --bundle --platform=node --format=cjs --external:electron --external:@prisma/client --external:@prisma/client-pg --external:@prisma/adapter-better-sqlite3 --external:@prisma/adapter-pg --external:better-sqlite3 --external:pg --outfile=dist-electron/main.cjs && esbuild electron/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist-electron/preload.js",
+    "build:electron": "npx prisma generate --schema=prisma/schema.prisma && npx prisma generate --schema=prisma/schema.postgresql.prisma && esbuild electron/main.ts --bundle --platform=node --format=cjs --external:electron --external:@prisma/client-sqlite --external:@prisma/client-pg --external:@prisma/adapter-better-sqlite3 --external:@prisma/adapter-pg --external:better-sqlite3 --external:pg --outfile=dist-electron/main.cjs && esbuild electron/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist-electron/preload.js",
     "dist": "npm run build && npm run build:electron && electron-builder --win portable"
   },
   "dependencies": {
@@ -32,7 +32,9 @@
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
     "xlsx": "^0.18.5",
-    "zustand": "^5.0.13"
+    "zustand": "^5.0.13",
+    "@prisma/client-pg": "file:./prisma-clients/client-pg",
+    "@prisma/client-sqlite": "file:./prisma-clients/client-sqlite"
   },
   "devDependencies": {
     "@prisma/config": "^7.8.0",
@@ -55,8 +57,7 @@
     "productName": "PDM System",
     "asar": true,
     "asarUnpack": [
-      "node_modules/.prisma/client/**",
-      "node_modules/@prisma/client/**",
+      "node_modules/@prisma/client-sqlite/**",
       "node_modules/@prisma/client-pg/**",
       "node_modules/better-sqlite3/**"
     ],

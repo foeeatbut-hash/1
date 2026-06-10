@@ -1,7 +1,7 @@
 import 'express-async-errors';
 import express, { Request, Response } from 'express';
 import path from 'path';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client-sqlite';
 import { parseExcel, parseXML, importParsedDataToDB } from './server/excelParser.js';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
@@ -151,12 +151,12 @@ function createPrismaClient(dbType: string, dbUrl: string) {
       const { PrismaPg } = require('@prisma/adapter-pg');
       return new RemotePrisma({ adapter: new PrismaPg({ connectionString: dbUrl }) });
     } else {
-      const { PrismaClient: LocalPrisma } = require('@prisma/client');
+      const { PrismaClient: LocalPrisma } = require('@prisma/client-sqlite');
       return new LocalPrisma({ adapter: buildSqliteAdapter(dbUrl) });
     }
   } catch (err: any) {
     logInit(`[Prisma Client Builder Exception] Error creating client for ${dbType}: ${err.message}\nStack: ${err.stack}`);
-    const { PrismaClient: LocalPrisma } = require('@prisma/client');
+    const { PrismaClient: LocalPrisma } = require('@prisma/client-sqlite');
     const fallbackUrl = `file:${path.join(ventAppDataPath, 'database.sqlite')}`;
     return new LocalPrisma({ adapter: buildSqliteAdapter(fallbackUrl) });
   }

@@ -23,7 +23,7 @@ function createDbClient(dbType: string, dbUrl: string) {
     const { PrismaPg } = require('@prisma/adapter-pg');
     return new PrismaClient({ adapter: new PrismaPg({ connectionString: dbUrl }) });
   }
-  const { PrismaClient } = require('@prisma/client');
+  const { PrismaClient } = require('@prisma/client-sqlite');
   const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
   // better-sqlite3 не понимает query-параметры в URL — отрезаем их
   return new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: dbUrl.split('?')[0], timeout: 15000 }) });
