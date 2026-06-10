@@ -16,6 +16,19 @@ if (!gotTheLock) {
 
 let mainWindow: BrowserWindow | null = null;
 
+// Prisma 7: клиент создается только через driver adapter, DATABASE_URL из env не читается
+function createDbClient(dbType: string, dbUrl: string) {
+  if (dbType === 'REMOTE') {
+    const { PrismaClient } = require('@prisma/client-pg');
+    const { PrismaPg } = require('@prisma/adapter-pg');
+    return new PrismaClient({ adapter: new PrismaPg({ connectionString: dbUrl }) });
+  }
+  const { PrismaClient } = require('@prisma/client');
+  const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
+  // better-sqlite3 не понимает query-параметры в URL — отрезаем их
+  return new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: dbUrl.split('?')[0], timeout: 15000 }) });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -103,12 +116,7 @@ app.whenReady().then(() => {
   process.env.DATABASE_URL = finalDbUrl;
 
   try {
-    const { PrismaClient } = (currentDbType === 'REMOTE') ? require('@prisma/client-pg') : require('@prisma/client');
-    const dbUrl = process.env.DATABASE_URL;
-    if (dbUrl) {
-      process.env.DATABASE_URL = dbUrl;
-    }
-    const localPrisma = new PrismaClient();
+    const localPrisma = createDbClient(currentDbType, finalDbUrl);
     
     // PostgreSQL database connection check & safe Auto-Seed
     (async () => {
@@ -262,36 +270,7 @@ app.whenReady().then(() => {
     let lastLoadedDbUrl: string | null = null;
 
     const getChatPrisma = () => {
-      const ispg = app.isPackaged;
-      
-      const fs = require('fs');
-      const path = require('path');
-      
-      let ventAppDataPath = '';
-      try {
-        const desktopPath = app.getPath('desktop');
-        ventAppDataPath = path.join(desktopPath, 'VentApp-Data');
-      } catch (e) {
-        const home = require('os').homedir();
-        const desktop = path.join(home, 'Desktop');
-        const onedriveDesktop = path.join(home, 'OneDrive', 'Desktop');
-        const onedriveRuDesktop = path.join(home, 'OneDrive', 'Рабочий стол');
-        const ruDesktop = path.join(home, 'Рабочий стол');
-        
-        let destDesktop = desktop;
-        if (fs.existsSync(desktop)) {
-          destDesktop = desktop;
-        } else if (fs.existsSync(onedriveDesktop)) {
-          destDesktop = onedriveDesktop;
-        } else if (fs.existsSync(ruDesktop)) {
-          destDesktop = ruDesktop;
-        } else if (fs.existsSync(onedriveRuDesktop)) {
-          destDesktop = onedriveRuDesktop;
-        }
-        ventAppDataPath = path.join(destDesktop, 'VentApp-Data');
-      }
-
-      const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');
+      // Используем ту же папку данных (pdm-app) и тот же config.json, что и Express-сервер
       let currentDbType = 'LOCAL';
       let databaseUrlSetting = '';
 
@@ -319,10 +298,8 @@ app.whenReady().then(() => {
             chatPrismaInstance.$disconnect();
           } catch (e) {}
         }
-        
-        const { PrismaClient } = ispg ? require('@prisma/client-pg') : require('@prisma/client');
-        process.env.DATABASE_URL = dbUrl;
-        chatPrismaInstance = new PrismaClient();
+
+        chatPrismaInstance = createDbClient(currentDbType, dbUrl);
         lastLoadedDbUrl = dbUrl;
       }
       return chatPrismaInstance;
@@ -716,12 +693,8 @@ app.whenReady().then(() => {
         return { available: false, isDevelopment: true, version: app.getVersion() || '1.0.0-dev' };
       }
 
-      console.log('[Updater] Production: Checking PostgreSQL databases for update records...');
-      const { PrismaClient } = require('@prisma/client');
-      if (!process.env.DATABASE_URL) {
-        process.env.DATABASE_URL = "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public";
-      }
-      const prismaInstance = new PrismaClient();
+      console.log('[Updater] Production: Checking configured database for update records...');
+      const prismaInstance = createDbClient(currentDbType, finalDbUrl);
 
       const dbUpdate = await prismaInstance.appUpdate.findFirst({
         orderBy: { createdAt: 'desc' }
@@ -844,11 +817,7 @@ app.whenReady().then(() => {
   // Admin publish release action
   ipcMain.handle('updater:publish-release', async (event, { version, changelog, fileUrl }) => {
     try {
-      const { PrismaClient } = require('@prisma/client');
-      if (!process.env.DATABASE_URL) {
-        process.env.DATABASE_URL = "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public";
-      }
-      const prismaInstance = new PrismaClient();
+      const prismaInstance = createDbClient(currentDbType, finalDbUrl);
 
       const update = await prismaInstance.appUpdate.upsert({
         where: { version },
