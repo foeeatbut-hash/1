@@ -279,6 +279,8 @@ app.whenReady().then(() => {
           let friendly: string;
           if (rawMsg.includes('malformed') || rawMsg.includes('disk image')) {
             friendly = 'База данных повреждена. Перезапустите приложение — она будет автоматически восстановлена из шаблона.';
+          } else if (rawMsg.includes('Foreign key constraint')) {
+            friendly = 'Сессия устарела: текущий пользователь отсутствует в базе данных. Выйдите из профиля и войдите заново.';
           } else {
             const lines = rawMsg.split('\n').map(l => l.trim()).filter(Boolean);
             friendly = lines[lines.length - 1] || rawMsg;

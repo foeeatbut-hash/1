@@ -2325,6 +2325,8 @@ async function startServer() {
     let friendly = lines[lines.length - 1] || rawMsg;
     if (rawMsg.includes('malformed') || rawMsg.includes('disk image')) {
       friendly = 'База данных повреждена (database disk image is malformed). Перезапустите приложение — база будет автоматически восстановлена из шаблона.';
+    } else if (rawMsg.includes('Foreign key constraint')) {
+      friendly = 'Сессия устарела: текущий пользователь отсутствует в базе данных. Выйдите из профиля и войдите заново.';
     } else if (!prisma || !isPrismaAvailable) {
       friendly = 'База данных не инициализирована: клиент Prisma не был создан при старте. Подробности в backend-init.log.';
     }

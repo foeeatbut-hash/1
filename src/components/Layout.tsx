@@ -21,6 +21,7 @@ export default function Layout() {
   const [dbLocation, setDbLocation] = useState('');
   const [dbDisplayLocation, setDbDisplayLocation] = useState('');
   const [dbType, setDbType] = useState<'LOCAL' | 'REMOTE' | string>('LOCAL');
+  const [activeDbType, setActiveDbType] = useState<'LOCAL' | 'REMOTE' | string>('LOCAL');
   const [remoteUrl, setRemoteUrl] = useState('');
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [isSavingDb, setIsSavingDb] = useState(false);
@@ -34,6 +35,7 @@ export default function Layout() {
         setDbLocation(config.databasePath);
         setDbDisplayLocation(config.displayPath || config.databasePath);
         setDbType(config.current_db_type || 'LOCAL');
+        setActiveDbType(config.current_db_type || 'LOCAL');
         setRemoteUrl(config.database_url || '');
       })
       .catch(() => {});
@@ -60,6 +62,7 @@ export default function Layout() {
         setDbLocation(config.databasePath);
         setDbDisplayLocation(config.displayPath || config.databasePath);
         setDbType(config.current_db_type || 'LOCAL');
+        setActiveDbType(config.current_db_type || 'LOCAL');
         setRemoteUrl(config.database_url || '');
         
         alert(data.message || 'Подключение успешно обновлено!');
@@ -569,7 +572,7 @@ export default function Layout() {
                           onClick={() => handleDbSwitch('LOCAL', '')}
                           className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold py-1 px-3 rounded-lg transition text-center cursor-pointer disabled:opacity-50"
                         >
-                          {isSavingDb ? 'Подключение...' : 'Включить Локальный режим'}
+                          {isSavingDb ? 'Подключение...' : activeDbType === 'LOCAL' ? 'Локальный режим активен ✓' : 'Включить Локальный режим'}
                         </button>
                       </div>
                     ) : (

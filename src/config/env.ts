@@ -31,3 +31,24 @@ export const ENV_CONFIG = {
   socketUrl: isLocalMode ? 'ws://localhost:3000' : 'ws://192.168.1.100:5000',
   updatesUrl: 'http://192.168.1.100/updates/'
 };
+
+// В собранном Electron-приложении страница открывается с диска (file://),
+// поэтому относительные fetch('/api/...') уходят в file:///api/... и всегда
+// падают с "Failed to fetch". Перенаправляем такие запросы на встроенный сервер.
+if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
+  const baseUrl = 'http://localhost:3000';
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    try {
+      if (typeof input === 'string' && input.startsWith('/')) {
+        input = baseUrl + input;
+      } else if (input instanceof URL && input.protocol === 'file:') {
+        input = baseUrl + input.pathname + input.search;
+      } else if (typeof Request !== 'undefined' && input instanceof Request && input.url.startsWith('file://')) {
+        const u = new URL(input.url);
+        input = new Request(baseUrl + u.pathname + u.search, input);
+      }
+    } catch (e) {}
+    return originalFetch(input as any, init);
+  }) as typeof window.fetch;
+}

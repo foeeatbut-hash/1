@@ -1,3 +1,4 @@
+import './config/env'; // должен загружаться первым: ставит fetch-прокси для Electron (file://)
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
