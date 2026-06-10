@@ -16,6 +16,8 @@ model User {
   password         String        @default("password") // Пароль доступа
   name             String        // ФИО сотрудника
   role             String        @default("ENGINEER_VENT") // "ADMIN", "MANAGER", "ENGINEER_VENT", "ENGINEER_AUTO"
+  isActive         Boolean       @default(true) // Профиль включен администратором
+  validUntil       DateTime?     // Срок действия профиля; null = бессрочно
   createdAt        DateTime      @default(now())
   createdFiles     FileNode[]    @relation("FileCreator")
   updatedFiles     FileNode[]    @relation("FileUpdater")

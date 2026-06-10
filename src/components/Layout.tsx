@@ -308,6 +308,29 @@ export default function Layout() {
     navigate('/');
   };
 
+  // Контроль доступа: периодически проверяем, что профиль не отключен и не просрочен.
+  // Выбрасываем из сессии только при явном valid === false (а не при недоступности сервера).
+  React.useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    const verify = async () => {
+      try {
+        const res = await dataService.checkAuth(user.id);
+        if (!cancelled && res && res.valid === false) {
+          addLog('WARN', 'Безопасность', `Сессия завершена: ${res.reason || 'доступ отозван администратором'}`);
+          alert(res.reason || 'Доступ к системе отозван администратором.');
+          handleLogout();
+        }
+      } catch (e) {}
+    };
+    verify();
+    const interval = setInterval(verify, 5 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [user?.id]);
+
   const renderAvatar = (isTrigger: boolean = false) => {
     let borderClass = "";
     let bgClass = "";

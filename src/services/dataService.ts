@@ -10,6 +10,8 @@ export interface User {
   login?: string;
   role: string;
   password?: string;
+  isActive?: boolean;
+  validUntil?: string | Date | null;
   createdAt?: string | Date;
 }
 
@@ -397,11 +399,27 @@ export const dataService = {
     return request<User[]>('/users');
   },
 
-  async createUser(userData: { symbol: string; name: string; role: string; password?: string }): Promise<User> {
+  async createUser(userData: { symbol: string; name: string; role: string; password?: string; validUntil?: string | null; isActive?: boolean }): Promise<User> {
     return request<User>('/users', {
       method: 'POST',
       body: JSON.stringify(userData),
     });
+  },
+
+  async updateUser(id: string, data: { name?: string; role?: string; password?: string; isActive?: boolean; validUntil?: string | null }): Promise<{ success: boolean; user?: User; message?: string }> {
+    return request(`/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteUser(id: string): Promise<{ success: boolean; message?: string }> {
+    return request(`/users/${id}`, { method: 'DELETE' });
+  },
+
+  // Проверка действительности профиля во время работы (таймер/отключение админом)
+  async checkAuth(userId: string): Promise<{ valid: boolean; reason?: string; degraded?: boolean }> {
+    return request(`/auth/check?userId=${encodeURIComponent(userId)}`);
   },
 
   // --- PROJECTS ---

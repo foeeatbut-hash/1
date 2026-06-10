@@ -178,6 +178,7 @@ function ensureHealthyLocalDb(dbPath: string) {
 
   if (!problem) {
     logInit('[DB Health] Проверка целостности локальной базы пройдена успешно.');
+    ensureSchemaColumns(dbPath);
     return;
   }
 
@@ -202,6 +203,32 @@ function ensureHealthyLocalDb(dbPath: string) {
   }
   ensureSQLiteDatabaseExists(dbPath);
   logInit('[DB Health] База данных автоматически восстановлена из чистого шаблона.');
+}
+
+// Догоняющая миграция для существующих баз: добавляем недостающие колонки,
+// появившиеся в новых версиях приложения (db push в продакшене не выполняется)
+function ensureSchemaColumns(dbPath: string) {
+  try {
+    const Database = require('better-sqlite3');
+    const db = new Database(dbPath);
+    try {
+      const cols = db.prepare('PRAGMA table_info("User")').all() as Array<{ name: string }>;
+      if (cols.length > 0) {
+        if (!cols.find(c => c.name === 'isActive')) {
+          db.exec('ALTER TABLE "User" ADD COLUMN "isActive" BOOLEAN NOT NULL DEFAULT true');
+          logInit('[DB Migrate] Добавлена колонка User.isActive');
+        }
+        if (!cols.find(c => c.name === 'validUntil')) {
+          db.exec('ALTER TABLE "User" ADD COLUMN "validUntil" DATETIME');
+          logInit('[DB Migrate] Добавлена колонка User.validUntil');
+        }
+      }
+    } finally {
+      db.close();
+    }
+  } catch (err: any) {
+    logInit(`[DB Migrate Warning] Не удалось проверить/добавить колонки: ${err.message}`);
+  }
 }
 
 function createPrismaClient(dbType: string, dbUrl: string) {
@@ -733,32 +760,6 @@ app.post('/api/login', async (req: Request, res: Response) => {
   const { symbol, password } = req.body;
 
   const normSymbol = String(symbol || '').trim();
-  const normPassword = String(password || '');
-
-  // 1. Зашитые профили пользователей (Hardcoded Fallback Credentials - Исправлен регистр ролей на ADMIN и USER)
-  if (normSymbol === 'KhKh' && normPassword === '121212') {
-    return res.json({
-      success: true,
-      user: {
-        id: 'fallback-admin',
-        name: 'Главный Администратор (KhKh)',
-        symbol: 'KhKh',
-        role: 'ADMIN' // Полный доступ (исправлено на верхний регистр)
-      }
-    });
-  }
-
-  if (normSymbol === 'qwerty' && normPassword === '12') {
-    return res.json({
-      success: true,
-      user: {
-        id: 'fallback-user',
-        name: 'Инженер (qwerty)',
-        symbol: 'qwerty',
-        role: 'USER' // Ограниченный доступ (исправлено на верхний регистр)
-      }
-    });
-  }
 
   // Попытка авторизации через локальную БД, если БД вообще была создана/готова
   try {
@@ -780,6 +781,14 @@ app.post('/api/login', async (req: Request, res: Response) => {
         ));
 
       if (isPasswordCorrect) {
+        // Контроль доступа: профиль может быть отключен администратором или просрочен
+        if (user.isActive === false) {
+          return res.status(403).json({ success: false, message: 'Профиль отключен администратором. Обратитесь к администратору системы.' });
+        }
+        if (user.validUntil && new Date(user.validUntil).getTime() < Date.now()) {
+          const dt = new Date(user.validUntil).toLocaleDateString('ru-RU');
+          return res.status(403).json({ success: false, message: `Срок действия профиля истек ${dt}. Обратитесь к администратору для продления доступа.` });
+        }
         return res.json({ success: true, user });
       } else {
         return res.status(401).json({ success: false, message: 'Неверный пароль доступа!' });
@@ -789,10 +798,35 @@ app.post('/api/login', async (req: Request, res: Response) => {
     }
   } catch (dbErr: any) {
     console.warn('[Login Backend] Database is probably not initialized or SQLite is locked:', dbErr.message);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'База данных еще не инициализирована или не подключена. Пожалуйста, войдите под зашитыми профилями (KhKh / qwerty) или настройте СУБД.' 
+    return res.status(500).json({
+      success: false,
+      message: 'База данных еще не инициализирована или не подключена. Перезапустите приложение или настройте СУБД в настройках подключения.'
     });
+  }
+});
+
+// Периодическая проверка действительности профиля во время работы:
+// фронтенд опрашивает и принудительно завершает сессию, если доступ отозван
+app.get('/api/auth/check', async (req: Request, res: Response) => {
+  const userId = String(req.query.userId || '');
+  if (!userId) {
+    return res.json({ valid: false, reason: 'Не указан идентификатор пользователя.' });
+  }
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.json({ valid: false, reason: 'Профиль не найден в базе данных. Выйдите и войдите заново.' });
+    }
+    if (user.isActive === false) {
+      return res.json({ valid: false, reason: 'Профиль отключен администратором.' });
+    }
+    if (user.validUntil && new Date(user.validUntil).getTime() < Date.now()) {
+      return res.json({ valid: false, reason: `Срок действия профиля истек ${new Date(user.validUntil).toLocaleDateString('ru-RU')}.` });
+    }
+    return res.json({ valid: true });
+  } catch (err: any) {
+    // При временной недоступности БД не выбрасываем пользователя из сессии
+    return res.json({ valid: true, degraded: true });
   }
 });
 
@@ -820,17 +854,77 @@ app.post('/api/users', async (req: Request, res: Response) => {
       });
     }
 
+    const { validUntil, isActive } = req.body;
     const newUser = await prisma.user.create({
       data: {
         symbol: String(symbol),
         name,
         role: role || 'ENGINEER_VENT',
         password: password || 'password',
+        isActive: typeof isActive === 'boolean' ? isActive : true,
+        validUntil: validUntil ? new Date(validUntil) : null,
       }
     });
     res.json(newUser);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Обновление профиля сотрудника: роль, пароль, активность, срок действия
+app.put('/api/users/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, role, password, isActive, validUntil } = req.body;
+
+    const target = await prisma.user.findUnique({ where: { id } });
+    if (!target) {
+      return res.status(404).json({ success: false, message: 'Сотрудник не найден в базе данных.' });
+    }
+
+    // Защита от самоблокировки: нельзя отключить/ограничить последнего активного администратора
+    const willDeactivate = isActive === false || (validUntil && new Date(validUntil).getTime() < Date.now());
+    if (target.role === 'ADMIN' && willDeactivate) {
+      const activeAdmins = await prisma.user.count({
+        where: { role: 'ADMIN', isActive: true, id: { not: id } }
+      });
+      if (activeAdmins === 0) {
+        return res.status(400).json({ success: false, message: 'Нельзя отключить последнего активного администратора — иначе никто не сможет управлять системой.' });
+      }
+    }
+
+    const data: any = {};
+    if (typeof name === 'string' && name.trim()) data.name = name.trim();
+    if (typeof role === 'string' && role) data.role = role;
+    if (typeof password === 'string' && password) data.password = password;
+    if (typeof isActive === 'boolean') data.isActive = isActive;
+    if (validUntil === null || validUntil === '') data.validUntil = null;
+    else if (validUntil) data.validUntil = new Date(validUntil);
+
+    const updated = await prisma.user.update({ where: { id }, data });
+    res.json({ success: true, user: updated });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.delete('/api/users/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const target = await prisma.user.findUnique({ where: { id } });
+    if (!target) {
+      return res.status(404).json({ success: false, message: 'Сотрудник не найден.' });
+    }
+    if (target.role === 'ADMIN') {
+      const otherAdmins = await prisma.user.count({ where: { role: 'ADMIN', isActive: true, id: { not: id } } });
+      if (otherAdmins === 0) {
+        return res.status(400).json({ success: false, message: 'Нельзя удалить последнего администратора.' });
+      }
+    }
+    await prisma.user.delete({ where: { id } });
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
