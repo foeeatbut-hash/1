@@ -3,7 +3,8 @@ import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
-import { Lock, User, Eye, EyeOff, Loader2, AlertCircle, Sun, Moon, Database } from 'lucide-react';
+import { Lock, User, Eye, EyeOff, Loader2, AlertCircle, Sun, Moon, Database, FolderOpen, RotateCcw } from 'lucide-react';
+import { ENV_CONFIG } from '../config/env';
 
 interface LoginProps {
   onConfigureDatabase?: () => void;
@@ -47,6 +48,61 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isDbBusy, setIsDbBusy] = useState(false);
+
+  const isElectronApp = typeof window !== 'undefined' && !!(window as any).electron?.ipcRenderer?.invoke;
+
+  const refreshDbConfig = async () => {
+    try {
+      const config = await dataService.getDbConfig() as any;
+      setDbType(config.current_db_type || 'LOCAL');
+      setDbPath(config.databasePath || '');
+      setDbDisplayPath(config.displayPath || '');
+    } catch (e) {}
+  };
+
+  // Переключение локальной базы на выбранный файл (например, общая БД отдела)
+  const switchLocalDb = async (databasePath: string) => {
+    setIsDbBusy(true);
+    try {
+      const resp = await fetch(`${ENV_CONFIG.apiUrl}/db/switch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ current_db_type: 'LOCAL', database_url: '', database_path: databasePath })
+      });
+      const data = await resp.json();
+      if (data.success) {
+        addToast(databasePath ? 'База данных подключена!' : 'Возвращен стандартный путь базы данных', 'success');
+        await refreshDbConfig();
+      } else {
+        addToast(data.message || 'Не удалось переключить базу данных', 'error');
+      }
+    } catch (err: any) {
+      addToast(`Ошибка подключения базы: ${err.message}`, 'error');
+    } finally {
+      setIsDbBusy(false);
+    }
+  };
+
+  const handlePickDbFile = async () => {
+    if (!isElectronApp) {
+      addToast('Выбор файла базы доступен только в приложении PDM System', 'info');
+      return;
+    }
+    try {
+      const filePath = await (window as any).electron.ipcRenderer.invoke('database:select-file');
+      if (filePath) {
+        await switchLocalDb(String(filePath));
+      }
+    } catch (err: any) {
+      addToast(`Ошибка выбора файла: ${err.message}`, 'error');
+    }
+  };
+
+  const handleResetDbPath = async () => {
+    if (!confirm('Вернуть стандартное расположение базы данных (AppData/pdm-app)?')) return;
+    await switchLocalDb('');
+  };
  
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -220,8 +276,32 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
           
           {dbDisplayPath && (
             <span className="font-mono text-[10px] text-slate-450 dark:text-slate-500 max-w-xs truncate hidden sm:inline" title={dbPath}>
-              ({dbType === 'LOCAL' ? 'database.sqlite' : dbDisplayPath})
+              ({dbDisplayPath})
             </span>
+          )}
+
+          {dbType === 'LOCAL' && (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={isDbBusy}
+                onClick={handlePickDbFile}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-emerald-400 dark:hover:border-emerald-600 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400 transition-all cursor-pointer disabled:opacity-50"
+                title="Подключить существующий файл базы данных (например, общую БД отдела)"
+              >
+                {isDbBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderOpen className="w-3.5 h-3.5" />}
+                <span>Выбрать файл БД…</span>
+              </button>
+              <button
+                type="button"
+                disabled={isDbBusy}
+                onClick={handleResetDbPath}
+                className="p-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-400 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-all cursor-pointer disabled:opacity-50"
+                title="Вернуть стандартный путь базы (AppData/pdm-app)"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            </div>
           )}
         </div>
         
