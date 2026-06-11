@@ -630,7 +630,10 @@ export default function Registry() {
   };
 
   // Safe parse metadata
-  const parseTagMetadata = (tag: any): ParsedMetadata => {
+  // Функция-декларация (hoisted): используется в useMemo выше по коду (incomingByTagId),
+  // который исполняется во время рендера до этой строки. С const возникала бы
+  // временная мёртвая зона (ReferenceError) при заходе на граф.
+  function parseTagMetadata(tag: any): ParsedMetadata {
     if (!tag) {
       return {
         x: Math.floor(Math.random() * 550 + 80),
@@ -667,7 +670,7 @@ export default function Registry() {
     };
     tag.parsedMetadata = fallback;
     return fallback;
-  };
+  }
 
   // Get consolidated actuality status of a Tag based on worst-case sub-description status
   const getTagOverallStatus = (tag: any): 'actual' | 'warning' | 'critical' | 'info' | 'draft' => {
