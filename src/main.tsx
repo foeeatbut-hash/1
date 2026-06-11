@@ -1,5 +1,5 @@
 import './config/env'; // должен загружаться первым: ставит fetch-прокси для Electron (file://)
-import {StrictMode} from 'react';
+import React, {StrictMode, Component, ErrorInfo, ReactNode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
@@ -86,8 +86,68 @@ window.onunhandledrejection = (event) => {
 // Initial log
 useLogStore.getState().addLog('INFO', 'System', 'Система диагностического логирования успешно запущена');
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+// Граница ошибок: вместо немого белого экрана показываем причину и пишем crash-лог
+class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    try {
+      useLogStore.getState().addLog('ERROR', 'UI Crash', `Сбой интерфейса: ${error.message}`, `${error.stack || ''}\n${info.componentStack || ''}`);
+      const win = window as any;
+      if (win.electron?.emergencySave) {
+        win.electron.emergencySave(`[UI CRASH] ${error.message}\n${error.stack || ''}\n${info.componentStack || ''}`);
+      }
+    } catch (_) {}
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f172a', color: '#e2e8f0', fontFamily: 'Inter, system-ui, sans-serif', padding: 24 }}>
+          <div style={{ maxWidth: 560, background: '#1e293b', border: '1px solid #334155', borderRadius: 16, padding: 28 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 10, color: '#f87171' }}>Произошла ошибка интерфейса</div>
+            <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 16 }}>
+              Приложение столкнулось с непредвиденной ошибкой. Перезапустите программу. Если ошибка повторяется — пришлите текст ниже разработчику.
+            </div>
+            <pre style={{ fontSize: 12, color: '#fca5a5', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, padding: 12, maxHeight: 220, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+              {String(this.state.error.message)}
+            </pre>
+            <button
+              onClick={() => { try { (window as any).location.reload(); } catch (_) {} }}
+              style={{ marginTop: 16, padding: '10px 18px', background: '#059669', color: 'white', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}
+            >
+              Перезагрузить
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+try {
+  const rootEl = document.getElementById('root');
+  if (!rootEl) throw new Error('Корневой элемент #root не найден в документе');
+  createRoot(rootEl).render(
+    <StrictMode>
+      <RootErrorBoundary>
+        <App />
+      </RootErrorBoundary>
+    </StrictMode>,
+  );
+} catch (mountErr: any) {
+  // Если даже монтирование упало — показываем текст напрямую, без React
+  const rootEl = document.getElementById('root');
+  if (rootEl) {
+    rootEl.innerHTML = `<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f172a;color:#e2e8f0;font-family:sans-serif;padding:24px"><div style="max-width:560px"><div style="font-size:18px;font-weight:700;color:#f87171;margin-bottom:10px">Не удалось запустить приложение</div><pre style="font-size:12px;color:#fca5a5;white-space:pre-wrap">${String(mountErr?.message || mountErr)}</pre></div></div>`;
+  }
+  try {
+    const win = window as any;
+    if (win.electron?.emergencySave) win.electron.emergencySave(`[MOUNT CRASH] ${mountErr?.message}\n${mountErr?.stack || ''}`);
+  } catch (_) {}
+}
