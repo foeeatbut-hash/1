@@ -2,13 +2,15 @@ import { create } from 'zustand';
 import * as XLSX from 'xlsx';
 import { ENV_CONFIG } from '../config/env';
 import { findKnowledge } from '../assistant/knowledge';
-import { TOURS, findTourByText, Tour } from '../assistant/tours';
+import { TOURS, findTourByText, findBestTour, Tour } from '../assistant/tours';
+import { getSection } from '../assistant/sections';
 
 export interface AssistantAction {
   label: string;
-  kind: 'tour' | 'export-excel' | 'export-word' | 'navigate';
+  kind: 'tour' | 'export-excel' | 'export-word' | 'navigate' | 'ask';
   tourId?: string;
   route?: string;
+  query?: string;
 }
 
 export interface AssistantTable {
@@ -37,6 +39,9 @@ interface AssistantState {
   isOpen: boolean;
   messages: AssistantMessage[];
   loading: boolean;
+  demoMode: boolean;          // режим «Демонстрация»: любой вопрос → ближайшая демонстрация
+  currentRoute: string;
+  greetedRoutes: Record<string, boolean>;
 
   // Состояние демонстрации (тура)
   activeTour: Tour | null;
@@ -48,8 +53,12 @@ interface AssistantState {
 
   toggleOpen: () => void;
   setOpen: (open: boolean) => void;
+  toggleDemoMode: () => void;
+  setRoute: (route: string) => void;
   ask: (text: string) => Promise<void>;
   runAction: (action: AssistantAction) => void;
+  runSuggestion: (s: { kind: 'ask' | 'tour'; query?: string; tourId?: string }) => void;
+  describeCurrentSection: () => void;
   startTour: (tourId: string) => void;
   advanceTour: () => void;
   cancelTour: () => void;
@@ -144,6 +153,13 @@ function exportTableToWord(table: AssistantTable) {
   triggerDownload(new Blob(['﻿', html], { type: 'application/msword' }), `PDM_${ts}.doc`);
 }
 
+// Преобразование подсказки раздела в кнопку-действие сообщения
+function toAction(s: { label: string; kind: 'ask' | 'tour'; query?: string; tourId?: string }): AssistantAction {
+  return s.kind === 'tour'
+    ? { label: s.label, kind: 'tour', tourId: s.tourId }
+    : { label: s.label, kind: 'ask', query: s.query };
+}
+
 export const useAssistantStore = create<AssistantState>((set, get) => ({
   isOpen: false,
   messages: [{
@@ -156,6 +172,9 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
     ],
   }],
   loading: false,
+  demoMode: false,
+  currentRoute: '/',
+  greetedRoutes: {},
   activeTour: null,
   tourStepIndex: 0,
   highlightSelector: null,
@@ -163,8 +182,48 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
 
   toggleOpen: () => set(s => ({ isOpen: !s.isOpen })),
   setOpen: (open) => set({ isOpen: open }),
+  toggleDemoMode: () => set(s => ({ demoMode: !s.demoMode })),
+
+  setRoute: (route) => {
+    const prev = get().currentRoute;
+    set({ currentRoute: route });
+    // Встречаем пользователя при заходе в новый раздел (один раз за сессию), если чат открыт
+    if (route !== prev && get().isOpen) {
+      const sec = getSection(route);
+      if (sec && !get().greetedRoutes[route]) {
+        set(s => ({
+          greetedRoutes: { ...s.greetedRoutes, [route]: true },
+          messages: [...s.messages, {
+            id: uid(), role: 'assistant',
+            text: `${sec.emoji} ${sec.greeting}`,
+            actions: sec.suggestions.map(toAction),
+          }],
+        }));
+      }
+    }
+  },
 
   setHighlight: (selector) => set({ highlightSelector: selector }),
+
+  describeCurrentSection: () => {
+    const sec = getSection(get().currentRoute);
+    if (!sec) return;
+    set(s => ({
+      messages: [...s.messages, {
+        id: uid(), role: 'assistant',
+        text: `${sec.emoji} Раздел «${sec.title}»\n\n${sec.description}`,
+        actions: sec.suggestions.map(toAction),
+      }],
+    }));
+  },
+
+  runSuggestion: (s) => {
+    if (s.kind === 'tour' && s.tourId) {
+      get().startTour(s.tourId);
+    } else if (s.kind === 'ask' && s.query) {
+      get().ask(s.query);
+    }
+  },
 
   ask: async (text) => {
     const clean = text.trim();
@@ -173,7 +232,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
     set(s => ({ messages: [...s.messages, userMsg], loading: true }));
 
     try {
-      const reply = await resolveQuery(clean);
+      const reply = await resolveQuery(clean, get().demoMode);
       set(s => ({ messages: [...s.messages, reply], loading: false, lastTable: reply.table || s.lastTable }));
     } catch (err: any) {
       set(s => ({
@@ -186,6 +245,8 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   runAction: (action) => {
     if (action.kind === 'tour' && action.tourId) {
       get().startTour(action.tourId);
+    } else if (action.kind === 'ask' && action.query) {
+      get().ask(action.query);
     } else if (action.kind === 'export-excel' && get().lastTable) {
       exportTableToExcel(get().lastTable!);
     } else if (action.kind === 'export-word' && get().lastTable) {
@@ -233,8 +294,24 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
 }));
 
 // --- Распознавание запроса (полностью локальное) ---
-async function resolveQuery(text: string): Promise<AssistantMessage> {
+async function resolveQuery(text: string, demoMode = false): Promise<AssistantMessage> {
   const lower = text.toLowerCase();
+
+  // Режим «Демонстрация»: любой вопрос → ближайшая по смыслу демонстрация
+  if (demoMode) {
+    const m = findBestTour(text);
+    if (m && m.tour) {
+      const sure = m.score >= 1.5;
+      return {
+        id: uid(), role: 'assistant',
+        text: sure
+          ? `${m.tour.intro}`
+          : `Похоже, вам подойдёт демонстрация «${m.tour.title}». ${m.tour.intro}`,
+        actions: [{ label: '▶ Показать демонстрацию', kind: 'tour', tourId: m.tour.id }],
+      };
+    }
+    return { id: uid(), role: 'assistant', text: 'Не нашёл подходящую демонстрацию. Попробуйте переформулировать — например, «как добавить тег» или «как импортировать оборудование».' };
+  }
 
   // 0. Вопрос-определение ("что такое", "для чего", "объясни") -> сразу справка,
   //    чтобы "что такое реестр тегов" не уходило в выборку данных

@@ -27,7 +27,7 @@ const LogsManagement = lazy(() => import('./screens/LogsManagement'));
 import { SocketProvider } from './components/SocketProvider';
 import ActionLogWidget from './components/ActionLogWidget';
 import AssistantSpotlight from './components/AssistantSpotlight';
-import { setAssistantNavigator, setAssistantProjectGetter } from './store/assistantStore';
+import { setAssistantNavigator, setAssistantProjectGetter, useAssistantStore } from './store/assistantStore';
 
 function ScreenLoader() {
   return (
@@ -66,6 +66,11 @@ function AnimatedRoutes() {
     setAssistantNavigator((path: string) => navigate(path));
     setAssistantProjectGetter(() => useStore.getState().activeProject?.id || null);
   }, [navigate]);
+
+  // Сообщаем ассистенту текущий раздел (для контекстной встречи и подсказок)
+  React.useEffect(() => {
+    useAssistantStore.getState().setRoute(location.pathname);
+  }, [location.pathname]);
 
   // Save the user's active route path when they interact
   React.useEffect(() => {
