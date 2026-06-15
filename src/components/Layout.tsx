@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
-import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal } from 'lucide-react';
+import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ToastProvider from './ToastProvider';
 import ModalProvider from './ModalProvider';
 import UpdaterWidget from './UpdaterWidget';
 import { dataService } from '../services/dataService';
 import { useLogStore } from '../store/logStore';
+import { useAssistantStore } from '../store/assistantStore';
 import { ENV_CONFIG } from '../config/env';
 
 export default function Layout() {
@@ -29,6 +30,7 @@ export default function Layout() {
   const [dbStatusMessage, setDbStatusMessage] = useState<{ text: string; success: boolean } | null>(null);
 
   const addLog = useLogStore((state) => state.addLog);
+  const toggleAssistant = useAssistantStore((s) => s.toggleOpen);
 
   React.useEffect(() => {
     dataService.getDbConfig()
@@ -455,9 +457,10 @@ export default function Layout() {
                 <Link
                   key={item.path}
                   to={item.path}
+                  data-tour={`nav-${item.path}`}
                   className={`flex items-center gap-3 px-3 py-2 rounded-md transition-all ${
-                    active 
-                      ? 'bg-emerald-700 text-white font-medium shadow-xs' 
+                    active
+                      ? 'bg-emerald-700 text-white font-medium shadow-xs'
                       : 'hover:bg-slate-100 dark:hover:bg-dark-panel text-slate-600 dark:text-dark-text-muted hover:text-slate-900 dark:hover:text-dark-text-main'
                   }`}
                 >
@@ -505,9 +508,10 @@ export default function Layout() {
                       <Link
                         key={item.path}
                         to={item.path}
+                        data-tour={`nav-${item.path}`}
                         className={`flex items-center gap-2.5 px-3 py-1.5 rounded-md transition-all ${
-                          active 
-                            ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-400 font-semibold border-l-2 border-emerald-500' 
+                          active
+                            ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-400 font-semibold border-l-2 border-emerald-500'
                             : 'text-slate-500 dark:text-dark-text-muted hover:text-slate-800 dark:hover:text-dark-text-main hover:bg-slate-100 dark:hover:bg-dark-panel'
                         }`}
                       >
@@ -807,6 +811,18 @@ export default function Layout() {
             <span className="text-xs font-bold font-sans">Menu</span>
           </button>
         )}
+
+        {/* Кнопка вызова встроенного ИИ-помощника */}
+        <button
+          type="button"
+          data-tour="assistant-btn"
+          onClick={() => toggleAssistant()}
+          className="absolute right-4 top-4 z-40 flex items-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl shadow-lg border border-emerald-500/40 transition-all cursor-pointer"
+          title="Открыть помощника"
+        >
+          <Sparkles className="w-4 h-4" />
+          <span className="text-xs font-bold font-sans hidden sm:inline">Помощник</span>
+        </button>
         <div className={`flex-1 flex flex-col min-h-0 ${location.pathname === '/registry' || location.pathname === '/chat' || location.pathname === '/directory' ? 'overflow-hidden h-full' : 'overflow-y-auto'} ${isSidebarCollapsed ? 'pt-16 p-6' : 'p-6'}`}>
           <Outlet />
         </div>

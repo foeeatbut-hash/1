@@ -1895,6 +1895,7 @@ export default function Registry() {
                 <input
                   type="text"
                   required
+                  data-tour="tag-code-input"
                   placeholder="Код тега"
                   value={newTagIdentifier}
                   onChange={handleTagIdentifierChange}
@@ -2012,6 +2013,7 @@ export default function Registry() {
               {/* Submit create button */}
               <button
                 type="submit"
+                data-tour="tag-create-btn"
                 disabled={!isIdentifierUnique || !newTagIdentifier || !newTagBrand.trim()}
                 className={`p-1.5 rounded-lg text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1 cursor-pointer shrink-0 h-8 flex-1 border-none ${
                   isIdentifierUnique && newTagIdentifier && newTagBrand.trim()

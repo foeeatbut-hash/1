@@ -26,6 +26,9 @@ const LogsManagement = lazy(() => import('./screens/LogsManagement'));
 
 import { SocketProvider } from './components/SocketProvider';
 import ActionLogWidget from './components/ActionLogWidget';
+import AssistantPanel from './components/AssistantPanel';
+import AssistantSpotlight from './components/AssistantSpotlight';
+import { setAssistantNavigator, setAssistantProjectGetter } from './store/assistantStore';
 
 function ScreenLoader() {
   return (
@@ -58,6 +61,12 @@ function AnimatedRoutes() {
   const user = useStore((state) => state.user);
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Регистрируем навигатор и доступ к активному проекту для встроенного ассистента
+  React.useEffect(() => {
+    setAssistantNavigator((path: string) => navigate(path));
+    setAssistantProjectGetter(() => useStore.getState().activeProject?.id || null);
+  }, [navigate]);
 
   // Save the user's active route path when they interact
   React.useEffect(() => {
@@ -126,6 +135,8 @@ export default function App() {
           </div>
         </div>
         <ActionLogWidget />
+        <AssistantPanel />
+        <AssistantSpotlight />
       </SocketProvider>
     </Router>
   );

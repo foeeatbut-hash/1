@@ -313,6 +313,7 @@ export default function NotesManagement() {
             </h2>
             <button
               onClick={handleCreateNote}
+              data-tour="note-create-btn"
               className="p-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg cursor-pointer transition-all flex items-center justify-center shadow-xs"
               title="Создать заметку"
             >

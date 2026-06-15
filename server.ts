@@ -31,7 +31,7 @@ function getVentAppDataPath(): string {
       }
       return targetDir;
     } else {
-      // В режиме разработки используем локальную папку проекта для удобства тестирования в AI Studio
+      // В режиме разработки используем локальную папку проекта для удобства тестирования
       const devDir = path.join(process.cwd(), 'database');
       if (!fs.existsSync(devDir)) {
         fs.mkdirSync(devDir, { recursive: true });
@@ -838,6 +838,73 @@ app.get('/api/auth/check', async (req: Request, res: Response) => {
   } catch (err: any) {
     // При временной недоступности БД не выбрасываем пользователя из сессии
     return res.json({ valid: true, degraded: true });
+  }
+});
+
+// Агрегатор данных для встроенного локального ассистента: одним запросом
+// отдаёт теги, плоский список оборудования и счётчики по активному проекту
+app.get('/api/assistant/data', async (req: Request, res: Response) => {
+  try {
+    let projectId = String(req.query.projectId || '');
+    if (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default') {
+      const firstProject = await prisma.project.findFirst();
+      projectId = firstProject ? firstProject.id : '';
+    }
+
+    const [projects, tags, systems, usersCount, notesCount, foldersCount, filesCount] = await Promise.all([
+      prisma.project.findMany({ select: { id: true, name: true, status: true } }),
+      projectId ? prisma.tag.findMany({ where: { projectId } }) : Promise.resolve([]),
+      projectId ? prisma.equipmentSystem.findMany({
+        where: { projectId },
+        include: { monoblocks: { include: { components: { include: { tags: true } } } } }
+      }) : Promise.resolve([]),
+      prisma.user.count(),
+      prisma.userNote.count(),
+      projectId ? prisma.folder.count({ where: { projectId } }) : Promise.resolve(0),
+      prisma.fileNode.count(),
+    ]);
+
+    // Плоский список компонентов оборудования с привязанными тегами
+    const components: any[] = [];
+    for (const sys of systems as any[]) {
+      for (const mono of (sys.monoblocks || [])) {
+        for (const comp of (mono.components || [])) {
+          components.push({
+            id: comp.id,
+            name: comp.name,
+            itemCode: comp.itemCode,
+            systemName: sys.name,
+            category: sys.category,
+            monoblockName: mono.name,
+            status: comp.status,
+            hasConflict: comp.hasConflict,
+            tags: (comp.tags || []).map((t: any) => t.identifier),
+          });
+        }
+      }
+    }
+
+    res.json({
+      projectId,
+      projects,
+      tags: (tags as any[]).map((t: any) => ({
+        id: t.id, identifier: t.identifier, brand: t.brand,
+        department: t.department, wbs: t.wbs, fluid: t.fluid,
+      })),
+      components,
+      counts: {
+        tags: (tags as any[]).length,
+        components: components.length,
+        systems: (systems as any[]).length,
+        users: usersCount,
+        notes: notesCount,
+        folders: foldersCount,
+        files: filesCount,
+        projects: (projects as any[]).length,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 

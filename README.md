@@ -1,20 +1,29 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# PDM System (MAX)
 
-# Run and deploy your AI Studio app
+Корпоративная инженерная система управления данными (PDM/EDMS): проекты,
+документооборот, реестр тегов и оборудования, файловый проводник, рабочий
+чат и встроенный локальный ИИ-ассистент.
 
-This contains everything you need to run your app locally.
+Приложение работает **полностью локально** (Electron + встроенный Express +
+SQLite через Prisma). Внешние ИИ-сервисы не используются.
 
-View your app in AI Studio: https://ai.studio/apps/cbb0dc15-6604-47d3-b718-c92a17f6070a
+## Запуск в разработке
 
-## Run Locally
+```bash
+npm install
+npm run dev      # поднимает сервер + Vite на http://localhost:3000
+```
 
-**Prerequisites:**  Node.js
+## Сборка portable-приложения (Windows)
 
+```bash
+npm run dist     # собирает фронтенд, сервер, Electron и portable .exe
+```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+Готовый exe появится в папке `release/`.
+
+## Данные
+
+Локальная база `database.sqlite` создаётся в `%APPDATA%/pdm-app` при первом
+запуске. Путь можно изменить на экране входа («Выбрать файл БД…») или в
+профиле пользователя.
