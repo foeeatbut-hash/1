@@ -236,6 +236,14 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
 async function resolveQuery(text: string): Promise<AssistantMessage> {
   const lower = text.toLowerCase();
 
+  // 0. Вопрос-определение ("что такое", "для чего", "объясни") -> сразу справка,
+  //    чтобы "что такое реестр тегов" не уходило в выборку данных
+  const isInfoQuestion = /(что так|что эт|для чего|зачем|расскажи|объясни|чем отлич|что значит|как работает)/.test(lower);
+  if (isInfoQuestion) {
+    const knowledge = findKnowledge(lower);
+    if (knowledge) return { id: uid(), role: 'assistant', text: knowledge };
+  }
+
   // 1. Демонстрация: "как ...", "покажи как", "демонстрация"
   const wantsTour = /(\bкак\b|демонстрац|научи|покажи как|инструкц)/.test(lower);
   if (wantsTour) {
@@ -248,9 +256,10 @@ async function resolveQuery(text: string): Promise<AssistantMessage> {
     }
   }
 
-  // 2. Запрос данных: "покажи/список/сколько/найди ..." или упоминание сущностей
-  const wantsData = /(покажи|список|сколько|выгруз|найд|дай|сформируй|выведи|все|всё)/.test(lower)
-    || /(тег|оборудован|компонент|вентилятор|короб|клапан|проект|систем)/.test(lower);
+  // 2. Запрос данных: явный глагол выборки или упоминание сущности с "все/список"
+  const hasDataVerb = /(покажи|показать|список|сколько|количеств|выгруз|экспорт|найд|дай|сформируй|выведи|собери|все\b|всё\b|выбор)/.test(lower);
+  const hasEntity = /(тег|оборудован|компонент|вентилятор|короб|клапан|проект|систем|моноблок|аху|ahu)/.test(lower);
+  const wantsData = hasDataVerb || hasEntity;
   if (wantsData) {
     const data = await fetchAssistantData();
 

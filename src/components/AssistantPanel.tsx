@@ -81,8 +81,6 @@ export default function AssistantPanel() {
     if (isOpen) endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isOpen, loading]);
 
-  if (!isOpen) return null;
-
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const text = input.trim();
@@ -92,7 +90,11 @@ export default function AssistantPanel() {
   };
 
   return (
-    <div className="fixed right-0 top-0 bottom-0 z-[9990] w-[380px] max-w-[92vw] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
+    // Раздвижная панель справа — как левый сайдбар: меняет ширину и сдвигает контент
+    <aside
+      className={`${isOpen ? 'w-[380px] opacity-100' : 'w-0 opacity-0 pointer-events-none'} shrink-0 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col transition-all duration-300 overflow-hidden`}
+    >
+      <div className="w-[380px] h-full flex flex-col shrink-0">
       {/* Шапка */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-emerald-600/10 to-transparent shrink-0">
         <div className="flex items-center gap-2">
@@ -168,6 +170,7 @@ export default function AssistantPanel() {
           <Send className="w-4 h-4" />
         </button>
       </form>
-    </div>
+      </div>
+    </aside>
   );
 }

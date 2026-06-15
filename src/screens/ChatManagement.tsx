@@ -1158,6 +1158,7 @@ export default function ChatManagement() {
                 <input
                   type="text"
                   ref={messageInputRef}
+                  data-tour="chat-input"
                   placeholder="Напишите сообщение... (например, введите # и выберите тег)"
                   value={messageText}
                   onKeyDown={(e) => {

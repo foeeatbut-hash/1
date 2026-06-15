@@ -9,6 +9,7 @@ import UpdaterWidget from './UpdaterWidget';
 import { dataService } from '../services/dataService';
 import { useLogStore } from '../store/logStore';
 import { useAssistantStore } from '../store/assistantStore';
+import AssistantPanel from './AssistantPanel';
 import { ENV_CONFIG } from '../config/env';
 
 export default function Layout() {
@@ -473,6 +474,7 @@ export default function Layout() {
             {user && user.role === 'ADMIN' && (
               <Link
                 to="/users"
+                data-tour="nav-/users"
                 className={`flex items-center gap-3 px-3 py-2 rounded-md transition-all ${
                   location.pathname === '/users'
                     ? 'bg-emerald-700 text-white font-medium shadow-xs hover:text-white'
@@ -489,8 +491,9 @@ export default function Layout() {
             </div>
             
             <div className="space-y-1">
-              <button 
+              <button
                 onClick={() => setEqOpen(!eqOpen)}
+                data-tour="eq-group"
                 className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-slate-600 dark:text-dark-text-muted hover:text-slate-900 dark:hover:text-dark-text-main hover:bg-slate-100 dark:hover:bg-dark-panel rounded-md transition-colors"
               >
                 <div className="flex items-center gap-3 font-medium">
@@ -776,6 +779,7 @@ export default function Layout() {
           {/* Interactive Profile Clickable Button (Trigger) */}
           <button
             type="button"
+            data-tour="profile-btn"
             onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
             className={`w-full flex items-center justify-between p-2 rounded-xl transition-all cursor-pointer text-left select-none outline-none group ${
               isProfileMenuOpen 
@@ -827,6 +831,10 @@ export default function Layout() {
           <Outlet />
         </div>
       </main>
+
+      {/* Раздвижная панель ИИ-помощника справа — сдвигает основной контент */}
+      <AssistantPanel />
+
       <ToastProvider />
       <ModalProvider />
     </div>

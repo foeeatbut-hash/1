@@ -26,7 +26,6 @@ const LogsManagement = lazy(() => import('./screens/LogsManagement'));
 
 import { SocketProvider } from './components/SocketProvider';
 import ActionLogWidget from './components/ActionLogWidget';
-import AssistantPanel from './components/AssistantPanel';
 import AssistantSpotlight from './components/AssistantSpotlight';
 import { setAssistantNavigator, setAssistantProjectGetter } from './store/assistantStore';
 
@@ -135,7 +134,6 @@ export default function App() {
           </div>
         </div>
         <ActionLogWidget />
-        <AssistantPanel />
         <AssistantSpotlight />
       </SocketProvider>
     </Router>
