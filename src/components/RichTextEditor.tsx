@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Bold, Italic, Underline, Strikethrough, List, ListOrdered, Table, Grid2X2, Plus, Minus, Check, Minimize2 } from 'lucide-react';
+import { Bold, Italic, Underline, Strikethrough, List, ListOrdered, Table, Plus, Minus, Check, AlignLeft, AlignCenter, AlignRight, AlignJustify, Undo2, Redo2, Eraser, Baseline, Highlighter, Indent, Outdent } from 'lucide-react';
 
 interface RichTextEditorProps {
   value: string;
@@ -23,6 +23,15 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
   const [tableRows, setTableRows] = useState(3);
   const [tableCols, setTableCols] = useState(3);
   const [showTableModal, setShowTableModal] = useState(false);
+  const [showColorPalette, setShowColorPalette] = useState<null | 'text' | 'highlight'>(null);
+
+  const TEXT_COLORS = ['#0f172a', '#dc2626', '#ea580c', '#ca8a04', '#16a34a', '#0284c7', '#7c3aed', '#db2777'];
+  const HIGHLIGHT_COLORS = ['#fef08a', '#bbf7d0', '#bfdbfe', '#fbcfe8', '#fed7aa', '#e9d5ff', 'transparent'];
+
+  // Цветовое форматирование через span со style (а не <font>)
+  useEffect(() => {
+    try { document.execCommand('styleWithCSS', false, 'true'); } catch (e) {}
+  }, []);
 
   // Sync value from parent with local state to avoid losing cursor focus
   useEffect(() => {
@@ -203,6 +212,114 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
 
         <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800 mx-1" />
 
+        {/* Заголовки и размер шрифта */}
+        <select
+          onChange={(e) => { if (e.target.value) { executeCommand('formatBlock', e.target.value); e.target.value = ''; } }}
+          defaultValue=""
+          className="h-7 px-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 cursor-pointer outline-none"
+          title="Стиль абзаца"
+        >
+          <option value="" disabled>Стиль</option>
+          <option value="p">Обычный</option>
+          <option value="h1">Заголовок 1</option>
+          <option value="h2">Заголовок 2</option>
+          <option value="h3">Заголовок 3</option>
+          <option value="blockquote">Цитата</option>
+        </select>
+
+        <select
+          onChange={(e) => { if (e.target.value) { executeCommand('fontSize', e.target.value); e.target.value = ''; } }}
+          defaultValue=""
+          className="h-7 px-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 cursor-pointer outline-none"
+          title="Размер текста"
+        >
+          <option value="" disabled>Размер</option>
+          <option value="1">Мелкий</option>
+          <option value="3">Обычный</option>
+          <option value="5">Крупный</option>
+          <option value="7">Очень крупный</option>
+        </select>
+
+        <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800 mx-1" />
+
+        {/* Цвет текста и выделение */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowColorPalette(showColorPalette === 'text' ? null : 'text')}
+            className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 cursor-pointer"
+            title="Цвет текста"
+          >
+            <Baseline className="w-4 h-4" />
+          </button>
+          {showColorPalette === 'text' && (
+            <div className="absolute top-full left-0 mt-1 p-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl flex gap-1 z-50">
+              {TEXT_COLORS.map(c => (
+                <button
+                  key={c}
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); executeCommand('foreColor', c); setShowColorPalette(null); }}
+                  className="w-5 h-5 rounded border border-slate-200 dark:border-slate-700 cursor-pointer hover:scale-110 transition-transform"
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowColorPalette(showColorPalette === 'highlight' ? null : 'highlight')}
+            className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 cursor-pointer"
+            title="Цвет выделения (маркер)"
+          >
+            <Highlighter className="w-4 h-4" />
+          </button>
+          {showColorPalette === 'highlight' && (
+            <div className="absolute top-full left-0 mt-1 p-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl flex gap-1 z-50">
+              {HIGHLIGHT_COLORS.map(c => (
+                <button
+                  key={c}
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); executeCommand('hiliteColor', c); setShowColorPalette(null); }}
+                  className="w-5 h-5 rounded border border-slate-300 dark:border-slate-600 cursor-pointer hover:scale-110 transition-transform"
+                  style={{ backgroundColor: c === 'transparent' ? 'white' : c, backgroundImage: c === 'transparent' ? 'linear-gradient(45deg, transparent 45%, #f43f5e 45%, #f43f5e 55%, transparent 55%)' : undefined }}
+                  title={c === 'transparent' ? 'Убрать выделение' : undefined}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800 mx-1" />
+
+        {/* Выравнивание */}
+        <button type="button" onClick={() => executeCommand('justifyLeft')} className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 cursor-pointer" title="По левому краю">
+          <AlignLeft className="w-4 h-4" />
+        </button>
+        <button type="button" onClick={() => executeCommand('justifyCenter')} className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 cursor-pointer" title="По центру">
+          <AlignCenter className="w-4 h-4" />
+        </button>
+        <button type="button" onClick={() => executeCommand('justifyRight')} className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 cursor-pointer" title="По правому краю">
+          <AlignRight className="w-4 h-4" />
+        </button>
+        <button type="button" onClick={() => executeCommand('justifyFull')} className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 cursor-pointer" title="По ширине">
+          <AlignJustify className="w-4 h-4" />
+        </button>
+
+        <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800 mx-1" />
+
+        {/* Отступы */}
+        <button type="button" onClick={() => executeCommand('indent')} className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 cursor-pointer" title="Увеличить отступ">
+          <Indent className="w-4 h-4" />
+        </button>
+        <button type="button" onClick={() => executeCommand('outdent')} className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 cursor-pointer" title="Уменьшить отступ">
+          <Outdent className="w-4 h-4" />
+        </button>
+
+        <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800 mx-1" />
+
         {/* Lists */}
         <button
           type="button"
@@ -273,6 +390,19 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
         >
           <Minus className="w-3 h-3 text-rose-500" />
           <span>Столбец</span>
+        </button>
+
+        <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800 mx-1" />
+
+        {/* История и очистка форматирования */}
+        <button type="button" onClick={() => executeCommand('undo')} className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 cursor-pointer" title="Отменить (Ctrl+Z)">
+          <Undo2 className="w-4 h-4" />
+        </button>
+        <button type="button" onClick={() => executeCommand('redo')} className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 cursor-pointer" title="Повторить (Ctrl+Y)">
+          <Redo2 className="w-4 h-4" />
+        </button>
+        <button type="button" onClick={() => { executeCommand('removeFormat'); executeCommand('formatBlock', 'p'); }} className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 cursor-pointer" title="Очистить форматирование">
+          <Eraser className="w-4 h-4" />
         </button>
       </div>
 

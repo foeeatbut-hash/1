@@ -227,6 +227,19 @@ export default function Registry() {
     return map;
   }, [tags]);
 
+  // Входящие связи: к карточке могут вести линии от нескольких родителей
+  const incomingByTagId = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const t of tags) {
+      const meta = parseTagMetadata(t);
+      for (const childId of (meta.connections || [])) {
+        if (!map[childId]) map[childId] = [];
+        map[childId].push(t.id);
+      }
+    }
+    return map;
+  }, [tags]);
+
   // Filter/Search
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -617,7 +630,10 @@ export default function Registry() {
   };
 
   // Safe parse metadata
-  const parseTagMetadata = (tag: any): ParsedMetadata => {
+  // Функция-декларация (hoisted): используется в useMemo выше по коду (incomingByTagId),
+  // который исполняется во время рендера до этой строки. С const возникала бы
+  // временная мёртвая зона (ReferenceError) при заходе на граф.
+  function parseTagMetadata(tag: any): ParsedMetadata {
     if (!tag) {
       return {
         x: Math.floor(Math.random() * 550 + 80),
@@ -654,7 +670,7 @@ export default function Registry() {
     };
     tag.parsedMetadata = fallback;
     return fallback;
-  };
+  }
 
   // Get consolidated actuality status of a Tag based on worst-case sub-description status
   const getTagOverallStatus = (tag: any): 'actual' | 'warning' | 'critical' | 'info' | 'draft' => {
@@ -922,37 +938,42 @@ export default function Registry() {
         animatingRef.current = true;
         requestAnimationFrame(() => {
           animatingRef.current = false;
-          
+
+          // Читаем позицию из ref в момент кадра: между планированием rAF и самим кадром
+          // могли прийти новые mousemove — иначе карточка отстает на событие
+          const livePos = cardPositionsRef.current[draggedTagId];
+          if (!livePos) return;
+
           // 1. Direct card DOM manipulation
           const cardEl = document.getElementById(`tag-card-${draggedTagId}`);
           if (cardEl) {
-            cardEl.style.transform = `translate(${newX}px, ${newY}px)`;
+            cardEl.style.transform = `translate(${livePos.x}px, ${livePos.y}px)`;
           }
 
           // 2. Direct lines DOM manipulation (all lines connected to this card)
           const targetTag = tagsById[draggedTagId];
           if (targetTag) {
             const tempMeta = parseTagMetadata(targetTag);
-            
+
             // Outgoing lines from this card to its children (Right Port)
             const currentConnections = tempMeta.connections || [];
             currentConnections.forEach((childId: string) => {
               const childTag = tagsById[childId];
               if (childTag) {
                 const childPos = cardPositionsRef.current[childId] || parseTagMetadata(childTag);
-                updateLinePathDOM(draggedTagId, childId, newX, newY, childPos.x, childPos.y);
+                updateLinePathDOM(draggedTagId, childId, livePos.x, livePos.y, childPos.x, childPos.y);
               }
             });
 
-            // Incoming line from its parent to this card (Left Port)
-            const parentId = tempMeta.parentId;
-            if (parentId) {
+            // Incoming lines: все родители, чьи connections указывают на эту карточку
+            const parents = incomingByTagId[draggedTagId] || [];
+            parents.forEach((parentId: string) => {
               const parentTag = tagsById[parentId];
               if (parentTag) {
                 const parentPos = cardPositionsRef.current[parentId] || parseTagMetadata(parentTag);
-                updateLinePathDOM(parentId, draggedTagId, parentPos.x, parentPos.y, newX, newY);
+                updateLinePathDOM(parentId, draggedTagId, parentPos.x, parentPos.y, livePos.x, livePos.y);
               }
-            }
+            });
           }
         });
       }
@@ -1874,6 +1895,7 @@ export default function Registry() {
                 <input
                   type="text"
                   required
+                  data-tour="tag-code-input"
                   placeholder="Код тега"
                   value={newTagIdentifier}
                   onChange={handleTagIdentifierChange}
@@ -1991,6 +2013,7 @@ export default function Registry() {
               {/* Submit create button */}
               <button
                 type="submit"
+                data-tour="tag-create-btn"
                 disabled={!isIdentifierUnique || !newTagIdentifier || !newTagBrand.trim()}
                 className={`p-1.5 rounded-lg text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1 cursor-pointer shrink-0 h-8 flex-1 border-none ${
                   isIdentifierUnique && newTagIdentifier && newTagBrand.trim()
@@ -2149,6 +2172,10 @@ export default function Registry() {
                       const targetTag = tagsById[targetId];
                       if (!targetTag) return null;
                       const targetMeta = parseTagMetadata(targetTag);
+                      // Живые координаты: во время перетаскивания позиции лежат в ref,
+                      // иначе ре-рендер (hover и т.п.) вернул бы линию в устаревшую точку
+                      const liveSource = cardPositionsRef.current[tag.id] || sourceMeta;
+                      const liveTarget = cardPositionsRef.current[targetId] || targetMeta;
 
                       // If we are currently reconnecting this specific line, do not draw it in the main layer
                       if (reconnectingConnectionRef.current && 
@@ -2158,12 +2185,12 @@ export default function Registry() {
                       }
 
                       // Source represents Parent Node output (Right Port)
-                      const startX = sourceMeta.x + 330;
-                      const startY = sourceMeta.y + 22;
+                      const startX = liveSource.x + 330;
+                      const startY = liveSource.y + 22;
 
                       // Target represents slave (Left Port)
-                      const endX = targetMeta.x;
-                      const endY = targetMeta.y + 22;
+                      const endX = liveTarget.x;
+                      const endY = liveTarget.y + 22;
 
                       // Perfect curves
                       const dx = Math.abs(endX - startX);
@@ -2178,7 +2205,7 @@ export default function Registry() {
                         <g 
                           key={`${tag.id}-${targetId}`} 
                           className="pointer-events-auto group"
-                          onMouseEnter={() => setHoveredConnection({ sourceId: tag.id, targetId })}
+                          onMouseEnter={() => { if (draggedTagId) return; setHoveredConnection({ sourceId: tag.id, targetId }); }}
                           onMouseLeave={() => setHoveredConnection(null)}
                         >
                           {/* Invisible thick path for easy hovering and clicking */}
@@ -2204,7 +2231,7 @@ export default function Registry() {
                               stroke={isSelected ? '#6366f1' : '#10b981'} // Indigo for selected, emerald for hovered
                               strokeOpacity={isSelected ? 0.8 : 0.4}
                               strokeWidth={isSelected ? '6' : '5'}
-                              className="transition-all duration-150"
+                              className="transition-colors duration-150"
                             />
                           )}
 
@@ -2216,7 +2243,7 @@ export default function Registry() {
                             stroke={isSelected ? '#4f46e5' : (theme === 'dark' ? '#34d399' : '#059669')}
                             strokeOpacity={theme === 'dark' ? 0.8 : 0.9}
                             strokeWidth={isSelected ? "3" : "2.5"}
-                            className="cursor-pointer transition-all duration-150"
+                            className="cursor-pointer transition-colors duration-150"
                             onClick={(e) => {
                               e.stopPropagation();
                               setSelectedConnection({ sourceId: tag.id, targetId });
@@ -2299,9 +2326,12 @@ export default function Registry() {
                             ? 'ring-2 ring-emerald-500 border-emerald-500 shadow-xl z-30' 
                             : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 shadow-xs hover:shadow-md z-10 text-slate-900 dark:text-slate-100'
                         }`}
-                        style={{ 
-                          transform: `translate(${meta.x}px, ${meta.y}px)`,
-                          left: 0, 
+                        style={{
+                          transform: (() => {
+                            const live = cardPositionsRef.current[tag.id] || meta;
+                            return `translate(${live.x}px, ${live.y}px)`;
+                          })(),
+                          left: 0,
                           top: 0
                         }}
                         onMouseDown={(e) => handleTagMouseDown(e, tag.id, meta)}
@@ -2314,7 +2344,7 @@ export default function Registry() {
                               : 'bg-slate-200 dark:bg-slate-800'
                           }`}
                           onMouseDown={(e) => handlePortMouseDown(e, tag.id, 'left')}
-                          onMouseEnter={() => setHoveredPort({ tagId: tag.id, side: 'left' })}
+                          onMouseEnter={() => { if (draggedTagId) return; setHoveredPort({ tagId: tag.id, side: 'left' }); }}
                           onMouseLeave={() => setHoveredPort(null)}
                           title="Родительский ввод (Left Port)"
                         >
@@ -2328,7 +2358,7 @@ export default function Registry() {
                               : 'bg-slate-200 dark:bg-slate-800'
                           }`}
                           onMouseDown={(e) => handlePortMouseDown(e, tag.id, 'right')}
-                          onMouseEnter={() => setHoveredPort({ tagId: tag.id, side: 'right' })}
+                          onMouseEnter={() => { if (draggedTagId) return; setHoveredPort({ tagId: tag.id, side: 'right' }); }}
                           onMouseLeave={() => setHoveredPort(null)}
                           title="Дочерний выход (Right Port)"
                         >

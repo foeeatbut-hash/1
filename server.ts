@@ -31,7 +31,7 @@ function getVentAppDataPath(): string {
       }
       return targetDir;
     } else {
-      // В режиме разработки используем локальную папку проекта для удобства тестирования в AI Studio
+      // В режиме разработки используем локальную папку проекта для удобства тестирования
       const devDir = path.join(process.cwd(), 'database');
       if (!fs.existsSync(devDir)) {
         fs.mkdirSync(devDir, { recursive: true });
@@ -144,6 +144,104 @@ function buildSqliteAdapter(dbUrl: string) {
   return new PrismaBetterSqlite3({ url: cleanUrl, timeout: 15000 });
 }
 
+// Полная проверка целостности локальной SQLite-базы с автоматическим восстановлением.
+// SELECT 1 проходит даже на битом файле, поэтому используем PRAGMA integrity_check.
+function ensureHealthyLocalDb(dbPath: string) {
+  if (!fs.existsSync(dbPath)) {
+    logInit('[DB Health] Файл базы данных отсутствует — создаем из шаблона...');
+    ensureSQLiteDatabaseExists(dbPath);
+    return;
+  }
+
+  let problem = '';
+  try {
+    const Database = require('better-sqlite3');
+    const db = new Database(dbPath);
+    try {
+      const integrity = db.pragma('integrity_check') as Array<{ integrity_check: string }>;
+      const ok = Array.isArray(integrity) && integrity.length > 0 &&
+        String(integrity[0].integrity_check ?? integrity[0]).toLowerCase() === 'ok';
+      if (!ok) {
+        problem = `integrity_check провален: ${JSON.stringify(integrity).slice(0, 300)}`;
+      } else {
+        const tables = db.prepare("SELECT count(*) AS c FROM sqlite_master WHERE type='table'").get() as { c: number };
+        if (!tables || tables.c === 0) {
+          problem = 'файл базы пуст — таблицы отсутствуют';
+        }
+      }
+    } finally {
+      db.close();
+    }
+  } catch (err: any) {
+    problem = `файл не открывается как SQLite-база (${err.message})`;
+  }
+
+  if (!problem) {
+    logInit('[DB Health] Проверка целостности локальной базы пройдена успешно.');
+    ensureSchemaColumns(dbPath);
+    return;
+  }
+
+  logInit(`[DB Health] ВНИМАНИЕ: локальная база данных повреждена — ${problem}. Запускаю автоматическое восстановление.`);
+  const backupPath = `${dbPath}.corrupt-${Date.now()}.bak`;
+  try {
+    fs.renameSync(dbPath, backupPath);
+    logInit(`[DB Health] Поврежденный файл сохранен как резервная копия: ${backupPath}`);
+  } catch (renameErr: any) {
+    try {
+      fs.unlinkSync(dbPath);
+      logInit('[DB Health] Поврежденный файл удален (резервную копию создать не удалось).');
+    } catch (delErr: any) {
+      logInit(`[DB Health] Не удалось удалить поврежденный файл: ${delErr.message}`);
+      return;
+    }
+  }
+  for (const suffix of ['-wal', '-shm']) {
+    try {
+      if (fs.existsSync(dbPath + suffix)) fs.unlinkSync(dbPath + suffix);
+    } catch (e) {}
+  }
+  ensureSQLiteDatabaseExists(dbPath);
+  logInit('[DB Health] База данных автоматически восстановлена из чистого шаблона.');
+}
+
+// Догоняющая миграция для существующих баз: добавляем недостающие колонки,
+// появившиеся в новых версиях приложения (db push в продакшене не выполняется)
+function ensureSchemaColumns(dbPath: string) {
+  try {
+    const Database = require('better-sqlite3');
+    const db = new Database(dbPath);
+    try {
+      const cols = db.prepare('PRAGMA table_info("User")').all() as Array<{ name: string }>;
+      if (cols.length > 0) {
+        if (!cols.find(c => c.name === 'isActive')) {
+          db.exec('ALTER TABLE "User" ADD COLUMN "isActive" BOOLEAN NOT NULL DEFAULT true');
+          logInit('[DB Migrate] Добавлена колонка User.isActive');
+        }
+        if (!cols.find(c => c.name === 'validUntil')) {
+          db.exec('ALTER TABLE "User" ADD COLUMN "validUntil" DATETIME');
+          logInit('[DB Migrate] Добавлена колонка User.validUntil');
+        }
+      }
+      const msgCols = db.prepare('PRAGMA table_info("ChatMessage")').all() as Array<{ name: string }>;
+      if (msgCols.length > 0) {
+        if (!msgCols.find(c => c.name === 'replyToId')) {
+          db.exec('ALTER TABLE "ChatMessage" ADD COLUMN "replyToId" TEXT');
+          logInit('[DB Migrate] Добавлена колонка ChatMessage.replyToId');
+        }
+        if (!msgCols.find(c => c.name === 'editedAt')) {
+          db.exec('ALTER TABLE "ChatMessage" ADD COLUMN "editedAt" DATETIME');
+          logInit('[DB Migrate] Добавлена колонка ChatMessage.editedAt');
+        }
+      }
+    } finally {
+      db.close();
+    }
+  } catch (err: any) {
+    logInit(`[DB Migrate Warning] Не удалось проверить/добавить колонки: ${err.message}`);
+  }
+}
+
 function createPrismaClient(dbType: string, dbUrl: string) {
   try {
     if (dbType === 'REMOTE') {
@@ -165,6 +263,8 @@ function createPrismaClient(dbType: string, dbUrl: string) {
 interface AppConfig {
   current_db_type: 'LOCAL' | 'REMOTE' | string;
   database_url: string;
+  local_db_path?: string;  // Пользовательский путь к файлу SQLite (пусто = стандартный в AppData)
+  crash_log_dir?: string;  // Папка для аварийных crash-логов (пусто = AppData/pdm-app/logs)
 }
 
 function loadAppConfig(): AppConfig {
@@ -175,20 +275,33 @@ function loadAppConfig(): AppConfig {
       if (parsed && typeof parsed.current_db_type === 'string') {
         return {
           current_db_type: parsed.current_db_type,
-          database_url: parsed.database_url || ''
+          database_url: parsed.database_url || '',
+          local_db_path: parsed.local_db_path || '',
+          crash_log_dir: parsed.crash_log_dir || ''
         };
       }
     }
   } catch (err: any) {
     logInit(`[AppConfig Error] Warning reading config.json: ${err.message}`);
   }
-  
+
   const defaultConfig: AppConfig = {
     current_db_type: 'LOCAL',
-    database_url: ''
+    database_url: '',
+    local_db_path: '',
+    crash_log_dir: ''
   };
   saveAppConfig(defaultConfig);
   return defaultConfig;
+}
+
+// Возвращает фактический путь к локальной базе: пользовательский или стандартный в AppData
+function resolveLocalDbPath(config: AppConfig): string {
+  const custom = String(config.local_db_path || '').trim();
+  if (custom) {
+    return path.resolve(custom);
+  }
+  return path.join(ventAppDataPath, 'database.sqlite');
 }
 
 function saveAppConfig(config: AppConfig) {
@@ -225,23 +338,19 @@ const appConfig = loadAppConfig();
 let startupDbUrl = '';
 
 if (appConfig.current_db_type === 'LOCAL') {
-  const dbPath = path.join(ventAppDataPath, 'database.sqlite');
-  
-  // 1. Проверяем, существует ли папка приложения, и создаем ее перед PrismaClient
+  const dbPath = resolveLocalDbPath(appConfig);
+  logInit(`[Startup DB] Активный путь локальной базы: ${dbPath}${appConfig.local_db_path ? ' (пользовательский)' : ' (стандартный)'}`);
+
+  // 1. Проверяем, существует ли папка базы, и создаем ее перед PrismaClient
   const dbDir = path.dirname(dbPath);
   if (!fs.existsSync(dbDir)) {
     fs.mkdirSync(dbDir, { recursive: true });
   }
 
   startupDbUrl = `file:${dbPath}?connection_limit=1&busy_timeout=15000`;
-  
-  const isDbMissing = !fs.existsSync(dbPath);
-  if (isDbMissing) {
-    logInit('[Startup DB] database.sqlite does not exist. Initializing copy of database template...');
-    ensureSQLiteDatabaseExists(dbPath);
-  } else {
-    logInit('[Startup DB] database.sqlite already exists in AppData folder.');
-  }
+
+  // Проверяем целостность и при повреждении автоматически восстанавливаем базу из шаблона
+  ensureHealthyLocalDb(dbPath);
 } else {
   startupDbUrl = appConfig.database_url;
 }
@@ -431,19 +540,32 @@ app.use('/chat_files', express.static(path.join(userDataPath, 'chat_files')));
 // Database Routing
 app.get('/api/db/config', (req: Request, res: Response) => {
   const config = loadAppConfig();
-  const dbPath = path.join(ventAppDataPath, 'database.sqlite');
+  const dbPath = resolveLocalDbPath(config);
   res.json({
     current_db_type: config.current_db_type,
     database_url: config.database_url,
     databasePath: dbPath,
     isConfigured: true,
-    displayPath: config.current_db_type === 'LOCAL' ? './database.sqlite' : config.database_url,
-    defaultPath: dbPath
+    displayPath: config.current_db_type === 'LOCAL' ? dbPath : config.database_url,
+    defaultPath: path.join(ventAppDataPath, 'database.sqlite'),
+    local_db_path: config.local_db_path || '',
+    crash_log_dir: config.crash_log_dir || ''
   });
 });
 
+// Настройка папки для аварийных crash-логов
+app.post('/api/config/logs', (req: Request, res: Response) => {
+  const { crash_log_dir } = req.body;
+  const current = loadAppConfig();
+  if (typeof crash_log_dir === 'string') {
+    current.crash_log_dir = crash_log_dir.trim();
+  }
+  saveAppConfig(current);
+  res.json({ success: true, crash_log_dir: current.crash_log_dir || '' });
+});
+
 app.get('/api/db/download', (req: Request, res: Response) => {
-  const dbFile = path.join(ventAppDataPath, 'database.sqlite');
+  const dbFile = resolveLocalDbPath(loadAppConfig());
   if (fs.existsSync(dbFile)) {
     res.download(dbFile, 'database.sqlite');
   } else {
@@ -456,7 +578,7 @@ app.post('/api/db/test', async (req: Request, res: Response) => {
   if (current_db_type === 'LOCAL') {
     return res.json({
       success: true,
-      exists: fs.existsSync(path.join(ventAppDataPath, 'database.sqlite')),
+      exists: fs.existsSync(resolveLocalDbPath(loadAppConfig())),
       message: 'Локальная база данных SQLite активна и готова к работе!'
     });
   }
@@ -485,7 +607,7 @@ app.post('/api/db/test', async (req: Request, res: Response) => {
 });
 
 app.post('/api/db/switch', async (req: Request, res: Response) => {
-  const { current_db_type, database_url } = req.body;
+  const { current_db_type, database_url, database_path } = req.body;
   
   const logMsg = `[${new Date().toISOString()}] POST /api/db/switch: type="${current_db_type}", url="${database_url}"\n`;
   console.log('[DB Switch Request]', logMsg.trim());
@@ -499,16 +621,22 @@ app.post('/api/db/switch', async (req: Request, res: Response) => {
 
   const oldPrisma = prisma;
   try {
+    const existingConfig = loadAppConfig();
+    // database_path: undefined = оставить текущий путь, '' = вернуть стандартный, иначе — новый путь
+    let nextLocalPath = existingConfig.local_db_path || '';
+    if (typeof database_path === 'string') {
+      nextLocalPath = database_path.trim();
+    }
+
     let targetDbUrl = '';
     if (current_db_type === 'LOCAL') {
-      const dbFile = path.join(ventAppDataPath, 'database.sqlite');
-      targetDbUrl = `file:${dbFile}?connection_limit=1&busy_timeout=15000`;
-      
-      const isDbMissing = !fs.existsSync(dbFile);
-      if (isDbMissing) {
-        console.log('[DB Switch] Path database.sqlite missing. Initializing copy of database template...');
-        ensureSQLiteDatabaseExists(dbFile);
+      const dbFile = nextLocalPath ? path.resolve(nextLocalPath) : path.join(ventAppDataPath, 'database.sqlite');
+      const parentDir = path.dirname(dbFile);
+      if (!fs.existsSync(parentDir)) {
+        fs.mkdirSync(parentDir, { recursive: true });
       }
+      targetDbUrl = `file:${dbFile}?connection_limit=1&busy_timeout=15000`;
+      ensureHealthyLocalDb(dbFile);
     } else {
       if (!database_url) {
         return res.status(400).json({ success: false, message: 'Ссылка подключения REMOTE обязательна!' });
@@ -542,8 +670,10 @@ app.post('/api/db/switch', async (req: Request, res: Response) => {
 
     // Save configuration settings
     saveAppConfig({
+      ...existingConfig,
       current_db_type,
-      database_url: database_url || ''
+      database_url: database_url || '',
+      local_db_path: nextLocalPath
     });
 
     // Auto-seed if newly switched DB has no users
@@ -616,8 +746,10 @@ app.post('/api/db/save', async (req: Request, res: Response) => {
       } catch (e) {}
 
       saveAppConfig({
+        ...loadAppConfig(),
         current_db_type: 'LOCAL',
-        database_url: targetDbUrl
+        database_url: '',
+        local_db_path: resolved
       });
 
       return res.json({
@@ -639,38 +771,17 @@ app.post('/api/login', async (req: Request, res: Response) => {
   const { symbol, password } = req.body;
 
   const normSymbol = String(symbol || '').trim();
-  const normPassword = String(password || '');
-
-  // 1. Зашитые профили пользователей (Hardcoded Fallback Credentials - Исправлен регистр ролей на ADMIN и USER)
-  if (normSymbol === 'KhKh' && normPassword === '121212') {
-    return res.json({
-      success: true,
-      user: {
-        id: 'fallback-admin',
-        name: 'Главный Администратор (KhKh)',
-        symbol: 'KhKh',
-        role: 'ADMIN' // Полный доступ (исправлено на верхний регистр)
-      }
-    });
-  }
-
-  if (normSymbol === 'qwerty' && normPassword === '12') {
-    return res.json({
-      success: true,
-      user: {
-        id: 'fallback-user',
-        name: 'Инженер (qwerty)',
-        symbol: 'qwerty',
-        role: 'USER' // Ограниченный доступ (исправлено на верхний регистр)
-      }
-    });
-  }
 
   // Попытка авторизации через локальную БД, если БД вообще была создана/готова
   try {
-    const user = await prisma.user.findUnique({
-      where: { symbol: String(symbol) },
+    // Логин не чувствителен к регистру: RaupovKhkh == RaupovKhKh
+    let user = await prisma.user.findUnique({
+      where: { symbol: normSymbol },
     });
+    if (!user) {
+      const allUsers = await prisma.user.findMany();
+      user = allUsers.find((u: any) => String(u.symbol).toLowerCase() === normSymbol.toLowerCase()) || null;
+    }
     if (user) {
       // Check password. We also support both variations of RU-keyboard "gfhjkm" (пароль), "12121212Qw.", and "1122" for RaupovKhKh to prevent lock-outs
       const isPasswordCorrect = user.password === String(password) ||
@@ -681,6 +792,14 @@ app.post('/api/login', async (req: Request, res: Response) => {
         ));
 
       if (isPasswordCorrect) {
+        // Контроль доступа: профиль может быть отключен администратором или просрочен
+        if (user.isActive === false) {
+          return res.status(403).json({ success: false, message: 'Профиль отключен администратором. Обратитесь к администратору системы.' });
+        }
+        if (user.validUntil && new Date(user.validUntil).getTime() < Date.now()) {
+          const dt = new Date(user.validUntil).toLocaleDateString('ru-RU');
+          return res.status(403).json({ success: false, message: `Срок действия профиля истек ${dt}. Обратитесь к администратору для продления доступа.` });
+        }
         return res.json({ success: true, user });
       } else {
         return res.status(401).json({ success: false, message: 'Неверный пароль доступа!' });
@@ -690,10 +809,102 @@ app.post('/api/login', async (req: Request, res: Response) => {
     }
   } catch (dbErr: any) {
     console.warn('[Login Backend] Database is probably not initialized or SQLite is locked:', dbErr.message);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'База данных еще не инициализирована или не подключена. Пожалуйста, войдите под зашитыми профилями (KhKh / qwerty) или настройте СУБД.' 
+    return res.status(500).json({
+      success: false,
+      message: 'База данных еще не инициализирована или не подключена. Перезапустите приложение или настройте СУБД в настройках подключения.'
     });
+  }
+});
+
+// Периодическая проверка действительности профиля во время работы:
+// фронтенд опрашивает и принудительно завершает сессию, если доступ отозван
+app.get('/api/auth/check', async (req: Request, res: Response) => {
+  const userId = String(req.query.userId || '');
+  if (!userId) {
+    return res.json({ valid: false, reason: 'Не указан идентификатор пользователя.' });
+  }
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.json({ valid: false, reason: 'Профиль не найден в базе данных. Выйдите и войдите заново.' });
+    }
+    if (user.isActive === false) {
+      return res.json({ valid: false, reason: 'Профиль отключен администратором.' });
+    }
+    if (user.validUntil && new Date(user.validUntil).getTime() < Date.now()) {
+      return res.json({ valid: false, reason: `Срок действия профиля истек ${new Date(user.validUntil).toLocaleDateString('ru-RU')}.` });
+    }
+    return res.json({ valid: true });
+  } catch (err: any) {
+    // При временной недоступности БД не выбрасываем пользователя из сессии
+    return res.json({ valid: true, degraded: true });
+  }
+});
+
+// Агрегатор данных для встроенного локального ассистента: одним запросом
+// отдаёт теги, плоский список оборудования и счётчики по активному проекту
+app.get('/api/assistant/data', async (req: Request, res: Response) => {
+  try {
+    let projectId = String(req.query.projectId || '');
+    if (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default') {
+      const firstProject = await prisma.project.findFirst();
+      projectId = firstProject ? firstProject.id : '';
+    }
+
+    const [projects, tags, systems, usersCount, notesCount, foldersCount, filesCount] = await Promise.all([
+      prisma.project.findMany({ select: { id: true, name: true, status: true } }),
+      projectId ? prisma.tag.findMany({ where: { projectId } }) : Promise.resolve([]),
+      projectId ? prisma.equipmentSystem.findMany({
+        where: { projectId },
+        include: { monoblocks: { include: { components: { include: { tags: true } } } } }
+      }) : Promise.resolve([]),
+      prisma.user.count(),
+      prisma.userNote.count(),
+      projectId ? prisma.folder.count({ where: { projectId } }) : Promise.resolve(0),
+      prisma.fileNode.count(),
+    ]);
+
+    // Плоский список компонентов оборудования с привязанными тегами
+    const components: any[] = [];
+    for (const sys of systems as any[]) {
+      for (const mono of (sys.monoblocks || [])) {
+        for (const comp of (mono.components || [])) {
+          components.push({
+            id: comp.id,
+            name: comp.name,
+            itemCode: comp.itemCode,
+            systemName: sys.name,
+            category: sys.category,
+            monoblockName: mono.name,
+            status: comp.status,
+            hasConflict: comp.hasConflict,
+            tags: (comp.tags || []).map((t: any) => t.identifier),
+          });
+        }
+      }
+    }
+
+    res.json({
+      projectId,
+      projects,
+      tags: (tags as any[]).map((t: any) => ({
+        id: t.id, identifier: t.identifier, brand: t.brand,
+        department: t.department, wbs: t.wbs, fluid: t.fluid,
+      })),
+      components,
+      counts: {
+        tags: (tags as any[]).length,
+        components: components.length,
+        systems: (systems as any[]).length,
+        users: usersCount,
+        notes: notesCount,
+        folders: foldersCount,
+        files: filesCount,
+        projects: (projects as any[]).length,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -721,17 +932,77 @@ app.post('/api/users', async (req: Request, res: Response) => {
       });
     }
 
+    const { validUntil, isActive } = req.body;
     const newUser = await prisma.user.create({
       data: {
         symbol: String(symbol),
         name,
         role: role || 'ENGINEER_VENT',
         password: password || 'password',
+        isActive: typeof isActive === 'boolean' ? isActive : true,
+        validUntil: validUntil ? new Date(validUntil) : null,
       }
     });
     res.json(newUser);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Обновление профиля сотрудника: роль, пароль, активность, срок действия
+app.put('/api/users/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, role, password, isActive, validUntil } = req.body;
+
+    const target = await prisma.user.findUnique({ where: { id } });
+    if (!target) {
+      return res.status(404).json({ success: false, message: 'Сотрудник не найден в базе данных.' });
+    }
+
+    // Защита от самоблокировки: нельзя отключить/ограничить последнего активного администратора
+    const willDeactivate = isActive === false || (validUntil && new Date(validUntil).getTime() < Date.now());
+    if (target.role === 'ADMIN' && willDeactivate) {
+      const activeAdmins = await prisma.user.count({
+        where: { role: 'ADMIN', isActive: true, id: { not: id } }
+      });
+      if (activeAdmins === 0) {
+        return res.status(400).json({ success: false, message: 'Нельзя отключить последнего активного администратора — иначе никто не сможет управлять системой.' });
+      }
+    }
+
+    const data: any = {};
+    if (typeof name === 'string' && name.trim()) data.name = name.trim();
+    if (typeof role === 'string' && role) data.role = role;
+    if (typeof password === 'string' && password) data.password = password;
+    if (typeof isActive === 'boolean') data.isActive = isActive;
+    if (validUntil === null || validUntil === '') data.validUntil = null;
+    else if (validUntil) data.validUntil = new Date(validUntil);
+
+    const updated = await prisma.user.update({ where: { id }, data });
+    res.json({ success: true, user: updated });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.delete('/api/users/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const target = await prisma.user.findUnique({ where: { id } });
+    if (!target) {
+      return res.status(404).json({ success: false, message: 'Сотрудник не найден.' });
+    }
+    if (target.role === 'ADMIN') {
+      const otherAdmins = await prisma.user.count({ where: { role: 'ADMIN', isActive: true, id: { not: id } } });
+      if (otherAdmins === 0) {
+        return res.status(400).json({ success: false, message: 'Нельзя удалить последнего администратора.' });
+      }
+    }
+    await prisma.user.delete({ where: { id } });
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
@@ -1349,6 +1620,9 @@ app.post('/api/tags/generate', async (req: Request, res: Response) => {
     if (suffix && seqStr.endsWith(suffix)) {
       seqStr = seqStr.slice(0, -suffix.length);
     }
+    // Учитываем только чисто числовые последовательности: parseInt("001_V2") вернул бы 1,
+    // а длина 6 испортила бы автоопределение паддинга
+    if (!/^\d+$/.test(seqStr)) continue;
     const seqNum = parseInt(seqStr, 10);
     if (!isNaN(seqNum)) {
       maxSeq = Math.max(maxSeq, seqNum);
@@ -1505,7 +1779,8 @@ app.get('/api/chat/messages', async (req: Request, res: Response) => {
         attachments: true,
         sender: { select: { id: true, name: true, symbol: true, role: true } },
         receiver: { select: { id: true, name: true, symbol: true, role: true } },
-        linkedElement: true
+        linkedElement: true,
+        replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
       },
       orderBy: { createdAt: 'asc' }
     });
@@ -1519,7 +1794,7 @@ app.get('/api/chat/messages', async (req: Request, res: Response) => {
 // 2. Send message
 app.post('/api/chat/messages', async (req: Request, res: Response) => {
   try {
-    const { senderId, receiverId, content, linkedElementId, linkedProjectId, attachments } = req.body;
+    const { senderId, receiverId, content, linkedElementId, linkedProjectId, attachments, replyToId } = req.body;
     if (!senderId || !receiverId) {
       return res.status(400).json({ error: 'senderId and receiverId are required' });
     }
@@ -1531,6 +1806,7 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
         content: String(content || ''),
         linkedElementId: linkedElementId ? String(linkedElementId) : null,
         linkedProjectId: linkedProjectId ? String(linkedProjectId) : null,
+        replyToId: replyToId ? String(replyToId) : null,
       }
     });
 
@@ -1554,7 +1830,8 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
         attachments: true,
         sender: { select: { id: true, name: true, symbol: true, role: true } },
         receiver: { select: { id: true, name: true, symbol: true, role: true } },
-        linkedElement: true
+        linkedElement: true,
+        replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
       }
     });
 
@@ -1562,6 +1839,57 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
     io.emit('chat:message_received', fullMessage);
 
     res.json(fullMessage);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// Редактирование своего сообщения
+app.put('/api/chat/messages/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { userId, content } = req.body;
+    const msg = await prisma.chatMessage.findUnique({ where: { id } });
+    if (!msg) {
+      return res.status(404).json({ error: 'Сообщение не найдено' });
+    }
+    if (msg.senderId !== String(userId)) {
+      return res.status(403).json({ error: 'Можно редактировать только свои сообщения' });
+    }
+    const updated = await prisma.chatMessage.update({
+      where: { id },
+      data: { content: String(content || ''), editedAt: new Date() },
+      include: {
+        attachments: true,
+        sender: { select: { id: true, name: true, symbol: true, role: true } },
+        receiver: { select: { id: true, name: true, symbol: true, role: true } },
+        linkedElement: true,
+        replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
+      }
+    });
+    io.emit('chat:message_updated', updated);
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Удаление своего сообщения
+app.delete('/api/chat/messages/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = String(req.query.userId || (req.body && req.body.userId) || '');
+    const msg = await prisma.chatMessage.findUnique({ where: { id } });
+    if (!msg) {
+      return res.status(404).json({ error: 'Сообщение не найдено' });
+    }
+    if (msg.senderId !== userId) {
+      return res.status(403).json({ error: 'Можно удалять только свои сообщения' });
+    }
+    await prisma.chatMessage.delete({ where: { id } });
+    io.emit('chat:message_deleted', { id });
+    res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1764,7 +2092,8 @@ app.get('/api/chat/group-messages', async (req: Request, res: Response) => {
       include: {
         attachments: true,
         sender: { select: { id: true, name: true, symbol: true, role: true } },
-        linkedElement: true
+        linkedElement: true,
+        replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
       },
       orderBy: { createdAt: 'asc' }
     });
@@ -1777,7 +2106,7 @@ app.get('/api/chat/group-messages', async (req: Request, res: Response) => {
 // Send message to group
 app.post('/api/chat/group-messages', async (req: Request, res: Response) => {
   try {
-    const { senderId, groupId, content, linkedElementId, linkedProjectId, attachments } = req.body;
+    const { senderId, groupId, content, linkedElementId, linkedProjectId, attachments, replyToId } = req.body;
     if (!senderId || !groupId) {
       return res.status(400).json({ error: 'senderId and groupId are required' });
     }
@@ -1789,6 +2118,7 @@ app.post('/api/chat/group-messages', async (req: Request, res: Response) => {
         content: String(content || ''),
         linkedElementId: linkedElementId ? String(linkedElementId) : null,
         linkedProjectId: linkedProjectId ? String(linkedProjectId) : null,
+        replyToId: replyToId ? String(replyToId) : null,
       }
     });
 
@@ -1810,7 +2140,8 @@ app.post('/api/chat/group-messages', async (req: Request, res: Response) => {
       include: {
         attachments: true,
         sender: { select: { id: true, name: true, symbol: true, role: true } },
-        linkedElement: true
+        linkedElement: true,
+        replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
       }
     });
 
@@ -2269,8 +2600,20 @@ async function startServer() {
   }
 
   app.use((err: any, req: Request, res: Response, next: any) => {
+    const rawMsg = String(err?.message || err || 'Internal server error');
+    // Берем суть ошибки Prisma — последняя строка вместо простыни с код-фреймом
+    const lines = rawMsg.split('\n').map(l => l.trim()).filter(Boolean);
+    let friendly = lines[lines.length - 1] || rawMsg;
+    if (rawMsg.includes('malformed') || rawMsg.includes('disk image')) {
+      friendly = 'База данных повреждена (database disk image is malformed). Перезапустите приложение — база будет автоматически восстановлена из шаблона.';
+    } else if (rawMsg.includes('Foreign key constraint')) {
+      friendly = 'Сессия устарела: текущий пользователь отсутствует в базе данных. Выйдите из профиля и войдите заново.';
+    } else if (!prisma || !isPrismaAvailable) {
+      friendly = 'База данных не инициализирована: клиент Prisma не был создан при старте. Подробности в backend-init.log.';
+    }
+    logInit(`[API ERROR] ${req.method} ${req.originalUrl}: ${friendly}`);
     console.error('Unhandled error:', err);
-    res.status(500).json({ error: err.message || 'Internal server error' });
+    res.status(500).json({ error: friendly, message: friendly });
   });
 
   if (process.env.NODE_ENV !== "production") {

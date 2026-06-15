@@ -15,7 +15,6 @@
     "dist": "npm run build && npm run build:electron && electron-builder --win portable"
   },
   "dependencies": {
-    "@google/genai": "^1.29.0",
     "@prisma/adapter-better-sqlite3": "^7.8.0",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",

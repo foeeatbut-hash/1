@@ -5,7 +5,7 @@ import { useToastStore } from '../store/toastStore';
 import { useNavigate } from 'react-router-dom';
 
 /**
- * Lightweight mock socket implementation for the isolated AI Studio env.
+ * Lightweight mock socket implementation for the isolated local env.
  */
 class LocalMockSocket {
   private listeners: Record<string, ((...args: any[]) => void)[]> = {};

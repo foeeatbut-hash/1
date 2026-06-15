@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLogStore, LogItem } from '../store/logStore';
+import { useAssistantStore } from '../store/assistantStore';
 import { useToastStore } from '../store/toastStore';
 import { 
   Terminal, 
@@ -16,6 +17,7 @@ import {
 
 export default function ActionLogWidget() {
   const { logs, hasUnreadError, widgetOpen, setWidgetOpen, clearLogs } = useLogStore();
+  const assistantOpen = useAssistantStore((s) => s.isOpen);
   const { addToast } = useToastStore();
   
   const [filter, setFilter] = useState<'ALL' | 'INFO' | 'WARN' | 'ERROR'>('ALL');
@@ -168,7 +170,11 @@ export default function ActionLogWidget() {
   });
 
   return (
-    <div id="dx-logs-widget" className="fixed bottom-4 right-4 z-[9999] flex flex-col items-end pointer-events-none">
+    <div
+      id="dx-logs-widget"
+      className="fixed bottom-4 z-[9999] flex flex-col items-end pointer-events-none transition-all duration-300"
+      style={{ right: assistantOpen ? 396 : 16 }}
+    >
       
       {/* Mini Window Popover */}
       <AnimatePresence>

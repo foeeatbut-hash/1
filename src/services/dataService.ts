@@ -10,6 +10,8 @@ export interface User {
   login?: string;
   role: string;
   password?: string;
+  isActive?: boolean;
+  validUntil?: string | Date | null;
   createdAt?: string | Date;
 }
 
@@ -360,7 +362,7 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     const response = await fetch(url, config);
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({}));
-      const errorMsg = errorBody.message || `Http request failed: ${response.status}`;
+      const errorMsg = errorBody.message || errorBody.error || `Http request failed: ${response.status}`;
       useLogStore.getState().addLog('ERROR', 'Network Stack', `[${method}] запрос ${endpoint} завершился с ошибкой: ${errorMsg}`);
       throw new Error(errorMsg);
     }
@@ -368,6 +370,11 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     useLogStore.getState().addLog('INFO', 'Network Stack', `[${method}] получен успешный ответ от ${endpoint}`);
     return response.json() as Promise<T>;
   } catch (err: any) {
+    // Для входа автономный fallback не используется: пользователь должен
+    // увидеть настоящую причину отказа сервера (неверный пароль и т.п.)
+    if (endpoint.split('?')[0] === '/login') {
+      throw err;
+    }
     useLogStore.getState().addLog('WARN', 'Network Stack', `[${method}] сбой при отправке запроса. Активация локальной автономной БД для ${endpoint}: ${err.message}`);
     return getFallbackData<T>(endpoint, method, options?.body);
   }
@@ -392,11 +399,27 @@ export const dataService = {
     return request<User[]>('/users');
   },
 
-  async createUser(userData: { symbol: string; name: string; role: string; password?: string }): Promise<User> {
+  async createUser(userData: { symbol: string; name: string; role: string; password?: string; validUntil?: string | null; isActive?: boolean }): Promise<User> {
     return request<User>('/users', {
       method: 'POST',
       body: JSON.stringify(userData),
     });
+  },
+
+  async updateUser(id: string, data: { name?: string; role?: string; password?: string; isActive?: boolean; validUntil?: string | null }): Promise<{ success: boolean; user?: User; message?: string }> {
+    return request(`/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteUser(id: string): Promise<{ success: boolean; message?: string }> {
+    return request(`/users/${id}`, { method: 'DELETE' });
+  },
+
+  // Проверка действительности профиля во время работы (таймер/отключение админом)
+  async checkAuth(userId: string): Promise<{ valid: boolean; reason?: string; degraded?: boolean }> {
+    return request(`/auth/check?userId=${encodeURIComponent(userId)}`);
   },
 
   // --- PROJECTS ---

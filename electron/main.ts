@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu } from 'electron';
 import path from 'path';
 
 const additionalData = { myKey: 'pdm-system' };
@@ -33,6 +33,16 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
+    minWidth: 960,
+    minHeight: 620,
+    backgroundColor: '#0f172a',
+    autoHideMenuBar: true,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#0f172a',
+      symbolColor: '#94a3b8',
+      height: 36
+    },
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -48,6 +58,9 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Убираем стандартное меню File/Edit/View/Window
+  Menu.setApplicationMenu(null);
+
   const fs = require('fs');
   const path = require('path');
 
@@ -74,40 +87,57 @@ app.whenReady().then(() => {
     }
   } catch (e) {}
 
-  // Начиная со сборки в Production (asar), автоматически запускаем встроенный Express-сервер на порту 3000
-  if (app.isPackaged) {
-    const startupLogPath = path.join(ventAppDataPath, 'server-startup.log');
-    try {
-      fs.writeFileSync(startupLogPath, `[${new Date().toISOString()}] Инициализация встроенного Express-сервера...\n`, 'utf-8');
-      require(path.join(__dirname, '../dist/server.cjs'));
-      fs.appendFileSync(startupLogPath, `[${new Date().toISOString()}] Модуль сервера успешно подключен через require().\n`, 'utf-8');
-    } catch (err: any) {
-      console.error('[Electron Main] Сбой при автоматическом запуске встроенного Express-сервера:', err);
-      try {
-        fs.appendFileSync(startupLogPath, `[${new Date().toISOString()}] СБОЙ ЗАПУСКА: ${err.message}\nStack:\n${err.stack}\n`, 'utf-8');
-      } catch (writeErr) {}
-    }
-  }
-
+  // Сначала показываем окно (быстрый отклик для пользователя),
+  // встроенный Express-сервер поднимаем сразу после — не блокируя создание окна
   createWindow();
 
-  const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');
-  let currentDbType = 'LOCAL';
-  let databaseUrlSetting = '';
-
-  try {
-    if (fs.existsSync(CONFIG_FILE)) {
-      const parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
-      if (parsed && typeof parsed.current_db_type === 'string') {
-        currentDbType = parsed.current_db_type;
-        databaseUrlSetting = parsed.database_url || '';
+  if (app.isPackaged) {
+    setImmediate(() => {
+      const startupLogPath = path.join(ventAppDataPath, 'server-startup.log');
+      try {
+        fs.writeFileSync(startupLogPath, `[${new Date().toISOString()}] Инициализация встроенного Express-сервера...\n`, 'utf-8');
+        require(path.join(__dirname, '../dist/server.cjs'));
+        fs.appendFileSync(startupLogPath, `[${new Date().toISOString()}] Модуль сервера успешно подключен через require().\n`, 'utf-8');
+      } catch (err: any) {
+        console.error('[Electron Main] Сбой при автоматическом запуске встроенного Express-сервера:', err);
+        try {
+          fs.appendFileSync(startupLogPath, `[${new Date().toISOString()}] СБОЙ ЗАПУСКА: ${err.message}\nStack:\n${err.stack}\n`, 'utf-8');
+        } catch (writeErr) {}
       }
-    }
-  } catch (e) {}
+    });
+  }
+
+  const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');
+
+  // Читает config.json: тип БД, удаленный URL, пользовательский путь SQLite и папку crash-логов
+  const readAppConfig = () => {
+    const result = { currentDbType: 'LOCAL', databaseUrlSetting: '', localDbPath: '', crashLogDir: '' };
+    try {
+      if (fs.existsSync(CONFIG_FILE)) {
+        const parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+        if (parsed && typeof parsed.current_db_type === 'string') {
+          result.currentDbType = parsed.current_db_type;
+          result.databaseUrlSetting = parsed.database_url || '';
+          result.localDbPath = parsed.local_db_path || '';
+          result.crashLogDir = parsed.crash_log_dir || '';
+        }
+      }
+    } catch (e) {}
+    return result;
+  };
+
+  const resolveLocalDbPath = (localDbPathSetting: string) => {
+    const custom = String(localDbPathSetting || '').trim();
+    return custom ? path.resolve(custom) : path.join(ventAppDataPath, 'database.sqlite');
+  };
+
+  const startupConfig = readAppConfig();
+  const currentDbType = startupConfig.currentDbType;
+  const databaseUrlSetting = startupConfig.databaseUrlSetting;
 
   let finalDbUrl = '';
   if (currentDbType === 'LOCAL') {
-    const localDbPath = path.join(ventAppDataPath, 'database.sqlite');
+    const localDbPath = resolveLocalDbPath(startupConfig.localDbPath);
     finalDbUrl = `file:${localDbPath}?connection_limit=1&busy_timeout=15000`;
   } else {
     finalDbUrl = databaseUrlSetting || "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public";
@@ -215,14 +245,20 @@ app.whenReady().then(() => {
   });
 
   // --- LOGGING SYSTEM IPC HANDLERS ---
+  // Метка времени для имен файлов логов: дата + часы-минуты-секунды
+  const buildLogTimestamp = () => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+  };
+
   ipcMain.handle('log:save-dialog', async (event, text: string) => {
     const { dialog } = require('electron');
     const fs = require('fs');
     try {
-      const dateStr = new Date().toISOString().split('T')[0];
       const result = await dialog.showSaveDialog({
         title: 'Экспорт журнала логов',
-        defaultPath: `pdm_action_log_${dateStr}.txt`,
+        defaultPath: `pdm_action_log_${buildLogTimestamp()}.txt`,
         filters: [
           { name: 'Текстовый файл (*.txt)', extensions: ['txt'] },
           { name: 'Все файлы (*.*)', extensions: ['*'] }
@@ -240,23 +276,28 @@ app.whenReady().then(() => {
   });
 
   ipcMain.on('log:emergency-save', (event, text: string) => {
-    const fs = require('fs');
-    const path = require('path');
     try {
-      const timestamp = Date.now();
-      const fileName = `pdm-crash-log-${timestamp}.txt`;
-      
-      let targetPath;
-      try {
-        targetPath = path.join(app.getPath('desktop'), fileName);
-      } catch (desktopErr) {
-        const appDataDir = path.join(app.getPath('userData'), 'crashes');
-        if (!fs.existsSync(appDataDir)) {
-          fs.mkdirSync(appDataDir, { recursive: true });
-        }
-        targetPath = path.join(appDataDir, fileName);
+      const fileName = `pdm-crash-log-${buildLogTimestamp()}.txt`;
+
+      // Папка из настроек (config.json -> crash_log_dir); по умолчанию AppData/pdm-app/logs,
+      // чтобы не засорять рабочий стол
+      const cfg = readAppConfig();
+      let targetDir = String(cfg.crashLogDir || '').trim();
+      if (!targetDir) {
+        targetDir = path.join(ventAppDataPath, 'logs');
       }
-      
+      try {
+        if (!fs.existsSync(targetDir)) {
+          fs.mkdirSync(targetDir, { recursive: true });
+        }
+      } catch (mkErr) {
+        targetDir = path.join(ventAppDataPath, 'logs');
+        if (!fs.existsSync(targetDir)) {
+          fs.mkdirSync(targetDir, { recursive: true });
+        }
+      }
+
+      const targetPath = path.join(targetDir, fileName);
       fs.writeFileSync(targetPath, text, 'utf-8');
       console.log(`[Emergency Log Saved] Saved crash log to: ${targetPath}`);
     } catch (err) {
@@ -269,27 +310,38 @@ app.whenReady().then(() => {
     let chatPrismaInstance: any = null;
     let lastLoadedDbUrl: string | null = null;
 
+    // Обертка для IPC: вместо многострочного код-фрейма Prisma в renderer уходит суть ошибки
+    const handleDb = (channel: string, fn: (...args: any[]) => Promise<any>) => {
+      ipcMain.handle(channel, async (...args: any[]) => {
+        try {
+          return await fn(...args);
+        } catch (err: any) {
+          const rawMsg = String(err?.message || err);
+          let friendly: string;
+          if (rawMsg.includes('malformed') || rawMsg.includes('disk image')) {
+            friendly = 'База данных повреждена. Перезапустите приложение — она будет автоматически восстановлена из шаблона.';
+          } else if (rawMsg.includes('Foreign key constraint')) {
+            friendly = 'Сессия устарела: текущий пользователь отсутствует в базе данных. Выйдите из профиля и войдите заново.';
+          } else {
+            const lines = rawMsg.split('\n').map(l => l.trim()).filter(Boolean);
+            friendly = lines[lines.length - 1] || rawMsg;
+          }
+          console.error(`[IPC ${channel}] ${friendly}`);
+          throw new Error(friendly);
+        }
+      });
+    };
+
     const getChatPrisma = () => {
       // Используем ту же папку данных (pdm-app) и тот же config.json, что и Express-сервер
-      let currentDbType = 'LOCAL';
-      let databaseUrlSetting = '';
-
-      try {
-        if (fs.existsSync(CONFIG_FILE)) {
-          const parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
-          if (parsed && typeof parsed.current_db_type === 'string') {
-            currentDbType = parsed.current_db_type;
-            databaseUrlSetting = parsed.database_url || '';
-          }
-        }
-      } catch (e) {}
+      const cfg = readAppConfig();
 
       let dbUrl = '';
-      if (currentDbType === 'LOCAL') {
-        const localDbPath = path.join(ventAppDataPath, 'database.sqlite');
+      if (cfg.currentDbType === 'LOCAL') {
+        const localDbPath = resolveLocalDbPath(cfg.localDbPath);
         dbUrl = `file:${localDbPath}?connection_limit=1&busy_timeout=15000`;
       } else {
-        dbUrl = databaseUrlSetting || "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public";
+        dbUrl = cfg.databaseUrlSetting || "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public";
       }
 
       if (!chatPrismaInstance || lastLoadedDbUrl !== dbUrl) {
@@ -299,7 +351,7 @@ app.whenReady().then(() => {
           } catch (e) {}
         }
 
-        chatPrismaInstance = createDbClient(currentDbType, dbUrl);
+        chatPrismaInstance = createDbClient(cfg.currentDbType, dbUrl);
         lastLoadedDbUrl = dbUrl;
       }
       return chatPrismaInstance;
@@ -316,7 +368,7 @@ app.whenReady().then(() => {
       }
     }) as any;
 
-    ipcMain.handle('chat:get-messages', async (event, { senderId, receiverId }) => {
+    handleDb('chat:get-messages', async (event, { senderId, receiverId }) => {
       return await chatPrisma.chatMessage.findMany({
         where: {
           OR: [
@@ -328,13 +380,14 @@ app.whenReady().then(() => {
           attachments: true,
           sender: { select: { id: true, name: true, symbol: true, role: true } },
           receiver: { select: { id: true, name: true, symbol: true, role: true } },
-          linkedElement: true
+          linkedElement: true,
+          replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
         },
         orderBy: { createdAt: 'asc' }
       });
     });
 
-    ipcMain.handle('chat:send-message', async (event, { senderId, receiverId, content, linkedElementId, linkedProjectId, attachments }) => {
+    handleDb('chat:send-message', async (event, { senderId, receiverId, content, linkedElementId, linkedProjectId, attachments, replyToId }) => {
       const msg = await chatPrisma.chatMessage.create({
         data: {
           senderId,
@@ -342,6 +395,7 @@ app.whenReady().then(() => {
           content,
           linkedElementId: linkedElementId || null,
           linkedProjectId: linkedProjectId || null,
+          replyToId: replyToId || null,
         }
       });
 
@@ -364,12 +418,13 @@ app.whenReady().then(() => {
           attachments: true,
           sender: { select: { id: true, name: true, symbol: true, role: true } },
           receiver: { select: { id: true, name: true, symbol: true, role: true } },
-          linkedElement: true
+          linkedElement: true,
+          replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
         }
       });
     });
 
-    ipcMain.handle('chat:upload-file', async (event, { fileName, base64Data }) => {
+    handleDb('chat:upload-file', async (event, { fileName, base64Data }) => {
       const fs = require('fs');
       const path = require('path');
       const { app } = require('electron');
@@ -385,7 +440,7 @@ app.whenReady().then(() => {
       return { filePath: localPath, fileName: sanitizedFileName, fileSize: buffer.length };
     });
 
-    ipcMain.handle('chat:open-file', async (event, filePath) => {
+    handleDb('chat:open-file', async (event, filePath) => {
       const { shell } = require('electron');
       const fs = require('fs');
       if (fs.existsSync(filePath)) {
@@ -438,7 +493,7 @@ app.whenReady().then(() => {
       }
     };
 
-    ipcMain.handle('chat:get-groups', async () => {
+    handleDb('chat:get-groups', async () => {
       await ensureProjectChatGroupsIPC();
       return await chatPrisma.chatGroup.findMany({
         include: {
@@ -449,19 +504,20 @@ app.whenReady().then(() => {
       });
     });
 
-    ipcMain.handle('chat:get-group-messages', async (event, { groupId }) => {
+    handleDb('chat:get-group-messages', async (event, { groupId }) => {
       return await chatPrisma.chatMessage.findMany({
         where: { chatGroupId: groupId },
         include: {
           attachments: true,
           sender: { select: { id: true, name: true, symbol: true, role: true } },
-          linkedElement: true
+          linkedElement: true,
+          replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
         },
         orderBy: { createdAt: 'asc' }
       });
     });
 
-    ipcMain.handle('chat:send-group-message', async (event, { senderId, groupId, content, linkedElementId, linkedProjectId, attachments }) => {
+    handleDb('chat:send-group-message', async (event, { senderId, groupId, content, linkedElementId, linkedProjectId, attachments, replyToId }) => {
       const msg = await chatPrisma.chatMessage.create({
         data: {
           senderId,
@@ -469,6 +525,7 @@ app.whenReady().then(() => {
           content,
           linkedElementId: linkedElementId || null,
           linkedProjectId: linkedProjectId || null,
+          replyToId: replyToId || null,
         }
       });
 
@@ -490,9 +547,37 @@ app.whenReady().then(() => {
         include: {
           attachments: true,
           sender: { select: { id: true, name: true, symbol: true, role: true } },
-          linkedElement: true
+          linkedElement: true,
+          replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
         }
       });
+    });
+
+    // Редактирование своего сообщения
+    handleDb('chat:edit-message', async (event, { messageId, userId, content }) => {
+      const msg = await chatPrisma.chatMessage.findUnique({ where: { id: messageId } });
+      if (!msg) throw new Error('Сообщение не найдено');
+      if (msg.senderId !== userId) throw new Error('Можно редактировать только свои сообщения');
+      return await chatPrisma.chatMessage.update({
+        where: { id: messageId },
+        data: { content: String(content || ''), editedAt: new Date() },
+        include: {
+          attachments: true,
+          sender: { select: { id: true, name: true, symbol: true, role: true } },
+          receiver: { select: { id: true, name: true, symbol: true, role: true } },
+          linkedElement: true,
+          replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
+        }
+      });
+    });
+
+    // Удаление своего сообщения
+    handleDb('chat:delete-message', async (event, { messageId, userId }) => {
+      const msg = await chatPrisma.chatMessage.findUnique({ where: { id: messageId } });
+      if (!msg) throw new Error('Сообщение не найдено');
+      if (msg.senderId !== userId) throw new Error('Можно удалять только свои сообщения');
+      await chatPrisma.chatMessage.delete({ where: { id: messageId } });
+      return { success: true };
     });
 
     // Feature 3: Screen capture
@@ -506,7 +591,7 @@ app.whenReady().then(() => {
     });
 
     // Chat ComponentElement Search handler
-    ipcMain.handle('chat:search-element', async (event, { tag }) => {
+    handleDb('chat:search-element', async (event, { tag }) => {
       return await chatPrisma.componentElement.findFirst({
         where: {
           OR: [
@@ -524,7 +609,7 @@ app.whenReady().then(() => {
     });
 
     // Chat ComponentElement Autocomplete handler
-    ipcMain.handle('chat:autocomplete-tags', async (event, { query, projectId }) => {
+    handleDb('chat:autocomplete-tags', async (event, { query, projectId }) => {
       const cleanQuery = query ? String(query).toLowerCase() : '';
       const cleanProjId = projectId ? String(projectId) : undefined;
 
@@ -599,8 +684,10 @@ app.whenReady().then(() => {
   let latestCachedUpdate: { version: string; fileUrl: string; changelog: string } | null = null;
 
   function isNewerVersion(latest: string, current: string): boolean {
-    const latestParts = latest.split('.').map(Number);
-    const currentParts = current.split('.').map(Number);
+    // Суффиксы вида "-beta" дают NaN при Number() и ломают сравнение — оставляем только цифры и точки
+    const clean = (v: string) => String(v || '').replace(/[^0-9.]/g, '');
+    const latestParts = clean(latest).split('.').map(Number);
+    const currentParts = clean(current).split('.').map(Number);
     for (let i = 0; i < Math.max(latestParts.length, currentParts.length); i++) {
       const l = latestParts[i] || 0;
       const c = currentParts[i] || 0;

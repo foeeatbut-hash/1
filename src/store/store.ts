@@ -46,9 +46,23 @@ export const useStore = create<AppState>((set, get) => {
     }
   }
 
+  // Восстанавливаем сессию: окна-стикеры и перезапуск не должны требовать повторного входа
+  let initialUser: User | null = null;
+  try {
+    const savedSession = typeof window !== 'undefined' ? localStorage.getItem('pdm_session_user') : null;
+    if (savedSession) initialUser = JSON.parse(savedSession);
+  } catch (e) {}
+
   return {
-    user: null,
+    user: initialUser,
     setUser: (user) => {
+      try {
+        if (user) {
+          localStorage.setItem('pdm_session_user', JSON.stringify(user));
+        } else {
+          localStorage.removeItem('pdm_session_user');
+        }
+      } catch (e) {}
       if (user) {
         // Load user-specific active project
         const savedProjectStr = localStorage.getItem(`max_active_project_${user.id}`);

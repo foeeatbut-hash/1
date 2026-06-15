@@ -207,6 +207,7 @@ export default function ProjectsManagement() {
           {isAdmin && (
             <button
               onClick={handleCreateProject}
+              data-tour="project-create-btn"
               className="p-1 px-2.5 bg-emerald-700 hover:bg-emerald-650 text-white text-xs font-bold rounded-md flex items-center gap-1 transition-all cursor-pointer"
               title="Создать новый проект"
             >
