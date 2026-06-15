@@ -76,9 +76,14 @@ export default function AssistantPanel() {
 
   const [input, setInput] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (isOpen) endRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Прокручиваем ТОЛЬКО контейнер сообщений, а не весь документ:
+    // scrollIntoView прокручивал и родительские контейнеры, уводя весь интерфейс вверх
+    if (isOpen && messagesRef.current) {
+      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+    }
   }, [messages, isOpen, loading]);
 
   const submit = (e: React.FormEvent) => {
@@ -112,7 +117,7 @@ export default function AssistantPanel() {
       </div>
 
       {/* Сообщения */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      <div ref={messagesRef} className="flex-1 overflow-y-auto p-3 space-y-3">
         {messages.map((m) => (
           <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[90%] ${m.role === 'user' ? 'order-2' : ''}`}>

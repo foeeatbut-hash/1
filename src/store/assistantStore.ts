@@ -244,8 +244,11 @@ async function resolveQuery(text: string): Promise<AssistantMessage> {
     if (knowledge) return { id: uid(), role: 'assistant', text: knowledge };
   }
 
-  // 1. Демонстрация: "как ...", "покажи как", "демонстрация"
-  const wantsTour = /(\bкак\b|демонстрац|научи|покажи как|инструкц)/.test(lower);
+  // 1. Демонстрация: "как ...", "покажи как", "демонстрация".
+  // ВАЖНО: \b в JS не работает с кириллицей, поэтому "как" ищем как отдельное
+  // слово вручную через границы из не-кириллических символов.
+  const wantsTour = /(^|[^а-яёa-z])как([^а-яёa-z]|$)/i.test(lower)
+    || /(демонстрац|научи|инструкц|покажи как|пошагов)/.test(lower);
   if (wantsTour) {
     const tour = findTourByText(lower);
     if (tour) {
@@ -257,7 +260,7 @@ async function resolveQuery(text: string): Promise<AssistantMessage> {
   }
 
   // 2. Запрос данных: явный глагол выборки или упоминание сущности с "все/список"
-  const hasDataVerb = /(покажи|показать|список|сколько|количеств|выгруз|экспорт|найд|дай|сформируй|выведи|собери|все\b|всё\b|выбор)/.test(lower);
+  const hasDataVerb = /(покажи|показать|список|сколько|количеств|выгруз|экспорт|найд|дай|сформируй|выведи|собери|все|всё|выбор)/.test(lower);
   const hasEntity = /(тег|оборудован|компонент|вентилятор|короб|клапан|проект|систем|моноблок|аху|ahu)/.test(lower);
   const wantsData = hasDataVerb || hasEntity;
   if (wantsData) {

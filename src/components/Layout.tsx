@@ -434,7 +434,7 @@ export default function Layout() {
   ];
 
   return (
-    <div className="flex h-screen w-full bg-slate-50 dark:bg-dark-bg text-slate-800 dark:text-dark-text-main font-sans relative transition-colors duration-250">
+    <div className="flex h-full w-full overflow-hidden bg-slate-50 dark:bg-dark-bg text-slate-800 dark:text-dark-text-main font-sans relative transition-colors duration-250">
       <aside className={`${isSidebarCollapsed ? 'w-0 opacity-0 -translate-x-full pointer-events-none' : 'w-64 opacity-100 translate-x-0'} bg-white dark:bg-dark-surface text-slate-700 dark:text-dark-text-muted flex flex-col transition-all duration-300 shrink-0 border-r border-slate-200 dark:border-dark-border`}>
         <div className="p-4 bg-slate-50 dark:bg-dark-surface flex items-center justify-between border-b border-slate-200 dark:border-dark-border">
           <div className="overflow-hidden">
