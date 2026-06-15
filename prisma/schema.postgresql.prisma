@@ -206,7 +206,10 @@ model SystemChangeLog {
 model ChatGroup {
   id        String        @id @default(uuid())
   name      String
-  type      String        @default("PROJECT") // "DIRECT" | "PROJECT"
+  type      String        @default("PROJECT") // "DIRECT" | "PROJECT" | "CUSTOM" | "CHANNEL"
+  description String      @default("")
+  color     String        @default("indigo")
+  ownerId   String?       // владелец группы/канала
   projectId String?
   project   Project?      @relation("ProjectGroups", fields: [projectId], references: [id], onDelete: Cascade)
   members   User[]        @relation("GroupMembers")
@@ -233,6 +236,9 @@ model ChatMessage {
   replyTo         ChatMessage?      @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
   replies         ChatMessage[]     @relation("MessageReplies")
   editedAt        DateTime?         // Когда сообщение было отредактировано
+  reactions       String?           // JSON: { "👍": ["userId", ...], ... }
+  pinned          Boolean           @default(false)
+  forwardedFrom   String?           // имя исходного отправителя при пересылке
 }
 
 model ChatAttachment {

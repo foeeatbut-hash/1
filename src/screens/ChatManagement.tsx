@@ -24,7 +24,17 @@ import {
   Pencil,
   Copy,
   Smile,
-  CornerDownRight
+  CornerDownRight,
+  CornerUpRight,
+  Pin,
+  PinOff,
+  Plus,
+  Users,
+  Radio,
+  MoreVertical,
+  Trash,
+  UserPlus,
+  Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -164,6 +174,19 @@ export default function ChatManagement() {
 
   // UI state
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
+  const [reactPickerFor, setReactPickerFor] = useState<string | null>(null); // id сообщения для выбора реакции
+  const [forwardFor, setForwardFor] = useState<ChatMessage | null>(null);     // сообщение для пересылки
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [showGroupSettings, setShowGroupSettings] = useState(false);
+  const [showChatMenu, setShowChatMenu] = useState(false);                    // меню в шапке диалога
+  // Форма создания группы/канала
+  const [ngName, setNgName] = useState('');
+  const [ngType, setNgType] = useState<'CUSTOM' | 'CHANNEL'>('CUSTOM');
+  const [ngMembers, setNgMembers] = useState<string[]>([]);
+  const [ngBusy, setNgBusy] = useState(false);
+  // Форма настроек группы
+  const [gsName, setGsName] = useState('');
+  const [gsMembers, setGsMembers] = useState<string[]>([]);
   const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState(false);
   const [projectComponents, setProjectComponents] = useState<any[]>([]);
   const [compSearch, setCompSearch] = useState('');
@@ -424,6 +447,62 @@ export default function ChatManagement() {
     }
   };
 
+  const {
+    reactToMessage, pinMessage, forwardMessage, clearConversation,
+    createGroup, updateGroup, deleteGroup,
+  } = useChatStore();
+
+  const REACTION_EMOJIS = ['👍', '❤️', '🔥', '✅', '❌', '😄', '🙏', '👀'];
+
+  const handleReact = async (msg: ChatMessage, emoji: string) => {
+    if (!user) return;
+    setReactPickerFor(null);
+    try { await reactToMessage(user.id, msg.id, emoji); } catch (_) {}
+  };
+
+  const handlePin = async (msg: ChatMessage) => {
+    try {
+      await pinMessage(msg.id);
+      addToast(msg.pinned ? 'Сообщение откреплено' : 'Сообщение закреплено', 'success');
+    } catch (_) { addToast('Не удалось изменить закрепление', 'error'); }
+  };
+
+  const handleForwardTo = async (target: { groupId?: string; receiverId?: string }) => {
+    if (!user || !forwardFor) return;
+    try {
+      await forwardMessage(user.id, forwardFor.id, target);
+      addToast('Сообщение переслано', 'success');
+      setForwardFor(null);
+    } catch (err: any) {
+      addToast(err.message || 'Не удалось переслать', 'error');
+    }
+  };
+
+  const handleClearHistory = async () => {
+    if (!user) return;
+    setShowChatMenu(false);
+    if (!confirm('Очистить всю историю этой переписки? Действие необратимо.')) return;
+    try {
+      await clearConversation(user.id);
+      addToast('История очищена', 'success');
+    } catch (_) { addToast('Не удалось очистить историю', 'error'); }
+  };
+
+  // Разбор JSON-реакций сообщения в массив { emoji, count, mine }
+  const parseReactions = (msg: ChatMessage): { emoji: string; count: number; mine: boolean }[] => {
+    if (!msg.reactions) return [];
+    try {
+      const obj = JSON.parse(msg.reactions) as Record<string, string[]>;
+      return Object.entries(obj).map(([emoji, ids]) => ({
+        emoji, count: ids.length, mine: !!user && ids.includes(user.id),
+      }));
+    } catch (_) { return []; }
+  };
+
+  const pinnedMessages = messages.filter(m => m.pinned);
+  const isChannel = activeGroup?.type === 'CHANNEL';
+  const canPostInActive = !isChannel || (activeGroup?.ownerId === user?.id) || user?.role === 'ADMIN';
+
   const EMOJIS = ['👍','✅','❌','🔥','⚠️','📐','🔧','⚙️','📊','📁','💡','🚀','👌','🙏','😀','😄','😅','🤔','😐','😢','💪','🤝','📌','⏰','❗','❓','🟢','🔴'];
 
   const insertEmoji = (emoji: string) => {
@@ -666,35 +745,48 @@ export default function ChatManagement() {
         {/* Categories channels scrolling container */}
         <div className="flex-1 overflow-y-auto p-2 space-y-4">
           
-          {/* Section 1: Project Rooms (Автоматические проектные комнаты) */}
+          {/* Section 1: Groups & Channels */}
           <div className="space-y-1">
-            <div className="px-3 py-1 text-xs font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-              Проектные группы
+            <div className="px-3 py-1 flex items-center justify-between">
+              <span className="text-xs font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                Группы и каналы
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowCreateGroup(true)}
+                className="p-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer transition-colors"
+                title="Создать группу или канал"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
             </div>
             {groups.length === 0 ? (
-              <p className="text-xs p-3 text-slate-400 italic">Активных проектных групп нет</p>
+              <p className="text-xs p-3 text-slate-400 italic">Групп пока нет. Нажмите «+», чтобы создать.</p>
             ) : (
               groups.map((g) => {
                 const active = g.id === activeGroupId;
+                const isCh = g.type === 'CHANNEL';
+                const isProj = g.type === 'PROJECT';
+                const subtitle = isCh ? 'Канал' : isProj ? 'Группа проекта' : `Группа · ${g.members?.length || 0} уч.`;
                 return (
                   <button
                     key={g.id}
                     onClick={() => setActiveGroupId(g.id)}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all ${
-                      active 
-                        ? 'bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/40 text-indigo-900 dark:text-white' 
+                      active
+                        ? 'bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/40 text-indigo-900 dark:text-white'
                         : 'hover:bg-slate-100/75 dark:hover:bg-slate-800/40 border border-transparent'
                     }`}
                   >
-                    <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-950 flex items-center justify-center text-xs font-bold shrink-0 border border-indigo-200 dark:border-indigo-850 text-indigo-700 dark:text-indigo-400">
-                      👥
+                    <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-950 flex items-center justify-center shrink-0 border border-indigo-200 dark:border-indigo-850 text-indigo-700 dark:text-indigo-400">
+                      {isCh ? <Radio className="w-4 h-4" /> : <Users className="w-4 h-4" />}
                     </div>
                     <div className="flex-1 min-w-0">
                       <span className="text-xs font-bold text-slate-850 dark:text-white block truncate leading-tight">
                         {g.name}
                       </span>
                       <span className="text-xs text-slate-400 font-semibold block truncate mt-0.5">
-                        Автомод. комната проекта
+                        {subtitle}
                       </span>
                     </div>
                   </button>
@@ -811,6 +903,38 @@ export default function ChatManagement() {
                   )}
                 </div>
 
+                {/* Меню диалога: настройки группы, очистка истории, удаление */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowChatMenu(!showChatMenu)}
+                    className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors cursor-pointer"
+                    title="Действия"
+                  >
+                    <MoreVertical className="w-5 h-5" />
+                  </button>
+                  {showChatMenu && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setShowChatMenu(false)} />
+                      <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl py-1">
+                        {activeGroup && activeGroup.type !== 'PROJECT' && (
+                          <button type="button" onClick={() => { setShowChatMenu(false); setShowGroupSettings(true); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+                            <Settings className="w-3.5 h-3.5" /> Настройки {activeGroup.type === 'CHANNEL' ? 'канала' : 'группы'}
+                          </button>
+                        )}
+                        <button type="button" onClick={handleClearHistory} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+                          <Trash2 className="w-3.5 h-3.5" /> Очистить историю
+                        </button>
+                        {activeGroup && activeGroup.type !== 'PROJECT' && (activeGroup.ownerId === user?.id || user?.role === 'ADMIN') && (
+                          <button type="button" onClick={async () => { setShowChatMenu(false); if (confirm(`Удалить ${activeGroup.type === 'CHANNEL' ? 'канал' : 'группу'} «${activeGroup.name}»?`) && user) { try { await deleteGroup(activeGroup.id, user.id); setActiveGroupId(null); addToast('Удалено', 'success'); } catch (e: any) { addToast(e.message, 'error'); } } }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer">
+                            <Trash className="w-3.5 h-3.5" /> Удалить {activeGroup.type === 'CHANNEL' ? 'канал' : 'группу'}
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+
                 <button
                   type="button"
                   onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
@@ -821,6 +945,17 @@ export default function ChatManagement() {
                 </button>
               </div>
             </div>
+
+            {/* Панель закреплённых сообщений */}
+            {pinnedMessages.length > 0 && (
+              <div className="px-4 py-2 border-b border-amber-200/60 dark:border-amber-900/40 bg-amber-50/60 dark:bg-amber-950/15 shrink-0 flex items-start gap-2">
+                <Pin className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">Закреплено ({pinnedMessages.length})</div>
+                  <div className="text-xs text-slate-600 dark:text-slate-300 truncate">{pinnedMessages[pinnedMessages.length - 1].content || 'Вложение'}</div>
+                </div>
+              </div>
+            )}
 
             {/* Conversation Messages Lists */}
             <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50 dark:bg-slate-900/20">
@@ -876,7 +1011,22 @@ export default function ChatManagement() {
                           )}
 
                           {/* Панель действий над сообщением (по наведению) */}
-                          <span className={`opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 ${isMe ? 'mr-1' : 'ml-1'}`}>
+                          <span className={`relative opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 ${isMe ? 'mr-1' : 'ml-1'}`}>
+                            <button
+                              type="button"
+                              onClick={() => setReactPickerFor(reactPickerFor === msg.id ? null : msg.id)}
+                              className="p-1 rounded hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-400 hover:text-amber-500 cursor-pointer"
+                              title="Реакция"
+                            >
+                              <Smile className="w-3 h-3" />
+                            </button>
+                            {reactPickerFor === msg.id && (
+                              <span className="absolute z-50 top-full mt-1 right-0 flex gap-0.5 p-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl">
+                                {REACTION_EMOJIS.map(em => (
+                                  <button key={em} type="button" onClick={() => handleReact(msg, em)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-sm">{em}</button>
+                                ))}
+                              </span>
+                            )}
                             <button
                               type="button"
                               onClick={() => handleStartReply(msg)}
@@ -884,6 +1034,22 @@ export default function ChatManagement() {
                               title="Ответить"
                             >
                               <Reply className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setForwardFor(msg)}
+                              className="p-1 rounded hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-400 hover:text-sky-600 dark:hover:text-sky-400 cursor-pointer"
+                              title="Переслать"
+                            >
+                              <CornerUpRight className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handlePin(msg)}
+                              className={`p-1 rounded hover:bg-slate-200/70 dark:hover:bg-slate-800 cursor-pointer ${msg.pinned ? 'text-amber-500' : 'text-slate-400 hover:text-amber-500'}`}
+                              title={msg.pinned ? 'Открепить' : 'Закрепить'}
+                            >
+                              <Pin className="w-3 h-3" />
                             </button>
                             <button
                               type="button"
@@ -922,6 +1088,11 @@ export default function ChatManagement() {
                             ? 'bg-indigo-50/90 dark:bg-indigo-950/25 border-indigo-200 dark:border-indigo-900/40 text-slate-900 dark:text-indigo-150 rounded-tr-none' 
                             : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850/60 text-slate-800 dark:text-slate-150 rounded-tl-none'
                         }`}>
+                          {msg.forwardedFrom && (
+                            <div className="mb-1.5 text-[10px] font-semibold text-sky-600 dark:text-sky-400 flex items-center gap-1 select-none">
+                              <CornerUpRight className="w-3 h-3" /> Переслано от {msg.forwardedFrom}
+                            </div>
+                          )}
                           {msg.replyTo && (
                             <div className="mb-2 pl-2 border-l-2 border-indigo-400 dark:border-indigo-500 text-xs select-none">
                               <div className="font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
@@ -981,6 +1152,28 @@ export default function ChatManagement() {
                             </div>
                           )}
                         </div>
+
+                        {/* Реакции под сообщением */}
+                        {parseReactions(msg).length > 0 && (
+                          <div className={`flex flex-wrap gap-1 mt-1 ${isMe ? 'justify-end' : ''}`}>
+                            {parseReactions(msg).map(r => (
+                              <button
+                                key={r.emoji}
+                                type="button"
+                                onClick={() => handleReact(msg, r.emoji)}
+                                className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-xs cursor-pointer transition-colors ${
+                                  r.mine
+                                    ? 'bg-emerald-600/15 border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
+                                    : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                }`}
+                                title={r.mine ? 'Убрать реакцию' : 'Поставить реакцию'}
+                              >
+                                <span>{r.emoji}</span>
+                                <span className="font-semibold">{r.count}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                     </React.Fragment>
@@ -990,7 +1183,13 @@ export default function ChatManagement() {
               <div ref={chatEndRef} />
             </div>
 
-            {/* Input Form Panel */}
+            {/* В канале писать может только владелец/админ — остальным показываем заглушку */}
+            {!canPostInActive ? (
+              <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0 text-center text-xs text-slate-400 dark:text-slate-500 flex items-center justify-center gap-2">
+                <Radio className="w-4 h-4" /> Это канал — публиковать может только владелец или администратор.
+              </div>
+            ) : (
+            /* Input Form Panel */
             <form onSubmit={handleSend} className="p-3 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2 shrink-0 relative">
               {(replyTarget || editingMessage) && (
                 <div className="flex items-center justify-between gap-2 px-3 py-2 bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/50 rounded-lg select-none">
@@ -1213,6 +1412,7 @@ export default function ChatManagement() {
                 </button>
               </div>
             </form>
+            )}
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-50/20 select-none">
@@ -1592,6 +1792,132 @@ export default function ChatManagement() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* ── Модалка: создание группы/канала ── */}
+      {showCreateGroup && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs" onClick={() => !ngBusy && setShowCreateGroup(false)}>
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">Создать {ngType === 'CHANNEL' ? 'канал' : 'группу'}</h3>
+              <button onClick={() => setShowCreateGroup(false)} className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <button type="button" onClick={() => setNgType('CUSTOM')} className={`flex items-center justify-center gap-1.5 py-2 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${ngType === 'CUSTOM' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300'}`}>
+                <Users className="w-4 h-4" /> Группа
+              </button>
+              <button type="button" onClick={() => setNgType('CHANNEL')} className={`flex items-center justify-center gap-1.5 py-2 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${ngType === 'CHANNEL' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300'}`}>
+                <Radio className="w-4 h-4" /> Канал
+              </button>
+            </div>
+            <input type="text" value={ngName} onChange={(e) => setNgName(e.target.value)} placeholder={ngType === 'CHANNEL' ? 'Название канала' : 'Название группы'} className="w-full mb-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500" />
+            <p className="text-[11px] text-slate-400 mb-2">{ngType === 'CHANNEL' ? 'В канал пишет только владелец/админ, остальные читают.' : 'Участники группы могут писать и читать.'}</p>
+            <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Участники ({ngMembers.length})</div>
+            <div className="max-h-48 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-850 mb-4">
+              {users.filter(u => u.id !== user?.id).map(u => {
+                const sel = ngMembers.includes(u.id);
+                return (
+                  <button key={u.id} type="button" onClick={() => setNgMembers(sel ? ngMembers.filter(id => id !== u.id) : [...ngMembers, u.id])} className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer">
+                    <span className="text-xs text-slate-700 dark:text-slate-200">{u.name} <span className="text-slate-400 font-mono">({u.symbol})</span></span>
+                    <span className={`w-4 h-4 rounded border flex items-center justify-center ${sel ? 'bg-emerald-600 border-emerald-600' : 'border-slate-300 dark:border-slate-600'}`}>{sel && <Check className="w-3 h-3 text-white" />}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              disabled={ngBusy || !ngName.trim()}
+              onClick={async () => {
+                if (!user) return;
+                setNgBusy(true);
+                try {
+                  const g = await createGroup({ name: ngName.trim(), type: ngType, memberIds: ngMembers, ownerId: user.id });
+                  addToast(ngType === 'CHANNEL' ? 'Канал создан' : 'Группа создана', 'success');
+                  setShowCreateGroup(false); setNgName(''); setNgMembers([]); setNgType('CUSTOM');
+                  if (g) setActiveGroupId(g.id);
+                } catch (e: any) { addToast(e.message || 'Не удалось создать', 'error'); }
+                finally { setNgBusy(false); }
+              }}
+              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-sm font-bold rounded-lg cursor-pointer transition-colors"
+            >
+              {ngBusy ? 'Создание…' : 'Создать'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Модалка: пересылка сообщения ── */}
+      {forwardFor && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs" onClick={() => setForwardFor(null)}>
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">Переслать сообщение</h3>
+              <button onClick={() => setForwardFor(null)} className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 mb-3 p-2 bg-slate-50 dark:bg-slate-950 rounded-lg border border-slate-200 dark:border-slate-800 truncate">{forwardFor.content || 'Вложение'}</div>
+            <div className="max-h-72 overflow-y-auto space-y-1">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1 py-1">Группы и каналы</div>
+              {groups.map(g => (
+                <button key={g.id} type="button" onClick={() => handleForwardTo({ groupId: g.id })} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs text-slate-700 dark:text-slate-200">
+                  {g.type === 'CHANNEL' ? <Radio className="w-4 h-4 text-indigo-500" /> : <Users className="w-4 h-4 text-indigo-500" />} {g.name}
+                </button>
+              ))}
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1 py-1 mt-2">Личные диалоги</div>
+              {users.filter(u => u.id !== user?.id).map(u => (
+                <button key={u.id} type="button" onClick={() => handleForwardTo({ receiverId: u.id })} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs text-slate-700 dark:text-slate-200">
+                  <User className="w-4 h-4 text-emerald-500" /> {u.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Модалка: настройки группы/канала ── */}
+      {showGroupSettings && activeGroup && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs" onClick={() => setShowGroupSettings(false)}>
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">Настройки {activeGroup.type === 'CHANNEL' ? 'канала' : 'группы'}</h3>
+              <button onClick={() => setShowGroupSettings(false)} className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5" /></button>
+            </div>
+            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Название</label>
+            <input type="text" defaultValue={activeGroup.name} onChange={(e) => setGsName(e.target.value)} className="w-full mb-3 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500" />
+            <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Участники</div>
+            <div className="max-h-44 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-850 mb-4">
+              {users.map(u => {
+                const initial = (activeGroup.members || []).some(m => m.id === u.id);
+                const cur = gsMembers.length ? gsMembers : (activeGroup.members || []).map(m => m.id);
+                const sel = cur.includes(u.id);
+                const isOwner = activeGroup.ownerId === u.id;
+                return (
+                  <button key={u.id} type="button" disabled={isOwner} onClick={() => { const base = gsMembers.length ? gsMembers : (activeGroup.members || []).map(m => m.id); setGsMembers(sel ? base.filter(id => id !== u.id) : [...base, u.id]); }} className={`w-full flex items-center justify-between px-3 py-2 text-left ${isOwner ? 'opacity-60' : 'hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer'}`}>
+                    <span className="text-xs text-slate-700 dark:text-slate-200">{u.name} {isOwner && <span className="text-amber-500 font-semibold">· владелец</span>}</span>
+                    <span className={`w-4 h-4 rounded border flex items-center justify-center ${sel ? 'bg-emerald-600 border-emerald-600' : 'border-slate-300 dark:border-slate-600'}`}>{sel && <Check className="w-3 h-3 text-white" />}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!user) return;
+                try {
+                  await updateGroup(activeGroup.id, {
+                    name: gsName || activeGroup.name,
+                    memberIds: gsMembers.length ? gsMembers : (activeGroup.members || []).map(m => m.id),
+                    userId: user.id,
+                  });
+                  addToast('Сохранено', 'success');
+                  setShowGroupSettings(false); setGsName(''); setGsMembers([]);
+                } catch (e: any) { addToast(e.message || 'Не удалось сохранить', 'error'); }
+              }}
+              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold rounded-lg cursor-pointer transition-colors"
+            >
+              Сохранить
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );

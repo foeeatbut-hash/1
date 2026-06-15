@@ -233,6 +233,33 @@ function ensureSchemaColumns(dbPath: string) {
           db.exec('ALTER TABLE "ChatMessage" ADD COLUMN "editedAt" DATETIME');
           logInit('[DB Migrate] Добавлена колонка ChatMessage.editedAt');
         }
+        if (!msgCols.find(c => c.name === 'reactions')) {
+          db.exec('ALTER TABLE "ChatMessage" ADD COLUMN "reactions" TEXT');
+          logInit('[DB Migrate] Добавлена колонка ChatMessage.reactions');
+        }
+        if (!msgCols.find(c => c.name === 'pinned')) {
+          db.exec('ALTER TABLE "ChatMessage" ADD COLUMN "pinned" BOOLEAN NOT NULL DEFAULT false');
+          logInit('[DB Migrate] Добавлена колонка ChatMessage.pinned');
+        }
+        if (!msgCols.find(c => c.name === 'forwardedFrom')) {
+          db.exec('ALTER TABLE "ChatMessage" ADD COLUMN "forwardedFrom" TEXT');
+          logInit('[DB Migrate] Добавлена колонка ChatMessage.forwardedFrom');
+        }
+      }
+      const grpCols = db.prepare('PRAGMA table_info("ChatGroup")').all() as Array<{ name: string }>;
+      if (grpCols.length > 0) {
+        if (!grpCols.find(c => c.name === 'description')) {
+          db.exec('ALTER TABLE "ChatGroup" ADD COLUMN "description" TEXT NOT NULL DEFAULT \'\'');
+          logInit('[DB Migrate] Добавлена колонка ChatGroup.description');
+        }
+        if (!grpCols.find(c => c.name === 'color')) {
+          db.exec('ALTER TABLE "ChatGroup" ADD COLUMN "color" TEXT NOT NULL DEFAULT \'indigo\'');
+          logInit('[DB Migrate] Добавлена колонка ChatGroup.color');
+        }
+        if (!grpCols.find(c => c.name === 'ownerId')) {
+          db.exec('ALTER TABLE "ChatGroup" ADD COLUMN "ownerId" TEXT');
+          logInit('[DB Migrate] Добавлена колонка ChatGroup.ownerId');
+        }
       }
     } finally {
       db.close();
@@ -2080,6 +2107,191 @@ app.get('/api/chat/groups', async (req: Request, res: Response) => {
   }
 });
 
+// Создание своей группы или канала
+app.post('/api/chat/groups', async (req: Request, res: Response) => {
+  try {
+    const { name, type, memberIds, description, color, ownerId } = req.body;
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: 'Укажите название' });
+    }
+    const safeType = (type === 'CHANNEL' || type === 'CUSTOM') ? type : 'CUSTOM';
+    const ids: string[] = Array.isArray(memberIds) ? memberIds.map(String) : [];
+    // владелец всегда участник
+    if (ownerId && !ids.includes(String(ownerId))) ids.push(String(ownerId));
+    const group = await prisma.chatGroup.create({
+      data: {
+        name: String(name).trim(),
+        type: safeType,
+        description: String(description || ''),
+        color: String(color || 'indigo'),
+        ownerId: ownerId ? String(ownerId) : null,
+        members: { connect: ids.map(id => ({ id })) },
+      },
+      include: { members: { select: { id: true, name: true, symbol: true, role: true } } },
+    });
+    res.json({ success: true, group });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Изменение группы/канала: название, описание, цвет, участники, владелец
+app.put('/api/chat/groups/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, description, color, memberIds, ownerId, userId } = req.body;
+    const group = await prisma.chatGroup.findUnique({ where: { id }, include: { members: true } });
+    if (!group) return res.status(404).json({ success: false, message: 'Группа не найдена' });
+    if (group.type === 'PROJECT') {
+      return res.status(400).json({ success: false, message: 'Системную группу проекта изменить нельзя' });
+    }
+    // менять может владелец или администратор
+    const editor = userId ? await prisma.user.findUnique({ where: { id: String(userId) } }) : null;
+    if (group.ownerId && userId && group.ownerId !== String(userId) && editor?.role !== 'ADMIN') {
+      return res.status(403).json({ success: false, message: 'Изменять может только владелец или администратор' });
+    }
+    const data: any = {};
+    if (typeof name === 'string' && name.trim()) data.name = name.trim();
+    if (typeof description === 'string') data.description = description;
+    if (typeof color === 'string' && color) data.color = color;
+    if (ownerId) data.ownerId = String(ownerId);
+    if (Array.isArray(memberIds)) {
+      data.members = { set: memberIds.map((m: string) => ({ id: String(m) })) };
+    }
+    const updated = await prisma.chatGroup.update({
+      where: { id }, data,
+      include: { members: { select: { id: true, name: true, symbol: true, role: true } } },
+    });
+    res.json({ success: true, group: updated });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Удаление группы/канала (нельзя удалять системную группу проекта)
+app.delete('/api/chat/groups/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = String(req.query.userId || '');
+    const group = await prisma.chatGroup.findUnique({ where: { id } });
+    if (!group) return res.status(404).json({ success: false, message: 'Группа не найдена' });
+    if (group.type === 'PROJECT') {
+      return res.status(400).json({ success: false, message: 'Системную группу проекта удалить нельзя' });
+    }
+    const editor = userId ? await prisma.user.findUnique({ where: { id: userId } }) : null;
+    if (group.ownerId && userId && group.ownerId !== userId && editor?.role !== 'ADMIN') {
+      return res.status(403).json({ success: false, message: 'Удалить может только владелец или администратор' });
+    }
+    await prisma.chatGroup.delete({ where: { id } });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Реакция на сообщение (переключение эмодзи для пользователя)
+app.post('/api/chat/messages/:id/react', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { userId, emoji } = req.body;
+    if (!userId || !emoji) return res.status(400).json({ error: 'userId и emoji обязательны' });
+    const msg = await prisma.chatMessage.findUnique({ where: { id } });
+    if (!msg) return res.status(404).json({ error: 'Сообщение не найдено' });
+    let reactions: Record<string, string[]> = {};
+    try { reactions = msg.reactions ? JSON.parse(msg.reactions) : {}; } catch (_) { reactions = {}; }
+    const list = reactions[emoji] || [];
+    const uidStr = String(userId);
+    if (list.includes(uidStr)) {
+      reactions[emoji] = list.filter(u => u !== uidStr);
+      if (reactions[emoji].length === 0) delete reactions[emoji];
+    } else {
+      reactions[emoji] = [...list, uidStr];
+    }
+    const updated = await prisma.chatMessage.update({
+      where: { id }, data: { reactions: JSON.stringify(reactions) },
+    });
+    io.emit('chat:message_updated', { id, reactions: updated.reactions });
+    res.json({ success: true, reactions: updated.reactions });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Закрепление / открепление сообщения
+app.post('/api/chat/messages/:id/pin', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const msg = await prisma.chatMessage.findUnique({ where: { id } });
+    if (!msg) return res.status(404).json({ error: 'Сообщение не найдено' });
+    const updated = await prisma.chatMessage.update({ where: { id }, data: { pinned: !msg.pinned } });
+    res.json({ success: true, pinned: updated.pinned });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Пересылка сообщения в другой чат (группу или личку)
+app.post('/api/chat/forward', async (req: Request, res: Response) => {
+  try {
+    const { messageId, senderId, toGroupId, toReceiverId } = req.body;
+    if (!messageId || !senderId || (!toGroupId && !toReceiverId)) {
+      return res.status(400).json({ error: 'Не указано сообщение или цель пересылки' });
+    }
+    const src = await prisma.chatMessage.findUnique({
+      where: { id: String(messageId) },
+      include: { sender: { select: { name: true } } },
+    });
+    if (!src) return res.status(404).json({ error: 'Исходное сообщение не найдено' });
+    const created = await prisma.chatMessage.create({
+      data: {
+        senderId: String(senderId),
+        chatGroupId: toGroupId ? String(toGroupId) : null,
+        receiverId: toReceiverId ? String(toReceiverId) : null,
+        content: src.content,
+        linkedElementId: src.linkedElementId,
+        linkedProjectId: src.linkedProjectId,
+        forwardedFrom: src.forwardedFrom || src.sender?.name || 'Сообщение',
+      },
+    });
+    const full = await prisma.chatMessage.findUnique({
+      where: { id: created.id },
+      include: {
+        attachments: true,
+        sender: { select: { id: true, name: true, symbol: true, role: true } },
+        receiver: { select: { id: true, name: true, symbol: true, role: true } },
+        linkedElement: true,
+        replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } },
+      },
+    });
+    io.emit('chat:message_received', full);
+    res.json({ success: true, message: full });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Очистка истории переписки (группа целиком или личный диалог)
+app.delete('/api/chat/conversation', async (req: Request, res: Response) => {
+  try {
+    const groupId = String(req.query.groupId || '');
+    const a = String(req.query.userA || '');
+    const b = String(req.query.userB || '');
+    if (groupId) {
+      const r = await prisma.chatMessage.deleteMany({ where: { chatGroupId: groupId } });
+      return res.json({ success: true, deleted: r.count });
+    }
+    if (a && b) {
+      const r = await prisma.chatMessage.deleteMany({
+        where: { OR: [{ senderId: a, receiverId: b }, { senderId: b, receiverId: a }] },
+      });
+      return res.json({ success: true, deleted: r.count });
+    }
+    res.status(400).json({ success: false, message: 'Не указан диалог для очистки' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // Get messages for group
 app.get('/api/chat/group-messages', async (req: Request, res: Response) => {
   try {
@@ -2109,6 +2321,15 @@ app.post('/api/chat/group-messages', async (req: Request, res: Response) => {
     const { senderId, groupId, content, linkedElementId, linkedProjectId, attachments, replyToId } = req.body;
     if (!senderId || !groupId) {
       return res.status(400).json({ error: 'senderId and groupId are required' });
+    }
+
+    // В каналах публиковать может только владелец или администратор
+    const grp = await prisma.chatGroup.findUnique({ where: { id: String(groupId) } });
+    if (grp && grp.type === 'CHANNEL') {
+      const u = await prisma.user.findUnique({ where: { id: String(senderId) } });
+      if (grp.ownerId && grp.ownerId !== String(senderId) && u?.role !== 'ADMIN') {
+        return res.status(403).json({ error: 'В канал может писать только владелец или администратор' });
+      }
     }
 
     const msg = await prisma.chatMessage.create({
