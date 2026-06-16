@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useLogStore, LogItem } from '../store/logStore';
 import { useAssistantStore } from '../store/assistantStore';
 import { useToastStore } from '../store/toastStore';
+import { useStore } from '../store/store';
 import { 
   Terminal, 
   Copy, 
@@ -14,6 +15,18 @@ import {
   Check,
   Send
 } from 'lucide-react';
+
+
+// Человекочитаемая должность по роли
+function roleLabel(role?: string): string {
+  switch (role) {
+    case 'ADMIN': return 'Администратор';
+    case 'MANAGER': return 'Менеджер проектов';
+    case 'ENGINEER_VENT': return 'Инженер ОВиК';
+    case 'ENGINEER_AUTO': return 'Инженер КИПиА';
+    default: return role || '—';
+  }
+}
 
 export default function ActionLogWidget() {
   const { logs, hasUnreadError, widgetOpen, setWidgetOpen, clearLogs } = useLogStore();
@@ -37,9 +50,24 @@ export default function ActionLogWidget() {
   useEffect(() => {
     const handleBeforeUnload = () => {
       const allLogs = useLogStore.getState().logs;
-      if (allLogs.length === 0) return;
-      
-      const formattedLogsText = allLogs
+
+      // Шапка журнала: кто в программе, версия, время
+      const u = (() => { try { return useStore.getState().user; } catch (_) { return null; } })();
+      const proj = (() => { try { return useStore.getState().activeProject; } catch (_) { return null; } })();
+      const header = [
+        '==================== ЖУРНАЛ PDM SYSTEM ====================',
+        `Дата выгрузки : ${new Date().toLocaleString('ru-RU')}`,
+        `Версия        : 0.17.1`,
+        `Пользователь  : ${u?.name || '— (вход не выполнен)'}`,
+        `Логин         : ${u?.symbol || '—'}`,
+        `Должность     : ${roleLabel(u?.role)}`,
+        `Активный проект: ${proj?.name || '—'}`,
+        `Записей в журнале: ${allLogs.length}`,
+        '===========================================================',
+        '',
+      ].join('\n');
+
+      const formattedLogsText = header + allLogs
         .map(l => `[${l.timestamp}] [${l.type}] [${l.context}] ${l.message}${l.stack ? `\nStack:\n${l.stack}` : ''}`)
         .join('\n');
 

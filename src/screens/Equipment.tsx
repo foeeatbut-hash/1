@@ -229,7 +229,7 @@ export default function Equipment() {
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {catSystems.length === 0 ? (
             <div className="text-center text-xs text-slate-400 py-10 px-3">В этой категории пока нет оборудования. Импортируйте расчёт через «Проводник».</div>
-          ) : catSystems.map(unit => (
+          ) : (catSystems || []).map(unit => (
             <div key={unit.id}>
               <div className="flex items-center group">
                 <button onClick={() => toggle(unit.id)} className="flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-left cursor-pointer">
@@ -239,7 +239,7 @@ export default function Equipment() {
                 </button>
                 <button onClick={() => deleteUnit(unit)} className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-500 cursor-pointer" title="Удалить установку"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
-              {expanded[unit.id] && unit.monoblocks.map(mb => {
+              {expanded[unit.id] && (unit.monoblocks || []).map(mb => {
                 const isUnitMb = mb.name === '__unit__';
                 return (
                   <div key={mb.id} className="ml-4">
@@ -250,7 +250,7 @@ export default function Equipment() {
                         <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 truncate">{mb.name}</span>
                       </button>
                     )}
-                    {(isUnitMb || expanded[mb.id]) && mb.components.map(c => (
+                    {(isUnitMb || expanded[mb.id]) && (mb.components || []).map(c => (
                       <button key={c.id} onClick={() => { setSelectedBlockId(c.id); setShowAllParams(false); }}
                         className={`w-full flex items-center gap-1.5 pl-7 pr-2 py-1.5 rounded-lg text-left cursor-pointer ${selectedBlockId === c.id ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
                         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${c.hasConflict ? 'bg-rose-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
@@ -331,9 +331,34 @@ export default function Equipment() {
 // ── Карточка блока ──
 function BlockCard(props: any) {
   const { comp, unitName, showAllParams, setShowAllParams, isHidden, toggleHidden, onResolve, onOverride, onHistory, onPickTag, onUnlinkTag, blockLabel } = props;
-  const specs: { groups: SpecGroup[] } = comp.specs ? JSON.parse(comp.specs) : { groups: [] };
-  const conflicts: ParamConflict[] = comp.paramConflicts ? JSON.parse(comp.paramConflicts) : [];
-  const overrides: Record<string, string> = comp.overrides ? JSON.parse(comp.overrides) : {};
+  // Нормализуем specs к виду { groups: [...] } для любого сохранённого формата
+  // (новый сгруппированный, старый плоский {ключ:значение}, или массив групп)
+  const normalizeSpecs = (raw: any): { groups: SpecGroup[] } => {
+    let parsed: any = {};
+    try { parsed = raw ? JSON.parse(raw) : {}; } catch (_) { parsed = {}; }
+    if (parsed && Array.isArray(parsed.groups)) {
+      return { groups: parsed.groups.map((g: any) => ({ title: g?.title || 'Параметры', params: Array.isArray(g?.params) ? g.params : [] })) };
+    }
+    if (Array.isArray(parsed)) {
+      return { groups: parsed.map((g: any) => ({ title: g?.title || 'Параметры', params: Array.isArray(g?.params) ? g.params : [] })) };
+    }
+    if (parsed && typeof parsed === 'object') {
+      // старый плоский формат: { "ключ": "значение", ... } или { ключ: {value,unit} }
+      const params = Object.entries(parsed).map(([k, v]: [string, any]) => ({
+        key: k,
+        value: v && typeof v === 'object' ? String(v.value ?? '') : String(v ?? ''),
+        unit: v && typeof v === 'object' ? String(v.unit ?? '') : '',
+      }));
+      return { groups: params.length ? [{ title: 'Параметры', params }] : [] };
+    }
+    return { groups: [] };
+  };
+  const specs = normalizeSpecs(comp?.specs);
+  let conflicts: ParamConflict[] = [];
+  try { conflicts = comp?.paramConflicts ? JSON.parse(comp.paramConflicts) : []; } catch (_) { conflicts = []; }
+  if (!Array.isArray(conflicts)) conflicts = [];
+  let overrides: Record<string, string> = {};
+  try { overrides = comp?.overrides ? JSON.parse(comp.overrides) : {}; } catch (_) { overrides = {}; }
   const conflictOf = (g: string, k: string) => conflicts.find(c => c.group === g && c.key === k);
   const [editKey, setEditKey] = useState<string | null>(null);
   const [editVal, setEditVal] = useState('');
@@ -372,10 +397,13 @@ function BlockCard(props: any) {
       )}
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {specs.groups.length === 0 && (
+          <div className="text-xs text-slate-400 text-center py-6">У этого элемента нет параметров.</div>
+        )}
         {specs.groups.map(g => {
           const groupHidden = isHidden(comp.equipType, `g:${g.title}`);
           if (groupHidden && !showAllParams) return null;
-          const visibleParams = g.params.filter(p => showAllParams || !isHidden(comp.equipType, `p:${g.title}||${p.key}`));
+          const visibleParams = (g.params || []).filter(p => showAllParams || !isHidden(comp.equipType, `p:${g.title}||${p.key}`));
           if (visibleParams.length === 0 && !showAllParams) return null;
           return (
             <div key={g.title}>

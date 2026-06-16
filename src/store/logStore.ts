@@ -65,3 +65,9 @@ export const useLogStore = create<LogState>((set, get) => ({
     set({ hasUnreadError: val });
   }
 }));
+
+// Делаем журнал доступным глобальной обёртке fetch (config/env.ts) для
+// подробного логирования запросов/ответов без циклических импортов.
+if (typeof window !== 'undefined') {
+  (window as any).__pdmLogStore = useLogStore;
+}
