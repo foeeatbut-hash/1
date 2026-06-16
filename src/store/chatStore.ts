@@ -44,6 +44,9 @@ export interface ChatMessage {
     sender?: { id: string; name: string } | null;
   } | null;
   editedAt?: string | null;
+  reactions?: string | null;     // JSON: { "👍": ["userId", ...] }
+  pinned?: boolean;
+  forwardedFrom?: string | null;
 }
 
 export interface ChatUser {
@@ -57,6 +60,9 @@ export interface ChatGroup {
   id: string;
   name: string;
   type: string;
+  description?: string;
+  color?: string;
+  ownerId?: string | null;
   projectId?: string | null;
   members?: ChatUser[];
   project?: { id: string; name: string } | null;
@@ -86,6 +92,13 @@ interface ChatState {
   ) => Promise<void>;
   editMessage: (currentUserId: string, messageId: string, content: string) => Promise<void>;
   deleteMessage: (currentUserId: string, messageId: string) => Promise<void>;
+  reactToMessage: (currentUserId: string, messageId: string, emoji: string) => Promise<void>;
+  pinMessage: (messageId: string) => Promise<void>;
+  forwardMessage: (currentUserId: string, messageId: string, target: { groupId?: string; receiverId?: string }) => Promise<void>;
+  clearConversation: (currentUserId: string) => Promise<void>;
+  createGroup: (data: { name: string; type: 'CUSTOM' | 'CHANNEL'; memberIds: string[]; description?: string; color?: string; ownerId: string }) => Promise<ChatGroup | null>;
+  updateGroup: (id: string, data: { name?: string; description?: string; color?: string; memberIds?: string[]; userId: string }) => Promise<void>;
+  deleteGroup: (id: string, userId: string) => Promise<void>;
   uploadFile: (fileName: string, base64Data: string) => Promise<{ filePath: string; fileName: string; fileSize: number }>;
   openFile: (filePath: string) => Promise<void>;
   startPolling: (currentUserId: string) => void;
@@ -100,7 +113,7 @@ let pollTimer: NodeJS.Timeout | null = null;
 // Обновляет messages только если список реально изменился — опрос каждые 3 секунды
 // не должен дергать перерисовку и скролл без новых сообщений
 const messagesSignature = (list: any[]) =>
-  list.map(m => `${m.id}:${m.editedAt || ''}`).join('|');
+  list.map(m => `${m.id}:${m.editedAt || ''}:${m.reactions || ''}:${m.pinned ? 1 : 0}`).join('|');
 
 const setMessagesIfChanged = (set: any, get: any, data: any[]) => {
   const prev = get().messages || [];
@@ -410,6 +423,78 @@ export const useChatStore = create<ChatState>((set, get) => {
         }
       }
       set((state) => ({ messages: state.messages.filter(m => m.id !== messageId) }));
+    },
+
+    // Реакция эмодзи (через встроенный сервер; в Electron fetch проксируется)
+    reactToMessage: async (currentUserId, messageId, emoji) => {
+      const res = await fetch(`/api/chat/messages/${messageId}/react`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUserId, emoji }),
+      }).catch(() => null);
+      let reactions: string | null = null;
+      if (res && res.ok) { reactions = (await res.json()).reactions; }
+      set((state) => ({ messages: state.messages.map(m => m.id === messageId ? { ...m, reactions } : m) }));
+    },
+
+    pinMessage: async (messageId) => {
+      const res = await fetch(`/api/chat/messages/${messageId}/pin`, { method: 'POST' }).catch(() => null);
+      if (res && res.ok) {
+        const { pinned } = await res.json();
+        set((state) => ({ messages: state.messages.map(m => m.id === messageId ? { ...m, pinned } : m) }));
+      }
+    },
+
+    forwardMessage: async (currentUserId, messageId, target) => {
+      const res = await fetch(`/api/chat/forward`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId, senderId: currentUserId, toGroupId: target.groupId || null, toReceiverId: target.receiverId || null }),
+      }).catch(() => null);
+      if (!res || !res.ok) throw new Error('Не удалось переслать сообщение');
+    },
+
+    clearConversation: async (currentUserId) => {
+      const { activeType, activeGroupId, activeReceiverId } = get();
+      let url = '';
+      if (activeType === 'PROJECT' && activeGroupId) {
+        url = `/api/chat/conversation?groupId=${encodeURIComponent(activeGroupId)}`;
+      } else if (activeReceiverId) {
+        url = `/api/chat/conversation?userA=${encodeURIComponent(currentUserId)}&userB=${encodeURIComponent(activeReceiverId)}`;
+      }
+      if (!url) return;
+      const res = await fetch(url, { method: 'DELETE' }).catch(() => null);
+      if (res && res.ok) set({ messages: [] });
+    },
+
+    createGroup: async (data) => {
+      const res = await fetch(`/api/chat/groups`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      }).catch(() => null);
+      if (!res || !res.ok) throw new Error('Не удалось создать');
+      const { group } = await res.json();
+      await get().fetchGroups();
+      return group;
+    },
+
+    updateGroup: async (id, data) => {
+      const res = await fetch(`/api/chat/groups/${id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      }).catch(() => null);
+      if (!res || !res.ok) {
+        const d = res ? await res.json().catch(() => ({})) : {};
+        throw new Error(d.message || 'Не удалось изменить');
+      }
+      await get().fetchGroups();
+    },
+
+    deleteGroup: async (id, userId) => {
+      const res = await fetch(`/api/chat/groups/${id}?userId=${encodeURIComponent(userId)}`, { method: 'DELETE' }).catch(() => null);
+      if (!res || !res.ok) {
+        const d = res ? await res.json().catch(() => ({})) : {};
+        throw new Error(d.message || 'Не удалось удалить');
+      }
+      await get().fetchGroups();
     },
 
     uploadFile: async (fileName, base64Data) => {

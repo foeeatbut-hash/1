@@ -39,7 +39,13 @@ export default function AssistantSpotlight() {
       const el = document.querySelector(highlightSelector);
       if (el) {
         elRef.current = el;
-        try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) {}
+        // Прокручиваем элемент в зону видимости только если он реально вне экрана,
+        // и через nearest — чтобы не сдвигать весь интерфейс
+        try {
+          const r = el.getBoundingClientRect();
+          const offscreen = r.top < 0 || r.bottom > window.innerHeight || r.left < 0 || r.right > window.innerWidth;
+          if (offscreen) el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        } catch (_) {}
         compute(el);
       } else if (attempts < 60) {
         attempts++;

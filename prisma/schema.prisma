@@ -162,7 +162,10 @@ model ComponentElement {
   itemCode      String             // Stable unique business code (e.g., "бл2.1")
   monoblockId   String
   monoblock     Monoblock          @relation(fields: [monoblockId], references: [id], onDelete: Cascade)
-  specs         String?            // JSON string with raw specs
+  specs         String?            // JSON: { groups: [{title, params:[{key,value,unit}]}] }
+  equipType     String             @default("ПРОЧЕЕ") // КЛАПАН/ФИЛЬТР/НАГРЕВАТЕЛЬ/...
+  overrides     String?            // JSON: ручные переопределения значений { "группа|ключ": "значение" }
+  paramConflicts String?           // JSON: конфликтные параметры последней ревизии [{group,key,oldValue,newValue}]
   tags          Tag[]
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @default(now())
@@ -208,7 +211,10 @@ model SystemChangeLog {
 model ChatGroup {
   id        String        @id @default(uuid())
   name      String
-  type      String        @default("PROJECT") // "DIRECT" | "PROJECT"
+  type      String        @default("PROJECT") // "DIRECT" | "PROJECT" | "CUSTOM" | "CHANNEL"
+  description String      @default("")
+  color     String        @default("indigo")
+  ownerId   String?       // владелец группы/канала
   projectId String?
   project   Project?      @relation("ProjectGroups", fields: [projectId], references: [id], onDelete: Cascade)
   members   User[]        @relation("GroupMembers")
@@ -235,6 +241,9 @@ model ChatMessage {
   replyTo         ChatMessage?      @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
   replies         ChatMessage[]     @relation("MessageReplies")
   editedAt        DateTime?         // Когда сообщение было отредактировано
+  reactions       String?           // JSON: { "👍": ["userId", ...], ... }
+  pinned          Boolean           @default(false)
+  forwardedFrom   String?           // имя исходного отправителя при пересылке
 }
 
 model ChatAttachment {
@@ -244,6 +253,16 @@ model ChatAttachment {
   fileName  String
   filePath  String
   fileSize  Int         @default(0)
+}
+
+model AppSetting {
+  id        String   @id @default(uuid())
+  key       String   // напр. equip_visibility, equip_conflict_mode, equip_categories
+  userId    String?  // null = глобальная (админ) настройка; иначе персональная
+  value     String   // JSON
+  updatedAt DateTime @updatedAt @default(now())
+
+  @@unique([key, userId])
 }
 
 model AppUpdate {

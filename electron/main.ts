@@ -518,6 +518,14 @@ app.whenReady().then(() => {
     });
 
     handleDb('chat:send-group-message', async (event, { senderId, groupId, content, linkedElementId, linkedProjectId, attachments, replyToId }) => {
+      // В каналах писать может только владелец или администратор
+      const grp = await chatPrisma.chatGroup.findUnique({ where: { id: groupId } });
+      if (grp && grp.type === 'CHANNEL') {
+        const u = await chatPrisma.user.findUnique({ where: { id: senderId } });
+        if (grp.ownerId && grp.ownerId !== senderId && u?.role !== 'ADMIN') {
+          throw new Error('В канал может писать только владелец или администратор');
+        }
+      }
       const msg = await chatPrisma.chatMessage.create({
         data: {
           senderId,

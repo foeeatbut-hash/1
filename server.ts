@@ -3,6 +3,8 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import { PrismaClient } from '@prisma/client-sqlite';
 import { parseExcel, parseXML, importParsedDataToDB } from './server/excelParser.js';
+import { parseEquipmentExcel, parseEquipmentXML } from './server/equipmentParser.js';
+import { importEquipmentToDB } from './server/equipmentImport.js';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import fs from 'fs';
@@ -233,7 +235,52 @@ function ensureSchemaColumns(dbPath: string) {
           db.exec('ALTER TABLE "ChatMessage" ADD COLUMN "editedAt" DATETIME');
           logInit('[DB Migrate] Добавлена колонка ChatMessage.editedAt');
         }
+        if (!msgCols.find(c => c.name === 'reactions')) {
+          db.exec('ALTER TABLE "ChatMessage" ADD COLUMN "reactions" TEXT');
+          logInit('[DB Migrate] Добавлена колонка ChatMessage.reactions');
+        }
+        if (!msgCols.find(c => c.name === 'pinned')) {
+          db.exec('ALTER TABLE "ChatMessage" ADD COLUMN "pinned" BOOLEAN NOT NULL DEFAULT false');
+          logInit('[DB Migrate] Добавлена колонка ChatMessage.pinned');
+        }
+        if (!msgCols.find(c => c.name === 'forwardedFrom')) {
+          db.exec('ALTER TABLE "ChatMessage" ADD COLUMN "forwardedFrom" TEXT');
+          logInit('[DB Migrate] Добавлена колонка ChatMessage.forwardedFrom');
+        }
       }
+      const grpCols = db.prepare('PRAGMA table_info("ChatGroup")').all() as Array<{ name: string }>;
+      if (grpCols.length > 0) {
+        if (!grpCols.find(c => c.name === 'description')) {
+          db.exec('ALTER TABLE "ChatGroup" ADD COLUMN "description" TEXT NOT NULL DEFAULT \'\'');
+          logInit('[DB Migrate] Добавлена колонка ChatGroup.description');
+        }
+        if (!grpCols.find(c => c.name === 'color')) {
+          db.exec('ALTER TABLE "ChatGroup" ADD COLUMN "color" TEXT NOT NULL DEFAULT \'indigo\'');
+          logInit('[DB Migrate] Добавлена колонка ChatGroup.color');
+        }
+        if (!grpCols.find(c => c.name === 'ownerId')) {
+          db.exec('ALTER TABLE "ChatGroup" ADD COLUMN "ownerId" TEXT');
+          logInit('[DB Migrate] Добавлена колонка ChatGroup.ownerId');
+        }
+      }
+      const ceCols = db.prepare('PRAGMA table_info("ComponentElement")').all() as Array<{ name: string }>;
+      if (ceCols.length > 0) {
+        if (!ceCols.find(c => c.name === 'equipType')) {
+          db.exec('ALTER TABLE "ComponentElement" ADD COLUMN "equipType" TEXT NOT NULL DEFAULT \'ПРОЧЕЕ\'');
+          logInit('[DB Migrate] Добавлена колонка ComponentElement.equipType');
+        }
+        if (!ceCols.find(c => c.name === 'overrides')) {
+          db.exec('ALTER TABLE "ComponentElement" ADD COLUMN "overrides" TEXT');
+          logInit('[DB Migrate] Добавлена колонка ComponentElement.overrides');
+        }
+        if (!ceCols.find(c => c.name === 'paramConflicts')) {
+          db.exec('ALTER TABLE "ComponentElement" ADD COLUMN "paramConflicts" TEXT');
+          logInit('[DB Migrate] Добавлена колонка ComponentElement.paramConflicts');
+        }
+      }
+      // Таблица настроек (профили видимости, режим конфликтов, категории)
+      db.exec('CREATE TABLE IF NOT EXISTS "AppSetting" ("id" TEXT PRIMARY KEY NOT NULL, "key" TEXT NOT NULL, "userId" TEXT, "value" TEXT NOT NULL, "updatedAt" DATETIME NOT NULL DEFAULT current_timestamp)');
+      try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS "AppSetting_key_userId_key" ON "AppSetting"("key", "userId")'); } catch (e) {}
     } finally {
       db.close();
     }
@@ -2080,6 +2127,191 @@ app.get('/api/chat/groups', async (req: Request, res: Response) => {
   }
 });
 
+// Создание своей группы или канала
+app.post('/api/chat/groups', async (req: Request, res: Response) => {
+  try {
+    const { name, type, memberIds, description, color, ownerId } = req.body;
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: 'Укажите название' });
+    }
+    const safeType = (type === 'CHANNEL' || type === 'CUSTOM') ? type : 'CUSTOM';
+    const ids: string[] = Array.isArray(memberIds) ? memberIds.map(String) : [];
+    // владелец всегда участник
+    if (ownerId && !ids.includes(String(ownerId))) ids.push(String(ownerId));
+    const group = await prisma.chatGroup.create({
+      data: {
+        name: String(name).trim(),
+        type: safeType,
+        description: String(description || ''),
+        color: String(color || 'indigo'),
+        ownerId: ownerId ? String(ownerId) : null,
+        members: { connect: ids.map(id => ({ id })) },
+      },
+      include: { members: { select: { id: true, name: true, symbol: true, role: true } } },
+    });
+    res.json({ success: true, group });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Изменение группы/канала: название, описание, цвет, участники, владелец
+app.put('/api/chat/groups/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, description, color, memberIds, ownerId, userId } = req.body;
+    const group = await prisma.chatGroup.findUnique({ where: { id }, include: { members: true } });
+    if (!group) return res.status(404).json({ success: false, message: 'Группа не найдена' });
+    if (group.type === 'PROJECT') {
+      return res.status(400).json({ success: false, message: 'Системную группу проекта изменить нельзя' });
+    }
+    // менять может владелец или администратор
+    const editor = userId ? await prisma.user.findUnique({ where: { id: String(userId) } }) : null;
+    if (group.ownerId && userId && group.ownerId !== String(userId) && editor?.role !== 'ADMIN') {
+      return res.status(403).json({ success: false, message: 'Изменять может только владелец или администратор' });
+    }
+    const data: any = {};
+    if (typeof name === 'string' && name.trim()) data.name = name.trim();
+    if (typeof description === 'string') data.description = description;
+    if (typeof color === 'string' && color) data.color = color;
+    if (ownerId) data.ownerId = String(ownerId);
+    if (Array.isArray(memberIds)) {
+      data.members = { set: memberIds.map((m: string) => ({ id: String(m) })) };
+    }
+    const updated = await prisma.chatGroup.update({
+      where: { id }, data,
+      include: { members: { select: { id: true, name: true, symbol: true, role: true } } },
+    });
+    res.json({ success: true, group: updated });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Удаление группы/канала (нельзя удалять системную группу проекта)
+app.delete('/api/chat/groups/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = String(req.query.userId || '');
+    const group = await prisma.chatGroup.findUnique({ where: { id } });
+    if (!group) return res.status(404).json({ success: false, message: 'Группа не найдена' });
+    if (group.type === 'PROJECT') {
+      return res.status(400).json({ success: false, message: 'Системную группу проекта удалить нельзя' });
+    }
+    const editor = userId ? await prisma.user.findUnique({ where: { id: userId } }) : null;
+    if (group.ownerId && userId && group.ownerId !== userId && editor?.role !== 'ADMIN') {
+      return res.status(403).json({ success: false, message: 'Удалить может только владелец или администратор' });
+    }
+    await prisma.chatGroup.delete({ where: { id } });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Реакция на сообщение (переключение эмодзи для пользователя)
+app.post('/api/chat/messages/:id/react', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { userId, emoji } = req.body;
+    if (!userId || !emoji) return res.status(400).json({ error: 'userId и emoji обязательны' });
+    const msg = await prisma.chatMessage.findUnique({ where: { id } });
+    if (!msg) return res.status(404).json({ error: 'Сообщение не найдено' });
+    let reactions: Record<string, string[]> = {};
+    try { reactions = msg.reactions ? JSON.parse(msg.reactions) : {}; } catch (_) { reactions = {}; }
+    const list = reactions[emoji] || [];
+    const uidStr = String(userId);
+    if (list.includes(uidStr)) {
+      reactions[emoji] = list.filter(u => u !== uidStr);
+      if (reactions[emoji].length === 0) delete reactions[emoji];
+    } else {
+      reactions[emoji] = [...list, uidStr];
+    }
+    const updated = await prisma.chatMessage.update({
+      where: { id }, data: { reactions: JSON.stringify(reactions) },
+    });
+    io.emit('chat:message_updated', { id, reactions: updated.reactions });
+    res.json({ success: true, reactions: updated.reactions });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Закрепление / открепление сообщения
+app.post('/api/chat/messages/:id/pin', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const msg = await prisma.chatMessage.findUnique({ where: { id } });
+    if (!msg) return res.status(404).json({ error: 'Сообщение не найдено' });
+    const updated = await prisma.chatMessage.update({ where: { id }, data: { pinned: !msg.pinned } });
+    res.json({ success: true, pinned: updated.pinned });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Пересылка сообщения в другой чат (группу или личку)
+app.post('/api/chat/forward', async (req: Request, res: Response) => {
+  try {
+    const { messageId, senderId, toGroupId, toReceiverId } = req.body;
+    if (!messageId || !senderId || (!toGroupId && !toReceiverId)) {
+      return res.status(400).json({ error: 'Не указано сообщение или цель пересылки' });
+    }
+    const src = await prisma.chatMessage.findUnique({
+      where: { id: String(messageId) },
+      include: { sender: { select: { name: true } } },
+    });
+    if (!src) return res.status(404).json({ error: 'Исходное сообщение не найдено' });
+    const created = await prisma.chatMessage.create({
+      data: {
+        senderId: String(senderId),
+        chatGroupId: toGroupId ? String(toGroupId) : null,
+        receiverId: toReceiverId ? String(toReceiverId) : null,
+        content: src.content,
+        linkedElementId: src.linkedElementId,
+        linkedProjectId: src.linkedProjectId,
+        forwardedFrom: src.forwardedFrom || src.sender?.name || 'Сообщение',
+      },
+    });
+    const full = await prisma.chatMessage.findUnique({
+      where: { id: created.id },
+      include: {
+        attachments: true,
+        sender: { select: { id: true, name: true, symbol: true, role: true } },
+        receiver: { select: { id: true, name: true, symbol: true, role: true } },
+        linkedElement: true,
+        replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } },
+      },
+    });
+    io.emit('chat:message_received', full);
+    res.json({ success: true, message: full });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Очистка истории переписки (группа целиком или личный диалог)
+app.delete('/api/chat/conversation', async (req: Request, res: Response) => {
+  try {
+    const groupId = String(req.query.groupId || '');
+    const a = String(req.query.userA || '');
+    const b = String(req.query.userB || '');
+    if (groupId) {
+      const r = await prisma.chatMessage.deleteMany({ where: { chatGroupId: groupId } });
+      return res.json({ success: true, deleted: r.count });
+    }
+    if (a && b) {
+      const r = await prisma.chatMessage.deleteMany({
+        where: { OR: [{ senderId: a, receiverId: b }, { senderId: b, receiverId: a }] },
+      });
+      return res.json({ success: true, deleted: r.count });
+    }
+    res.status(400).json({ success: false, message: 'Не указан диалог для очистки' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // Get messages for group
 app.get('/api/chat/group-messages', async (req: Request, res: Response) => {
   try {
@@ -2109,6 +2341,15 @@ app.post('/api/chat/group-messages', async (req: Request, res: Response) => {
     const { senderId, groupId, content, linkedElementId, linkedProjectId, attachments, replyToId } = req.body;
     if (!senderId || !groupId) {
       return res.status(400).json({ error: 'senderId and groupId are required' });
+    }
+
+    // В каналах публиковать может только владелец или администратор
+    const grp = await prisma.chatGroup.findUnique({ where: { id: String(groupId) } });
+    if (grp && grp.type === 'CHANNEL') {
+      const u = await prisma.user.findUnique({ where: { id: String(senderId) } });
+      if (grp.ownerId && grp.ownerId !== String(senderId) && u?.role !== 'ADMIN') {
+        return res.status(403).json({ error: 'В канал может писать только владелец или администратор' });
+      }
     }
 
     const msg = await prisma.chatMessage.create({
@@ -2157,197 +2398,168 @@ app.post('/api/chat/group-messages', async (req: Request, res: Response) => {
 
 // --- VENTILATION EQUIPMENT API ---
 
-// 1. Import by category with revision checking
+// 1. Импорт расчёта в выбранную категорию (новый парсер: группы + тип + ревизии)
 app.post('/api/equipment/import-to-category', async (req: Request, res: Response) => {
   const { fileId, category, projectId: reqProjectId } = req.body;
   if (!fileId || !category) {
-    return res.status(400).json({ error: 'Missing fileId or category' });
+    return res.status(400).json({ error: 'Не указан файл или категория' });
   }
 
   let projectId = reqProjectId;
   if (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default') {
     let firstProject = await prisma.project.findFirst();
-    if (!firstProject) {
-      firstProject = await prisma.project.create({ data: { name: 'Общий Проект' } });
-    }
+    if (!firstProject) firstProject = await prisma.project.create({ data: { name: 'Общий Проект' } });
     projectId = firstProject.id;
   }
 
   try {
-    const fileNode = await prisma.fileNode.findUnique({
-      where: { id: fileId }
-    });
-    if (!fileNode) {
-      return res.status(404).json({ error: 'Файл не найден' });
-    }
-
-    if (!fileNode.content) {
-      return res.status(400).json({ error: 'Содержимое файла пустое' });
-    }
+    const fileNode = await prisma.fileNode.findUnique({ where: { id: fileId } });
+    if (!fileNode) return res.status(404).json({ error: 'Файл не найден' });
+    if (!fileNode.content) return res.status(400).json({ error: 'Содержимое файла пустое' });
 
     let base64 = fileNode.content;
-    if (base64.includes(',')) {
-      base64 = base64.split(',')[1];
-    }
-
+    if (base64.includes(',')) base64 = base64.split(',')[1];
     const buffer = Buffer.from(base64, 'base64');
     const extension = fileNode.name.split('.').pop()?.toLowerCase();
 
-    let parseResult;
-    if (extension === 'xml') {
-      const fileText = buffer.toString('utf-8');
-      parseResult = parseXML(fileText);
-    } else {
-      parseResult = parseExcel(buffer);
+    const result = (extension === 'xml')
+      ? parseEquipmentXML(buffer.toString('utf-8'))
+      : parseEquipmentExcel(buffer);
+
+    if (!result.units.length) {
+      return res.status(400).json({ error: 'Не удалось распознать оборудование в файле. Проверьте формат расчёта.' });
     }
 
-    const importedSystems = [];
-    const processedComponentIds: string[] = [];
-    let conflictsCount = 0;
+    // Режим разрешения конфликтов из глобальных настроек
+    const modeSetting = await prisma.appSetting.findFirst({ where: { key: 'equip_conflict_mode', userId: null } });
+    const conflictMode: 'immediate' | 'wait' = (modeSetting && modeSetting.value === 'immediate') ? 'immediate' : 'wait';
 
-    for (const sysData of parseResult.systems) {
-      let system = await prisma.equipmentSystem.findFirst({
-        where: {
-          projectId,
-          name: sysData.name,
-          category: category
-        }
-      });
+    const summary = await importEquipmentToDB(prisma, projectId, category, fileNode.name, result, conflictMode);
 
-      const isNewSystem = !system;
-
-      if (!system) {
-        system = await prisma.equipmentSystem.create({
-          data: {
-            projectId,
-            name: sysData.name,
-            category: category,
-            fileName: fileNode.name
-          }
-        });
-      }
-
-      const monoblocksResult = [];
-
-      for (const mbData of sysData.monoblocks) {
-        let monoblock = await prisma.monoblock.findFirst({
-          where: {
-            systemId: system.id,
-            name: mbData.name
-          }
-        });
-        if (!monoblock) {
-          monoblock = await prisma.monoblock.create({
-            data: {
-              systemId: system.id,
-              name: mbData.name
-            }
-          });
-        }
-
-        const componentsResult = [];
-
-        for (const compData of mbData.components) {
-          let component = await prisma.componentElement.findFirst({
-            where: {
-              monoblockId: monoblock.id,
-              itemCode: compData.name
-            }
-          });
-
-          const serializedSpecs = JSON.stringify(compData.specs);
-
-          if (component && !isNewSystem) {
-            const oldSpecsObj = component.specs ? JSON.parse(component.specs) : {};
-            const newSpecsObj = compData.specs || {};
-
-            const conflictMap: Record<string, { old: string; new: string }> = {};
-            const allKeys = Array.from(new Set([...Object.keys(oldSpecsObj), ...Object.keys(newSpecsObj)]));
-            let hasDiff = false;
-
-            for (const key of allKeys) {
-              const oldVal = oldSpecsObj[key] !== undefined ? String(oldSpecsObj[key]) : "";
-              const newVal = newSpecsObj[key] !== undefined ? String(newSpecsObj[key]) : "";
-              if (oldVal !== newVal) {
-                hasDiff = true;
-                conflictMap[key] = {
-                  old: oldVal,
-                  new: newVal
-                };
-              }
-            }
-
-            let updatedComponent;
-            if (hasDiff) {
-              conflictsCount++;
-              updatedComponent = await prisma.componentElement.update({
-                where: { id: component.id },
-                data: {
-                  name: compData.title || compData.name,
-                  conflictLog: JSON.stringify(conflictMap),
-                  hasConflict: true,
-                  status: 'CONFLICT'
-                }
-              });
-
-              await prisma.equipmentHistory.create({
-                data: {
-                  elementId: component.id,
-                  version: component.version,
-                  oldSpecs: component.specs,
-                  newSpecs: serializedSpecs,
-                  changeType: 'UPDATE'
-                }
-              });
-            } else {
-              updatedComponent = await prisma.componentElement.update({
-                where: { id: component.id },
-                data: {
-                  name: compData.title || compData.name
-                }
-              });
-            }
-
-            processedComponentIds.push(updatedComponent.id);
-            componentsResult.push(updatedComponent);
-          } else {
-            const newComponent = await prisma.componentElement.create({
-              data: {
-                monoblockId: monoblock.id,
-                name: compData.title || compData.name,
-                itemCode: compData.name,
-                specs: serializedSpecs,
-                version: 1,
-                status: 'OK',
-                hasConflict: false,
-                conflictType: null
-              }
-            });
-
-            await prisma.equipmentHistory.create({
-              data: {
-                elementId: newComponent.id,
-                version: 1,
-                oldSpecs: null,
-                newSpecs: serializedSpecs,
-                changeType: 'CREATE'
-              }
-            });
-
-            processedComponentIds.push(newComponent.id);
-            componentsResult.push(newComponent);
-          }
-        }
-        monoblocksResult.push({ ...monoblock, components: componentsResult });
-      }
-      importedSystems.push({ ...system, monoblocks: monoblocksResult });
-    }
-
-    res.json({ success: true, systems: importedSystems, conflictsCount });
+    res.json({
+      success: true,
+      conflictsCount: summary.conflictsCount,
+      newBlocks: summary.newBlocks,
+      updatedBlocks: summary.updatedBlocks,
+      systems: summary.systems,
+      conflictMode,
+    });
   } catch (error: any) {
     console.error('Error in import-to-category:', error);
-    res.status(500).json({ error: error.message || 'Failed to import file' });
+    res.status(500).json({ error: error.message || 'Не удалось импортировать файл' });
   }
+});
+
+// ── Настройки (глобальные/админ и персональные) ──
+async function upsertSetting(key: string, userId: string | null, value: string) {
+  const existing = await prisma.appSetting.findFirst({ where: { key, userId: userId || null } });
+  if (existing) {
+    return prisma.appSetting.update({ where: { id: existing.id }, data: { value } });
+  }
+  return prisma.appSetting.create({ data: { key, userId: userId || null, value } });
+}
+
+app.get('/api/settings/:key', async (req: Request, res: Response) => {
+  try {
+    const { key } = req.params;
+    const userId = String(req.query.userId || '');
+    const global = await prisma.appSetting.findFirst({ where: { key, userId: null } });
+    const user = userId ? await prisma.appSetting.findFirst({ where: { key, userId } }) : null;
+    res.json({ global: global ? global.value : null, user: user ? user.value : null });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/settings/:key', async (req: Request, res: Response) => {
+  try {
+    const { key } = req.params;
+    const { userId, value } = req.body;
+    const setting = await upsertSetting(key, userId || null, typeof value === 'string' ? value : JSON.stringify(value));
+    res.json({ success: true, setting });
+  } catch (err: any) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+// Категории оборудования (список с возможностью добавления)
+const DEFAULT_CATEGORIES = [
+  { id: 'AHU', label: 'Центральные кондиционеры', composite: true },
+  { id: 'FAN', label: 'Радиальные вентиляторы', composite: false },
+  { id: 'VALVE', label: 'Клапаны', composite: false },
+  { id: 'CURTAIN', label: 'Воздушные завесы', composite: false },
+];
+app.get('/api/equipment/categories', async (_req: Request, res: Response) => {
+  try {
+    const s = await prisma.appSetting.findFirst({ where: { key: 'equip_categories', userId: null } });
+    let cats: any = DEFAULT_CATEGORIES;
+    if (s) { try { cats = JSON.parse(s.value); } catch (_) {} }
+    res.json({ categories: cats });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/equipment/categories', async (req: Request, res: Response) => {
+  try {
+    const { categories } = req.body;
+    if (!Array.isArray(categories)) return res.status(400).json({ error: 'categories[] required' });
+    await upsertSetting('equip_categories', null, JSON.stringify(categories));
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+// Разрешение конфликта по параметру: принять расчёт (accept) или ручное значение (manual)
+app.post('/api/equipment/component/:id/resolve', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { group, key, action, value } = req.body;
+    const comp = await prisma.componentElement.findUnique({ where: { id } });
+    if (!comp) return res.status(404).json({ error: 'Элемент не найден' });
+
+    const conflicts = comp.paramConflicts ? JSON.parse(comp.paramConflicts) : [];
+    const conflict = conflicts.find((c: any) => c.group === group && c.key === key);
+    const specsObj = comp.specs ? JSON.parse(comp.specs) : { groups: [] };
+    const overrides = comp.overrides ? JSON.parse(comp.overrides) : {};
+
+    const applyValue = action === 'manual' ? String(value ?? '') : (conflict ? conflict.newValue : undefined);
+    if (applyValue !== undefined) {
+      let grp = (specsObj.groups || []).find((g: any) => g.title === group);
+      if (!grp) { grp = { title: group, params: [] }; specsObj.groups = [...(specsObj.groups || []), grp]; }
+      let p = grp.params.find((x: any) => x.key === key);
+      if (!p) { p = { key, value: '', unit: conflict?.unit || '' }; grp.params.push(p); }
+      p.value = applyValue;
+      if (action === 'manual') overrides[`${group}||${key}`] = applyValue;
+    }
+
+    const remaining = conflicts.filter((c: any) => !(c.group === group && c.key === key));
+    const updated = await prisma.componentElement.update({
+      where: { id },
+      data: {
+        specs: JSON.stringify(specsObj),
+        overrides: JSON.stringify(overrides),
+        paramConflicts: remaining.length ? JSON.stringify(remaining) : null,
+        hasConflict: remaining.length > 0,
+        status: remaining.length > 0 ? 'CONFLICT' : 'OK',
+      },
+    });
+    res.json({ success: true, component: updated });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Ручное изменение любого параметра
+app.post('/api/equipment/component/:id/override', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { group, key, value } = req.body;
+    const comp = await prisma.componentElement.findUnique({ where: { id } });
+    if (!comp) return res.status(404).json({ error: 'Элемент не найден' });
+    const specsObj = comp.specs ? JSON.parse(comp.specs) : { groups: [] };
+    const overrides = comp.overrides ? JSON.parse(comp.overrides) : {};
+    let grp = (specsObj.groups || []).find((g: any) => g.title === group);
+    if (!grp) { grp = { title: group, params: [] }; specsObj.groups = [...(specsObj.groups || []), grp]; }
+    let p = grp.params.find((x: any) => x.key === key);
+    if (!p) { p = { key, value: '', unit: '' }; grp.params.push(p); }
+    p.value = String(value ?? '');
+    overrides[`${group}||${key}`] = p.value;
+    const updated = await prisma.componentElement.update({
+      where: { id }, data: { specs: JSON.stringify(specsObj), overrides: JSON.stringify(overrides) },
+    });
+    res.json({ success: true, component: updated });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // 2. Accept a field discrepancy from conflict

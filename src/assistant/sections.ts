@@ -1,0 +1,127 @@
+// Контекстные «встречи» для каждого раздела программы: что умеет раздел,
+// что в нём можно найти/сделать, и быстрые подсказки (вопросы и демонстрации).
+
+export interface SectionSuggestion {
+  label: string;
+  kind: 'ask' | 'tour';
+  query?: string;   // для kind='ask' — что отправить от имени пользователя
+  tourId?: string;  // для kind='tour' — какую демонстрацию запустить
+}
+
+export interface SectionInfo {
+  route: string;
+  title: string;
+  emoji: string;
+  greeting: string;       // короткая встреча при заходе в раздел
+  description: string;    // полный рассказ «что умеет / что можно найти»
+  suggestions: SectionSuggestion[];
+}
+
+export const SECTIONS: Record<string, SectionInfo> = {
+  '/': {
+    route: '/', title: 'Главное', emoji: '🏠',
+    greeting: 'Вы на главном экране. Здесь — сводка по активному проекту и быстрый переход к разделам.',
+    description: 'Раздел «Главное» — стартовый экран: ключевые показатели активного проекта, последние действия и быстрые переходы. Слева — меню всех разделов, справа вверху — я, ваш помощник.',
+    suggestions: [
+      { label: 'Что умеет программа?', kind: 'ask', query: 'что умеет программа' },
+      { label: 'Как выбрать проект', kind: 'tour', tourId: 'select-project' },
+      { label: 'Покажи все теги', kind: 'ask', query: 'покажи все теги' },
+      { label: 'Сколько данных в проекте', kind: 'ask', query: 'сколько оборудования и тегов' },
+    ],
+  },
+  '/chat': {
+    route: '/chat', title: 'Рабочий чат', emoji: '💬',
+    greeting: 'Вы в рабочем чате. Здесь общаются с коллегами: личные диалоги и группы проектов.',
+    description: 'Раздел «Рабочий чат» — общение с коллегами. Можно: писать в личные диалоги и группы проекта, отвечать с цитатой, редактировать и удалять свои сообщения, искать по переписке, прикреплять файлы и ставить эмодзи. Сообщения группируются по дням.',
+    suggestions: [
+      { label: 'Как написать сообщение', kind: 'tour', tourId: 'open-chat' },
+      { label: 'Как ответить на сообщение', kind: 'tour', tourId: 'chat-reply' },
+      { label: 'Как прикрепить файл', kind: 'tour', tourId: 'chat-attach' },
+      { label: 'Как найти в переписке', kind: 'tour', tourId: 'chat-search' },
+    ],
+  },
+  '/notes': {
+    route: '/notes', title: 'Блокнот', emoji: '📝',
+    greeting: 'Вы в блокноте. Здесь ведут личные заметки с форматированием как в Word.',
+    description: 'Раздел «Блокнот» — личные заметки с форматированием (заголовки, цвета, таблицы, списки). Заметку можно закрепить, продублировать, экспортировать в TXT и открепить отдельным стикером поверх всех окон.',
+    suggestions: [
+      { label: 'Как создать заметку', kind: 'tour', tourId: 'create-note' },
+      { label: 'Как открепить стикер', kind: 'tour', tourId: 'detach-sticker' },
+      { label: 'Как форматировать текст', kind: 'tour', tourId: 'format-note' },
+      { label: 'Что умеет блокнот?', kind: 'ask', query: 'что такое блокнот' },
+    ],
+  },
+  '/projects': {
+    route: '/projects', title: 'Проекты', emoji: '📁',
+    greeting: 'Вы в разделе проектов. Здесь создают проекты и выбирают активный.',
+    description: 'Раздел «Проекты» — список проектов. Выбранный проект становится активным, и все остальные разделы показывают данные именно этого проекта. Активный проект виден в шапке слева.',
+    suggestions: [
+      { label: 'Как создать проект', kind: 'tour', tourId: 'create-project' },
+      { label: 'Как выбрать активный проект', kind: 'tour', tourId: 'select-project' },
+      { label: 'Как изменить проект', kind: 'tour', tourId: 'edit-project' },
+      { label: 'Сколько проектов', kind: 'ask', query: 'сколько проектов' },
+    ],
+  },
+  '/explorer': {
+    route: '/explorer', title: 'Проводник', emoji: '🗂️',
+    greeting: 'Вы в проводнике. Здесь файлы и папки проекта: чертежи, расчёты, документы.',
+    description: 'Раздел «Проводник» — файловое хранилище проекта с папками. Сюда загружают чертежи, расчёты и документы, привязывают к ним теги, а из файлов расчёта (XLSX/XML) импортируют оборудование.',
+    suggestions: [
+      { label: 'Как загрузить файл', kind: 'tour', tourId: 'upload-file' },
+      { label: 'Как создать папку', kind: 'tour', tourId: 'create-folder' },
+      { label: 'Как привязать тег к файлу', kind: 'tour', tourId: 'assign-tag-file' },
+      { label: 'Как импортировать оборудование', kind: 'tour', tourId: 'import-equipment' },
+    ],
+  },
+  '/registry': {
+    route: '/registry', title: 'Теги', emoji: '🏷️',
+    greeting: 'Вы в реестре тегов и графе связей. Здесь создают теги и строят их иерархию.',
+    description: 'Раздел «Теги» — реестр тегов и интерактивный граф связей (Dynamo). Можно: создавать теги, задавать марку/отдел/WBS/среду, генерировать теги по шаблону, строить связи (тянуть линии между карточками), смотреть спецификацию таблицей и экспортировать.',
+    suggestions: [
+      { label: 'Как добавить тег', kind: 'tour', tourId: 'add-tag' },
+      { label: 'Как связать теги на графе', kind: 'tour', tourId: 'link-tags' },
+      { label: 'Как сгенерировать тег', kind: 'tour', tourId: 'generate-tag' },
+      { label: 'Покажи все теги', kind: 'ask', query: 'покажи все теги' },
+    ],
+  },
+  '/equipment': {
+    route: '/equipment', title: 'Оборудование', emoji: '⚙️',
+    greeting: 'Вы в разделе оборудования. Здесь дерево систем и контроль ревизий.',
+    description: 'Раздел «Оборудование» — дерево систем → моноблоков → компонентов, импортированных из расчётов. Программа отслеживает ревизии и подсвечивает конфликты, когда характеристики изменились после повторного импорта.',
+    suggestions: [
+      { label: 'Как смотреть оборудование', kind: 'tour', tourId: 'view-equipment' },
+      { label: 'Как разрешить конфликт ревизии', kind: 'tour', tourId: 'resolve-conflict' },
+      { label: 'Как импортировать оборудование', kind: 'tour', tourId: 'import-equipment' },
+      { label: 'Покажи всё оборудование', kind: 'ask', query: 'покажи всё оборудование' },
+    ],
+  },
+  '/directory': {
+    route: '/directory', title: 'Справочник', emoji: '📚',
+    greeting: 'Вы в справочнике. Здесь словари (ККС) и шаблоны для генерации тегов.',
+    description: 'Раздел «Справочник» — настраиваемые словари (например, коды ККС) и шаблоны генерации тегов. Элементы можно организовать иерархически и импортировать из Excel.',
+    suggestions: [
+      { label: 'Как создать справочник', kind: 'tour', tourId: 'create-dictionary' },
+      { label: 'Как настроить шаблон тега', kind: 'tour', tourId: 'tag-template' },
+      { label: 'Как импортировать словарь', kind: 'tour', tourId: 'import-dictionary' },
+      { label: 'Что такое ККС?', kind: 'ask', query: 'что такое справочник ккс' },
+    ],
+  },
+  '/users': {
+    route: '/users', title: 'Управление сотрудниками', emoji: '👥',
+    greeting: 'Вы в управлении сотрудниками. Здесь роли, доступ и таймеры профилей.',
+    description: 'Раздел «Управление сотрудниками» (для администратора) — добавление сотрудников, роли, смена пароля, срок действия профиля (таймер доступа) и мгновенная блокировка. Доступ проверяется при входе и во время работы.',
+    suggestions: [
+      { label: 'Как добавить сотрудника', kind: 'tour', tourId: 'add-user' },
+      { label: 'Как задать срок доступа', kind: 'tour', tourId: 'user-timer' },
+      { label: 'Как заблокировать сотрудника', kind: 'tour', tourId: 'block-user' },
+      { label: 'Какие есть роли?', kind: 'ask', query: 'какие есть роли' },
+    ],
+  },
+};
+
+export function getSection(route: string): SectionInfo | null {
+  if (SECTIONS[route]) return SECTIONS[route];
+  // частичное совпадение для вложенных маршрутов
+  const key = Object.keys(SECTIONS).find(k => k !== '/' && route.startsWith(k));
+  return key ? SECTIONS[key] : SECTIONS['/'] || null;
+}
