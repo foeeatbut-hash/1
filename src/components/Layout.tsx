@@ -530,48 +530,18 @@ export default function Layout() {
           </nav>
         </div>
 
-        {/* Раздел Смены базы данных на виду */}
-        <div className="px-4 py-3 border-t border-slate-200 dark:border-dark-border bg-slate-50/50 dark:bg-dark-surface/50 text-left shrink-0">
-          <div className="flex items-center justify-between gap-1 mb-1.5">
-            <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-slate-400 dark:text-dark-text-muted">
-              <Database className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-450" />
-              <span>{dbType === 'LOCAL' ? 'Локальная БД' : 'Совместная БД'}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsProfileMenuOpen(true)}
-              className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-350 cursor-pointer font-bold uppercase transition"
-              title="Настройки подключения"
-            >
-              Настройки
-            </button>
-          </div>
-          <div 
-            className="font-mono text-[10px] text-slate-500 dark:text-slate-400 leading-tight truncate bg-slate-100 dark:bg-dark-panel border border-slate-200 dark:border-dark-border px-2 py-1 rounded cursor-pointer"
-            title={dbLocation}
-            onClick={() => setIsProfileMenuOpen(true)}
-          >
-            {dbType === 'LOCAL' ? 'database.sqlite' : dbDisplayLocation || 'Активно'}
-          </div>
-        </div>
-        
         <div className="p-4 border-t border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-surface shrink-0 relative">
           <AnimatePresence>
             {isProfileMenuOpen && (
-              <>
-                {/* Backdrop overlay to close when clicking outside */}
-                <div 
-                  className="fixed inset-0 z-45 bg-transparent" 
-                  onClick={() => setIsProfileMenuOpen(false)} 
-                />
-
-                {/* Floating Options Panel (Popover) */}
+              <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-md" onClick={() => setIsProfileMenuOpen(false)}>
+                {/* Centered profile modal */}
                 <motion.div
-                  initial={{ opacity: 0, scale: 0.95, y: 12 }}
+                  onClick={(e) => e.stopPropagation()}
+                  initial={{ opacity: 0, scale: 0.96, y: 12 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95, y: 12 }}
+                  exit={{ opacity: 0, scale: 0.96, y: 12 }}
                   transition={{ duration: 0.15, ease: 'easeOut' }}
-                  className="absolute bottom-[105%] left-2 right-2 mb-2 z-50 bg-white dark:bg-dark-panel rounded-xl border border-slate-200 dark:border-dark-border shadow-2xl p-3 flex flex-col gap-2.5 text-left select-none text-slate-800 dark:text-dark-text-main max-h-[calc(100vh-100px)] overflow-y-auto scrollbar-none"
+                  className="w-[min(94vw,420px)] bg-white dark:bg-dark-panel rounded-2xl border border-slate-200 dark:border-dark-border shadow-2xl p-4 flex flex-col gap-2.5 text-left select-none text-slate-800 dark:text-dark-text-main max-h-[88vh] overflow-y-auto scrollbar-none"
                 >
                   {/* Header info */}
                   <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-100 dark:border-dark-border">
@@ -772,7 +742,7 @@ export default function Layout() {
                     Выйти из аккаунта
                   </button>
                 </motion.div>
-              </>
+              </div>
             )}
           </AnimatePresence>
 

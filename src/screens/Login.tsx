@@ -266,47 +266,10 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
         </motion.div>
       </div>
 
-      {/* Footer section with database picker on bottom left and version on bottom right */}
-      <div className="w-full flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-4 border-t border-slate-200/40 dark:border-slate-800/40 mt-auto">
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-600 dark:text-slate-400 font-sans font-semibold text-xs">
-            <Database className="w-4 h-4 text-emerald-600 dark:text-emerald-455" />
-            <span>База данных: {dbType === 'LOCAL' ? 'Локальная SQLite' : 'Сеть / PostgreSQL'}</span>
-          </div>
-          
-          {dbDisplayPath && (
-            <span className="font-mono text-[10px] text-slate-450 dark:text-slate-500 max-w-xs truncate hidden sm:inline" title={dbPath}>
-              ({dbDisplayPath})
-            </span>
-          )}
-
-          {dbType === 'LOCAL' && (
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                disabled={isDbBusy}
-                onClick={handlePickDbFile}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-emerald-400 dark:hover:border-emerald-600 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400 transition-all cursor-pointer disabled:opacity-50"
-                title="Подключить существующий файл базы данных (например, общую БД отдела)"
-              >
-                {isDbBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderOpen className="w-3.5 h-3.5" />}
-                <span>Выбрать файл БД…</span>
-              </button>
-              <button
-                type="button"
-                disabled={isDbBusy}
-                onClick={handleResetDbPath}
-                className="p-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-400 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-all cursor-pointer disabled:opacity-50"
-                title="Вернуть стандартный путь базы (AppData/pdm-app)"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-        </div>
-        
+      {/* Footer: только версия программы */}
+      <div className="w-full flex items-center justify-end px-4 py-4 mt-auto">
         <div className="text-xs font-mono text-slate-400 dark:text-slate-600 tracking-wider">
-          Версия 0.01
+          Версия 0.17.1
         </div>
       </div>
     </div>
