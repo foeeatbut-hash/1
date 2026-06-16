@@ -150,6 +150,17 @@ export default function Explorer() {
     }
   };
 
+  // Категории оборудования для подменю импорта (с учётом добавленных в настройках)
+  const [equipCats, setEquipCats] = useState<{ id: string; label: string }[]>([
+    { id: 'AHU', label: 'Центральные кондиционеры' },
+    { id: 'FAN', label: 'Радиальные вентиляторы' },
+    { id: 'VALVE', label: 'Воздушные клапаны' },
+    { id: 'CURTAIN', label: 'Воздушные завесы' },
+  ]);
+  useEffect(() => {
+    fetch('/api/equipment/categories').then(r => r.json()).then(d => { if (Array.isArray(d.categories) && d.categories.length) setEquipCats(d.categories); }).catch(() => {});
+  }, []);
+
   useEffect(() => {
     fetchData();
   }, [activeProject]);
@@ -1241,10 +1252,9 @@ export default function Explorer() {
                         onMouseEnter={() => setHoveredEquipment(true)}
                         onMouseLeave={() => setHoveredEquipment(false)}
                       >
-                        <MenuItem icon={<span>🏢</span>} label="Центральные кондиционеры" onClick={() => handleImportToCategory('AHU')} />
-                        <MenuItem icon={<span>🌀</span>} label="Радиальные вентиляторы" onClick={() => handleImportToCategory('FAN')} />
-                        <MenuItem icon={<span>🚪</span>} label="Воздушные клапаны" onClick={() => handleImportToCategory('VALVE')} />
-                        <MenuItem icon={<span>🌬️</span>} label="Воздушные завесы" onClick={() => handleImportToCategory('CURTAIN')} />
+                        {equipCats.map(c => (
+                          <MenuItem key={c.id} icon={<span>📦</span>} label={c.label} onClick={() => handleImportToCategory(c.id)} />
+                        ))}
                       </div>
                     )}
                   </div>

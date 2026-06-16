@@ -1,947 +1,525 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { useLocation } from 'react-router-dom';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
-import { dataService } from '../services/dataService';
-import { 
-  FolderTree, 
-  Database, 
-  RefreshCw, 
-  FileText,
-  AlertTriangle,
-  History,
-  Check,
-  Plus,
-  Trash2,
-  Sliders,
-  Eye,
-  EyeOff,
-  Settings,
-  ChevronRight,
-  Info,
-  Calendar,
-  Layers,
-  CheckSquare
+import {
+  RefreshCw, AlertTriangle, History, Check, Pencil, Eye, EyeOff, Settings,
+  ChevronRight, ChevronDown, Trash2, Tag as TagIcon, X, Plus, Boxes, Layers, Wind
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 
-type CategoryType = 'AHU' | 'FAN' | 'VALVE' | 'CURTAIN';
+// ── Типы данных ──
+interface SpecParam { key: string; value: string; unit: string; }
+interface SpecGroup { title: string; params: SpecParam[]; }
+interface ParamConflict { group: string; key: string; oldValue: string; newValue: string; unit: string; }
+interface Component {
+  id: string; itemCode: string; name: string; equipType: string;
+  specs?: string; overrides?: string; paramConflicts?: string;
+  version: number; hasConflict: boolean; status: string;
+  tags?: { id: string; identifier: string }[];
+}
+interface Monoblock { id: string; name: string; components: Component[]; }
+interface SystemUnit { id: string; name: string; category: string; fileName?: string; monoblocks: Monoblock[]; }
+interface Category { id: string; label: string; composite?: boolean; }
 
-const CATEGORIES: { value: CategoryType; label: string; icon: string }[] = [
-  { value: 'AHU', label: 'Центральные кондиционеры', icon: '🏢' },
-  { value: 'FAN', label: 'Радиальные вентиляторы', icon: '🌀' },
-  { value: 'VALVE', label: 'Воздушные клапаны', icon: '🚪' },
-  { value: 'CURTAIN', label: 'Воздушные завесы', icon: '🌬️' }
-];
+const api = (p: string) => `/api${p}`;
 
 export default function Equipment() {
   const { activeProject, user } = useStore();
   const { addToast } = useToastStore();
-  const location = useLocation();
+  const isAdmin = user?.role === 'ADMIN';
 
-  // Core data states
-  const [systems, setSystems] = useState<any[]>([]);
-  const [tags, setTags] = useState<any[]>([]);
-  const [isSystemsLoading, setIsSystemsLoading] = useState(false);
-  const [activeCategory, setActiveCategory] = useState<CategoryType>('AHU');
+  const [categories, setCategories] = useState<Category[]>([
+    { id: 'AHU', label: 'Центральные кондиционеры', composite: true },
+    { id: 'FAN', label: 'Радиальные вентиляторы' },
+    { id: 'VALVE', label: 'Клапаны' },
+    { id: 'CURTAIN', label: 'Воздушные завесы' },
+  ]);
+  const [activeCat, setActiveCat] = useState<string>('AHU');
+  const [systems, setSystems] = useState<SystemUnit[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [tags, setTags] = useState<{ id: string; identifier: string }[]>([]);
 
-  // Selected element states
-  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
-  const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
-  const [focusedComponentId, setFocusedComponentId] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+  const [showAllParams, setShowAllParams] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [historyFor, setHistoryFor] = useState<Component | null>(null);
+  const [historyData, setHistoryData] = useState<any[]>([]);
+  const [tagPickerFor, setTagPickerFor] = useState<Component | null>(null);
 
-  // Field visibility states (saved in localStorage)
-  const [visibleFields, setVisibleFields] = useState<Record<CategoryType, Record<string, boolean>>>(() => {
+  // Профиль видимости параметров по типу оборудования
+  const [visibility, setVisibility] = useState<Record<string, string[]>>({}); // equipType -> ["g:группа","p:группа||ключ"]
+  const [visMode, setVisMode] = useState<'admin' | 'self'>('admin');
+
+  const pid = activeProject?.id || '';
+
+  // ── Загрузка ──
+  const loadCategories = useCallback(async () => {
     try {
-      const saved = localStorage.getItem('vent_equipment_field_visibility');
-      return saved ? JSON.parse(saved) : { AHU: {}, FAN: {}, VALVE: {}, CURTAIN: {} };
-    } catch (e) {
-      return { AHU: {}, FAN: {}, VALVE: {}, CURTAIN: {} };
-    }
-  });
+      const r = await fetch(api('/equipment/categories')); const d = await r.json();
+      if (d.categories) setCategories(d.categories);
+    } catch (_) {}
+  }, []);
 
-  // Manual edits input values in Conflict Arbiter
-  const [manualInputs, setManualInputs] = useState<Record<string, string>>({});
-
-  // History / logs modal / panel state
-  const [historyComponent, setHistoryComponent] = useState<any | null>(null);
-  const [historyLogs, setHistoryLogs] = useState<any[]>([]);
-  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
-
-  // Delete systems confirm
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
-
-  // Load essential database assets
-  const loadTags = async () => {
-    if (!activeProject) return;
+  const loadSystems = useCallback(async () => {
+    if (!pid) { setSystems([]); return; }
+    setLoading(true);
     try {
-      const data = await dataService.getTags(activeProject.id);
-      setTags(data.tags || []);
-    } catch (err) {
-      console.error('Failed to load project tags:', err);
-    }
+      const r = await fetch(api(`/projects/${pid}/systems`)); const d = await r.json();
+      setSystems(d.systems || []);
+    } catch (_) { setSystems([]); }
+    finally { setLoading(false); }
+  }, [pid]);
+
+  const loadTags = useCallback(async () => {
+    if (!pid) return;
+    try {
+      const r = await fetch(api(`/projects/${pid}/tags`)); const d = await r.json();
+      setTags(Array.isArray(d) ? d : (d.tags || []));
+    } catch (_) {}
+  }, [pid]);
+
+  const loadVisibility = useCallback(async () => {
+    if (!user) return;
+    try {
+      const [vis, mode] = await Promise.all([
+        fetch(api(`/settings/equip_visibility?userId=${user.id}`)).then(r => r.json()),
+        fetch(api(`/settings/equip_visibility_mode?userId=${user.id}`)).then(r => r.json()),
+      ]);
+      const m: 'admin' | 'self' = mode.user === 'self' ? 'self' : 'admin';
+      setVisMode(m);
+      const raw = m === 'self' && vis.user ? vis.user : vis.global;
+      setVisibility(raw ? JSON.parse(raw) : {});
+    } catch (_) { setVisibility({}); }
+  }, [user]);
+
+  useEffect(() => { loadCategories(); loadVisibility(); }, [loadCategories, loadVisibility]);
+  useEffect(() => { loadSystems(); loadTags(); }, [loadSystems, loadTags]);
+
+  // Сохранение профиля видимости (админ-для-всех или персонально)
+  const persistVisibility = async (next: Record<string, string[]>) => {
+    setVisibility(next);
+    if (!user) return;
+    const asGlobal = isAdmin && visMode === 'admin';
+    await fetch(api('/settings/equip_visibility'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: asGlobal ? null : user.id, value: JSON.stringify(next) }),
+    }).catch(() => {});
   };
 
-  const loadSystems = async () => {
-    if (!activeProject) return;
-    setIsSystemsLoading(true);
-    try {
-      const data = await dataService.getSystems(activeProject.id);
-      const loaded = data.systems || [];
-      setSystems(loaded);
-    } catch (err) {
-      console.error('Failed to load systems:', err);
-    } finally {
-      setIsSystemsLoading(false);
-    }
+  const switchVisMode = async (mode: 'admin' | 'self') => {
+    setVisMode(mode);
+    if (!user) return;
+    await fetch(api('/settings/equip_visibility_mode'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: user.id, value: mode }),
+    }).catch(() => {});
+    loadVisibility();
   };
 
-  useEffect(() => {
-    loadTags();
-    loadSystems();
-  }, [activeProject]);
+  // ── Производные данные ──
+  const catSystems = useMemo(() => systems.filter(s => s.category === activeCat), [systems, activeCat]);
+  const catCount = useCallback((catId: string) => systems.filter(s => s.category === catId).length, [systems]);
 
-  // Sync default selectors when category change or systems load
-  useEffect(() => {
-    const systemsInCategory = systems.filter(s => s.category === activeCategory);
-    if (systemsInCategory.length > 0) {
-      const files = Array.from(new Set(systemsInCategory.map((s: any) => s.fileName || 'Ввод вручную'))) as string[];
-      
-      let nextFile = selectedFileName;
-      if (!nextFile || !files.includes(nextFile)) {
-        nextFile = files[0];
-        setSelectedFileName(files[0]);
-      }
-
-      const fileSystems = systemsInCategory.filter((s: any) => (s.fileName || 'Ввод вручную') === nextFile);
-      if (fileSystems.length > 0) {
-        const isCurrentActive = fileSystems.some((s: any) => s.id === selectedSystemId);
-        if (!selectedSystemId || !isCurrentActive) {
-          setSelectedSystemId(fileSystems[0].id);
-        }
-      } else {
-        setSelectedSystemId(null);
-      }
-    } else {
-      setSelectedFileName(null);
-      setSelectedSystemId(null);
-    }
-  }, [systems, activeCategory]);
-
-  // Handle focusing from query parameters (for deep-linking from conflicts)
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    if (params.get('focusConflict') === 'true' && systems.length > 0) {
-      // Find any conflict component
-      let foundComp: any = null;
-      let foundSystem: any = null;
-
-      for (const sys of systems) {
-        for (const mb of sys.monoblocks || []) {
-          const matching = mb.components?.find((c: any) => c.hasConflict);
-          if (matching) {
-            foundComp = matching;
-            foundSystem = sys;
-            break;
-          }
-        }
-        if (foundComp) break;
-      }
-
-      if (foundComp && foundSystem) {
-        setActiveCategory(foundSystem.category as CategoryType);
-        setSelectedFileName(foundSystem.fileName || 'Ввод вручную');
-        setSelectedSystemId(foundSystem.id);
-        setFocusedComponentId(foundComp.id);
-        addToast(`Сфокусирован элемент с конфликтом расчетов: ${foundComp.name}`, 'info');
-
-        setTimeout(() => {
-          const el = document.getElementById(`comp-card-${foundComp.id}`);
-          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 300);
-      }
-    }
-  }, [location.search, systems]);
-
-  // Persist Visibility Map to LocalStorage
-  const saveVisibility = (newVisibility: typeof visibleFields) => {
-    setVisibleFields(newVisibility);
-    localStorage.setItem('vent_equipment_field_visibility', JSON.stringify(newVisibility));
-  };
-
-  // Extract all unique spec keys for the selected Category to build visibility list
-  const uniqueSpecKeys = useMemo(() => {
-    const keysSet = new Set<string>();
-    systems
-      .filter(s => s.category === activeCategory)
-      .forEach(sys => {
-        sys.monoblocks?.forEach((mb: any) => {
-          mb.components?.forEach((c: any) => {
-            try {
-              if (c.specs) {
-                const parsed = typeof c.specs === 'string' ? JSON.parse(c.specs) : c.specs;
-                Object.keys(parsed).forEach(k => keysSet.add(k));
-              }
-            } catch (e) {}
-          });
-        });
-      });
-    return Array.from(keysSet).sort();
-  }, [systems, activeCategory]);
-
-  // Find conflicts quantity by category
-  const conflictsCountByCategory = useMemo(() => {
-    const results: Record<CategoryType, number> = { AHU: 0, FAN: 0, VALVE: 0, CURTAIN: 0 };
-    systems.forEach(sys => {
-      const cat = (sys.category || 'AHU') as CategoryType;
-      sys.monoblocks?.forEach((mb: any) => {
-        mb.components?.forEach((c: any) => {
-          if (c.hasConflict) {
-            results[cat] = (results[cat] || 0) + 1;
-          }
-        });
-      });
-    });
-    return results;
+  const allBlocks = useMemo(() => {
+    const map: Record<string, { block: Component; unit: SystemUnit; mono: Monoblock }> = {};
+    for (const s of systems) for (const mb of s.monoblocks) for (const c of mb.components) map[c.id] = { block: c, unit: s, mono: mb };
+    return map;
   }, [systems]);
 
-  // Active items calculations
-  const activeSystem = useMemo(() => {
-    return systems.find(s => s.id === selectedSystemId);
-  }, [systems, selectedSystemId]);
+  const selected = selectedBlockId ? allBlocks[selectedBlockId] : null;
 
-  const activeComponent = useMemo(() => {
-    if (!focusedComponentId || !activeSystem) return null;
-    for (const mb of activeSystem.monoblocks || []) {
-      const comp = mb.components?.find((c: any) => c.id === focusedComponentId);
-      if (comp) return comp;
-    }
-    return null;
-  }, [activeSystem, focusedComponentId]);
+  const totalConflicts = useMemo(() =>
+    catSystems.reduce((n, s) => n + s.monoblocks.reduce((m, mb) => m + mb.components.filter(c => c.hasConflict).length, 0), 0),
+    [catSystems]);
 
-  // Delete installation system handling
-  const handleDeleteSystem = async () => {
-    if (!selectedSystemId) return;
-    try {
-      const data = await dataService.deleteSystem(selectedSystemId);
-      if (data.success) {
-        addToast('Система успешно удалена из реестра вентиляционного завода.', 'success');
-        setShowDeleteConfirm(null);
-        setFocusedComponentId(null);
-        await loadSystems();
-      } else {
-        throw new Error(data.error);
-      }
-    } catch (err: any) {
-      addToast(err.message || 'Ошибка удаления установки', 'error');
-    }
+  const toggle = (id: string) => setExpanded(e => ({ ...e, [id]: !e[id] }));
+
+  const isHidden = (equipType: string, token: string) => (visibility[equipType] || []).includes(token);
+  const toggleHidden = (equipType: string, token: string) => {
+    const cur = visibility[equipType] || [];
+    const next = cur.includes(token) ? cur.filter(t => t !== token) : [...cur, token];
+    persistVisibility({ ...visibility, [equipType]: next });
   };
 
-  // Conflict Resolution Action creators
-  const handleAcceptField = async (componentId: string, fieldName: string) => {
-    try {
-      const res = await fetch(`/api/components/${componentId}/accept-field`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fieldName })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      addToast(`Расчет из опросного листа по полю "${fieldName}" успешно принят!`, 'success');
-      await loadSystems();
-    } catch (e: any) {
-      addToast(`Ошибка утверждения поля: ${e.message}`, 'error');
-    }
-  };
-
-  const handleManualEditField = async (componentId: string, fieldName: string) => {
-    const value = manualInputs[fieldName];
-    if (value === undefined || value.trim() === '') {
-      addToast(`Введите корректное значение для ручного изменения поля "${fieldName}"`, 'error');
-      return;
-    }
-
-    try {
-      const res = await fetch(`/api/components/${componentId}/manual-edit-field`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fieldName, newValue: value.trim() })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      addToast(`Поле "${fieldName}" успешно заменено на ручное значение: "${value}"`, 'success');
-      setManualInputs(prev => {
-        const next = { ...prev };
-        delete next[fieldName];
-        return next;
-      });
-      await loadSystems();
-    } catch (e: any) {
-      addToast(`Ошибка ручного изменения: ${e.message}`, 'error');
-    }
-  };
-
-  const handleOpenHistory = async (comp: any) => {
-    setHistoryComponent(comp);
-    setIsHistoryLoading(true);
-    try {
-      const history = await dataService.getComponentHistory(comp.id);
-      setHistoryLogs(history || []);
-    } catch (err) {
-      addToast("Ошибка загрузки журнала изменений спецификаций", "error");
-    } finally {
-      setIsHistoryLoading(false);
-    }
-  };
-
-  // Toggle field visibility inside Constructor
-  const toggleFieldVisibility = (fieldName: string) => {
-    const nextScope = { ...visibleFields[activeCategory] };
-    const currentStatus = nextScope[fieldName] !== false; // default true
-    nextScope[fieldName] = !currentStatus;
-    saveVisibility({
-      ...visibleFields,
-      [activeCategory]: nextScope
+  // ── Действия ──
+  const resolveConflict = async (comp: Component, c: ParamConflict, action: 'accept' | 'manual', value?: string) => {
+    const r = await fetch(api(`/equipment/component/${comp.id}/resolve`), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group: c.group, key: c.key, action, value }),
     });
+    if (r.ok) { addToast(action === 'accept' ? 'Принято значение расчёта' : 'Сохранено вручную', 'success'); loadSystems(); }
   };
 
-  const setAllFieldsVisibility = (visible: boolean) => {
-    const nextScope: Record<string, boolean> = {};
-    uniqueSpecKeys.forEach(k => {
-      nextScope[k] = visible;
+  const overrideParam = async (comp: Component, group: string, key: string, value: string) => {
+    const r = await fetch(api(`/equipment/component/${comp.id}/override`), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group, key, value }),
     });
-    saveVisibility({
-      ...visibleFields,
-      [activeCategory]: nextScope
-    });
+    if (r.ok) { addToast('Параметр изменён', 'success'); loadSystems(); }
   };
+
+  const openHistory = async (comp: Component) => {
+    setHistoryFor(comp);
+    try { const r = await fetch(api(`/components/${comp.id}/history`)); setHistoryData(await r.json()); }
+    catch (_) { setHistoryData([]); }
+  };
+
+  const linkTag = async (comp: Component, tagId: string) => {
+    await fetch(api(`/components/${comp.id}/tags/${tagId}`), { method: 'POST' }).catch(() => {});
+    setTagPickerFor(null); loadSystems();
+  };
+  const unlinkTag = async (comp: Component, tagId: string) => {
+    await fetch(api(`/components/${comp.id}/tags/${tagId}`), { method: 'DELETE' }).catch(() => {});
+    loadSystems();
+  };
+
+  const deleteUnit = async (unit: SystemUnit) => {
+    if (!confirm(`Удалить «${unit.name}» со всем оборудованием?`)) return;
+    await fetch(api(`/systems/${unit.id}`), { method: 'DELETE' }).catch(() => {});
+    addToast('Удалено', 'success'); setSelectedBlockId(null); loadSystems();
+  };
+
+  const blockLabel = (c: Component) =>
+    c.itemCode === '__unit__' ? 'Параметры установки'
+    : c.itemCode.endsWith('_общие') ? 'Общие параметры моноблока'
+    : c.name;
+
+  const catIcon = (id: string) => id === 'FAN' ? <Wind className="w-4 h-4" /> : id === 'AHU' ? <Boxes className="w-4 h-4" /> : <Layers className="w-4 h-4" />;
 
   if (!activeProject) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-50 dark:bg-slate-950">
-        <AlertTriangle className="w-12 h-12 text-slate-400 mb-4" />
-        <h3 className="text-base font-bold text-slate-700 dark:text-slate-300 font-mono">Проект не выбран</h3>
-        <p className="text-xs text-slate-500 mt-1 max-w-sm">
-          Пожалуйста, выберите рабочий проект на Дашборде, чтобы получить доступ к спецификациям вентиляционных систем.
-        </p>
-      </div>
-    );
+    return <div className="h-full flex items-center justify-center text-slate-400 text-sm">Выберите активный проект, чтобы работать с оборудованием.</div>;
   }
 
-  // Categories counts and filtered items
-  const installationsInCategory = Array.from(
-    new Set(
-      systems
-        .filter(s => s.category === activeCategory)
-        .map(s => s.fileName || 'Ввод вручную')
-    )
-  ) as string[];
-
-  const filteredSystemsList = systems.filter(
-    s => s.category === activeCategory && (s.fileName || 'Ввод вручную') === selectedFileName
-  );
-
   return (
-    <div className="flex-1 overflow-y-auto bg-slate-50 dark:bg-dark-bg p-6 space-y-6">
-      
-      {/* HEADER SECTION */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-dark-border pb-5">
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-3">
-            <Database className="w-7 h-7 text-emerald-600 dark:text-emerald-400" />
-            <span>Реестр вентиляционного оборудования</span>
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-dark-text-muted mt-1">
-            Двухрежимная система распределения по категориям, интерактивный конфигуратор ТТХ и построчный арбитр конфликтов расчетов.
-          </p>
+    <div className="h-full flex gap-3 text-slate-800 dark:text-slate-100">
+      {/* КАТЕГОРИИ */}
+      <div className="w-56 shrink-0 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+        <div className="px-3 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          <span className="text-sm font-bold">Категории</span>
+          <button onClick={() => setShowSettings(true)} className="p-1 text-slate-400 hover:text-emerald-600 cursor-pointer" title="Настройки оборудования"><Settings className="w-4 h-4" /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          {categories.map(c => {
+            const n = catCount(c.id);
+            const act = c.id === activeCat;
+            return (
+              <button key={c.id} onClick={() => { setActiveCat(c.id); setSelectedBlockId(null); }}
+                className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left text-xs font-semibold transition-colors cursor-pointer ${act ? 'bg-emerald-600 text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'}`}>
+                {catIcon(c.id)}
+                <span className="flex-1 truncate">{c.label}</span>
+                {n > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${act ? 'bg-white/20' : 'bg-slate-200 dark:bg-slate-700'}`}>{n}</span>}
+              </button>
+            );
+          })}
+        </div>
+        <div className="p-2 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400">
+          Импорт: Проводник → ПКМ по расчёту → «Добавить в оборудование»
         </div>
       </div>
 
-      {/* ZONE 1: TOP CATEGORIES NAVIGATION BAR */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        {CATEGORIES.map(cat => {
-          const isActive = activeCategory === cat.value;
-          const confs = conflictsCountByCategory[cat.value];
-          return (
-            <button
-              key={cat.value}
-              onClick={() => {
-                setActiveCategory(cat.value);
-                setFocusedComponentId(null);
-              }}
-              className={`p-4 rounded-xl border text-left flex items-center justify-between transition-all duration-250 hover:scale-[1.01] cursor-pointer ${
-                isActive 
-                  ? 'bg-emerald-500/10 border-emerald-500 text-white shadow-md shadow-emerald-500/5' 
-                  : 'bg-white dark:bg-dark-panel border-slate-200 dark:border-dark-border text-slate-700 dark:text-dark-text-main hover:bg-slate-100 dark:hover:bg-dark-surface'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">{cat.icon}</span>
-                <div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-dark-text-muted">
-                    {cat.value}
-                  </h3>
-                  <p className="text-xs font-extrabold truncate max-w-[150px]">
-                    {cat.label}
-                  </p>
-                </div>
+      {/* ДЕРЕВО */}
+      <div className="w-80 shrink-0 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+        <div className="px-3 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          <span className="text-sm font-bold truncate">{categories.find(c => c.id === activeCat)?.label || activeCat}</span>
+          <div className="flex items-center gap-1.5">
+            {totalConflicts > 0 && <span className="flex items-center gap-1 text-[10px] font-bold text-rose-600 dark:text-rose-400"><AlertTriangle className="w-3 h-3" />{totalConflicts}</span>}
+            <button onClick={loadSystems} className="p-1 text-slate-400 hover:text-emerald-600 cursor-pointer" title="Обновить"><RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /></button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          {catSystems.length === 0 ? (
+            <div className="text-center text-xs text-slate-400 py-10 px-3">В этой категории пока нет оборудования. Импортируйте расчёт через «Проводник».</div>
+          ) : catSystems.map(unit => (
+            <div key={unit.id}>
+              <div className="flex items-center group">
+                <button onClick={() => toggle(unit.id)} className="flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-left cursor-pointer">
+                  {expanded[unit.id] ? <ChevronDown className="w-3.5 h-3.5 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 shrink-0" />}
+                  <Boxes className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span className="text-xs font-bold truncate">{unit.name}</span>
+                </button>
+                <button onClick={() => deleteUnit(unit)} className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-500 cursor-pointer" title="Удалить установку"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
-              {confs > 0 && (
-                <div className="relative flex h-5 w-5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-5 w-5 bg-red-500 text-[10px] font-black text-white items-center justify-center">
-                    {confs}
-                  </span>
-                </div>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* CORE EXPERIENCE GRID: ZONE 2 & ZONE 3 */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        
-        {/* LEFT COLUMN: ACTIVE CATEGORY STRUCTURE & VISIBILITY CONSTRUCTOR (4 Span) */}
-        <div className="lg:col-span-4 space-y-6">
-          
-          {/* CATEGORY SYSTEMS TREE */}
-          <div className="bg-white dark:bg-dark-panel border border-slate-200 dark:border-dark-border rounded-2xl p-4 shadow-sm space-y-4">
-            <h3 className="font-extrabold text-xs text-slate-400 dark:text-dark-text-muted uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 dark:border-dark-border pb-2">
-              <FolderTree className="w-4 h-4 text-emerald-500" />
-              <span>Дерево по категории</span>
-            </h3>
-
-            {isSystemsLoading ? (
-              <div className="py-12 text-center text-slate-400 text-xs flex flex-col items-center justify-center gap-2">
-                <RefreshCw className="w-5 h-5 animate-spin text-emerald-500" />
-                <span>Загрузка оборудования...</span>
-              </div>
-            ) : installationsInCategory.length === 0 ? (
-              <div className="py-12 px-4 text-center text-slate-400 text-xs rounded-lg border border-dashed border-slate-200 dark:border-dark-border space-y-2">
-                <Info className="w-8 h-8 mx-auto text-slate-300" />
-                <p>Нет оборудования в этой категории.</p>
-                <p className="text-[10px] text-slate-400 leading-relaxed">
-                  Зайдите в раздел "Проводник", нажмите правой кнопкой на технический XLSX или XML файл расчета и выберите <b>"Добавить в оборудование..."</b>, а затем выберите <b>"{CATEGORIES.find(c => c.value === activeCategory)?.label}"</b>.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {/* Selector: Project Installation Source File */}
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 dark:text-dark-text-muted uppercase tracking-widest mb-1">
-                    Установка / Опросный лист
-                  </label>
-                  <select
-                    value={selectedFileName || ""}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setSelectedFileName(val);
-                      const matched = systems.filter(s => s.category === activeCategory && (s.fileName || 'Ввод вручную') === val);
-                      if (matched.length > 0) {
-                        setSelectedSystemId(matched[0].id);
-                      } else {
-                        setSelectedSystemId(null);
-                      }
-                      setFocusedComponentId(null);
-                    }}
-                    className="w-full bg-slate-50 dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-lg px-2.5 py-1.5 text-xs text-slate-800 dark:text-dark-text-main font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
-                  >
-                    {installationsInCategory.map(fn => (
-                      <option key={fn} value={fn}>{fn}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Flow Lines inside Installation */}
-                {filteredSystemsList.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="block text-[10px] font-bold text-slate-400 dark:text-dark-text-muted uppercase tracking-widest">
-                        Магистральная линия / Линия
-                      </label>
-                      <button
-                        onClick={() => {
-                          if (selectedSystemId) {
-                            setShowDeleteConfirm(selectedSystemId);
-                          }
-                        }}
-                        className="text-red-500 hover:text-red-400 transition-colors py-0.5 px-1.5 rounded text-[10px] font-bold uppercase cursor-pointer"
-                      >
-                        Удалить
+              {expanded[unit.id] && unit.monoblocks.map(mb => {
+                const isUnitMb = mb.name === '__unit__';
+                return (
+                  <div key={mb.id} className="ml-4">
+                    {!isUnitMb && (
+                      <button onClick={() => toggle(mb.id)} className="w-full flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-left cursor-pointer">
+                        {expanded[mb.id] ? <ChevronDown className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0" />}
+                        <Layers className="w-3 h-3 text-slate-400 shrink-0" />
+                        <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 truncate">{mb.name}</span>
                       </button>
-                    </div>
-
-                    {showDeleteConfirm === selectedSystemId && (
-                      <div className="bg-red-50/15 border border-red-500/30 rounded-lg p-2.5 text-xs text-left space-y-2">
-                        <p className="text-red-400 font-extrabold text-[11px]">
-                          Удалить линию {systems.find(s => s.id === selectedSystemId)?.name || ''} вместе со всеми моноблоками и характеристиками?
-                        </p>
-                        <div className="flex justify-end gap-2 text-[10px] tracking-wide uppercase font-bold">
-                          <button
-                            onClick={() => setShowDeleteConfirm(null)}
-                            className="bg-slate-200 dark:bg-dark-surface px-2 py-1 text-slate-700 dark:text-white rounded"
-                          >
-                            Отмена
-                          </button>
-                          <button
-                            onClick={handleDeleteSystem}
-                            className="bg-red-500 hover:bg-red-650 px-2 py-1 text-white rounded"
-                          >
-                            Да, удалить
-                          </button>
-                        </div>
-                      </div>
                     )}
-
-                    <select
-                      value={selectedSystemId || ""}
-                      onChange={(e) => {
-                        setSelectedSystemId(e.target.value);
-                        setFocusedComponentId(null);
-                      }}
-                      className="w-full bg-slate-50 dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold text-slate-900 dark:text-dark-text-main focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
-                    >
-                      {filteredSystemsList.map(sys => {
-                        const countConflicts = sys.monoblocks?.reduce((acc: number, mb: any) => 
-                          acc + (mb.components?.filter((c: any) => c.hasConflict).length || 0), 0
-                        );
-                        return (
-                          <option key={sys.id} value={sys.id}>
-                            {sys.name} {countConflicts > 0 ? `⚠️ (${countConflicts} конфл.)` : ''}
-                          </option>
-                        );
-                      })}
-                    </select>
+                    {(isUnitMb || expanded[mb.id]) && mb.components.map(c => (
+                      <button key={c.id} onClick={() => { setSelectedBlockId(c.id); setShowAllParams(false); }}
+                        className={`w-full flex items-center gap-1.5 pl-7 pr-2 py-1.5 rounded-lg text-left cursor-pointer ${selectedBlockId === c.id ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${c.hasConflict ? 'bg-rose-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
+                        <span className="text-[11px] truncate flex-1">{blockLabel(c)}</span>
+                        {(c.tags?.length || 0) > 0 && <TagIcon className="w-3 h-3 text-emerald-500 shrink-0" />}
+                      </button>
+                    ))}
                   </div>
-                )}
-
-                {/* Line Components Composition List */}
-                {activeSystem && activeSystem.monoblocks && activeSystem.monoblocks.length > 0 && (
-                  <div className="pt-3 border-t border-slate-100 dark:border-dark-border">
-                    <span className="block text-[10px] font-bold text-slate-400 dark:text-dark-text-muted uppercase tracking-widest mb-2">
-                      Технические блоки ({activeSystem.monoblocks.length} моноблоков)
-                    </span>
-                    <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
-                      {activeSystem.monoblocks.map((mb: any) => (
-                        <div key={mb.id} className="bg-slate-50/50 dark:bg-dark-surface/30 border border-slate-150 dark:border-dark-border/40 rounded-lg p-2 flex flex-col gap-1.5">
-                          <div className="font-black text-[11px] text-slate-600 dark:text-dark-text-main font-mono truncate">
-                            📦 {mb.name}
-                          </div>
-                          
-                          <div className="pl-2 border-l border-slate-200 dark:border-dark-border space-y-1">
-                            {mb.components?.map((c: any) => {
-                              const isSelected = focusedComponentId === c.id;
-                              return (
-                                <button
-                                  key={c.id}
-                                  id={`comp-card-${c.id}`}
-                                  onClick={() => setFocusedComponentId(c.id)}
-                                  className={`w-full text-left font-mono text-[11px] px-2 py-1 rounded transition-all flex items-center justify-between gap-1 cursor-pointer ${
-                                    isSelected
-                                      ? 'bg-emerald-600 text-white font-extrabold shadow-sm'
-                                      : 'hover:bg-slate-100 dark:hover:bg-dark-surface text-slate-500 dark:text-slate-400'
-                                  }`}
-                                >
-                                  <span className="truncate">▫️ {c.name || c.itemCode}</span>
-                                  {c.hasConflict && (
-                                    <span className={`text-[10px] font-black px-1 rounded ${
-                                      isSelected ? 'text-white' : 'text-amber-500'
-                                    }`}>⚠️</span>
-                                  )}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* ZONE 3: TECHNICAL SPECIFICATIONS VISIBILITY CONSTRUCTOR */}
-          <div className="bg-white dark:bg-dark-panel border border-slate-200 dark:border-dark-border rounded-2xl p-4 shadow-sm space-y-3">
-            <h3 className="font-extrabold text-xs text-slate-400 dark:text-dark-text-muted uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 dark:border-dark-border pb-2">
-              <Sliders className="w-4 h-4 text-emerald-500" />
-              <span>Конструктор видимости ТТХ</span>
-            </h3>
-            
-            <p className="text-[10px] text-slate-400 leading-relaxed">
-              Отмечайте чекбоксы, чтобы скрывать второстепенные характеристики из инженерного паспорта вент-оборудования данной категории.
-            </p>
-
-            {uniqueSpecKeys.length === 0 ? (
-              <div className="py-6 text-center text-slate-400 text-xs italic">
-                Нет полей для настройки в данной категории.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between text-[10px] font-bold uppercase text-slate-500">
-                  <button 
-                    onClick={() => setAllFieldsVisibility(true)}
-                    className="hover:text-emerald-500 transition-colors uppercase cursor-pointer"
-                  >
-                    Сделать все видимыми
-                  </button>
-                  <button 
-                    onClick={() => setAllFieldsVisibility(false)}
-                    className="hover:text-amber-500 transition-colors uppercase cursor-pointer"
-                  >
-                    Скрыть все поля
-                  </button>
-                </div>
-
-                <div className="border border-slate-150 dark:border-dark-border rounded-xl max-h-[220px] overflow-y-auto divide-y divide-slate-100 dark:divide-dark-border pr-1">
-                  {uniqueSpecKeys.map(keyName => {
-                    const isVisible = visibleFields[activeCategory]?.[keyName] !== false;
-                    return (
-                      <div 
-                        key={keyName} 
-                        onClick={() => toggleFieldVisibility(keyName)}
-                        className="flex items-center justify-between px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-dark-surface cursor-pointer text-[11px] font-mono group"
-                      >
-                        <span className="text-slate-600 dark:text-dark-text-main truncate group-hover:text-emerald-500 transition-colors">
-                          {keyName}
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          {isVisible ? (
-                            <Eye className="w-3.5 h-3.5 text-emerald-500" />
-                          ) : (
-                            <EyeOff className="w-3.5 h-3.5 text-slate-350" />
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* RIGHT COLUMN: TECHNICAL PASSPORT & REVISION CONFLICT ARBITER (8 Span) */}
-        <div className="lg:col-span-8 space-y-6">
-          
-          {focusedComponentId && activeComponent ? (
-            <div className="space-y-6">
-              
-              {/* ZONE 2: ELEMENT TECHNICAL PASSPORT */}
-              <div className="bg-white dark:bg-dark-panel border border-slate-200 dark:border-dark-border rounded-2xl p-5 shadow-sm space-y-4 text-left">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-dark-border pb-3">
-                  <div className="flex items-start gap-3">
-                    <div className="p-2 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-lg shrink-0 mt-0.5">
-                      <FileText className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-[10px] uppercase font-bold tracking-wider bg-slate-100 dark:bg-dark-surface border border-slate-200 dark:border-dark-border text-slate-500 dark:text-dark-text-muted px-2 py-0.5 rounded">
-                          Код позиции: {activeComponent.itemCode || 'Блок'}
-                        </span>
-                        <span className="text-xs text-slate-400">в моноблоке {activeSystem?.monoblocks?.find((m: any) => m.components?.some((c: any) => c.id === focusedComponentId))?.name || 'мн'}</span>
-                      </div>
-                      <h2 className="text-sm font-black text-slate-900 dark:text-white mt-1">
-                        Технический паспорт: {activeComponent.name}
-                      </h2>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => handleOpenHistory(activeComponent)}
-                      className="text-slate-500 hover:text-emerald-500 dark:hover:text-emerald-400 border border-slate-200 dark:border-dark-border rounded-lg px-2.5 py-1 text-xs font-semibold flex items-center gap-1 cursor-pointer hover:bg-slate-50 dark:hover:bg-dark-surface"
-                    >
-                      <History className="w-3.5 h-3.5" />
-                      <span>Лог версий</span>
-                    </button>
-                    <button
-                      onClick={() => setFocusedComponentId(null)}
-                      className="text-slate-400 hover:text-slate-600 dark:hover:text-dark-text-main hover:bg-slate-50 dark:hover:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-lg px-2.5 py-1 text-xs cursor-pointer"
-                    >
-                      Сбросить ×
-                    </button>
-                  </div>
-                </div>
-
-                {/* PASSPORT SPECS GRID */}
-                {(() => {
-                  let specsObj: Record<string, string> = {};
-                  try {
-                    if (activeComponent.specs) {
-                      specsObj = typeof activeComponent.specs === 'string' ? JSON.parse(activeComponent.specs) : activeComponent.specs;
-                    }
-                  } catch(e) {}
-
-                  // Filter spec keys based on Visibility Constructor map
-                  const displayedSpecs = Object.entries(specsObj).filter(([field]) => {
-                    const isVisible = visibleFields[activeCategory]?.[field] !== false;
-                    return isVisible;
-                  });
-
-                  if (displayedSpecs.length === 0) {
-                    return (
-                      <div className="py-12 bg-slate-50/50 dark:bg-dark-surface/10 rounded-xl border border-dashed border-slate-200 dark:border-dark-border text-center text-slate-400 text-xs font-sans leading-relaxed">
-                        Все инженерные характеристики скрыты в Конструкторе видимости ТТХ слева. <br/>
-                        <button 
-                          onClick={() => setAllFieldsVisibility(true)}
-                          className="text-emerald-500 font-extrabold hover:underline mt-1 cursor-pointer"
-                        >
-                          Сделать все поля видимыми
-                        </button>
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                      {displayedSpecs.map(([field, value]) => (
-                        <div key={field} className="bg-slate-50/50 dark:bg-dark-surface/20 border border-slate-150 dark:border-dark-border/60 rounded-xl p-3 text-left">
-                          <span className="text-[10px] font-bold text-slate-400 dark:text-dark-text-muted uppercase tracking-wide block truncate" title={field}>
-                            {field}
-                          </span>
-                          <span className="font-mono text-xs font-extrabold text-slate-800 dark:text-dark-text-main mt-1 block truncate" title={String(value)}>
-                            {String(value) || '—'}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
-
-                {/* ASSOCIATED BIM/KKS TAGS */}
-                <div className="border-t border-slate-100 dark:border-dark-border pt-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[10px] font-bold text-slate-400 dark:text-dark-text-muted uppercase tracking-widest flex items-center gap-1">
-                      <Layers className="w-3.5 h-3.5 text-emerald-500" />
-                      <span>BIM / KKS Теговые ассоциации проекта</span>
-                    </span>
-                  </div>
-
-                  {activeComponent.tags && activeComponent.tags.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {activeComponent.tags.map((tg: any) => (
-                        <div key={tg.id} className="text-xs font-bold font-mono bg-emerald-500/10 border border-emerald-550/20 text-emerald-800 dark:text-emerald-300 px-2.5 py-1 rounded flex items-center gap-2">
-                          <span>{tg.identifier}</span>
-                          <span className="text-[10px] text-emerald-400 font-normal">({tg.department || 'Проводка'})</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-xs text-slate-400 italic">
-                      Нет ассоциированных BIM/KKS тегов у данного вентиляционного блока.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* ZONE 3: SYSTEM CALCULATIONS REVISION CONFLICT ARBITER */}
-              {activeComponent.hasConflict && activeComponent.conflictLog ? (
-                <div className="bg-amber-500/5 border-2 border-amber-500/30 rounded-2xl p-5 space-y-4 text-left">
-                  <div className="flex items-center gap-2.5 border-b border-amber-500/10 pb-3">
-                    <AlertTriangle className="w-5 h-5 text-amber-500 animate-pulse" />
-                    <div>
-                      <h3 className="text-sm font-black text-amber-700 dark:text-amber-500">
-                        Построчный арбитр конфликтов расчетов: {activeComponent.name}
-                      </h3>
-                      <p className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">
-                        Повторный расчет выявил отклонения от опросного листа. Утвердите корректное значение построчно.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Conflict rows list */}
-                  {(() => {
-                    let conflictLogObj: Record<string, { old: string; new: string }> = {};
-                    try {
-                      conflictLogObj = typeof activeComponent.conflictLog === 'string' 
-                        ? JSON.parse(activeComponent.conflictLog) 
-                        : activeComponent.conflictLog;
-                    } catch(e) {}
-
-                    const conflictFields = Object.keys(conflictLogObj);
-
-                    return (
-                      <div className="space-y-4">
-                        {conflictFields.map(field => {
-                          const oldVal = conflictLogObj[field].old;
-                          const newVal = conflictLogObj[field].new;
-                          const userVal = manualInputs[field] || '';
-
-                          return (
-                            <div key={field} className="bg-white dark:bg-dark-panel border border-slate-200 dark:border-dark-border rounded-xl p-4 space-y-3 shadow-inner">
-                              <div className="flex justify-between items-center border-b border-slate-50 dark:border-dark-border/40 pb-1.5">
-                                <span className="font-mono text-xs font-black text-slate-800 dark:text-dark-text-main flex items-center gap-1.5">
-                                  <span className="h-2 w-2 rounded-full bg-amber-500"></span>
-                                  {field}
-                                </span>
-                              </div>
-
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {/* Left cell: Old Spec */}
-                                <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs">
-                                  <span className="block text-[10px] font-bold text-rose-500 dark:text-rose-450 uppercase tracking-widest mb-1.5">
-                                    Текущая база (Предыдущий расчет)
-                                  </span>
-                                  <span className="font-mono text-xs font-extrabold text-slate-800 dark:text-slate-200 block truncate" title={oldVal}>
-                                    {oldVal || '—'}
-                                  </span>
-                                </div>
-
-                                {/* Right cell: New Spec */}
-                                <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs flex flex-col justify-between">
-                                  <div>
-                                    <span className="block text-[10px] font-bold text-emerald-500 dark:text-emerald-400 uppercase tracking-widest mb-1.5">
-                                      Новый импорт (Изменения)
-                                    </span>
-                                    <span className="font-mono text-xs font-extrabold text-slate-800 dark:text-slate-100 block truncate" title={newVal}>
-                                      {newVal || '—'}
-                                    </span>
-                                  </div>
-                                  <button
-                                    onClick={() => handleAcceptField(activeComponent.id, field)}
-                                    className="w-full bg-emerald-600 hover:bg-emerald-700 transition-colors text-white font-extrabold text-[10px] tracking-wider uppercase py-1.5 px-3 rounded-lg mt-3 flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
-                                  >
-                                    <Check className="w-3.5 h-3.5" />
-                                    <span>Утвердить расчет</span>
-                                  </button>
-                                </div>
-                              </div>
-
-                              {/* Manual edit fallback row */}
-                              <div className="pt-2 border-t border-slate-100 dark:border-dark-border/60 flex items-center gap-2">
-                                <div className="relative flex-1">
-                                  <input
-                                    type="text"
-                                    placeholder="Ручной ввод характеристики..."
-                                    value={userVal}
-                                    onChange={(e) => setManualInputs({ ...manualInputs, [field]: e.target.value })}
-                                    className="w-full bg-slate-50 dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-lg pl-3 pr-3 py-1.5 text-xs focus:outline-none text-slate-850 dark:text-dark-text-main"
-                                  />
-                                </div>
-                                <button
-                                  onClick={() => handleManualEditField(activeComponent.id, field)}
-                                  className="bg-slate-700 hover:bg-slate-650 text-white font-bold text-[10px] tracking-wider uppercase py-2 px-3.5 rounded-lg shrink-0 cursor-pointer transition-colors"
-                                >
-                                  Сохранить ввод
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
-                </div>
-              ) : null}
+                );
+              })}
             </div>
-          ) : (
-            <div className="bg-white dark:bg-dark-panel border border-slate-200 dark:border-dark-border rounded-2xl p-16 text-center text-slate-400 text-xs flex flex-col items-center justify-center gap-3">
-              <Eye className="w-12 h-12 text-slate-300" />
-              <h4 className="text-sm font-bold text-slate-700 dark:text-dark-text-main font-mono">Элемент вент-линии не выбран</h4>
-              <p className="max-w-md leading-relaxed text-[11px] text-slate-500">
-                Выберите конкретный технический блок ("бл...") в древовидной структуре системы слева, чтобы открыть его детальный паспорт для контроля характеристик и разрешения конфликтов расчетов.
-              </p>
+          ))}
+        </div>
+      </div>
+
+      {/* КАРТОЧКА БЛОКА */}
+      <div className="flex-1 min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden flex flex-col">
+        {!selected ? (
+          <div className="h-full flex items-center justify-center text-slate-400 text-sm">Выберите элемент в дереве слева</div>
+        ) : (
+          <BlockCard
+            comp={selected.block}
+            unitName={selected.unit.name}
+            showAllParams={showAllParams}
+            setShowAllParams={setShowAllParams}
+            isHidden={isHidden}
+            toggleHidden={toggleHidden}
+            onResolve={resolveConflict}
+            onOverride={overrideParam}
+            onHistory={() => openHistory(selected.block)}
+            onPickTag={() => setTagPickerFor(selected.block)}
+            onUnlinkTag={(tid: string) => unlinkTag(selected.block, tid)}
+            blockLabel={blockLabel}
+          />
+        )}
+      </div>
+
+      {showSettings && (
+        <SettingsModal
+          onClose={() => setShowSettings(false)}
+          categories={categories} setCategories={setCategories}
+          isAdmin={isAdmin} visMode={visMode} switchVisMode={switchVisMode}
+          addToast={addToast}
+        />
+      )}
+
+      {historyFor && (
+        <Modal title={`История: ${blockLabel(historyFor)} (v${historyFor.version})`} onClose={() => setHistoryFor(null)}>
+          {historyData.length === 0 ? <p className="text-xs text-slate-400">Изменений ещё не было.</p> : (
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {historyData.map((h: any) => (
+                <div key={h.id} className="p-2 rounded-lg border border-slate-200 dark:border-slate-800 text-xs">
+                  <div className="font-bold text-slate-500">v{h.version} · {new Date(h.changedAt).toLocaleString('ru-RU')}</div>
+                  <div className="text-slate-400 mt-0.5">{h.changeType}</div>
+                </div>
+              ))}
             </div>
           )}
+        </Modal>
+      )}
+
+      {tagPickerFor && (
+        <Modal title="Привязать тег" onClose={() => setTagPickerFor(null)}>
+          <div className="max-h-80 overflow-y-auto space-y-1">
+            {tags.length === 0 ? <p className="text-xs text-slate-400">В проекте нет тегов. Создайте их в разделе «Теги».</p> :
+              tags.map(t => (
+                <button key={t.id} onClick={() => linkTag(tagPickerFor, t.id)} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-left text-xs cursor-pointer">
+                  <TagIcon className="w-3.5 h-3.5 text-emerald-500" /> {t.identifier}
+                </button>
+              ))}
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── Карточка блока ──
+function BlockCard(props: any) {
+  const { comp, unitName, showAllParams, setShowAllParams, isHidden, toggleHidden, onResolve, onOverride, onHistory, onPickTag, onUnlinkTag, blockLabel } = props;
+  const specs: { groups: SpecGroup[] } = comp.specs ? JSON.parse(comp.specs) : { groups: [] };
+  const conflicts: ParamConflict[] = comp.paramConflicts ? JSON.parse(comp.paramConflicts) : [];
+  const overrides: Record<string, string> = comp.overrides ? JSON.parse(comp.overrides) : {};
+  const conflictOf = (g: string, k: string) => conflicts.find(c => c.group === g && c.key === k);
+  const [editKey, setEditKey] = useState<string | null>(null);
+  const [editVal, setEditVal] = useState('');
+
+  return (
+    <>
+      <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold uppercase tracking-wider">{comp.equipType}</span>
+            <span className="text-[10px] text-slate-400 font-mono">{unitName} · v{comp.version}</span>
+          </div>
+          <h3 className="text-sm font-bold mt-1 truncate">{blockLabel(comp)}</h3>
+          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+            {(comp.tags || []).map((t: any) => (
+              <span key={t.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 text-[10px] text-emerald-700 dark:text-emerald-300">
+                <TagIcon className="w-2.5 h-2.5" />{t.identifier}
+                <button onClick={() => onUnlinkTag(t.id)} className="hover:text-rose-500 cursor-pointer"><X className="w-2.5 h-2.5" /></button>
+              </span>
+            ))}
+            <button onClick={onPickTag} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-dashed border-slate-300 dark:border-slate-600 text-[10px] text-slate-500 hover:border-emerald-400 hover:text-emerald-600 cursor-pointer"><Plus className="w-2.5 h-2.5" />тег</button>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <button onClick={() => setShowAllParams(!showAllParams)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" title={showAllParams ? 'Показывать по профилю' : 'Показать все параметры'}>
+            {showAllParams ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+          </button>
+          <button onClick={onHistory} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" title="История версий"><History className="w-4 h-4" /></button>
         </div>
       </div>
 
-      {/* LOG HISTORY MODAL COMPONENT */}
-      <AnimatePresence>
-        {historyComponent && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white dark:bg-dark-panel border border-slate-300 dark:border-dark-border rounded-2xl max-w-2xl w-full shadow-2xl p-6 relative flex flex-col max-h-[85vh]"
-            >
-              <button
-                onClick={() => setHistoryComponent(null)}
-                className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-white text-lg p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-dark-surface cursor-pointer"
-              >
-                ×
-              </button>
+      {conflicts.length > 0 && (
+        <div className="px-4 py-2 bg-rose-50 dark:bg-rose-950/20 border-b border-rose-200 dark:border-rose-900/40 text-xs text-rose-700 dark:text-rose-400 flex items-center gap-2">
+          <AlertTriangle className="w-3.5 h-3.5" /> Данные изменились в {conflicts.length} параметрах — примите расчёт ✓ или измените вручную ✎
+        </div>
+      )}
 
-              <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2 border-b border-slate-100 dark:border-dark-border pb-3 text-left font-mono">
-                <History className="w-5 h-5 text-emerald-500" />
-                <span>Журнал версий и ревизий: {historyComponent.name || historyComponent.itemCode}</span>
-              </h3>
-
-              <div className="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
-                {isHistoryLoading ? (
-                  <div className="py-16 text-center text-slate-400 text-xs flex flex-col items-center justify-center gap-2">
-                    <RefreshCw className="w-5 h-5 animate-spin text-emerald-500" />
-                    <span>Чтение истории изменений спецификации...</span>
-                  </div>
-                ) : historyLogs.length === 0 ? (
-                  <div className="py-12 text-center text-slate-400 text-xs italic font-sans">
-                    Истории ревизий для данной спецификации в системе не зарегистрировано.
-                  </div>
-                ) : (
-                  <div className="relative border-l border-slate-200 dark:border-dark-border ml-3 space-y-6 text-left">
-                    {historyLogs.map((log, index) => {
-                      let parsedSpecs: Record<string, string> = {};
-                      try {
-                        if (log.newSpecs) {
-                          parsedSpecs = typeof log.newSpecs === 'string' ? JSON.parse(log.newSpecs) : log.newSpecs;
-                        }
-                      } catch (e) {}
-
-                      return (
-                        <div key={log.id || index} className="relative pl-6">
-                          {/* Dot marker */}
-                          <span className="absolute -left-[6.5px] top-1 h-3 w-3 rounded-full bg-emerald-500 border-2 border-white dark:border-dark-panel"></span>
-                          
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2 text-[10px] font-bold uppercase text-slate-400 font-mono">
-                              <Calendar className="w-3.5 h-3.5" />
-                              <span>Ревизия #{log.version}</span>
-                              <span>•</span>
-                              <span>{new Date(log.changedAt).toLocaleString('ru-RU')}</span>
-                            </div>
-                            
-                            <div className="text-xs font-black text-slate-800 dark:text-dark-text-main mt-1">
-                              Режим: {log.changeType === 'CREATE' ? '🚀 Первичная заливка' : '✏️ Интеллектуальное обновление/расчет'}
-                            </div>
-
-                            <div className="mt-2 bg-slate-50 dark:bg-dark-surface rounded-xl p-3 border border-slate-150 dark:border-dark-border/60 max-h-[140px] overflow-y-auto">
-                              <span className="block text-[10px] font-bold text-slate-400 dark:text-dark-text-muted uppercase tracking-wider mb-1">
-                                Сохранено полей ТТХ ({Object.keys(parsedSpecs).length})
-                              </span>
-                              <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[10px]">
-                                {Object.entries(parsedSpecs).map(([fk, fv]) => (
-                                  <div key={fk} className="flex justify-between border-b border-slate-100/50 dark:border-dark-border/10 py-0.5 truncate">
-                                    <span className="text-slate-400 truncate pr-1">{fk}:</span>
-                                    <span className="text-slate-700 dark:text-dark-text-main font-bold truncate">{String(fv)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {specs.groups.map(g => {
+          const groupHidden = isHidden(comp.equipType, `g:${g.title}`);
+          if (groupHidden && !showAllParams) return null;
+          const visibleParams = g.params.filter(p => showAllParams || !isHidden(comp.equipType, `p:${g.title}||${p.key}`));
+          if (visibleParams.length === 0 && !showAllParams) return null;
+          return (
+            <div key={g.title}>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{g.title}</span>
+                {showAllParams && (
+                  <button onClick={() => toggleHidden(comp.equipType, `g:${g.title}`)} className="text-slate-300 hover:text-slate-500 cursor-pointer" title={groupHidden ? 'Показывать группу' : 'Скрыть группу'}>
+                    {groupHidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                  </button>
                 )}
               </div>
-
-              <div className="flex justify-end pt-3 border-t border-slate-100 dark:border-dark-border text-left">
-                <button
-                  onClick={() => setHistoryComponent(null)}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs tracking-wider uppercase px-4 py-2 rounded-lg cursor-pointer transition-colors"
-                >
-                  Закрыть журнал
-                </button>
+              <div className="rounded-lg border border-slate-150 dark:border-slate-800 overflow-hidden divide-y divide-slate-100 dark:divide-slate-850">
+                {(showAllParams ? g.params : visibleParams).map(p => {
+                  const token = `p:${g.title}||${p.key}`;
+                  const pHidden = isHidden(comp.equipType, token);
+                  const conf = conflictOf(g.title, p.key);
+                  const overridden = overrides[`${g.title}||${p.key}`] !== undefined;
+                  const isEditing = editKey === token;
+                  return (
+                    <div key={p.key} className={`flex items-center gap-2 px-2.5 py-1.5 text-xs ${pHidden && showAllParams ? 'opacity-40' : ''} ${conf ? 'bg-rose-50/60 dark:bg-rose-950/15' : ''}`}>
+                      <span className="text-slate-500 dark:text-slate-400 flex-1 min-w-0 truncate">{p.key}</span>
+                      {isEditing ? (
+                        <>
+                          <input value={editVal} onChange={e => setEditVal(e.target.value)} autoFocus className="w-28 px-1.5 py-0.5 text-xs bg-white dark:bg-slate-950 border border-emerald-400 rounded" />
+                          <button onClick={() => { onOverride(comp, g.title, p.key, editVal); setEditKey(null); }} className="text-emerald-600 cursor-pointer"><Check className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => setEditKey(null)} className="text-slate-400 cursor-pointer"><X className="w-3.5 h-3.5" /></button>
+                        </>
+                      ) : (
+                        <>
+                          <span className={`font-semibold text-right ${overridden ? 'text-amber-600 dark:text-amber-400' : 'text-slate-800 dark:text-slate-100'}`} title={overridden ? 'Изменено вручную' : ''}>
+                            {p.value}{p.unit ? <span className="text-slate-400 font-normal"> {p.unit}</span> : ''}
+                          </span>
+                          {conf ? (
+                            <span className="flex items-center gap-1 shrink-0">
+                              <span className="text-[10px] text-rose-500">→ {conf.newValue}</span>
+                              <button onClick={() => onResolve(comp, conf, 'accept')} className="p-0.5 text-emerald-600 hover:bg-emerald-100 dark:hover:bg-emerald-950 rounded cursor-pointer" title="Принять значение из расчёта"><Check className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => { setEditKey(token); setEditVal(conf.newValue); }} className="p-0.5 text-amber-600 hover:bg-amber-100 dark:hover:bg-amber-950 rounded cursor-pointer" title="Изменить вручную"><Pencil className="w-3.5 h-3.5" /></button>
+                            </span>
+                          ) : (
+                            <button onClick={() => { setEditKey(token); setEditVal(p.value); }} className="p-0.5 text-slate-300 hover:text-amber-500 cursor-pointer" title="Изменить вручную"><Pencil className="w-3 h-3" /></button>
+                          )}
+                          {showAllParams && (
+                            <button onClick={() => toggleHidden(comp.equipType, token)} className="text-slate-300 hover:text-slate-500 cursor-pointer shrink-0" title={pHidden ? 'Показывать' : 'Скрыть'}>
+                              {pHidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            </motion.div>
+            </div>
+          );
+        })}
+        {specs.groups.length === 0 && <p className="text-xs text-slate-400">Нет параметров.</p>}
+      </div>
+    </>
+  );
+}
+
+// ── Универсальная модалка ──
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs" onClick={onClose}>
+      <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-bold">{title}</h3>
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5" /></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ── Настройки оборудования ──
+function SettingsModal({ onClose, categories, setCategories, isAdmin, visMode, switchVisMode, addToast }: any) {
+  const [conflictMode, setConflictMode] = useState<'immediate' | 'wait'>('wait');
+  const [newCat, setNewCat] = useState('');
+
+  useEffect(() => {
+    fetch(api('/settings/equip_conflict_mode')).then(r => r.json()).then(d => {
+      if (d.global === 'immediate') setConflictMode('immediate');
+    }).catch(() => {});
+  }, []);
+
+  const saveConflictMode = async (m: 'immediate' | 'wait') => {
+    setConflictMode(m);
+    await fetch(api('/settings/equip_conflict_mode'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: null, value: m }) }).catch(() => {});
+  };
+
+  const addCategory = async () => {
+    const label = newCat.trim(); if (!label) return;
+    const id = 'C' + Date.now();
+    const next = [...categories, { id, label, composite: false }];
+    setCategories(next); setNewCat('');
+    await fetch(api('/equipment/categories'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ categories: next }) }).catch(() => {});
+    addToast('Категория добавлена', 'success');
+  };
+  const removeCategory = async (id: string) => {
+    const next = categories.filter((c: Category) => c.id !== id);
+    setCategories(next);
+    await fetch(api('/equipment/categories'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ categories: next }) }).catch(() => {});
+  };
+
+  return (
+    <Modal title="Настройки оборудования" onClose={onClose}>
+      <div className="space-y-5">
+        <div>
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Профиль видимости параметров</div>
+          <div className="flex gap-2">
+            <button disabled={!isAdmin} onClick={() => switchVisMode('admin')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${visMode === 'admin' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'} ${!isAdmin ? 'opacity-50 cursor-not-allowed' : ''}`}>Админ (для всех)</button>
+            <button onClick={() => switchVisMode('self')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${visMode === 'self' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'}`}>Только для меня</button>
+          </div>
+          <p className="text-[10px] text-slate-400 mt-1.5">Скрывать параметры удобно в карточке блока (значок «глаз» в режиме «показать все»). {visMode === 'admin' ? 'Сейчас изменения применяются ко всем.' : 'Сейчас изменения только для вас.'}</p>
+        </div>
+
+        <div>
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">При новой ревизии</div>
+          <div className="flex gap-2">
+            <button onClick={() => saveConflictMode('wait')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${conflictMode === 'wait' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'}`}>Ждать решения (✓/✎)</button>
+            <button onClick={() => saveConflictMode('immediate')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${conflictMode === 'immediate' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'}`}>Изменять сразу</button>
+          </div>
+        </div>
+
+        {isAdmin && (
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Категории оборудования</div>
+            <div className="space-y-1 mb-2 max-h-40 overflow-y-auto">
+              {categories.map((c: Category) => (
+                <div key={c.id} className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950 text-xs">
+                  <span>{c.label}</span>
+                  {!['AHU', 'FAN', 'VALVE', 'CURTAIN'].includes(c.id) && <button onClick={() => removeCategory(c.id)} className="text-slate-400 hover:text-rose-500 cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>}
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input value={newCat} onChange={e => setNewCat(e.target.value)} placeholder="Новая категория…" className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs" />
+              <button onClick={addCategory} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold cursor-pointer">Добавить</button>
+            </div>
           </div>
         )}
-      </AnimatePresence>
-    </div>
+      </div>
+    </Modal>
   );
 }

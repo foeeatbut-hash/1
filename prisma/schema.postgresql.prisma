@@ -160,7 +160,10 @@ model ComponentElement {
   itemCode      String             // Stable unique business code (e.g., "бл2.1")
   monoblockId   String
   monoblock     Monoblock          @relation(fields: [monoblockId], references: [id], onDelete: Cascade)
-  specs         String?            // JSON string with raw specs
+  specs         String?            // JSON: { groups: [{title, params:[{key,value,unit}]}] }
+  equipType     String             @default("ПРОЧЕЕ") // КЛАПАН/ФИЛЬТР/НАГРЕВАТЕЛЬ/...
+  overrides     String?            // JSON: ручные переопределения значений { "группа|ключ": "значение" }
+  paramConflicts String?           // JSON: конфликтные параметры последней ревизии [{group,key,oldValue,newValue}]
   tags          Tag[]
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @default(now())
@@ -248,6 +251,16 @@ model ChatAttachment {
   fileName  String
   filePath  String
   fileSize  Int         @default(0)
+}
+
+model AppSetting {
+  id        String   @id @default(uuid())
+  key       String   // напр. equip_visibility, equip_conflict_mode, equip_categories
+  userId    String?  // null = глобальная (админ) настройка; иначе персональная
+  value     String   // JSON
+  updatedAt DateTime @updatedAt @default(now())
+
+  @@unique([key, userId])
 }
 
 model AppUpdate {

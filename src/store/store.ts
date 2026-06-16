@@ -48,13 +48,20 @@ export const useStore = create<AppState>((set, get) => {
 
   // Восстанавливаем сессию: окна-стикеры и перезапуск не должны требовать повторного входа
   let initialUser: User | null = null;
+  let initialProject: Project | null = null;
   try {
     const savedSession = typeof window !== 'undefined' ? localStorage.getItem('pdm_session_user') : null;
-    if (savedSession) initialUser = JSON.parse(savedSession);
+    if (savedSession) {
+      initialUser = JSON.parse(savedSession);
+      // Восстанавливаем и активный проект, иначе проектные разделы просят выбрать проект после перезагрузки
+      const savedProjectStr = initialUser ? localStorage.getItem(`max_active_project_${initialUser.id}`) : null;
+      if (savedProjectStr) initialProject = JSON.parse(savedProjectStr);
+    }
   } catch (e) {}
 
   return {
     user: initialUser,
+    activeProject: initialProject,
     setUser: (user) => {
       try {
         if (user) {
@@ -94,7 +101,6 @@ export const useStore = create<AppState>((set, get) => {
         set({ user, activeProject: null });
       }
     },
-    activeProject: null,
     setActiveProject: (project) => {
       const state = get();
       if (state.user) {
