@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, Sparkles } from 'lucide-react';
@@ -531,7 +532,8 @@ export default function Layout() {
         </div>
 
         <div className="p-4 border-t border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-surface shrink-0 relative">
-          <AnimatePresence>
+          {createPortal(
+            <AnimatePresence>
             {isProfileMenuOpen && (
               <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-md" onClick={() => setIsProfileMenuOpen(false)}>
                 {/* Centered profile modal */}
@@ -744,7 +746,9 @@ export default function Layout() {
                 </motion.div>
               </div>
             )}
-          </AnimatePresence>
+            </AnimatePresence>,
+            document.body
+          )}
 
           {/* Interactive Profile Clickable Button (Trigger) */}
           <button
