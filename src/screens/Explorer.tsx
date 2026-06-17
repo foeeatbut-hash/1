@@ -7,7 +7,7 @@ import {
   Folder, File as FileIcon, ChevronRight, ChevronDown, Plus, Upload, 
   Search, MoreVertical, Copy, Edit2, Trash2, FolderPlus, RefreshCw, 
   ArrowLeft, ArrowRight, ArrowUp, Tag, Shield, PanelRight, LayoutGrid, List,
-  Download, Image as ImageIcon, FileText, FileCode, FileSpreadsheet, Info
+  Download, Image as ImageIcon, FileText, FileCode, FileSpreadsheet, Info, Boxes, Scissors, ClipboardPaste
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
@@ -65,7 +65,6 @@ export default function Explorer() {
 
   // Context Menu
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, targetId?: string, isFile?: boolean, isContainer?: boolean } | null>(null);
-  const [hoveredEquipment, setHoveredEquipment] = useState(false);
 
   // Clipboard (for Copy/Paste within app)
   const [clipboard, setClipboard] = useState<{ ids: string[], type: 'copy' | 'cut' } | null>(null);
@@ -120,33 +119,57 @@ export default function Explorer() {
     }
   };
 
-  const handleImportToCategory = async (category: string) => {
-    setContextMenu(null);
-    setHoveredEquipment(false);
-    const fileId = contextMenu?.targetId;
-    const projectId = activeProject?.id || 'default';
-    if (!fileId) return;
+  // Какие файлы ждут выбора категории для импорта в «Оборудование» (мультивыбор)
+  const [importPickerFiles, setImportPickerFiles] = useState<string[] | null>(null);
+  // Карта загруженных в оборудование файлов: имя файла -> { category, version }
+  const [loadedMap, setLoadedMap] = useState<Record<string, { category: string; version: number }>>({});
 
+  const loadEquipMap = useCallback(async () => {
+    const projectId = activeProject?.id;
+    if (!projectId) { setLoadedMap({}); return; }
     try {
-      addToast("Выполняется распределение файла в оборудование...", 'info');
-      const res = await fetch('/api/equipment/import-to-category', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileId, category, projectId })
-      });
-      const parsed = await res.json();
-      if (!res.ok) throw new Error(parsed.error || 'Ошибка при импорте');
-      
-      if (parsed.conflictsCount && parsed.conflictsCount > 0) {
-        addToast(`Файл успешно распределен. Найдено конфликтов характеристик: ${parsed.conflictsCount}. Перейдите в Оборудование для их разрешения.`, 'error', () => {
-          navigate('/equipment');
-        });
-      } else {
-        addToast("Оборудование успешно перенесено и распределено по категориям!", 'success');
+      const r = await fetch(`/api/projects/${projectId}/systems`);
+      const d = await r.json();
+      const map: Record<string, { category: string; version: number }> = {};
+      for (const s of (d.systems || [])) {
+        if (!s.fileName) continue;
+        let v = 1;
+        for (const mb of (s.monoblocks || [])) for (const c of (mb.components || [])) v = Math.max(v, c.version || 1);
+        const prev = map[s.fileName];
+        map[s.fileName] = { category: s.category, version: Math.max(prev?.version || 1, v) };
       }
-      fetchData();
-    } catch (err: any) {
-      addToast(`Не удалось распределить оборудование: ${err.message}`, 'error');
+      setLoadedMap(map);
+    } catch (_) { setLoadedMap({}); }
+  }, [activeProject]);
+
+  useEffect(() => { loadEquipMap(); }, [loadEquipMap]);
+
+  // Импорт выбранных файлов в выбранную категорию оборудования
+  const importFilesToCategory = async (fileIds: string[], category: string) => {
+    setImportPickerFiles(null);
+    const projectId = activeProject?.id || 'default';
+    if (!fileIds.length) return;
+    let totalConflicts = 0; let ok = 0;
+    addToast(`Загрузка данных в оборудование (${fileIds.length})…`, 'info');
+    for (const fileId of fileIds) {
+      try {
+        const res = await fetch('/api/equipment/import-to-category', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileId, category, projectId }),
+        });
+        const parsed = await res.json();
+        if (!res.ok) throw new Error(parsed.error || 'Ошибка импорта');
+        totalConflicts += parsed.conflictsCount || 0;
+        ok++;
+      } catch (err: any) {
+        addToast(`Файл не загружен: ${err.message}`, 'error');
+      }
+    }
+    await Promise.all([fetchData(), loadEquipMap()]);
+    if (totalConflicts > 0) {
+      addToast(`Загружено файлов: ${ok}. Конфликтов характеристик: ${totalConflicts} — нажмите для разрешения.`, 'error', () => navigate('/equipment'));
+    } else if (ok > 0) {
+      addToast(`Данные загружены в оборудование (файлов: ${ok}).`, 'success');
     }
   };
 
@@ -160,6 +183,19 @@ export default function Explorer() {
   useEffect(() => {
     fetch('/api/equipment/categories').then(r => r.json()).then(d => { if (Array.isArray(d.categories) && d.categories.length) setEquipCats(d.categories); }).catch(() => {});
   }, []);
+
+  const catLabel = useCallback((id: string) => equipCats.find(c => c.id === id)?.label || id, [equipCats]);
+
+  // Открыть выбор категории для импорта в «Оборудование» по выделенным файлам
+  const openImportPicker = (fallbackId?: string) => {
+    const fileIds = Array.from(selectedIds).filter(id => {
+      const it = allCurrentItemsRef.current.find(i => i.id === id);
+      return it && !it.isFolder;
+    });
+    if (fileIds.length === 0 && fallbackId) fileIds.push(fallbackId);
+    if (fileIds.length === 0) { addToast('Выберите хотя бы один файл.', 'error'); return; }
+    setImportPickerFiles(fileIds);
+  };
 
   useEffect(() => {
     fetchData();
@@ -253,27 +289,8 @@ export default function Explorer() {
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
         
-        const extension = file.name.split('.').pop()?.toLowerCase();
-        if (extension === 'xlsx' || extension === 'xml') {
-           try {
-              addToast(`Обнаружен конфигурационный файл ${file.name}. Выполняется разбор дерева оборудования...`, 'info');
-              const importRes = await triggerIPCExcelParse(file);
-              if (importRes && importRes.conflictsCount && importRes.conflictsCount > 0) {
-                 addToast(
-                    `Обнаружены конфликты оборудования (${importRes.conflictsCount} шт.). Нажмите для разрешения`,
-                    'error',
-                    () => {
-                       navigate('/equipment?focusConflict=true');
-                    }
-                 );
-              } else {
-                 addToast(`Анализ ${file.name} выполнен: структуры систем, моноблоков и технических характеристик добавлены в Реестр.`, 'success');
-              }
-           } catch (e: any) {
-              addToast(`Ошибка автоматического разбора ${file.name}: ${e.message || e}`, 'error');
-           }
-        }
-        
+        // Файл просто сохраняется в проводник. Импорт в «Оборудование» —
+        // только вручную: выделить файл(ы) и нажать «В оборудование» на панели.
         let type = 'FILE';
         if (file.name.match(/\.(pdf)$/i)) type = 'PDF';
         else if (file.name.match(/\.(doc|docx)$/i)) type = 'DOCX';
@@ -774,54 +791,18 @@ export default function Explorer() {
                 <span className="whitespace-pre-line">Загрузить</span>
              </button>
              <input type="file" ref={fileInputRef} className="hidden" multiple onChange={handleFileUpload} />
-             
+
              <div className="w-px h-10 bg-slate-300 dark:bg-slate-800 mx-1"></div>
 
-             <button onClick={() => clipboard && handlePaste()} disabled={!clipboard} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-700 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
-                <Copy className="w-5 h-5 text-yellow-600 shrink-0 mb-0.5" />
-                <span className="whitespace-pre-line">Вставить</span>
+             {/* Импорт данных выбранных файлов в раздел «Оборудование» */}
+             <button
+               onClick={() => openImportPicker()}
+               disabled={Array.from(selectedIds).filter(id => !allCurrentItems.find(i => i.id === id)?.isFolder).length === 0}
+               title="Загрузить данные выбранных файлов в раздел «Оборудование»"
+               className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-emerald-100 dark:hover:bg-emerald-950/40 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-705 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
+                <Boxes className="w-5 h-5 text-emerald-600 shrink-0 mb-0.5" />
+                <span className="whitespace-pre-line">В оборудование</span>
              </button>
-             <button onClick={() => setClipboard({ ids: Array.from(selectedIds), type: 'cut' })} disabled={selectedIds.size === 0} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-700 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
-                <Edit2 className="w-5 h-5 text-slate-500 shrink-0 mb-0.5" />
-                <span className="whitespace-pre-line">Вырезать</span>
-             </button>
-             <button onClick={() => setClipboard({ ids: Array.from(selectedIds), type: 'copy' })} disabled={selectedIds.size === 0} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-700 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
-                <Copy className="w-5 h-5 text-emerald-600 shrink-0 mb-0.5" />
-                <span className="whitespace-pre-line">Копировать</span>
-             </button>
-             <button onClick={() => {
-                if (selectedIds.size === 1) {
-                  const id = Array.from(selectedIds)[0];
-                  setRenamingId(id);
-                  const item = allCurrentItems.find(i => i.id === id);
-                  if (item) setRenameValue(item.name);
-                }
-             }} disabled={selectedIds.size !== 1} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-750 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
-                <Edit2 className="w-5 h-5 text-slate-600 shrink-0 mb-0.5" />
-                <span className="whitespace-pre-line">Переименовать</span>
-             </button>
-             <button onClick={() => {
-                selectedIds.forEach(id => {
-                  const item = allCurrentItems.find(i => i.id === id);
-                  if (item) handleDownload(id, item.isFolder);
-                });
-             }} disabled={selectedIds.size === 0 || Array.from(selectedIds).some(id => allCurrentItems.find(i => i.id === id)?.isFolder)} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-705 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
-                <Download className="w-5 h-5 text-indigo-500 shrink-0 mb-0.5" />
-                <span className="whitespace-pre-line">Скачать</span>
-             </button>
-             <button onClick={async () => {
-               const confirmed = await openConfirm("Удаление", 'Удалить выбранные элементы?');
-               if (confirmed) {
-                 selectedIds.forEach(id => {
-                    const item = allCurrentItems.find(i => i.id === id);
-                    if (item) handleDelete(id, !item.isFolder);
-                  });
-                  setSelectedIds(new Set());
-                }
-              }} disabled={selectedIds.size === 0} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-705 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
-                <Trash2 className="w-5 h-5 text-red-500 shrink-0 mb-0.5" />
-                <span className="whitespace-pre-line">Удалить</span>
-              </button>
             </div>
 
             {/* Right-aligned tools restored */}
@@ -1022,6 +1003,8 @@ export default function Explorer() {
                               isSelected={isSelected}
                               isRenaming={isRenaming}
                               isCut={isCut}
+                              loaded={!item.isFolder ? loadedMap[item.name] : undefined}
+                              catLabel={catLabel}
                               renameValue={renameValue}
                               onRenameValueChange={setRenameValue}
                               onRenameSubmit={handleRenameSubmit}
@@ -1096,6 +1079,8 @@ export default function Explorer() {
                                 isSelected={isSelected}
                                 isRenaming={isRenaming}
                                 isCut={isCut}
+                                loaded={!item.isFolder ? loadedMap[item.name] : undefined}
+                                catLabel={catLabel}
                                 renameValue={renameValue}
                                 onRenameValueChange={setRenameValue}
                                 onRenameSubmit={handleRenameSubmit}
@@ -1227,42 +1212,19 @@ export default function Explorer() {
               )}
               {contextMenu.isFile && (
                 <>
+                  <MenuItem icon={<Boxes />} label="В оборудование…" onClick={() => { openImportPicker(contextMenu.targetId!); setContextMenu(null); }} />
+                  <div className="h-px bg-slate-300 dark:bg-dark-border my-1 mx-2" />
                   <MenuItem icon={<Download />} label="Скачать" onClick={() => { handleDownload(contextMenu.targetId!, false); setContextMenu(null); }} />
                   <MenuItem icon={<Tag />} label="Назначить теги..." onClick={() => { handleAssignTag(contextMenu.targetId!); setContextMenu(null); }} />
                   <MenuItem icon={<Shield />} label="Назначить отдел..." onClick={() => { handleAssignDepartment(contextMenu.targetId!); setContextMenu(null); }} />
-                  
-                  <div 
-                    onMouseEnter={() => setHoveredEquipment(true)}
-                    onMouseLeave={() => setHoveredEquipment(false)}
-                    className="relative"
-                  >
-                    <button 
-                      className="w-full flex items-center justify-between px-6 py-1.5 hover:bg-[#91C9F7] dark:hover:bg-dark-surface/80 transition-colors text-slate-800 dark:text-dark-text-main focus:outline-none cursor-pointer"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Plus className="w-4 h-4 text-slate-600 dark:text-dark-text-muted" />
-                        <span>Добавить в оборудование...</span>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-slate-500" />
-                    </button>
-                    
-                    {hoveredEquipment && (
-                      <div 
-                        className="absolute left-full top-0 ml-1 z-50 bg-[#F2F2F2] dark:bg-dark-panel border border-slate-300 dark:border-dark-border shadow-md py-1 min-w-[220px] text-xs text-slate-800 dark:text-dark-text-main rounded-lg"
-                        onMouseEnter={() => setHoveredEquipment(true)}
-                        onMouseLeave={() => setHoveredEquipment(false)}
-                      >
-                        {equipCats.map(c => (
-                          <MenuItem key={c.id} icon={<span>📦</span>} label={c.label} onClick={() => handleImportToCategory(c.id)} />
-                        ))}
-                      </div>
-                    )}
-                  </div>
                 </>
               )}
               <div className="h-px bg-slate-300 dark:bg-dark-border my-1 mx-2" />
-              <MenuItem icon={<Edit2 />} label="Вырезать" onClick={() => { setClipboard({ ids: Array.from(selectedIds), type: 'cut' }); setContextMenu(null); }} />
+              <MenuItem icon={<Scissors />} label="Вырезать" onClick={() => { setClipboard({ ids: Array.from(selectedIds), type: 'cut' }); setContextMenu(null); }} />
               <MenuItem icon={<Copy />} label="Копировать" onClick={() => { setClipboard({ ids: Array.from(selectedIds), type: 'copy' }); setContextMenu(null); }} />
+              {clipboard && !contextMenu.isFile && (
+                <MenuItem icon={<ClipboardPaste />} label="Вставить" onClick={() => { handlePaste(); setContextMenu(null); }} />
+              )}
               <MenuItem icon={<Edit2 />} label="Переименовать" onClick={() => { 
                 const isF = contextMenu.isFile;
                 setRenamingId(contextMenu.targetId!); 
@@ -1525,6 +1487,46 @@ export default function Explorer() {
           </motion.div>
         </div>
       )}
+
+      {/* Выбор категории оборудования для импорта выделенных файлов */}
+      {importPickerFiles && (
+        <div className="fixed inset-0 bg-slate-900/50 dark:bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-[70]" onClick={() => setImportPickerFiles(null)}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="bg-white dark:bg-dark-panel rounded-2xl shadow-2xl border border-slate-200 dark:border-dark-border w-[min(94vw,460px)] max-h-[88vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-slate-100 dark:border-dark-border bg-slate-50 dark:bg-dark-surface flex items-center gap-3">
+              <Boxes className="w-5 h-5 text-emerald-600" />
+              <div className="flex flex-col">
+                <h2 className="text-base font-semibold text-slate-900 dark:text-white">Загрузить в оборудование</h2>
+                <span className="text-xs text-slate-500 dark:text-dark-text-muted">Выбрано файлов: {importPickerFiles.length}. Выберите категорию:</span>
+              </div>
+            </div>
+            <div className="p-3 overflow-y-auto scrollbar-thin grid grid-cols-1 gap-1.5">
+              {equipCats.map(c => (
+                <button
+                  key={c.id}
+                  onClick={() => importFilesToCategory(importPickerFiles, c.id)}
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:border-emerald-400 transition-colors text-left cursor-pointer"
+                >
+                  <span className="w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 flex items-center justify-center shrink-0">
+                    <Boxes className="w-5 h-5 text-emerald-600 dark:text-emerald-300" />
+                  </span>
+                  <span className="text-sm font-medium text-slate-800 dark:text-dark-text-main">{c.label}</span>
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-100 dark:border-dark-border bg-slate-50 dark:bg-dark-surface">
+              <button type="button" onClick={() => setImportPickerFiles(null)} className="px-4 py-2 text-slate-700 dark:text-slate-300 bg-white dark:bg-dark-panel border border-slate-300 dark:border-dark-border rounded-lg hover:bg-slate-50 dark:hover:bg-dark-surface text-sm cursor-pointer">
+                Отмена
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -1612,22 +1614,24 @@ const SkeletonRow = () => (
   </tr>
 );
 
-const FileRowItem = React.memo(({ 
-  item, 
+const FileRowItem = React.memo(({
+  item,
   index,
-  isSelected, 
-  isRenaming, 
-  isCut, 
-  renameValue, 
-  onRenameValueChange, 
-  onRenameSubmit, 
-  onCancelRename, 
-  onClick, 
-  onDoubleClick, 
-  onContextMenu, 
-  onDragStart, 
-  onDropItems, 
-  measureElement
+  isSelected,
+  isRenaming,
+  isCut,
+  renameValue,
+  onRenameValueChange,
+  onRenameSubmit,
+  onCancelRename,
+  onClick,
+  onDoubleClick,
+  onContextMenu,
+  onDragStart,
+  onDropItems,
+  measureElement,
+  loaded,
+  catLabel
 }: any) => {
   return (
     <tr 
@@ -1682,6 +1686,14 @@ const FileRowItem = React.memo(({
         ) : (
           <span className="truncate max-w-[200px] text-slate-800 dark:text-slate-100">{item.name}</span>
         )}
+        {loaded && !isRenaming && (
+          <span
+            className="ml-1 inline-flex items-center gap-1 shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+            title={`Данные загружены в оборудование: ${catLabel(loaded.category)} (ревизия v${loaded.version})`}
+          >
+            <Boxes className="w-3 h-3" /> v{loaded.version}
+          </span>
+        )}
       </td>
       <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : ''}</td>
       <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted">{item.isFolder ? 'Папка с файлами' : (item.type || 'Файл')}</td>
@@ -1707,7 +1719,9 @@ const FileCardItem = React.memo(({
   onDoubleClick,
   onContextMenu,
   onDragStart,
-  onDropItems
+  onDropItems,
+  loaded,
+  catLabel
 }: any) => {
   const isImage = item.type === 'IMAGE' || (item.name && item.name.match(/\.(jpeg|jpg|gif|png|webp)$/i));
   return (
@@ -1746,6 +1760,14 @@ const FileCardItem = React.memo(({
          {!item.isFolder && item.statusCode && (
             <span className={`absolute bottom-0 right-0 text-xs font-bold w-4 h-4 flex items-center justify-center rounded-full border border-white text-white ${item.statusCode === 'A' ? 'bg-green-500' : item.statusCode === 'B' ? 'bg-teal-500' : item.statusCode === 'C' ? 'bg-yellow-500' : 'bg-red-500'}`}>
               {item.statusCode}
+            </span>
+         )}
+         {loaded && (
+            <span
+              className="absolute -top-1 -right-1 inline-flex items-center gap-0.5 text-[9px] font-bold px-1 py-0.5 rounded-full bg-emerald-600 text-white shadow"
+              title={`Данные загружены в оборудование: ${catLabel(loaded.category)} (ревизия v${loaded.version})`}
+            >
+              <Boxes className="w-2.5 h-2.5" />v{loaded.version}
             </span>
          )}
        </div>

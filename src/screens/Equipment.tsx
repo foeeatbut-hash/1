@@ -371,11 +371,11 @@ function BlockCard(props: any) {
             <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold uppercase tracking-wider">{comp.equipType}</span>
             <span className="text-[10px] text-slate-400 font-mono">{unitName} · v{comp.version}</span>
           </div>
-          <h3 className="text-sm font-bold mt-1 truncate">{blockLabel(comp)}</h3>
+          <h3 className="u-sel text-sm font-bold mt-1 truncate">{blockLabel(comp)}</h3>
           <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
             {(comp.tags || []).map((t: any) => (
               <span key={t.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 text-[10px] text-emerald-700 dark:text-emerald-300">
-                <TagIcon className="w-2.5 h-2.5" />{t.identifier}
+                <TagIcon className="w-2.5 h-2.5" /><span className="u-sel">{t.identifier}</span>
                 <button onClick={() => onUnlinkTag(t.id)} className="hover:text-rose-500 cursor-pointer"><X className="w-2.5 h-2.5" /></button>
               </span>
             ))}
@@ -424,7 +424,7 @@ function BlockCard(props: any) {
                   const isEditing = editKey === token;
                   return (
                     <div key={p.key} className={`flex items-center gap-2 px-2.5 py-1.5 text-xs ${pHidden && showAllParams ? 'opacity-40' : ''} ${conf ? 'bg-rose-50/60 dark:bg-rose-950/15' : ''}`}>
-                      <span className="text-slate-500 dark:text-slate-400 flex-1 min-w-0 truncate">{p.key}</span>
+                      <span className="u-sel text-slate-500 dark:text-slate-400 flex-1 min-w-0 truncate">{p.key}</span>
                       {isEditing ? (
                         <>
                           <input value={editVal} onChange={e => setEditVal(e.target.value)} autoFocus className="w-28 px-1.5 py-0.5 text-xs bg-white dark:bg-slate-950 border border-emerald-400 rounded" />
@@ -433,7 +433,7 @@ function BlockCard(props: any) {
                         </>
                       ) : (
                         <>
-                          <span className={`font-semibold text-right ${overridden ? 'text-amber-600 dark:text-amber-400' : 'text-slate-800 dark:text-slate-100'}`} title={overridden ? 'Изменено вручную' : ''}>
+                          <span className={`u-sel font-semibold text-right ${overridden ? 'text-amber-600 dark:text-amber-400' : 'text-slate-800 dark:text-slate-100'}`} title={overridden ? 'Изменено вручную' : ''}>
                             {p.value}{p.unit ? <span className="text-slate-400 font-normal"> {p.unit}</span> : ''}
                           </span>
                           {conf ? (

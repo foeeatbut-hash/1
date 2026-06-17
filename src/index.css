@@ -104,6 +104,19 @@ html, body {
   letter-spacing: -0.011em;
 }
 
+/* По умолчанию текст интерфейса не выделяется мышью (как в десктоп-приложении).
+   Выделять/копировать можно только поля ввода и помеченные .u-sel элементы
+   (теги, марки, значения характеристик и т.п.). */
+* {
+  user-select: none;
+  -webkit-user-select: none;
+}
+input, textarea, [contenteditable="true"], [contenteditable=""],
+.u-sel, .u-sel * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 .dark {
   --color-slate-950: #0b0f0d;
   --color-slate-900: #141a17;
