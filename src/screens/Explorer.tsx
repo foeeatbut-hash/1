@@ -229,9 +229,13 @@ export default function Explorer() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, projectId: activeProject?.id || 'default', parentId: currentFolderId })
     });
-    const { folder } = await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.folder) {
+      addToast(`Не удалось создать папку: ${data?.error || res.status}`, 'error');
+      return;
+    }
     await fetchData();
-    setRenamingId(folder.id);
+    setRenamingId(data.folder.id);
     setRenameValue(name);
   };
 
