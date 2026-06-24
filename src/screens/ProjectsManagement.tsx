@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { dataService, Project } from '../services/dataService';
+import { can } from '../lib/permissions';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Plus, Search, Folder, Calendar, Trash2, Edit3, 
@@ -92,9 +93,10 @@ export default function ProjectsManagement() {
 
     try {
       const proj = await dataService.createProject(
-        name.trim(), 
+        name.trim(),
         'Базовая информация о новом технологическом или инженерном проекте.',
-        'Добавьте подробное техническое описание, состав оборудования и основные чертежи/спецификации.'
+        'Добавьте подробное техническое описание, состав оборудования и основные чертежи/спецификации.',
+        user?.id
       );
       addToast('Проект успешно создан', 'success');
       
@@ -126,7 +128,8 @@ export default function ProjectsManagement() {
         editName.trim(),
         editDesc,
         editInfo,
-        editStatus
+        editStatus,
+        user?.id
       );
       addToast('Данные проекта успешно сохранены', 'success');
       
@@ -157,7 +160,7 @@ export default function ProjectsManagement() {
     }
 
     try {
-      await dataService.deleteProject(projId);
+      await dataService.deleteProject(projId, user?.id);
       addToast(`Проект "${projName}" удален.`, 'success');
 
       // Log change
@@ -187,7 +190,8 @@ export default function ProjectsManagement() {
     (p.description && p.description.toLowerCase().includes(search.toLowerCase()))
   );
 
-  const isAdmin = user?.role === 'ADMIN';
+  const canCreate = can(user, 'project.create');
+  const canManage = can(user, 'project.manage');
 
   return (
     <motion.div
@@ -204,7 +208,7 @@ export default function ProjectsManagement() {
             <Layers className="w-4 h-4 text-emerald-600" />
             <span>Инженерные Проекты</span>
           </h2>
-          {isAdmin && (
+          {canCreate && (
             <button
               onClick={handleCreateProject}
               data-tour="project-create-btn"
@@ -293,7 +297,7 @@ export default function ProjectsManagement() {
                       <Calendar className="w-3 h-3" />
                       <span>{new Date(p.createdAt).toLocaleDateString('ru-RU')}</span>
                     </span>
-                    {isAdmin && (
+                    {canManage && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -354,7 +358,7 @@ export default function ProjectsManagement() {
 
             {/* Scrollable Details / Editable Fields */}
             <div className="flex-grow overflow-y-auto p-6 space-y-6">
-              {isAdmin ? (
+              {canManage ? (
                 // ADMIN EDIT MODE FORM
                 <div className="max-w-2xl bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-5">
                   <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">

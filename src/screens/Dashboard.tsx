@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
+import { can } from '../lib/permissions';
 import { dataService, UserNote, SystemChangeLog, Project } from '../services/dataService';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
@@ -134,7 +135,8 @@ export default function Dashboard() {
       const proj = await dataService.createProject(
         name.trim(),
         'Базовая информация о новом технологическом или инженерном проекте.',
-        'Добавьте подробное техническое описание, состав оборудования и основные чертежи/спецификации.'
+        'Добавьте подробное техническое описание, состав оборудования и основные чертежи/спецификации.',
+        user?.id
       );
       addToast('Проект успешно создан', 'success');
 
@@ -335,7 +337,7 @@ export default function Dashboard() {
               <span>Проекты</span>
             </h2>
             <div className="flex items-center gap-2">
-              {user?.role === 'ADMIN' && (
+              {can(user, 'project.create') && (
                 <button
                   onClick={handleCreateProjectDirect}
                   className="text-xs text-slate-500 dark:text-dark-text-muted hover:text-emerald-600 dark:hover:text-emerald-400 font-bold flex items-center gap-0.5 cursor-pointer"
@@ -365,7 +367,7 @@ export default function Dashboard() {
                 <div className="py-12 text-center text-xs text-slate-400 dark:text-slate-500 flex flex-col items-center gap-1.5">
                   <Layers className="w-7 h-7 text-slate-300 dark:text-slate-755" />
                   <span>Список инженерных проектов пуст</span>
-                  {user?.role === 'ADMIN' && (
+                  {can(user, 'project.create') && (
                     <button
                       onClick={handleCreateProjectDirect}
                       className="text-xs font-bold text-emerald-600 hover:underline mt-1 cursor-pointer"

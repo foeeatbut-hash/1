@@ -18,6 +18,7 @@ model User {
   role             String        @default("ENGINEER_VENT") // "ADMIN", "MANAGER", "ENGINEER_VENT", "ENGINEER_AUTO"
   isActive         Boolean       @default(true) // Профиль включен администратором
   validUntil       DateTime?     // Срок действия профиля; null = бессрочно
+  permissions      String?       // JSON персональных прав: {"project.create":{"enabled":true,"until":null}}
   createdAt        DateTime      @default(now())
   createdFiles     FileNode[]    @relation("FileCreator")
   updatedFiles     FileNode[]    @relation("FileUpdater")

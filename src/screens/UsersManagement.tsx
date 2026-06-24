@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { dataService, User } from '../services/dataService';
+import { FEATURES, parsePermissions, PermMap } from '../lib/permissions';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Users, 
@@ -39,12 +40,33 @@ export default function UsersManagement() {
   // Редактирование существующего сотрудника
   const [editUser, setEditUser] = useState<User | null>(null);
   const [editName, setEditName] = useState('');
+  const [editSymbol, setEditSymbol] = useState('');
   const [editRole, setEditRole] = useState('ENGINEER_VENT');
   const [editPassword, setEditPassword] = useState('');
   const [editActive, setEditActive] = useState(true);
   const [editValidUntil, setEditValidUntil] = useState('');
+  const [editPerms, setEditPerms] = useState<PermMap>({});
   const [editError, setEditError] = useState('');
   const [isEditSubmitting, setIsEditSubmitting] = useState(false);
+
+  // дата+время для input[type=datetime-local]
+  const toDateTimeInput = (value: any): string => {
+    if (!value) return '';
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return '';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  const togglePerm = (feature: string, enabled: boolean) => {
+    setEditPerms((prev) => ({ ...prev, [feature]: { enabled, until: prev[feature]?.until ?? null } }));
+  };
+  const setPermUntil = (feature: string, value: string) => {
+    setEditPerms((prev) => ({
+      ...prev,
+      [feature]: { enabled: prev[feature]?.enabled ?? true, until: value ? new Date(value).toISOString() : null },
+    }));
+  };
 
   const toDateInputValue = (value: any): string => {
     if (!value) return '';
@@ -63,10 +85,12 @@ export default function UsersManagement() {
   const openEdit = (emp: User) => {
     setEditUser(emp);
     setEditName(emp.name);
+    setEditSymbol(emp.symbol);
     setEditRole(emp.role);
     setEditPassword('');
     setEditActive(emp.isActive !== false);
     setEditValidUntil(toDateInputValue(emp.validUntil));
+    setEditPerms(parsePermissions(emp.permissions));
     setEditError('');
   };
 
@@ -75,13 +99,22 @@ export default function UsersManagement() {
     if (!editUser) return;
     setEditError('');
     setIsEditSubmitting(true);
+    if (!editSymbol.trim()) { setEditError('Укажите табельный номер (логин)'); setIsEditSubmitting(false); return; }
+    // оставляем только включённые права, чтобы не копить мусор
+    const cleanPerms: PermMap = {};
+    for (const f of FEATURES) {
+      const e = editPerms[f.id];
+      if (e && e.enabled) cleanPerms[f.id] = { enabled: true, until: e.until ?? null };
+    }
     try {
       const res = await dataService.updateUser(editUser.id, {
         name: editName.trim(),
+        symbol: editSymbol.trim(),
         role: editRole,
         ...(editPassword.trim() ? { password: editPassword.trim() } : {}),
         isActive: editActive,
         validUntil: editValidUntil ? new Date(`${editValidUntil}T23:59:59`).toISOString() : null,
+        permissions: Object.keys(cleanPerms).length ? JSON.stringify(cleanPerms) : null,
       });
       if (!res || res.success !== true) {
         throw new Error((res && res.message) || 'Сервер недоступен — изменения не сохранены');
@@ -577,6 +610,18 @@ export default function UsersManagement() {
                     />
                   </div>
 
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1 font-mono">Табельный номер (логин)</label>
+                    <input
+                      type="text"
+                      value={editSymbol}
+                      onChange={(e) => setEditSymbol(e.target.value)}
+                      disabled={isEditSubmitting}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-mono"
+                    />
+                    <p className="text-xs text-slate-400 mt-1 dark:text-slate-500">Логин для входа. Должен быть уникальным, без символа @.</p>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1">Роль</label>
@@ -635,6 +680,60 @@ export default function UsersManagement() {
                     <span className="text-sm font-semibold text-slate-800 dark:text-white">Профиль активен</span>
                     <span className="text-xs text-slate-400 dark:text-slate-500">(снимите, чтобы мгновенно заблокировать вход)</span>
                   </label>
+
+                  {/* Права доступа по функциям */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-2">Права доступа</label>
+                    {editRole === 'ADMIN' ? (
+                      <div className="flex items-center gap-2 p-3 rounded-lg border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-400 text-sm font-semibold">
+                        <ShieldCheck className="w-4 h-4" /> Полный доступ (администратор)
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {FEATURES.map((f) => {
+                          const e = editPerms[f.id];
+                          const on = !!e?.enabled;
+                          const isExpired = !!e?.until && new Date(e.until).getTime() < Date.now();
+                          return (
+                            <div key={f.id} className={`rounded-lg border p-2.5 transition-colors ${on ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20' : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950'}`}>
+                              <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                                <input
+                                  type="checkbox"
+                                  checked={on}
+                                  onChange={(ev) => togglePerm(f.id, ev.target.checked)}
+                                  disabled={isEditSubmitting}
+                                  className="w-4 h-4 mt-0.5 accent-emerald-600 cursor-pointer shrink-0"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-sm font-semibold text-slate-800 dark:text-white">{f.label}</span>
+                                    {on && isExpired && <span className="text-xs px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 font-semibold">истекло</span>}
+                                  </div>
+                                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{f.desc}</p>
+                                </div>
+                              </label>
+                              {on && (
+                                <div className="mt-2 pl-7 flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs text-slate-500 dark:text-slate-400">действует до:</span>
+                                  <input
+                                    type="datetime-local"
+                                    value={toDateTimeInput(e?.until)}
+                                    onChange={(ev) => setPermUntil(f.id, ev.target.value)}
+                                    disabled={isEditSubmitting}
+                                    className="px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded text-xs text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500"
+                                  />
+                                  {e?.until
+                                    ? <button type="button" onClick={() => setPermUntil(f.id, '')} className="text-xs text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer">бессрочно</button>
+                                    : <span className="text-xs text-slate-400">бессрочно</span>}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                        <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">Администратор всегда имеет полный доступ независимо от этих галочек.</p>
+                      </div>
+                    )}
+                  </div>
 
                   <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-100 dark:border-slate-800 mt-5">
                     <button

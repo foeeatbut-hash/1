@@ -12,6 +12,7 @@ export interface User {
   password?: string;
   isActive?: boolean;
   validUntil?: string | Date | null;
+  permissions?: string | null;
   createdAt?: string | Date;
 }
 
@@ -399,14 +400,14 @@ export const dataService = {
     return request<User[]>('/users');
   },
 
-  async createUser(userData: { symbol: string; name: string; role: string; password?: string; validUntil?: string | null; isActive?: boolean }): Promise<User> {
+  async createUser(userData: { symbol: string; name: string; role: string; password?: string; validUntil?: string | null; isActive?: boolean; permissions?: string | null }): Promise<User> {
     return request<User>('/users', {
       method: 'POST',
       body: JSON.stringify(userData),
     });
   },
 
-  async updateUser(id: string, data: { name?: string; role?: string; password?: string; isActive?: boolean; validUntil?: string | null }): Promise<{ success: boolean; user?: User; message?: string }> {
+  async updateUser(id: string, data: { name?: string; symbol?: string; role?: string; password?: string; isActive?: boolean; validUntil?: string | null; permissions?: string | null }): Promise<{ success: boolean; user?: User; message?: string }> {
     return request(`/users/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -428,25 +429,26 @@ export const dataService = {
     return res.projects || [];
   },
 
-  async createProject(name: string, description?: string, info?: string): Promise<Project> {
+  async createProject(name: string, description?: string, info?: string, actorId?: string): Promise<Project> {
     const res = await request<{ project: Project }>('/projects', {
       method: 'POST',
-      body: JSON.stringify({ name, description, info }),
+      body: JSON.stringify({ name, description, info, actorId }),
     });
     return res.project;
   },
 
-  async updateProject(id: string, name: string, description?: string, info?: string, status?: string): Promise<Project> {
+  async updateProject(id: string, name: string, description?: string, info?: string, status?: string, actorId?: string): Promise<Project> {
     const res = await request<{ project: Project }>(`/projects/${id}`, {
       method: 'PUT',
-      body: JSON.stringify({ name, description, info, status }),
+      body: JSON.stringify({ name, description, info, status, actorId }),
     });
     return res.project;
   },
 
-  async deleteProject(id: string): Promise<{ success: boolean }> {
+  async deleteProject(id: string, actorId?: string): Promise<{ success: boolean }> {
     return request<{ success: boolean }>(`/projects/${id}`, {
       method: 'DELETE',
+      body: JSON.stringify({ actorId }),
     });
   },
 
