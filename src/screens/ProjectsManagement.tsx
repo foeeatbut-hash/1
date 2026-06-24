@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
+import { useModalStore } from '../store/modalStore';
 import { dataService, Project } from '../services/dataService';
 import { can } from '../lib/permissions';
 import { motion, AnimatePresence } from 'motion/react';
@@ -13,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 export default function ProjectsManagement() {
   const { user, activeProject, setActiveProject } = useStore();
   const { addToast } = useToastStore();
+  const { openPrompt } = useModalStore();
   const navigate = useNavigate();
   
   const [projects, setProjects] = useState<Project[]>([]);
@@ -88,7 +90,7 @@ export default function ProjectsManagement() {
   };
 
   const handleCreateProject = async () => {
-    const name = prompt('Введите название нового проекта:');
+    const name = await openPrompt('Новый проект', 'Введите название нового проекта:', 'Название проекта');
     if (!name || !name.trim()) return;
 
     try {

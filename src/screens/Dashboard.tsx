@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
+import { useModalStore } from '../store/modalStore';
 import { can } from '../lib/permissions';
 import { dataService, UserNote, SystemChangeLog, Project } from '../services/dataService';
 import { useNavigate } from 'react-router-dom';
@@ -14,6 +15,7 @@ import {
 export default function Dashboard() {
   const { user, activeProject, setActiveProject } = useStore();
   const { addToast } = useToastStore();
+  const { openPrompt } = useModalStore();
   const navigate = useNavigate();
 
   const [logs, setLogs] = useState<SystemChangeLog[]>([]);
@@ -128,7 +130,7 @@ export default function Dashboard() {
   };
 
   const handleCreateProjectDirect = async () => {
-    const name = prompt('Введите название нового проекта:');
+    const name = await openPrompt('Новый проект', 'Введите название нового проекта:', 'Название проекта');
     if (!name || !name.trim()) return;
 
     try {
