@@ -224,6 +224,10 @@ function ensureSchemaColumns(dbPath: string) {
           db.exec('ALTER TABLE "User" ADD COLUMN "validUntil" DATETIME');
           logInit('[DB Migrate] Добавлена колонка User.validUntil');
         }
+        if (!cols.find(c => c.name === 'permissions')) {
+          db.exec('ALTER TABLE "User" ADD COLUMN "permissions" TEXT');
+          logInit('[DB Migrate] Добавлена колонка User.permissions');
+        }
       }
       const msgCols = db.prepare('PRAGMA table_info("ChatMessage")').all() as Array<{ name: string }>;
       if (msgCols.length > 0) {
@@ -979,7 +983,7 @@ app.post('/api/users', async (req: Request, res: Response) => {
       });
     }
 
-    const { validUntil, isActive } = req.body;
+    const { validUntil, isActive, permissions } = req.body;
     const newUser = await prisma.user.create({
       data: {
         symbol: String(symbol),
@@ -988,6 +992,7 @@ app.post('/api/users', async (req: Request, res: Response) => {
         password: password || 'password',
         isActive: typeof isActive === 'boolean' ? isActive : true,
         validUntil: validUntil ? new Date(validUntil) : null,
+        permissions: permissions ? (typeof permissions === 'string' ? permissions : JSON.stringify(permissions)) : null,
       }
     });
     res.json(newUser);
@@ -1000,11 +1005,22 @@ app.post('/api/users', async (req: Request, res: Response) => {
 app.put('/api/users/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { name, role, password, isActive, validUntil } = req.body;
+    const { name, role, password, isActive, validUntil, symbol, permissions } = req.body;
 
     const target = await prisma.user.findUnique({ where: { id } });
     if (!target) {
       return res.status(404).json({ success: false, message: 'Сотрудник не найден в базе данных.' });
+    }
+
+    // Смена логина (табельного номера) — проверяем уникальность
+    if (typeof symbol === 'string' && symbol.trim() && symbol.trim() !== target.symbol) {
+      if (symbol.includes('@')) {
+        return res.status(400).json({ success: false, message: 'Логин не может содержать символ @.' });
+      }
+      const dup = await prisma.user.findUnique({ where: { symbol: symbol.trim() } });
+      if (dup && dup.id !== id) {
+        return res.status(400).json({ success: false, message: 'Такой табельный номер (логин) уже занят другим сотрудником.' });
+      }
     }
 
     // Защита от самоблокировки: нельзя отключить/ограничить последнего активного администратора
@@ -1020,11 +1036,16 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
 
     const data: any = {};
     if (typeof name === 'string' && name.trim()) data.name = name.trim();
+    if (typeof symbol === 'string' && symbol.trim()) data.symbol = symbol.trim();
     if (typeof role === 'string' && role) data.role = role;
     if (typeof password === 'string' && password) data.password = password;
     if (typeof isActive === 'boolean') data.isActive = isActive;
     if (validUntil === null || validUntil === '') data.validUntil = null;
     else if (validUntil) data.validUntil = new Date(validUntil);
+    if (permissions !== undefined) {
+      data.permissions = permissions === null ? null
+        : (typeof permissions === 'string' ? permissions : JSON.stringify(permissions));
+    }
 
     const updated = await prisma.user.update({ where: { id }, data });
     res.json({ success: true, user: updated });
@@ -1101,12 +1122,41 @@ app.post('/api/seed', async (req: Request, res: Response) => {
 });
 
 // Projects
+// ── Права доступа «по функциям» (зеркало src/lib/permissions.ts) ──────────────
+function userCan(user: any, feature: string): boolean {
+  if (!user) return false;
+  if (user.role === 'ADMIN') return true;                       // админ всегда главнее
+  if (user.isActive === false) return false;
+  if (user.validUntil && new Date(user.validUntil).getTime() < Date.now()) return false;
+  let map: any = {};
+  try { map = user.permissions ? JSON.parse(user.permissions) : {}; } catch { map = {}; }
+  const e = map[feature];
+  if (!e || !e.enabled) return false;
+  if (e.until && new Date(e.until).getTime() < Date.now()) return false;
+  return true;
+}
+
+async function loadActor(req: Request): Promise<any> {
+  const id = String((req.body && req.body.actorId) || req.query.actorId || req.headers['x-actor-id'] || '');
+  if (!id) return null;
+  try { return await prisma.user.findUnique({ where: { id } }); } catch { return null; }
+}
+
+// Страж эндпоинта: при отсутствии прав сам отправляет 401/403 и возвращает false
+async function enforce(req: Request, res: Response, feature: string): Promise<boolean> {
+  const actor = await loadActor(req);
+  if (!actor) { res.status(401).json({ error: 'Не определён пользователь действия (actorId).' }); return false; }
+  if (!userCan(actor, feature)) { res.status(403).json({ error: 'Недостаточно прав для этого действия.' }); return false; }
+  return true;
+}
+
 app.get('/api/projects', async (req: Request, res: Response) => {
   const projects = await prisma.project.findMany();
   res.json({ projects });
 });
 
 app.post('/api/projects', async (req: Request, res: Response) => {
+  if (!(await enforce(req, res, 'project.create'))) return;
   const { name, description, info } = req.body;
   const project = await prisma.project.create({
     data: {
@@ -1120,6 +1170,7 @@ app.post('/api/projects', async (req: Request, res: Response) => {
 });
 
 app.put('/api/projects/:id', async (req: Request, res: Response) => {
+  if (!(await enforce(req, res, 'project.manage'))) return;
   try {
     const { id } = req.params;
     const { name, description, info, status } = req.body;
@@ -1139,6 +1190,7 @@ app.put('/api/projects/:id', async (req: Request, res: Response) => {
 });
 
 app.delete('/api/projects/:id', async (req: Request, res: Response) => {
+  if (!(await enforce(req, res, 'project.manage'))) return;
   try {
     const { id } = req.params;
     await prisma.project.delete({
