@@ -7,10 +7,11 @@ import ProjectFormModal from '../components/ProjectFormModal';
 import { dataService, UserNote, SystemChangeLog, Project, ProjectInput } from '../services/dataService';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { 
-  Home, Clock, History, FileText, ArrowRight, ExternalLink, 
+import {
+  Home, Clock, History, FileText, ArrowRight, ExternalLink,
   ChevronRight, Calendar, User, Database, BookmarkCheck,
-  Layers, CheckSquare, Square, FolderPlus, Plus
+  Layers, CheckSquare, Square, FolderPlus, Plus,
+  MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Tag, Fan, BookOpen, Users
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -178,6 +179,38 @@ export default function Dashboard() {
           </div>
         </div>
       </header>
+
+      {/* БЫСТРЫЙ ДОСТУП К РАЗДЕЛАМ */}
+      <div className="bg-white dark:bg-dark-surface rounded-2xl border border-slate-200 dark:border-dark-border shadow-xs p-4">
+        <h2 className="text-sm font-bold text-slate-900 dark:text-dark-text-main flex items-center gap-2 mb-3">
+          <Layers className="w-4 h-4 text-emerald-600" />
+          <span>Разделы</span>
+        </h2>
+        <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-8 gap-2.5">
+          {[
+            { name: 'Чат', path: '/chat', icon: MessagesSquare },
+            { name: 'Блокнот', path: '/notes', icon: NotebookPen },
+            { name: 'Проекты', path: '/projects', icon: FolderKanban },
+            { name: 'Проводник', path: '/explorer', icon: FolderOpen },
+            { name: 'Теги', path: '/registry', icon: Tag },
+            { name: 'Оборудование', path: '/equipment', icon: Fan },
+            { name: 'Справочник', path: '/directory', icon: BookOpen },
+            ...(user?.role === 'ADMIN' ? [{ name: 'Сотрудники', path: '/users', icon: Users }] : []),
+          ].map((s) => (
+            <button
+              key={s.path}
+              onClick={() => navigate(s.path)}
+              data-share-route={s.path}
+              data-share-focus={`nav:${s.path}`}
+              data-share-label={s.name}
+              className="flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl border border-slate-150 dark:border-dark-border bg-slate-50 dark:bg-dark-surface/40 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 hover:border-emerald-400 transition-colors cursor-pointer"
+            >
+              <s.icon className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+              <span className="text-[11px] font-semibold text-slate-700 dark:text-dark-text-main text-center leading-tight">{s.name}</span>
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* THREE PANEL SECTIONS (slate / zinc design) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

@@ -81,6 +81,11 @@ interface ChatState {
   pendingDraft: string | null;
   setPending: (groupName: string, draft: string) => void;
   clearPending: () => void;
+  // Передача «поделиться-ссылки» в ЛС с пользователем (вставка, не замена)
+  pendingReceiverId: string | null;
+  pendingInsert: string | null;
+  setPendingShare: (receiverId: string, insert: string) => void;
+  clearPendingShare: () => void;
   setSearchQuery: (query: string) => void;
   setActiveReceiverId: (id: string | null) => void;
   setActiveGroupId: (id: string | null) => void;
@@ -140,9 +145,13 @@ export const useChatStore = create<ChatState>((set, get) => {
     searchQuery: '',
     pendingGroupName: null,
     pendingDraft: null,
+    pendingReceiverId: null,
+    pendingInsert: null,
 
     setPending: (groupName, draft) => set({ pendingGroupName: groupName, pendingDraft: draft }),
     clearPending: () => set({ pendingGroupName: null, pendingDraft: null }),
+    setPendingShare: (receiverId, insert) => set({ pendingReceiverId: receiverId, pendingInsert: insert }),
+    clearPendingShare: () => set({ pendingReceiverId: null, pendingInsert: null }),
 
     setSearchQuery: (query) => set({ searchQuery: query }),
     
