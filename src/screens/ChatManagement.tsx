@@ -3,7 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { useChatStore, ChatMessage } from '../store/chatStore';
-import { 
+import { useShareStore } from '../store/shareStore';
+import { decodeShare } from '../lib/shareLink';
+import { Link2 } from 'lucide-react';
+import {
   MessageSquare, 
   Search, 
   Paperclip, 
@@ -38,50 +41,55 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-// Formatted Message Component to recognize #TAG inline links
+// Formatted Message Component to recognize #TAG inline links + share-links [[s:..]]
 interface FormattedMessageProps {
   text: string;
   onTagClick: (tag: string) => void;
+  onShareClick?: (token: string) => void;
 }
 
-const FormattedMessage: React.FC<FormattedMessageProps> = ({ text, onTagClick }) => {
+const FormattedMessage: React.FC<FormattedMessageProps> = ({ text, onTagClick, onShareClick }) => {
   if (!text) return null;
-  
-  const regex = /#([a-zA-Z0-9А-Яа-я\-]+)/g;
+
+  // Либо токен ссылки [[s:...]], либо #тег
+  const regex = /(\[\[s:[A-Za-z0-9_\-]+\]\])|#([a-zA-Z0-9А-Яа-я\-]+)/g;
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
-  
+
   while ((match = regex.exec(text)) !== null) {
     const matchIndex = match.index;
-    const matchText = match[0];
-    const tagName = match[1];
-    
-    if (matchIndex > lastIndex) {
-      parts.push(text.substring(lastIndex, matchIndex));
+    if (matchIndex > lastIndex) parts.push(text.substring(lastIndex, matchIndex));
+
+    if (match[1]) {
+      // share-link
+      const token = match[1];
+      const decoded = decodeShare(token);
+      const label = decoded?.l || 'Ссылка';
+      parts.push(
+        <button key={matchIndex} type="button"
+          onClick={(e) => { e.stopPropagation(); onShareClick && onShareClick(token); }}
+          className="inline-flex items-center gap-1 mx-0.5 px-1.5 py-0.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900 border border-emerald-200 dark:border-emerald-800 rounded-md text-xs font-bold text-emerald-700 dark:text-emerald-400 cursor-pointer transition-all font-sans select-none align-baseline max-w-[260px]"
+          title={`Перейти: ${label}`}>
+          <Link2 className="w-3 h-3 shrink-0" />
+          <span className="truncate">{label}</span>
+        </button>
+      );
+    } else {
+      const tagName = match[2];
+      parts.push(
+        <button key={matchIndex} type="button"
+          onClick={(e) => { e.stopPropagation(); onTagClick(tagName); }}
+          className="inline-flex items-center mx-0.5 px-1.5 py-0.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-850 rounded text-xs font-bold text-indigo-700 dark:text-indigo-400 cursor-pointer hover:underline transition-all font-sans select-none align-baseline shrink-0">
+          #{tagName}
+        </button>
+      );
     }
-    
-    parts.push(
-      <button
-        key={matchIndex}
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onTagClick(tagName);
-        }}
-        className="inline-flex items-center mx-0.5 px-1.5 py-0.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-850 rounded text-xs font-bold text-indigo-700 dark:text-indigo-400 cursor-pointer hover:underline transition-all font-sans select-none align-baseline shrink-0"
-      >
-        #{tagName}
-      </button>
-    );
-    
     lastIndex = regex.lastIndex;
   }
-  
-  if (lastIndex < text.length) {
-    parts.push(text.substring(lastIndex));
-  }
-  
+
+  if (lastIndex < text.length) parts.push(text.substring(lastIndex));
+
   return <span className="whitespace-pre-wrap leading-relaxed select-text font-sans">{parts.length > 0 ? parts : text}</span>;
 };
 
@@ -115,8 +123,20 @@ export default function ChatManagement() {
     disconnectSocket,
     pendingGroupName,
     pendingDraft,
-    clearPending
+    clearPending,
+    pendingReceiverId,
+    pendingInsert,
+    clearPendingShare
   } = useChatStore();
+  const setFocusTarget = useShareStore(s => s.setFocusTarget);
+
+  // Переход по «поделиться-ссылке» в сообщении
+  const handleShareClick = (token: string) => {
+    const t = decodeShare(token);
+    if (!t) return;
+    setFocusTarget(t);
+    navigate(t.r);
+  };
 
   const [messageText, setMessageText] = useState('');
 
@@ -130,6 +150,14 @@ export default function ChatManagement() {
       clearPending();
     }
   }, [pendingGroupName, groups]);
+
+  // Приём «поделиться-ссылки»: открыть ЛС с пользователем и вставить токен в поле
+  useEffect(() => {
+    if (!pendingReceiverId) return;
+    setActiveReceiverId(pendingReceiverId);
+    if (pendingInsert) setMessageText(prev => (prev ? prev + ' ' : '') + pendingInsert);
+    clearPendingShare();
+  }, [pendingReceiverId]);
 
   const [replyTarget, setReplyTarget] = useState<ChatMessage | null>(null);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
@@ -1119,7 +1147,7 @@ export default function ChatManagement() {
                               </div>
                             </div>
                           )}
-                          <FormattedMessage text={msg.content} onTagClick={handleTagClick} />
+                          <FormattedMessage text={msg.content} onTagClick={handleTagClick} onShareClick={handleShareClick} />
 
                           {/* Interactive Equipment Link */}
                           {msg.linkedElement && (

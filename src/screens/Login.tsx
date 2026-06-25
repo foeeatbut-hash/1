@@ -269,7 +269,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
       {/* Footer: только версия программы */}
       <div className="w-full flex items-center justify-end px-4 py-4 mt-auto">
         <div className="text-xs font-mono text-slate-400 dark:text-slate-600 tracking-wider">
-          Версия 0.18.0
+          Версия 0.19.0
         </div>
       </div>
     </div>

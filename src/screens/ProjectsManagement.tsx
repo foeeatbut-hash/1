@@ -244,6 +244,9 @@ export default function ProjectsManagement() {
               return (
                 <div
                   key={p.id}
+                  data-share-route="/projects"
+                  data-share-focus={`project:${p.id}`}
+                  data-share-label={`Проект: ${p.name}`}
                   onClick={() => {
                     setSelectedProject(p);
                     initForm(p);

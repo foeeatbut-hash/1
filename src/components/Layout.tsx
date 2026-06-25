@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
-import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, Sparkles } from 'lucide-react';
+import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, Sparkles, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ToastProvider from './ToastProvider';
 import ModalProvider from './ModalProvider';
@@ -14,6 +14,7 @@ import AssistantPanel from './AssistantPanel';
 import NotificationsPanel from './NotificationsPanel';
 import RightRail from './RightRail';
 import NotificationSettings from './NotificationSettings';
+import ShareLayer from './ShareLayer';
 import { ENV_CONFIG } from '../config/env';
 
 export default function Layout() {
@@ -424,114 +425,59 @@ export default function Layout() {
     );
   };
 
+  // Единый плоский список разделов (рельс с иконками + подписями)
   const navItems = [
-    { name: 'Главное', path: '/', icon: Home },
-    { name: 'Рабочий чат', path: '/chat', icon: MessageSquare },
-    { name: 'Блокнот', path: '/notes', icon: ClipboardList },
-    { name: 'Проекты', path: '/projects', icon: Layers },
-    { name: 'Проводник', path: '/explorer', icon: Folder },
-  ];
-
-  const eqItems = [
+    { name: 'Главная', path: '/', icon: Home },
+    { name: 'Чат', path: '/chat', icon: MessagesSquare },
+    { name: 'Блокнот', path: '/notes', icon: NotebookPen },
+    { name: 'Проекты', path: '/projects', icon: FolderKanban },
+    { name: 'Проводник', path: '/explorer', icon: FolderOpen },
     { name: 'Теги', path: '/registry', icon: Tag },
-    { name: 'Оборудование', path: '/equipment', icon: Database },
-    { name: 'Справочник', path: '/directory', icon: Book },
+    { name: 'Оборудование', path: '/equipment', icon: Fan },
+    { name: 'Справочник', path: '/directory', icon: BookOpen },
   ];
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-slate-50 dark:bg-dark-bg text-slate-800 dark:text-dark-text-main font-sans relative transition-colors duration-250">
-      <aside className={`${isSidebarCollapsed ? 'w-0 opacity-0 -translate-x-full pointer-events-none' : 'w-64 opacity-100 translate-x-0'} bg-white dark:bg-dark-surface text-slate-700 dark:text-dark-text-muted flex flex-col transition-all duration-300 shrink-0 border-r border-slate-200 dark:border-dark-border`}>
-        <div className="p-4 bg-slate-50 dark:bg-dark-surface flex items-center justify-between border-b border-slate-200 dark:border-dark-border">
-          <div className="overflow-hidden">
-            <h1 className="text-xl font-bold font-mono tracking-tight text-slate-900 dark:text-white mb-1 truncate">MAX</h1>
-            <p className="text-xs text-slate-500 dark:text-dark-text-muted truncate">Проект: {activeProject?.name || 'Не выбран'}</p>
-          </div>
-          <button 
+      <aside className={`${isSidebarCollapsed ? 'w-0 opacity-0 -translate-x-full pointer-events-none' : 'w-24 opacity-100 translate-x-0'} bg-white dark:bg-dark-surface text-slate-700 dark:text-dark-text-muted flex flex-col transition-all duration-300 shrink-0 border-r border-slate-200 dark:border-dark-border`}>
+        <div className="px-1.5 pt-3 pb-2 flex flex-col items-center gap-0.5 border-b border-slate-200 dark:border-dark-border relative">
+          <h1 className="text-lg font-bold font-mono tracking-tight text-slate-900 dark:text-white leading-none">MAX</h1>
+          <p className="text-[9px] text-slate-500 dark:text-dark-text-muted text-center leading-tight line-clamp-2 px-1" title={activeProject?.name || 'Проект не выбран'}>
+            {activeProject?.name || 'Без проекта'}
+          </p>
+          <button
             type="button"
             onClick={() => setIsSidebarCollapsed(true)}
-            className="p-1.5 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-500 dark:text-dark-text-muted hover:text-slate-800 dark:hover:text-white transition-colors cursor-pointer ml-2 shrink-0"
-            title="Скрыть боковую панель"
+            className="absolute top-1.5 right-1 p-1 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-400 dark:text-dark-text-muted hover:text-slate-800 dark:hover:text-white transition-colors cursor-pointer"
+            title="Скрыть панель"
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ChevronLeft className="w-4 h-4" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto py-4">
-          <nav className="flex flex-col gap-1 px-2">
-            {navItems.map((item) => {
+        <div className="flex-1 overflow-y-auto py-2 scrollbar-thin">
+          <nav className="flex flex-col gap-1 px-1.5">
+            {[...navItems, ...(user && user.role === 'ADMIN' ? [{ name: 'Сотрудники', path: '/users', icon: Users }] : [])].map((item) => {
               const active = location.pathname === item.path;
               return (
                 <Link
                   key={item.path}
                   to={item.path}
                   data-tour={`nav-${item.path}`}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-md transition-all ${
+                  data-share-route={item.path}
+                  data-share-focus={`nav:${item.path}`}
+                  data-share-label={item.name}
+                  title={item.name}
+                  className={`flex flex-col items-center justify-center gap-1 py-2 rounded-xl transition-all ${
                     active
-                      ? 'bg-emerald-700 text-white font-medium shadow-xs'
-                      : 'hover:bg-slate-100 dark:hover:bg-dark-panel text-slate-600 dark:text-dark-text-muted hover:text-slate-900 dark:hover:text-dark-text-main'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-panel hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
-                  <item.icon className={`w-4 h-4 ${active ? 'text-white' : 'text-slate-400 dark:text-dark-text-muted'}`} />
-                  <span className="text-sm font-medium">{item.name}</span>
+                  <item.icon className="w-5 h-5 shrink-0" />
+                  <span className="text-[10px] font-semibold leading-tight text-center break-words">{item.name}</span>
                 </Link>
               );
             })}
-
-            {user && user.role === 'ADMIN' && (
-              <Link
-                to="/users"
-                data-tour="nav-/users"
-                className={`flex items-center gap-3 px-3 py-2 rounded-md transition-all ${
-                  location.pathname === '/users'
-                    ? 'bg-emerald-700 text-white font-medium shadow-xs hover:text-white'
-                    : 'hover:bg-slate-100 dark:hover:bg-dark-panel text-slate-600 dark:text-dark-text-muted hover:text-slate-900 dark:hover:text-dark-text-main'
-                }`}
-              >
-                <Users className={`w-4 h-4 ${location.pathname === '/users' ? 'text-white' : 'text-slate-400 dark:text-dark-text-muted'}`} />
-                <span className="text-sm font-medium">Управление сотрудниками</span>
-              </Link>
-            )}
-            
-            <div className="mt-4 text-xs font-semibold text-slate-400 dark:text-dark-text-muted uppercase tracking-wider px-3 mb-1">
-              Модули
-            </div>
-            
-            <div className="space-y-1">
-              <button
-                onClick={() => setEqOpen(!eqOpen)}
-                data-tour="eq-group"
-                className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-slate-600 dark:text-dark-text-muted hover:text-slate-900 dark:hover:text-dark-text-main hover:bg-slate-100 dark:hover:bg-dark-panel rounded-md transition-colors"
-              >
-                <div className="flex items-center gap-3 font-medium">
-                  <Database className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                  Оборудование и материалы
-                </div>
-                {eqOpen ? <ChevronDown className="w-4 h-4 text-slate-455 dark:text-dark-text-muted" /> : <ChevronRight className="w-4 h-4 text-slate-455 dark:text-dark-text-muted" />}
-              </button>
-              
-              {eqOpen && (
-                <div className="pl-9 pr-2 space-y-1 mt-1 mb-2">
-                  {eqItems.map((item) => {
-                    const active = location.pathname === item.path;
-                    return (
-                      <Link
-                        key={item.path}
-                        to={item.path}
-                        data-tour={`nav-${item.path}`}
-                        className={`flex items-center gap-2.5 px-3 py-1.5 rounded-md transition-all ${
-                          active
-                            ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-400 font-semibold border-l-2 border-emerald-500'
-                            : 'text-slate-500 dark:text-dark-text-muted hover:text-slate-800 dark:hover:text-dark-text-main hover:bg-slate-100 dark:hover:bg-dark-panel'
-                        }`}
-                      >
-                        <item.icon className="w-3.5 h-3.5 shrink-0" />
-                        <span className="text-sm">{item.name}</span>
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            
           </nav>
         </div>
 
@@ -789,24 +735,15 @@ export default function Layout() {
             type="button"
             data-tour="profile-btn"
             onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-            className={`w-full flex items-center justify-between p-2 rounded-xl transition-all cursor-pointer text-left select-none outline-none group ${
-              isProfileMenuOpen 
-                ? 'bg-slate-200/70 dark:bg-dark-surface border border-slate-200 dark:border-dark-border' 
+            title={`${user?.name || ''} · ${user?.role || ''}`}
+            className={`w-full flex flex-col items-center gap-1 p-2 rounded-xl transition-all cursor-pointer select-none outline-none ${
+              isProfileMenuOpen
+                ? 'bg-slate-200/70 dark:bg-dark-surface border border-slate-200 dark:border-dark-border'
                 : 'hover:bg-slate-150 dark:hover:bg-dark-surface border border-transparent'
             }`}
           >
-            <div className="flex items-center gap-3 overflow-hidden min-w-0">
-              {renderAvatar(true)}
-              <div className="flex flex-col overflow-hidden">
-                <span className="text-sm font-bold text-slate-850 dark:text-white leading-tight truncate">{user?.name}</span>
-                <span className="text-xs text-slate-550 dark:text-dark-text-muted leading-tight truncate">{user?.role}</span>
-              </div>
-            </div>
-            {isProfileMenuOpen ? (
-              <ChevronDown className="w-4 h-4 text-slate-455 shrink-0 ml-1.5 transition-transform" />
-            ) : (
-              <ChevronUp className="w-4 h-4 text-slate-455 shrink-0 ml-1.5 group-hover:text-slate-650 transition-transform" />
-            )}
+            {renderAvatar(true)}
+            <span className="text-[10px] font-bold text-slate-850 dark:text-white leading-tight truncate max-w-full">{(user?.name || '').split(' ')[0] || 'Профиль'}</span>
           </button>
         </div>
       </aside>
@@ -836,6 +773,7 @@ export default function Layout() {
 
       <ToastProvider />
       <ModalProvider />
+      <ShareLayer />
     </div>
   );
 }
