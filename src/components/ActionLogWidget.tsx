@@ -4,6 +4,8 @@ import { useLogStore, LogItem } from '../store/logStore';
 import { useAssistantStore } from '../store/assistantStore';
 import { useToastStore } from '../store/toastStore';
 import { useStore } from '../store/store';
+import { useChatStore } from '../store/chatStore';
+import { useNotificationStore } from '../store/notificationStore';
 import { 
   Terminal, 
   Copy, 
@@ -31,6 +33,7 @@ function roleLabel(role?: string): string {
 export default function ActionLogWidget() {
   const { logs, hasUnreadError, widgetOpen, setWidgetOpen, clearLogs } = useLogStore();
   const assistantOpen = useAssistantStore((s) => s.isOpen);
+  const notifOpen = useNotificationStore((s) => s.panelOpen);
   const { addToast } = useToastStore();
   
   const [filter, setFilter] = useState<'ALL' | 'INFO' | 'WARN' | 'ERROR'>('ALL');
@@ -57,7 +60,7 @@ export default function ActionLogWidget() {
       const header = [
         '==================== ЖУРНАЛ PDM SYSTEM ====================',
         `Дата выгрузки : ${new Date().toLocaleString('ru-RU')}`,
-        `Версия        : 0.17.5`,
+        `Версия        : 0.18.0`,
         `Пользователь  : ${u?.name || '— (вход не выполнен)'}`,
         `Логин         : ${u?.symbol || '—'}`,
         `Должность     : ${roleLabel(u?.role)}`,
@@ -172,19 +175,14 @@ export default function ActionLogWidget() {
       addToast('Журнал логов пуст', 'info');
       return;
     }
-
     try {
-      await navigator.clipboard.writeText(text);
-      const url = "https://messenger.360.yandex.ru/#/join/e1d17837-7be6-44d1-943b-03ca3350897e";
-      const win = window as any;
-      if (win.electron && typeof win.electron.openExternal === 'function') {
-        await win.electron.openExternal(url);
-      } else {
-        window.open(url, '_blank');
-      }
-      addToast('Журнал скопирован! Нажмите Ctrl+V в открывшемся чате Яндекса для отправки', 'success');
+      // Открываем рабочий чат на группе «Ошибки» с уже вставленным текстом логов
+      useChatStore.getState().setPending('Ошибки', text);
+      setWidgetOpen(false);
+      window.location.hash = '#/chat';
+      addToast('Логи вставлены в группу «Ошибки» — нажмите «Отправить» в чате.', 'success');
     } catch (err) {
-      addToast('Не удалось скопировать логи', 'error');
+      addToast('Не удалось открыть чат', 'error');
     }
   };
 
@@ -201,7 +199,7 @@ export default function ActionLogWidget() {
     <div
       id="dx-logs-widget"
       className="fixed bottom-4 z-[9999] flex flex-col items-end pointer-events-none transition-all duration-300"
-      style={{ right: assistantOpen ? 396 : 16 }}
+      style={{ right: (assistantOpen || notifOpen) ? 380 + 72 : 72 }}
     >
       
       {/* Mini Window Popover */}

@@ -3,7 +3,8 @@ import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { useModalStore } from '../store/modalStore';
 import { can } from '../lib/permissions';
-import { dataService, UserNote, SystemChangeLog, Project } from '../services/dataService';
+import ProjectFormModal from '../components/ProjectFormModal';
+import { dataService, UserNote, SystemChangeLog, Project, ProjectInput } from '../services/dataService';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { 
@@ -24,6 +25,7 @@ export default function Dashboard() {
   const [loadingLogs, setLoadingLogs] = useState(true);
   const [loadingNotes, setLoadingNotes] = useState(true);
   const [loadingProjects, setLoadingProjects] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
 
   // Fetch log history and notes preview
   const fetchDashboardData = async () => {
@@ -129,28 +131,17 @@ export default function Dashboard() {
     }
   };
 
-  const handleCreateProjectDirect = async () => {
-    const name = await openPrompt('Новый проект', 'Введите название нового проекта:', 'Название проекта');
-    if (!name || !name.trim()) return;
-
+  const handleCreateProjectDirect = async (data: ProjectInput) => {
     try {
-      const proj = await dataService.createProject(
-        name.trim(),
-        'Базовая информация о новом технологическом или инженерном проекте.',
-        'Добавьте подробное техническое описание, состав оборудования и основные чертежи/спецификации.',
-        user?.id
-      );
+      const proj = await dataService.createProject(data, user?.id);
       addToast('Проект успешно создан', 'success');
-
-      // Log action
       await dataService.createLog({
         userName: user?.name || 'Главный Администратор',
         userSymbol: user?.symbol || 'RaupovKhKh',
-        description: `Создан новый инженерный проект: ${name.trim()}`,
+        description: `Создан новый инженерный проект: ${proj.name}`,
         targetRoute: '/projects'
       });
-
-      // Reload
+      setShowCreate(false);
       const fetchedProjects = await dataService.getProjects();
       setProjects(fetchedProjects);
     } catch (err: any) {
@@ -339,9 +330,9 @@ export default function Dashboard() {
               <span>Проекты</span>
             </h2>
             <div className="flex items-center gap-2">
-              {can(user, 'project.create') && (
+              {can(user, 'project.manage') && (
                 <button
-                  onClick={handleCreateProjectDirect}
+                  onClick={() => setShowCreate(true)}
                   className="text-xs text-slate-500 dark:text-dark-text-muted hover:text-emerald-600 dark:hover:text-emerald-400 font-bold flex items-center gap-0.5 cursor-pointer"
                   title="Быстрое создание проекта"
                 >
@@ -369,9 +360,9 @@ export default function Dashboard() {
                 <div className="py-12 text-center text-xs text-slate-400 dark:text-slate-500 flex flex-col items-center gap-1.5">
                   <Layers className="w-7 h-7 text-slate-300 dark:text-slate-755" />
                   <span>Список инженерных проектов пуст</span>
-                  {can(user, 'project.create') && (
+                  {can(user, 'project.manage') && (
                     <button
-                      onClick={handleCreateProjectDirect}
+                      onClick={() => setShowCreate(true)}
                       className="text-xs font-bold text-emerald-600 hover:underline mt-1 cursor-pointer"
                     >
                       Создать проект
@@ -433,6 +424,10 @@ export default function Dashboard() {
         </div>
 
       </div>
+
+      {showCreate && (
+        <ProjectFormModal title="Новый проект" onClose={() => setShowCreate(false)} onSave={handleCreateProjectDirect} />
+      )}
     </motion.div>
   );
 }

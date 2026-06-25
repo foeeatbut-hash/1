@@ -4,6 +4,7 @@ import { useToastStore } from '../store/toastStore';
 import { useModalStore } from '../store/modalStore';
 import { dataService, Project } from '../services/dataService';
 import { can } from '../lib/permissions';
+import ProjectFormModal from '../components/ProjectFormModal';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Plus, Search, Folder, Calendar, Trash2, Edit3, 
@@ -28,6 +29,7 @@ export default function ProjectsManagement() {
   const [editInfo, setEditInfo] = useState('');
   const [editStatus, setEditStatus] = useState('ACTIVE');
   const [isSaving, setIsSaving] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
 
   // Load all projects
   const loadProjects = async (selectIdAfterLoad?: string) => {
@@ -89,27 +91,17 @@ export default function ProjectsManagement() {
     }
   };
 
-  const handleCreateProject = async () => {
-    const name = await openPrompt('Новый проект', 'Введите название нового проекта:', 'Название проекта');
-    if (!name || !name.trim()) return;
-
+  const handleCreateProject = async (data: import('../services/dataService').ProjectInput) => {
     try {
-      const proj = await dataService.createProject(
-        name.trim(),
-        'Базовая информация о новом технологическом или инженерном проекте.',
-        'Добавьте подробное техническое описание, состав оборудования и основные чертежи/спецификации.',
-        user?.id
-      );
+      const proj = await dataService.createProject(data, user?.id);
       addToast('Проект успешно создан', 'success');
-      
-      // Log changes
       await dataService.createLog({
         userName: user?.name || 'Главный Администратор',
         userSymbol: user?.symbol || 'RaupovKhKh',
-        description: `Создан новый инженерный проект: ${name.trim()}`,
-        targetRoute: '/'
+        description: `Создан новый инженерный проект: ${proj.name}`,
+        targetRoute: '/projects'
       });
-
+      setShowCreate(false);
       await loadProjects(proj.id);
     } catch (err: any) {
       addToast(err.message || 'Не удалось создать проект', 'error');
@@ -127,10 +119,7 @@ export default function ProjectsManagement() {
       setIsSaving(true);
       const updated = await dataService.updateProject(
         selectedProject.id,
-        editName.trim(),
-        editDesc,
-        editInfo,
-        editStatus,
+        { name: editName.trim(), description: editDesc, info: editInfo, status: editStatus },
         user?.id
       );
       addToast('Данные проекта успешно сохранены', 'success');
@@ -192,7 +181,7 @@ export default function ProjectsManagement() {
     (p.description && p.description.toLowerCase().includes(search.toLowerCase()))
   );
 
-  const canCreate = can(user, 'project.create');
+  const canCreate = can(user, 'project.manage');
   const canManage = can(user, 'project.manage');
 
   return (
@@ -212,7 +201,7 @@ export default function ProjectsManagement() {
           </h2>
           {canCreate && (
             <button
-              onClick={handleCreateProject}
+              onClick={() => setShowCreate(true)}
               data-tour="project-create-btn"
               className="p-1 px-2.5 bg-emerald-700 hover:bg-emerald-650 text-white text-xs font-bold rounded-md flex items-center gap-1 transition-all cursor-pointer"
               title="Создать новый проект"
@@ -505,6 +494,10 @@ export default function ProjectsManagement() {
           </div>
         )}
       </div>
+
+      {showCreate && (
+        <ProjectFormModal title="Новый проект" onClose={() => setShowCreate(false)} onSave={handleCreateProject} />
+      )}
     </motion.div>
   );
 }

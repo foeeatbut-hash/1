@@ -112,10 +112,25 @@ export default function ChatManagement() {
     startPolling,
     stopPolling,
     setupSocket,
-    disconnectSocket
+    disconnectSocket,
+    pendingGroupName,
+    pendingDraft,
+    clearPending
   } = useChatStore();
 
   const [messageText, setMessageText] = useState('');
+
+  // Приём логов из виджета: выбрать группу «Ошибки» и вставить текст в поле ввода
+  useEffect(() => {
+    if (!pendingGroupName) return;
+    const g = groups.find(gr => gr.name === pendingGroupName);
+    if (g) {
+      setActiveGroupId(g.id);
+      if (pendingDraft) setMessageText(pendingDraft);
+      clearPending();
+    }
+  }, [pendingGroupName, groups]);
+
   const [replyTarget, setReplyTarget] = useState<ChatMessage | null>(null);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [conversationSearch, setConversationSearch] = useState('');

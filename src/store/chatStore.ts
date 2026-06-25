@@ -76,6 +76,11 @@ interface ChatState {
   activeGroupId: string | null;
   activeType: 'DIRECT' | 'PROJECT';
   searchQuery: string;
+  // Передача черновика из виджета логов в чат (группа «Ошибки»)
+  pendingGroupName: string | null;
+  pendingDraft: string | null;
+  setPending: (groupName: string, draft: string) => void;
+  clearPending: () => void;
   setSearchQuery: (query: string) => void;
   setActiveReceiverId: (id: string | null) => void;
   setActiveGroupId: (id: string | null) => void;
@@ -133,6 +138,11 @@ export const useChatStore = create<ChatState>((set, get) => {
     activeGroupId: null,
     activeType: 'DIRECT',
     searchQuery: '',
+    pendingGroupName: null,
+    pendingDraft: null,
+
+    setPending: (groupName, draft) => set({ pendingGroupName: groupName, pendingDraft: draft }),
+    clearPending: () => set({ pendingGroupName: null, pendingDraft: null }),
 
     setSearchQuery: (query) => set({ searchQuery: query }),
     
