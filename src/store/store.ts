@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { setNotifUser } from '../lib/notifPrefs';
 
 type User = {
   id: string;
@@ -6,6 +7,7 @@ type User = {
   symbol: string;
   login?: string;
   role: string;
+  permissions?: string | null;
 };
 
 type Project = {
@@ -59,6 +61,8 @@ export const useStore = create<AppState>((set, get) => {
     }
   } catch (e) {}
 
+  try { setNotifUser(initialUser?.id); } catch (e) {}
+
   return {
     user: initialUser,
     activeProject: initialProject,
@@ -70,6 +74,7 @@ export const useStore = create<AppState>((set, get) => {
           localStorage.removeItem('pdm_session_user');
         }
       } catch (e) {}
+      setNotifUser(user?.id);
       if (user) {
         // Load user-specific active project
         const savedProjectStr = localStorage.getItem(`max_active_project_${user.id}`);

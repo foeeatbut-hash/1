@@ -30,6 +30,9 @@ model User {
 model Project {
   id           String        @id @default(uuid())
   name         String
+  code         String        @default("")
+  customer     String        @default("")
+  contractor   String        @default("")
   description  String        @default("")
   info         String        @default("")
   status       String        @default("ACTIVE")
@@ -272,3 +275,15 @@ model AppUpdate {
   createdAt DateTime @default(now())
 }
 
+model Notification {
+  id          String   @id @default(uuid())
+  userId      String
+  category    String   @default("СИСТЕМА")
+  title       String
+  body        String   @default("")
+  targetRoute String   @default("")
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([userId, isRead])
+}

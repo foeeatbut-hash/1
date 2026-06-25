@@ -38,9 +38,33 @@ export interface SystemChangeLog {
 export interface Project {
   id: string;
   name: string;
+  code?: string;
+  customer?: string;
+  contractor?: string;
   description?: string;
   info?: string;
   status: string;
+  createdAt: string;
+}
+
+export interface ProjectInput {
+  name?: string;
+  code?: string;
+  customer?: string;
+  contractor?: string;
+  description?: string;
+  info?: string;
+  status?: string;
+}
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  category: string;
+  title: string;
+  body: string;
+  targetRoute: string;
+  isRead: boolean;
   createdAt: string;
 }
 
@@ -429,20 +453,33 @@ export const dataService = {
     return res.projects || [];
   },
 
-  async createProject(name: string, description?: string, info?: string, actorId?: string): Promise<Project> {
+  async createProject(data: ProjectInput, actorId?: string): Promise<Project> {
     const res = await request<{ project: Project }>('/projects', {
       method: 'POST',
-      body: JSON.stringify({ name, description, info, actorId }),
+      body: JSON.stringify({ ...data, actorId }),
     });
     return res.project;
   },
 
-  async updateProject(id: string, name: string, description?: string, info?: string, status?: string, actorId?: string): Promise<Project> {
+  async updateProject(id: string, data: ProjectInput, actorId?: string): Promise<Project> {
     const res = await request<{ project: Project }>(`/projects/${id}`, {
       method: 'PUT',
-      body: JSON.stringify({ name, description, info, status, actorId }),
+      body: JSON.stringify({ ...data, actorId }),
     });
     return res.project;
+  },
+
+  // --- NOTIFICATIONS ---
+  async getNotifications(userId: string): Promise<AppNotification[]> {
+    const res = await request<{ notifications: AppNotification[] }>(`/notifications?userId=${encodeURIComponent(userId)}`);
+    return res.notifications || [];
+  },
+
+  async markNotificationsRead(userId: string, id?: string): Promise<{ success: boolean }> {
+    return request<{ success: boolean }>(`/notifications/read`, {
+      method: 'POST',
+      body: JSON.stringify({ userId, id }),
+    });
   },
 
   async deleteProject(id: string, actorId?: string): Promise<{ success: boolean }> {

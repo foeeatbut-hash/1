@@ -285,6 +285,19 @@ function ensureSchemaColumns(dbPath: string) {
       // Таблица настроек (профили видимости, режим конфликтов, категории)
       db.exec('CREATE TABLE IF NOT EXISTS "AppSetting" ("id" TEXT PRIMARY KEY NOT NULL, "key" TEXT NOT NULL, "userId" TEXT, "value" TEXT NOT NULL, "updatedAt" DATETIME NOT NULL DEFAULT current_timestamp)');
       try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS "AppSetting_key_userId_key" ON "AppSetting"("key", "userId")'); } catch (e) {}
+      // Новые поля проекта (код/заказчик/подрядчик)
+      const projCols = db.prepare('PRAGMA table_info("Project")').all() as Array<{ name: string }>;
+      if (projCols.length > 0) {
+        for (const col of ['code', 'customer', 'contractor']) {
+          if (!projCols.find(c => c.name === col)) {
+            db.exec(`ALTER TABLE "Project" ADD COLUMN "${col}" TEXT NOT NULL DEFAULT ''`);
+            logInit(`[DB Migrate] Добавлена колонка Project.${col}`);
+          }
+        }
+      }
+      // Таблица личных уведомлений
+      db.exec('CREATE TABLE IF NOT EXISTS "Notification" ("id" TEXT PRIMARY KEY NOT NULL, "userId" TEXT NOT NULL, "category" TEXT NOT NULL DEFAULT \'СИСТЕМА\', "title" TEXT NOT NULL, "body" TEXT NOT NULL DEFAULT \'\', "targetRoute" TEXT NOT NULL DEFAULT \'\', "isRead" BOOLEAN NOT NULL DEFAULT false, "createdAt" DATETIME NOT NULL DEFAULT current_timestamp)');
+      try { db.exec('CREATE INDEX IF NOT EXISTS "Notification_userId_isRead_idx" ON "Notification"("userId", "isRead")'); } catch (e) {}
     } finally {
       db.close();
     }
@@ -1047,7 +1060,12 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
         : (typeof permissions === 'string' ? permissions : JSON.stringify(permissions));
     }
 
+    const permsChanged = permissions !== undefined && (data.permissions || null) !== (target.permissions || null);
     const updated = await prisma.user.update({ where: { id }, data });
+    // Личное уведомление сотруднику об изменении его прав доступа
+    if (permsChanged) {
+      await notify(id, 'ДОСТУП', 'Изменены ваши права доступа', 'Администратор обновил доступные вам функции.', '/');
+    }
     res.json({ success: true, user: updated });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
@@ -1156,11 +1174,14 @@ app.get('/api/projects', async (req: Request, res: Response) => {
 });
 
 app.post('/api/projects', async (req: Request, res: Response) => {
-  if (!(await enforce(req, res, 'project.create'))) return;
-  const { name, description, info } = req.body;
+  if (!(await enforce(req, res, 'project.manage'))) return;
+  const { name, code, customer, contractor, description, info } = req.body;
   const project = await prisma.project.create({
     data: {
-      name,
+      name: name || 'Без названия',
+      code: code || '',
+      customer: customer || '',
+      contractor: contractor || '',
       description: description || '',
       info: info || '',
       status: 'ACTIVE'
@@ -1173,16 +1194,16 @@ app.put('/api/projects/:id', async (req: Request, res: Response) => {
   if (!(await enforce(req, res, 'project.manage'))) return;
   try {
     const { id } = req.params;
-    const { name, description, info, status } = req.body;
-    const project = await prisma.project.update({
-      where: { id },
-      data: {
-        name,
-        description: description !== undefined ? description : '',
-        info: info !== undefined ? info : '',
-        status: status || 'ACTIVE'
-      }
-    });
+    const { name, code, customer, contractor, description, info, status } = req.body;
+    const data: any = {};
+    if (name !== undefined) data.name = name;
+    if (code !== undefined) data.code = code;
+    if (customer !== undefined) data.customer = customer;
+    if (contractor !== undefined) data.contractor = contractor;
+    if (description !== undefined) data.description = description;
+    if (info !== undefined) data.info = info;
+    if (status !== undefined) data.status = status;
+    const project = await prisma.project.update({ where: { id }, data });
     res.json({ project });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1196,6 +1217,45 @@ app.delete('/api/projects/:id', async (req: Request, res: Response) => {
     await prisma.project.delete({
       where: { id }
     });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Личные уведомления ───────────────────────────────────────────────────────
+async function notify(userId: string, category: string, title: string, body = '', targetRoute = '') {
+  try {
+    if (!userId) return;
+    await prisma.notification.create({ data: { userId, category, title, body, targetRoute } });
+  } catch (err: any) {
+    console.warn('[notify] err:', err?.message);
+  }
+}
+
+app.get('/api/notifications', async (req: Request, res: Response) => {
+  try {
+    const userId = String(req.query.userId || '');
+    if (!userId) return res.json({ notifications: [] });
+    const notifications = await prisma.notification.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    res.json({ notifications });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/notifications/read', async (req: Request, res: Response) => {
+  try {
+    const { userId, id } = req.body;
+    if (id) {
+      await prisma.notification.update({ where: { id }, data: { isRead: true } });
+    } else if (userId) {
+      await prisma.notification.updateMany({ where: { userId, isRead: false }, data: { isRead: true } });
+    }
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -2136,6 +2196,25 @@ async function ensureProjectChatGroups() {
   try {
     const projects = await prisma.project.findMany();
     const users = await prisma.user.findMany();
+    // Системный канал «Ошибки» — в нём по умолчанию состоят все пользователи
+    const errName = 'Ошибки';
+    let errGroup = await prisma.chatGroup.findFirst({ where: { name: errName, type: 'CHANNEL' } });
+    if (!errGroup) {
+      await prisma.chatGroup.create({
+        data: {
+          name: errName,
+          type: 'CHANNEL',
+          color: 'rose',
+          description: 'Системный канал для отправки логов и сообщений об ошибках',
+          members: { connect: users.map(u => ({ id: u.id })) }
+        }
+      });
+    } else {
+      await prisma.chatGroup.update({
+        where: { id: errGroup.id },
+        data: { members: { connect: users.map(u => ({ id: u.id })) } }
+      });
+    }
     for (const p of projects) {
       const g = await prisma.chatGroup.findFirst({ where: { projectId: p.id } });
       if (!g) {

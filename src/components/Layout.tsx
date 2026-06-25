@@ -11,6 +11,9 @@ import { dataService } from '../services/dataService';
 import { useLogStore } from '../store/logStore';
 import { useAssistantStore } from '../store/assistantStore';
 import AssistantPanel from './AssistantPanel';
+import NotificationsPanel from './NotificationsPanel';
+import RightRail from './RightRail';
+import NotificationSettings from './NotificationSettings';
 import { ENV_CONFIG } from '../config/env';
 
 export default function Layout() {
@@ -20,6 +23,7 @@ export default function Layout() {
   const [eqOpen, setEqOpen] = useState(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [profileTab, setProfileTab] = useState<'profile' | 'settings' | 'updates'>('profile');
 
   const [dbLocation, setDbLocation] = useState('');
   const [dbDisplayLocation, setDbDisplayLocation] = useState('');
@@ -554,6 +558,28 @@ export default function Layout() {
                     </div>
                   </div>
 
+                  {/* Вкладки профиля */}
+                  <div className="flex gap-1 bg-slate-100 dark:bg-dark-surface rounded-lg p-1">
+                    {([['profile', 'Профиль'], ['settings', 'Настройки'], ['updates', 'Обновления']] as const).map(([id, label]) => (
+                      <button key={id} onClick={() => setProfileTab(id)}
+                        className={`flex-1 py-1.5 rounded-md text-xs font-semibold transition-colors cursor-pointer ${profileTab === id ? 'bg-white dark:bg-dark-panel shadow-sm text-slate-900 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:hover:text-white'}`}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {profileTab === 'profile' && (
+                    <div className="flex flex-col gap-1.5">
+                      {[['ФИО', user?.name], ['Логин', user?.symbol], ['Роль', user?.role]].map(([k, v]) => (
+                        <div key={k} className="flex items-center justify-between px-2.5 py-2 rounded-lg border border-slate-150 dark:border-dark-border bg-slate-50 dark:bg-dark-surface/40 text-xs">
+                          <span className="text-slate-400 dark:text-dark-text-muted font-semibold">{k}</span>
+                          <span className="text-slate-800 dark:text-dark-text-main font-bold truncate ml-2">{v || '—'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {profileTab === 'settings' && (<>
                   {/* Themes Selection controls */}
                   <div className="flex flex-col gap-1.5">
                     <span className="text-xs font-bold text-slate-400 dark:text-dark-text-muted uppercase tracking-wider">Тема интерфейса:</span>
@@ -730,10 +756,18 @@ export default function Layout() {
                     </div>
                   </div>
 
-                  {/* Auto-Updater System Panel */}
-                  <div className="w-full">
-                    <UpdaterWidget />
+                  {/* Уведомления */}
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs font-bold text-slate-400 dark:text-dark-text-muted uppercase tracking-wider">Уведомления:</span>
+                    <NotificationSettings />
                   </div>
+                  </>)}
+
+                  {profileTab === 'updates' && (
+                    <div className="w-full">
+                      <UpdaterWidget />
+                    </div>
+                  )}
 
                   {/* Foot Actions: Logout */}
                   <button 
@@ -790,24 +824,15 @@ export default function Layout() {
           </button>
         )}
 
-        {/* Кнопка вызова встроенного ИИ-помощника */}
-        <button
-          type="button"
-          data-tour="assistant-btn"
-          onClick={() => toggleAssistant()}
-          className="absolute right-4 top-4 z-40 flex items-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl shadow-lg border border-emerald-500/40 transition-all cursor-pointer"
-          title="Открыть помощника"
-        >
-          <Sparkles className="w-4 h-4" />
-          <span className="text-xs font-bold font-sans hidden sm:inline">Помощник</span>
-        </button>
         <div className={`flex-1 flex flex-col min-h-0 ${location.pathname === '/registry' || location.pathname === '/chat' || location.pathname === '/directory' ? 'overflow-hidden h-full' : 'overflow-y-auto'} ${isSidebarCollapsed ? 'pt-16 p-6' : 'p-6'}`}>
           <Outlet />
         </div>
       </main>
 
-      {/* Раздвижная панель ИИ-помощника справа — сдвигает основной контент */}
+      {/* Раздвижные панели справа (сдвигают контент) + тонкий правый рельс */}
+      <NotificationsPanel />
       <AssistantPanel />
+      <RightRail />
 
       <ToastProvider />
       <ModalProvider />

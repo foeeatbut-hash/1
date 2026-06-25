@@ -30,7 +30,10 @@ model User {
 model Project {
   id           String        @id @default(uuid())
   name         String
-  description  String        @default("")
+  code         String        @default("") // Код проекта
+  customer     String        @default("") // Заказчик
+  contractor   String        @default("") // Подрядчик
+  description  String        @default("") // Примечание
   info         String        @default("")
   status       String        @default("ACTIVE")
   createdAt    DateTime      @default(now())
@@ -272,6 +275,19 @@ model AppUpdate {
   changelog String
   fileUrl   String
   createdAt DateTime @default(now())
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  userId      String   // адресат (личные уведомления)
+  category    String   @default("СИСТЕМА") // СИСТЕМА | ОБОРУДОВАНИЕ | ЧАТ | ПРОЕКТЫ | ДОСТУП
+  title       String
+  body        String   @default("")
+  targetRoute String   @default("") // для перехода по клику
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([userId, isRead])
 }
 
 

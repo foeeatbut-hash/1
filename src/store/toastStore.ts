@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { shouldPopup, shouldSound, playNotifSound } from '../lib/notifPrefs';
 
 export type Toast = {
   id: string;
@@ -9,13 +10,20 @@ export type Toast = {
 
 interface ToastState {
   toasts: Toast[];
-  addToast: (message: string, type?: Toast['type'], onClick?: () => void) => void;
+  // category — категория уведомления для применения персональных настроек
+  addToast: (message: string, type?: Toast['type'], onClick?: () => void, category?: string) => void;
   removeToast: (id: string) => void;
 }
 
 export const useToastStore = create<ToastState>((set) => ({
   toasts: [],
-  addToast: (message, type = 'info', onClick) => {
+  addToast: (message, type = 'info', onClick, category) => {
+    // Ошибки показываем всегда (важны), остальное — по настройкам пользователя
+    const force = type === 'error';
+    if (!force && !shouldPopup(category)) return;
+    if (force || shouldSound(category)) {
+      try { playNotifSound(); } catch {}
+    }
     const id = Date.now().toString() + Math.random().toString();
     set((state) => ({ toasts: [...state.toasts, { id, message, type, onClick }] }));
     setTimeout(() => {
