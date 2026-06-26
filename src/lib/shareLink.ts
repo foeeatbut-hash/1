@@ -7,6 +7,8 @@ export interface ShareTarget {
   l: string;        // подпись ссылки
   s?: string;       // выделенный текст (для текстового шаринга)
   ty: 'el' | 'text';
+  p?: string;       // id проекта цели (для подсказки «перейдите в проект»)
+  pn?: string;      // название проекта цели
 }
 
 function b64encode(str: string): string {
@@ -25,7 +27,9 @@ export function encodeShare(t: ShareTarget): string {
 
 export function decodeShare(token: string): ShareTarget | null {
   try {
-    const obj = JSON.parse(b64decode(token));
+    // Принимаем как «голый» base64, так и полный токен [[s:...]]
+    const inner = token.replace(/^\[\[s:/, '').replace(/\]\]$/, '');
+    const obj = JSON.parse(b64decode(inner));
     if (obj && typeof obj.r === 'string') return obj as ShareTarget;
   } catch {}
   return null;

@@ -1994,6 +1994,9 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
       }
     });
 
+    // Личное уведомление получателю (категория ЧАТ)
+    await notify(String(receiverId), 'ЧАТ', `Новое сообщение от ${(fullMessage as any)?.sender?.name || 'сотрудника'}`, String(content || '').slice(0, 80), `/chat?from=${senderId}`);
+
     // Notify other clients via Socket.io
     io.emit('chat:message_received', fullMessage);
 

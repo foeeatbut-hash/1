@@ -40,7 +40,7 @@ export default function ProjectFormModal({ title = 'Новый проект', in
 
   return (
     <div className="fixed inset-0 z-[80] overflow-y-auto" role="dialog" aria-modal="true">
-      <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs" onClick={() => !busy && onClose()} />
+      <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md" onClick={() => !busy && onClose()} />
       <div className="flex min-h-full items-center justify-center p-4">
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 10 }}

@@ -412,6 +412,17 @@ app.whenReady().then(() => {
         }
       }
 
+      // Личное уведомление получателю о новом сообщении (категория ЧАТ)
+      try {
+        const s = await chatPrisma.user.findUnique({ where: { id: senderId }, select: { name: true } });
+        await chatPrisma.notification.create({ data: {
+          userId: receiverId, category: 'ЧАТ',
+          title: `Новое сообщение от ${s?.name || 'сотрудника'}`,
+          body: String(content || '').slice(0, 80),
+          targetRoute: `/chat?from=${senderId}`,
+        }});
+      } catch (e) {}
+
       return await chatPrisma.chatMessage.findUnique({
         where: { id: msg.id },
         include: {
@@ -549,6 +560,21 @@ app.whenReady().then(() => {
           });
         }
       }
+
+      // Личные уведомления участникам группы (кроме отправителя)
+      try {
+        const s = await chatPrisma.user.findUnique({ where: { id: senderId }, select: { name: true } });
+        const g = await chatPrisma.chatGroup.findUnique({ where: { id: groupId }, include: { members: { select: { id: true } } } });
+        for (const m of (g?.members || [])) {
+          if (m.id === senderId) continue;
+          await chatPrisma.notification.create({ data: {
+            userId: m.id, category: 'ЧАТ',
+            title: `${s?.name || 'Сотрудник'} в «${g?.name || 'группе'}»`,
+            body: String(content || '').slice(0, 80),
+            targetRoute: `/chat?group=${groupId}`,
+          }});
+        }
+      } catch (e) {}
 
       return await chatPrisma.chatMessage.findUnique({
         where: { id: msg.id },
