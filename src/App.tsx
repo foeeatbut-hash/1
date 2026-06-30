@@ -37,21 +37,58 @@ function ScreenLoader() {
   );
 }
 
-// Кастомная полоса заголовка для Electron: системное меню скрыто (titleBarStyle hidden),
-// эта полоса дает область перетаскивания окна; кнопки свернуть/развернуть/закрыть
-// рисует сама ОС через titleBarOverlay
+// Кастомная полоса заголовка для Electron (frame:false): без надписи,
+// слева компактный логотип MAX, справа красивые кнопки свернуть/развернуть/закрыть.
 function ElectronTitleBar() {
   const location = useLocation();
   const isElectron = typeof window !== 'undefined' && !!(window as any).electron;
+  const wc = isElectron ? (window as any).electron?.windowControls : null;
+  const [maximized, setMaximized] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!wc) return;
+    wc.isMaximized?.().then((v: boolean) => setMaximized(!!v)).catch(() => {});
+    const off = wc.onMaximizedChange?.((v: boolean) => setMaximized(!!v));
+    return () => { off && off(); };
+  }, [wc]);
+
   if (!isElectron || location.pathname === '/sticker') return null;
+
+  const btn = "w-11 h-9 flex items-center justify-center text-slate-400 hover:text-white transition-colors cursor-pointer";
+  const noDrag = { WebkitAppRegion: 'no-drag' } as React.CSSProperties;
+
   return (
     <div
-      className="h-9 shrink-0 flex items-center px-3 gap-2 bg-slate-900 border-b border-slate-800 select-none"
+      className="h-9 shrink-0 flex items-center justify-between bg-slate-900 border-b border-slate-800 select-none"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      onDoubleClick={() => wc?.maximize?.()}
     >
-      <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
-      <span className="text-xs font-bold tracking-wider text-slate-300">PDM System</span>
-      <span className="text-[10px] text-slate-500 font-mono">инженерная система управления данными</span>
+      {/* Компактный логотип слева, без названия */}
+      <div className="flex items-center gap-2 pl-3">
+        <div className="w-5 h-5 rounded-md bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-sm">
+          <span className="text-[9px] font-black text-white tracking-tight">M</span>
+        </div>
+      </div>
+
+      {/* Кнопки управления окном */}
+      <div className="flex items-stretch h-full" style={noDrag}>
+        <button onClick={() => wc?.minimize?.()} className={`${btn} hover:bg-slate-800`} title="Свернуть" style={noDrag}>
+          <svg width="11" height="11" viewBox="0 0 11 11"><rect x="1" y="5" width="9" height="1.1" fill="currentColor" /></svg>
+        </button>
+        <button onClick={() => wc?.maximize?.()} className={`${btn} hover:bg-slate-800`} title={maximized ? 'Восстановить' : 'Развернуть'} style={noDrag}>
+          {maximized ? (
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.1">
+              <rect x="2.4" y="1.2" width="6.4" height="6.4" rx="1" />
+              <rect x="1.2" y="3.4" width="6.4" height="6.4" rx="1" fill="#0f172a" />
+            </svg>
+          ) : (
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.1"><rect x="1.4" y="1.4" width="8.2" height="8.2" rx="1.2" /></svg>
+          )}
+        </button>
+        <button onClick={() => wc?.close?.()} className={`${btn} hover:bg-rose-600 rounded-tr-none`} title="Закрыть" style={noDrag}>
+          <svg width="11" height="11" viewBox="0 0 11 11" stroke="currentColor" strokeWidth="1.2"><line x1="1.5" y1="1.5" x2="9.5" y2="9.5" /><line x1="9.5" y1="1.5" x2="1.5" y2="9.5" /></svg>
+        </button>
+      </div>
     </div>
   );
 }

@@ -9,9 +9,14 @@ export default function RightRail() {
   const { user } = useStore();
   const assistantOpen = useAssistantStore(s => s.isOpen);
   const setAssistantOpen = useAssistantStore(s => s.setOpen);
-  const { panelOpen, setPanelOpen, unread, fetch } = useNotificationStore();
+  const { panelOpen, setPanelOpen, unread, chatUnread, startPolling, stopPolling } = useNotificationStore();
 
-  useEffect(() => { if (user?.id) fetch(user.id); }, [user?.id]);
+  useEffect(() => {
+    if (user?.id) startPolling(user.id);
+    const onFocus = () => { if (user?.id) useNotificationStore.getState().fetch(user.id); };
+    window.addEventListener('focus', onFocus);
+    return () => { stopPolling(); window.removeEventListener('focus', onFocus); };
+  }, [user?.id]);
 
   const openNotif = () => { setAssistantOpen(false); setPanelOpen(!panelOpen); };
   const openAI = () => { setPanelOpen(false); setAssistantOpen(!assistantOpen); };
@@ -21,10 +26,10 @@ export default function RightRail() {
 
   return (
     <aside className="shrink-0 w-14 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col items-center py-3 gap-2">
-      <button onClick={openNotif} className={btn(panelOpen)} title="Уведомления" data-tour="notif-btn">
-        <Bell className="w-5 h-5" />
+      <button onClick={openNotif} className={`${btn(panelOpen)} ${chatUnread > 0 && !panelOpen ? 'ring-2 ring-emerald-500 text-emerald-600 dark:text-emerald-400' : ''}`} title="Уведомления" data-tour="notif-btn">
+        <Bell className={`w-5 h-5 ${chatUnread > 0 && !panelOpen ? 'animate-pulse' : ''}`} />
         {unread > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
+          <span className={`absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full text-white text-[10px] font-bold flex items-center justify-center ${chatUnread > 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}>
             {unread > 99 ? '99+' : unread}
           </span>
         )}

@@ -15,6 +15,7 @@ import NotificationsPanel from './NotificationsPanel';
 import RightRail from './RightRail';
 import NotificationSettings from './NotificationSettings';
 import ShareLayer from './ShareLayer';
+import { useNotificationStore } from '../store/notificationStore';
 import { ENV_CONFIG } from '../config/env';
 
 export default function Layout() {
@@ -23,6 +24,9 @@ export default function Layout() {
   const navigate = useNavigate();
   const [eqOpen, setEqOpen] = useState(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  // На Главной (/) левой панели нет; в любом разделе она закреплена
+  const sidebarHidden = location.pathname === '/';
+  const chatUnread = useNotificationStore((s) => s.chatUnread);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [profileTab, setProfileTab] = useState<'profile' | 'settings' | 'updates'>('profile');
 
@@ -439,25 +443,18 @@ export default function Layout() {
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-slate-50 dark:bg-dark-bg text-slate-800 dark:text-dark-text-main font-sans relative transition-colors duration-250">
-      <aside className={`${isSidebarCollapsed ? 'w-0 opacity-0 -translate-x-full pointer-events-none' : 'w-24 opacity-100 translate-x-0'} bg-white dark:bg-dark-surface text-slate-700 dark:text-dark-text-muted flex flex-col transition-all duration-300 shrink-0 border-r border-slate-200 dark:border-dark-border`}>
-        <div className="px-1.5 pt-3 pb-2 flex flex-col items-center gap-0.5 border-b border-slate-200 dark:border-dark-border relative">
+      <aside className={`${sidebarHidden ? 'w-0 opacity-0 -translate-x-full pointer-events-none' : 'w-24 opacity-100 translate-x-0'} bg-white dark:bg-dark-surface text-slate-700 dark:text-dark-text-muted flex flex-col transition-all duration-300 shrink-0 border-r border-slate-200 dark:border-dark-border`}>
+        <div className="px-1.5 pt-3 pb-2 flex flex-col items-center gap-0.5 border-b border-slate-200 dark:border-dark-border">
           <h1 className="text-lg font-bold font-mono tracking-tight text-slate-900 dark:text-white leading-none">MAX</h1>
           <p className="text-[9px] text-slate-500 dark:text-dark-text-muted text-center leading-tight line-clamp-2 px-1" title={activeProject?.name || 'Проект не выбран'}>
             {activeProject?.name || 'Без проекта'}
           </p>
-          <button
-            type="button"
-            onClick={() => setIsSidebarCollapsed(true)}
-            className="absolute top-1.5 right-1 p-1 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-400 dark:text-dark-text-muted hover:text-slate-800 dark:hover:text-white transition-colors cursor-pointer"
-            title="Скрыть панель"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
         </div>
         <div className="flex-1 overflow-y-auto py-2 scrollbar-thin">
           <nav className="flex flex-col gap-1 px-1.5">
             {[...navItems, ...(user && user.role === 'ADMIN' ? [{ name: 'Сотрудники', path: '/users', icon: Users }] : [])].map((item) => {
               const active = location.pathname === item.path;
+              const chatGlow = item.path === '/chat' && chatUnread > 0 && !active;
               return (
                 <Link
                   key={item.path}
@@ -467,14 +464,19 @@ export default function Layout() {
                   data-share-focus={`nav:${item.path}`}
                   data-share-label={item.name}
                   title={item.name}
-                  className={`flex flex-col items-center justify-center gap-1 py-2 rounded-xl transition-all ${
+                  className={`relative flex flex-col items-center justify-center gap-1 py-2 rounded-xl transition-all ${
                     active
                       ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-panel hover:text-slate-900 dark:hover:text-white'
+                      : chatGlow
+                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 ring-1 ring-emerald-400'
+                        : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-panel hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   <item.icon className="w-5 h-5 shrink-0" />
                   <span className="text-[10px] font-semibold leading-tight text-center break-words">{item.name}</span>
+                  {item.path === '/chat' && chatUnread > 0 && (
+                    <span className="absolute top-1 right-2 min-w-4 h-4 px-1 rounded-full bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center">{chatUnread}</span>
+                  )}
                 </Link>
               );
             })}
@@ -485,7 +487,7 @@ export default function Layout() {
           {createPortal(
             <AnimatePresence>
             {isProfileMenuOpen && (
-              <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-md" onClick={() => setIsProfileMenuOpen(false)}>
+              <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-950/55 backdrop-blur-md" onClick={() => setIsProfileMenuOpen(false)}>
                 {/* Centered profile modal */}
                 <motion.div
                   onClick={(e) => e.stopPropagation()}
@@ -748,20 +750,9 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-100 dark:bg-dark-bg relative transition-colors duration-250">
-        {isSidebarCollapsed && (
-          <button
-            type="button"
-            onClick={() => setIsSidebarCollapsed(false)}
-            className="absolute left-4 top-4 z-40 bg-slate-950 hover:bg-slate-905 text-white p-2.5 rounded-lg shadow-lg border border-slate-850 transition-all flex items-center gap-2 cursor-pointer duration-250 animate-pulse"
-            title="Показать боковую панель"
-          >
-            <Menu className="w-5 h-5 text-emerald-400" />
-            <span className="text-xs font-bold font-sans">Menu</span>
-          </button>
-        )}
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-gradient-to-br from-slate-100 to-slate-200/70 dark:from-dark-bg dark:to-dark-surface relative transition-colors duration-250">
 
-        <div className={`flex-1 flex flex-col min-h-0 ${location.pathname === '/registry' || location.pathname === '/chat' || location.pathname === '/directory' ? 'overflow-hidden h-full' : 'overflow-y-auto'} ${isSidebarCollapsed ? 'pt-16 p-6' : 'p-6'}`}>
+        <div className={`flex-1 flex flex-col min-h-0 ${location.pathname === '/registry' || location.pathname === '/chat' || location.pathname === '/directory' ? 'overflow-hidden h-full' : 'overflow-y-auto'} p-6`}>
           <Outlet />
         </div>
       </main>

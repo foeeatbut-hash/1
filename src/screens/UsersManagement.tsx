@@ -407,7 +407,7 @@ export default function UsersManagement() {
         {isModalOpen && (
           <div className="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
             {/* Overlay */}
-            <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs transition-opacity" onClick={() => !isSubmitting && setIsModalOpen(false)} />
+            <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md transition-opacity" onClick={() => !isSubmitting && setIsModalOpen(false)} />
 
             {/* Container for centering */}
             <div className="flex min-h-full items-center justify-center p-4">
@@ -561,7 +561,7 @@ export default function UsersManagement() {
       <AnimatePresence>
         {editUser && (
           <div className="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
-            <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs transition-opacity" onClick={() => !isEditSubmitting && setEditUser(null)} />
+            <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md transition-opacity" onClick={() => !isEditSubmitting && setEditUser(null)} />
             <div className="flex min-h-full items-center justify-center p-4">
               <motion.div
                 initial={{ opacity: 0, scale: 0.95, y: 10 }}

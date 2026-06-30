@@ -549,6 +549,20 @@ export const dataService = {
     });
   },
 
+  // Разбор Excel-файла (из Проводника) на вкладки/строки для мастера импорта
+  async parseExcelSheets(fileId: string): Promise<{ sheets: { name: string; rows: string[][]; totalRows: number }[]; fileName: string }> {
+    return request('/excel/sheets', { method: 'POST', body: JSON.stringify({ fileId }) });
+  },
+
+  // Массовый импорт размеченных тегов
+  async bulkImportTags(
+    projectId: string,
+    rows: { identifier: string; brand?: string; name?: string; department?: string; fluid?: string; wbs?: string; parent?: string; actuality?: string }[],
+    mode: 'add' | 'update'
+  ): Promise<{ created: number; updated: number; duplicates: string[] }> {
+    return request(`/projects/${projectId}/tags/bulk-import`, { method: 'POST', body: JSON.stringify({ rows, mode }) });
+  },
+
   async linkTagToComponent(componentId: string, tagId: string): Promise<any> {
     return request(`/components/${componentId}/tags/${tagId}`, {
       method: 'POST',

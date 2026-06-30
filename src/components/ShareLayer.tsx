@@ -12,7 +12,7 @@ import { Share2, Search, X, Link2 } from 'lucide-react';
 export default function ShareLayer() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useStore();
+  const { user, activeProject } = useStore();
   const { menu, openMenu, closeMenu, pickerCandidate, openPicker, closePicker, focusTarget, clearFocus } = useShareStore();
   const { addToast } = useToastStore();
   const [users, setUsers] = useState<User[]>([]);
@@ -98,6 +98,8 @@ export default function ShareLayer() {
       l: pickerCandidate.label,
       s: pickerCandidate.sel,
       ty: pickerCandidate.type,
+      p: activeProject?.id,
+      pn: activeProject?.name,
     });
     useChatStore.getState().setPendingShare(target.id, token + ' ');
     closePicker();
@@ -121,7 +123,7 @@ export default function ShareLayer() {
 
       {/* Выбор пользователя */}
       {pickerCandidate && createPortal(
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-sm" onClick={closePicker}>
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/55 backdrop-blur-md" onClick={closePicker}>
           <div className="w-[min(94vw,380px)] bg-white dark:bg-dark-panel rounded-2xl border border-slate-200 dark:border-dark-border shadow-2xl overflow-hidden flex flex-col max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
             <div className="px-4 py-3 border-b border-slate-100 dark:border-dark-border flex items-center justify-between">
               <div className="flex items-center gap-2 text-slate-900 dark:text-white font-bold text-sm"><Share2 className="w-4 h-4 text-emerald-600" /> Кому отправить</div>

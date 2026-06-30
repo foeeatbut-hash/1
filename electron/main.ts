@@ -37,12 +37,8 @@ function createWindow() {
     minHeight: 620,
     backgroundColor: '#0f172a',
     autoHideMenuBar: true,
+    frame: false,
     titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#0f172a',
-      symbolColor: '#94a3b8',
-      height: 36
-    },
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -55,6 +51,10 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  // Сообщаем рендереру об изменении состояния разворота окна
+  mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximized-changed', true));
+  mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximized-changed', false));
 }
 
 app.whenReady().then(() => {
@@ -183,6 +183,15 @@ app.whenReady().then(() => {
   }
 
   // --- DATABASE FILE DIALOG HANDLER ---
+  // Управление окном (кастомный заголовок, frame:false)
+  ipcMain.on('window:minimize', () => { mainWindow?.minimize(); });
+  ipcMain.on('window:maximize', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMaximized()) mainWindow.unmaximize(); else mainWindow.maximize();
+  });
+  ipcMain.on('window:close', () => { mainWindow?.close(); });
+  ipcMain.handle('window:is-maximized', () => !!mainWindow?.isMaximized());
+
   ipcMain.handle('database:select-file', async () => {
     const { dialog } = require('electron');
     try {
@@ -412,6 +421,17 @@ app.whenReady().then(() => {
         }
       }
 
+      // Личное уведомление получателю о новом сообщении (категория ЧАТ)
+      try {
+        const s = await chatPrisma.user.findUnique({ where: { id: senderId }, select: { name: true } });
+        await chatPrisma.notification.create({ data: {
+          userId: receiverId, category: 'ЧАТ',
+          title: `Новое сообщение от ${s?.name || 'сотрудника'}`,
+          body: String(content || '').slice(0, 80),
+          targetRoute: `/chat?from=${senderId}`,
+        }});
+      } catch (e) {}
+
       return await chatPrisma.chatMessage.findUnique({
         where: { id: msg.id },
         include: {
@@ -549,6 +569,21 @@ app.whenReady().then(() => {
           });
         }
       }
+
+      // Личные уведомления участникам группы (кроме отправителя)
+      try {
+        const s = await chatPrisma.user.findUnique({ where: { id: senderId }, select: { name: true } });
+        const g = await chatPrisma.chatGroup.findUnique({ where: { id: groupId }, include: { members: { select: { id: true } } } });
+        for (const m of (g?.members || [])) {
+          if (m.id === senderId) continue;
+          await chatPrisma.notification.create({ data: {
+            userId: m.id, category: 'ЧАТ',
+            title: `${s?.name || 'Сотрудник'} в «${g?.name || 'группе'}»`,
+            body: String(content || '').slice(0, 80),
+            targetRoute: `/chat?group=${groupId}`,
+          }});
+        }
+      } catch (e) {}
 
       return await chatPrisma.chatMessage.findUnique({
         where: { id: msg.id },

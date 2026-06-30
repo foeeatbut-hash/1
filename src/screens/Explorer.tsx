@@ -1271,7 +1271,7 @@ export default function Explorer() {
       )}
 
       {propertiesModal && (
-        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50" onClick={() => setPropertiesModal(null)}>
+        <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md flex items-center justify-center z-50" onClick={() => setPropertiesModal(null)}>
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -1386,7 +1386,7 @@ export default function Explorer() {
       )}
 
       {assignTagModal && (
-        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50" onClick={() => setAssignTagModal(null)}>
+        <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md flex items-center justify-center z-50" onClick={() => setAssignTagModal(null)}>
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -1494,7 +1494,7 @@ export default function Explorer() {
 
       {/* Выбор категории оборудования для импорта выделенных файлов */}
       {importPickerFiles && (
-        <div className="fixed inset-0 bg-slate-900/50 dark:bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-[70]" onClick={() => setImportPickerFiles(null)}>
+        <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md flex items-center justify-center z-[70]" onClick={() => setImportPickerFiles(null)}>
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}

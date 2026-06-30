@@ -60,7 +60,7 @@ export default function ActionLogWidget() {
       const header = [
         '==================== ЖУРНАЛ PDM SYSTEM ====================',
         `Дата выгрузки : ${new Date().toLocaleString('ru-RU')}`,
-        `Версия        : 0.19.0`,
+        `Версия        : 0.20.0`,
         `Пользователь  : ${u?.name || '— (вход не выполнен)'}`,
         `Логин         : ${u?.symbol || '—'}`,
         `Должность     : ${roleLabel(u?.role)}`,

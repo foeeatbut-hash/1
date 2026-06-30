@@ -44,4 +44,17 @@ contextBridge.exposeInMainWorld('electron', {
   simulateCheck: () => ipcRenderer.invoke('updater:simulateCheck'),
   simulateDownload: () => ipcRenderer.invoke('updater:simulateDownload'),
   openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
+
+  // Управление окном (кастомный заголовок)
+  windowControls: {
+    minimize: () => ipcRenderer.send('window:minimize'),
+    maximize: () => ipcRenderer.send('window:maximize'),
+    close: () => ipcRenderer.send('window:close'),
+    isMaximized: () => ipcRenderer.invoke('window:is-maximized'),
+    onMaximizedChange: (callback: (val: boolean) => void) => {
+      const subscription = (_event: any, val: boolean) => callback(val);
+      ipcRenderer.on('window:maximized-changed', subscription);
+      return () => ipcRenderer.removeListener('window:maximized-changed', subscription);
+    },
+  },
 });
