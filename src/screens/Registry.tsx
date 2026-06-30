@@ -32,11 +32,13 @@ import {
   ClipboardCheck,
   Check,
   Edit,
-  Sliders
+  Sliders,
+  Upload
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import CustomSelect from '../components/CustomSelect';
+import TagImportWizard from '../components/TagImportWizard';
 
 const actualitySelectOptions = [
   { value: 'actual', label: '🟢 Актуально' },
@@ -101,6 +103,7 @@ export default function Registry() {
   const { addToast } = useToastStore();
   const [tags, setTags] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'board' | 'tree' | 'segments' | 'table' | 'equipment'>('board');
+  const [showImportWizard, setShowImportWizard] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   // Equipment tree and specs integration
@@ -239,6 +242,17 @@ export default function Registry() {
     }
     return map;
   }, [tags]);
+
+  // Дубликаты: коды тегов, встречающиеся более одного раза (подсветка авто-очищается, когда код уникален)
+  const duplicateCodes = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const t of tags) {
+      const code = (t.identifier || '').trim();
+      if (code) counts[code] = (counts[code] || 0) + 1;
+    }
+    return new Set(Object.keys(counts).filter(c => counts[c] > 1));
+  }, [tags]);
+  const isDuplicateTag = (t: any) => duplicateCodes.has((t?.identifier || '').trim());
 
   // Filter/Search
   const [searchQuery, setSearchQuery] = useState('');
@@ -1132,6 +1146,71 @@ export default function Registry() {
   const fitCanvasToCenter = () => {
     setZoom(0.85);
     setPan({ x: 120, y: 80 });
+  };
+
+  // Авто-раскладка «Упорядочить»: строит аккуратное иерархическое дерево без наложений
+  const [isArranging, setIsArranging] = useState(false);
+  const arrangeTreeLayout = async () => {
+    if (tags.length === 0 || isArranging) return;
+    setIsArranging(true);
+    try {
+      const COL_W = 360, ROW_H = 150, MARGIN_X = 120, MARGIN_Y = 90;
+      const childrenMap: Record<string, string[]> = {};
+      const hasParent: Record<string, boolean> = {};
+      const idSet = new Set(tags.map(t => t.id));
+      for (const t of tags) {
+        const meta = parseTagMetadata(t);
+        const kids = (meta.connections || []).filter(id => idSet.has(id));
+        childrenMap[t.id] = kids;
+        kids.forEach(k => { hasParent[k] = true; });
+      }
+      const roots = tags
+        .filter(t => !hasParent[t.id])
+        .sort((a, b) => (a.identifier || '').localeCompare(b.identifier || '', 'ru'));
+      const positions: Record<string, { x: number; y: number }> = {};
+      const visited = new Set<string>();
+      let leafRow = 0;
+      const assign = (id: string, depth: number): number => {
+        visited.add(id);
+        const kids = (childrenMap[id] || []).filter(k => !visited.has(k));
+        let yRaw: number;
+        if (kids.length === 0) {
+          yRaw = leafRow * ROW_H;
+          leafRow++;
+        } else {
+          const ys = kids.map(k => assign(k, depth + 1));
+          yRaw = (ys[0] + ys[ys.length - 1]) / 2;
+        }
+        positions[id] = { x: MARGIN_X + depth * COL_W, y: MARGIN_Y + yRaw };
+        return yRaw;
+      };
+      roots.forEach(r => { if (!visited.has(r.id)) assign(r.id, 0); });
+      // Узлы в циклах / не охваченные обходом — выстраиваем в отдельную колонку
+      for (const t of tags) {
+        if (!visited.has(t.id)) {
+          positions[t.id] = { x: MARGIN_X, y: MARGIN_Y + leafRow * ROW_H };
+          leafRow++;
+        }
+      }
+      // Применяем локально и сохраняем
+      for (const t of tags) {
+        const p = positions[t.id];
+        if (p) cardPositionsRef.current[t.id] = p;
+      }
+      await Promise.all(tags.map(t => {
+        const p = positions[t.id];
+        if (!p) return Promise.resolve();
+        const meta = { ...parseTagMetadata(t), x: p.x, y: p.y };
+        return saveTagMetadata(t.id, meta);
+      }));
+      setZoom(0.7);
+      setPan({ x: 40, y: 40 });
+      addToast('Дерево упорядочено', 'success');
+    } catch (e) {
+      addToast('Не удалось упорядочить дерево', 'error');
+    } finally {
+      setIsArranging(false);
+    }
   };
 
   // Form description mechanics
@@ -2141,13 +2220,23 @@ export default function Registry() {
 
                 <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800" />
 
-                <button 
+                <button
                   onClick={fitCanvasToCenter}
                   title="Центрировать область со всеми карточками"
                   className="px-2.5 py-1.5 bg-slate-200/70 dark:bg-slate-850 hover:bg-slate-300 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
                 >
                   <RefreshCw className="w-3 h-3 text-emerald-600" />
                   Центрировать
+                </button>
+
+                <button
+                  onClick={arrangeTreeLayout}
+                  disabled={isArranging}
+                  title="Авто-раскладка: аккуратное дерево связей без наложений"
+                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
+                >
+                  <Network className={`w-3 h-3 ${isArranging ? 'animate-pulse' : ''}`} />
+                  {isArranging ? 'Раскладка…' : 'Упорядочить'}
                 </button>
               </div>
 
@@ -2316,15 +2405,18 @@ export default function Registry() {
                     const isExpanded = !!expandedCardIds[tag.id];
                     const overallStatus = getTagOverallStatus(tag);
                     const statusVal = statusConfig[overallStatus] || statusConfig.draft;
+                    const dup = isDuplicateTag(tag);
 
                     return (
                       <div
                         key={tag.id}
                         id={`tag-card-${tag.id}`}
                         className={`absolute pointer-events-auto w-[310px] rounded-2xl border text-left transition-shadow duration-200 select-none ${
-                          isSourceOfDrag 
-                            ? 'ring-2 ring-emerald-500 border-emerald-500 shadow-xl z-30' 
-                            : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 shadow-xs hover:shadow-md z-10 text-slate-900 dark:text-slate-100'
+                          isSourceOfDrag
+                            ? 'ring-2 ring-emerald-500 border-emerald-500 shadow-xl z-30'
+                            : dup
+                              ? 'bg-white dark:bg-slate-950 ring-2 ring-rose-400/70 border-rose-300 dark:border-rose-700/60 shadow-xs hover:shadow-md z-10 text-slate-900 dark:text-slate-100'
+                              : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 shadow-xs hover:shadow-md z-10 text-slate-900 dark:text-slate-100'
                         }`}
                         style={{
                           transform: (() => {
@@ -2378,6 +2470,11 @@ export default function Registry() {
                               <span className="font-mono font-bold tracking-tight text-xs text-slate-800 dark:text-slate-100 uppercase truncate select-all">
                                 {tag.identifier}
                               </span>
+                              {dup && (
+                                <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 uppercase tracking-wide" title="Дубликат кода тега">
+                                  дубль
+                                </span>
+                              )}
                             </div>
 
                             <div className="flex items-center gap-1 shrink-0 no-drag select-none">
@@ -2674,6 +2771,26 @@ export default function Registry() {
             transition={{ duration: 0.15 }}
             className="h-full w-full overflow-y-auto space-y-4 text-left pr-1"
           >
+
+            {/* IMPORT FROM SPREADSHEET BANNER */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-5 bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-950/30 dark:to-slate-950 border border-emerald-200/70 dark:border-emerald-900/50 rounded-xl shadow-xs">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-950/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Импорт тегов из таблицы</h3>
+                  <p className="text-xs text-slate-500 mt-0.5 max-w-lg">Загрузите Excel в Проводник или вставьте данные, отметьте колонки (код, марка, наименование, родитель…) — теги попадут в реестр, спецификацию и дерево связей с авто-раскладкой.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowImportWizard(true)}
+                className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 transition-all cursor-pointer shrink-0"
+              >
+                <Upload className="w-4 h-4" />
+                <span>Открыть мастер импорта</span>
+              </button>
+            </div>
 
             {/* SELECTION FILTERS BLOCK */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-sm text-left">
@@ -4275,6 +4392,15 @@ export default function Registry() {
         )}
       </AnimatePresence>
 
+      {showImportWizard && activeProject && (
+        <TagImportWizard
+          projectId={activeProject.id}
+          existingCodes={new Set(tags.map(t => (t.identifier || '').trim()).filter(Boolean))}
+          onClose={() => setShowImportWizard(false)}
+          onImported={() => { loadTags(); }}
+        />
+      )}
+
     </div>
   );
 
@@ -4287,8 +4413,8 @@ export default function Registry() {
 
     return (
       <div key={node.id} className="space-y-1">
-        <div 
-          className="flex items-center justify-between p-3 rounded-xl border border-slate-100 dark:border-slate-850 hover:bg-slate-50 dark:hover:bg-slate-900/60 transition-colors"
+        <div
+          className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${duplicateCodes.has((node.identifier || '').trim()) ? 'border-rose-300 dark:border-rose-700/60 bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-50 dark:hover:bg-rose-950/30' : 'border-slate-100 dark:border-slate-850 hover:bg-slate-50 dark:hover:bg-slate-900/60'}`}
           style={{ marginLeft: `${level * 24}px` }}
         >
           <div className="flex items-center gap-2.5 min-w-0 flex-1 text-left">
@@ -4305,6 +4431,9 @@ export default function Registry() {
             <div className="min-w-0 flex flex-col md:flex-row md:items-center gap-1 md:gap-2.5">
               <div className="flex items-center gap-2">
                 <span className="font-mono font-bold text-slate-800 dark:text-slate-100 text-sm select-all">{node.identifier}</span>
+                {duplicateCodes.has((node.identifier || '').trim()) && (
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 uppercase tracking-wide shrink-0" title="Дубликат кода тега">дубль</span>
+                )}
                 <span className="text-xs bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded-full border border-slate-200/60 dark:border-slate-800 font-semibold shrink-0">
                   {node.department || 'Комплексный'}
                 </span>

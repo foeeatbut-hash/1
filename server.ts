@@ -4,6 +4,7 @@ import path from 'path';
 import { PrismaClient } from '@prisma/client-sqlite';
 import { parseExcel, parseXML, importParsedDataToDB } from './server/excelParser.js';
 import { parseEquipmentExcel, parseEquipmentXML } from './server/equipmentParser.js';
+import * as XLSX from 'xlsx';
 import { importEquipmentToDB } from './server/equipmentImport.js';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
@@ -1533,6 +1534,82 @@ app.post('/api/projects/:projectId/tags', async (req: Request, res: Response) =>
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Разбор xlsx-файла из Проводника на листы (для мастера импорта тегов)
+app.post('/api/excel/sheets', async (req: Request, res: Response) => {
+  try {
+    const { fileId } = req.body;
+    const file = await prisma.fileNode.findUnique({ where: { id: String(fileId) } });
+    if (!file || !file.content) return res.status(404).json({ error: 'Файл не найден или пуст' });
+    let b64 = file.content; if (b64.includes(',')) b64 = b64.split(',')[1];
+    const buf = Buffer.from(b64, 'base64');
+    const wb = XLSX.read(buf, { type: 'buffer' });
+    const sheets = wb.SheetNames.map(name => {
+      const rows = XLSX.utils.sheet_to_json<any[]>(wb.Sheets[name], { header: 1, blankrows: false, defval: '' });
+      const trimmed = rows.slice(0, 500).map(r => (r || []).map((c: any) => (c === null || c === undefined) ? '' : String(c)));
+      return { name, rows: trimmed, totalRows: rows.length };
+    });
+    res.json({ sheets, fileName: file.name });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Массовый импорт тегов из размеченной таблицы
+// rows: [{identifier, brand, name, department, fluid, wbs, parent, actuality}], mode: 'add'|'update'
+app.post('/api/projects/:projectId/tags/bulk-import', async (req: Request, res: Response) => {
+  let { projectId } = req.params;
+  const { rows, mode } = req.body;
+  try {
+    if (!projectId || ['null', 'undefined', 'default'].includes(projectId)) {
+      let fp = await prisma.project.findFirst(); if (!fp) fp = await prisma.project.create({ data: { name: 'Общий Проект' } }); projectId = fp.id;
+    }
+    const existing = await prisma.tag.findMany({ where: { projectId } });
+    const byCode = new Map<string, any>();
+    const codeToId = new Map<string, string>();
+    for (const t of existing) { const k = (t.identifier || '').trim(); if (k) { if (!byCode.has(k)) byCode.set(k, t); codeToId.set(k, t.id); } }
+    let created = 0, updated = 0; const dupes: string[] = [];
+    const parentLinks: { childCode: string; parentCode: string }[] = [];
+    let col = 0;
+    for (const r of (rows || [])) {
+      const code = String(r.identifier || '').trim();
+      if (!code) continue;
+      const baseData = {
+        identifier: code,
+        brand: r.brand ? String(r.brand) : null,
+        department: r.department ? String(r.department) : null,
+        fluid: r.fluid ? String(r.fluid) : null,
+        wbs: r.wbs ? String(r.wbs) : null,
+      };
+      const ex = byCode.get(code);
+      if (ex && mode === 'update') {
+        let exMeta: any = {}; try { exMeta = ex.metadata ? JSON.parse(ex.metadata) : {}; } catch {}
+        const merged = { ...exMeta, ...(r.name ? { mainName: String(r.name) } : {}), ...(r.actuality ? { actuality: String(r.actuality) } : {}) };
+        if (!Array.isArray(merged.connections)) merged.connections = [];
+        await prisma.tag.update({ where: { id: ex.id }, data: { ...baseData, metadata: JSON.stringify(merged) } });
+        updated++; codeToId.set(code, ex.id);
+      } else {
+        if (ex) dupes.push(code);
+        const meta: any = { connections: [], descriptions: [], x: 120 + (col % 6) * 360, y: 80 + Math.floor(col / 6) * 150 };
+        if (r.name) meta.mainName = String(r.name);
+        if (r.actuality) meta.actuality = String(r.actuality);
+        const t = await prisma.tag.create({ data: { projectId, ...baseData, metadata: JSON.stringify(meta) } });
+        created++; codeToId.set(code, t.id); col++;
+      }
+      if (r.parent) parentLinks.push({ childCode: code, parentCode: String(r.parent).trim() });
+    }
+    const byParent: Record<string, string[]> = {};
+    for (const { childCode, parentCode } of parentLinks) {
+      const childId = codeToId.get(childCode); const parentId = codeToId.get(parentCode);
+      if (childId && parentId && childId !== parentId) (byParent[parentId] ||= []).push(childId);
+    }
+    for (const [parentId, childIds] of Object.entries(byParent)) {
+      const p = await prisma.tag.findUnique({ where: { id: parentId } });
+      let pm: any = {}; try { pm = p?.metadata ? JSON.parse(p.metadata) : {}; } catch {}
+      pm.connections = [...new Set([...(Array.isArray(pm.connections) ? pm.connections : []), ...childIds])];
+      await prisma.tag.update({ where: { id: parentId }, data: { metadata: JSON.stringify(pm) } });
+    }
+    res.json({ created, updated, duplicates: [...new Set(dupes)] });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // Update tag fields and json metadata

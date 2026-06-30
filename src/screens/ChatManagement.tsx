@@ -81,7 +81,7 @@ const FormattedMessage: React.FC<FormattedMessageProps> = ({ text, onTagClick, o
       parts.push(
         <button key={matchIndex} type="button"
           onClick={(e) => { e.stopPropagation(); onTagClick(tagName); }}
-          className="inline-flex items-center mx-0.5 px-1.5 py-0.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-850 rounded text-xs font-bold text-indigo-700 dark:text-indigo-400 cursor-pointer hover:underline transition-all font-sans select-none align-baseline shrink-0">
+          className="inline-flex items-center mx-0.5 px-1.5 py-0.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900 border border-emerald-200 dark:border-emerald-850 rounded text-xs font-bold text-emerald-700 dark:text-emerald-400 cursor-pointer hover:underline transition-all font-sans select-none align-baseline shrink-0">
           #{tagName}
         </button>
       );
@@ -786,7 +786,7 @@ export default function ChatManagement() {
         {/* Top Header & Fast Search bar */}
         <div className="p-4 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 mb-3">
-            <MessageSquare className="w-4 h-4 text-indigo-650 dark:text-indigo-400" />
+            <MessageSquare className="w-4 h-4 text-emerald-650 dark:text-emerald-400" />
             Мессенджер MAX
           </h2>
           <div className="relative">
@@ -795,7 +795,7 @@ export default function ChatManagement() {
               placeholder="Поиск собеседника по ФИО..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full text-xs pl-8 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-250 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 transition-all font-sans"
+              className="w-full text-xs pl-8 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-250 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 transition-all font-sans"
             />
             <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400" />
           </div>
@@ -813,7 +813,7 @@ export default function ChatManagement() {
               <button
                 type="button"
                 onClick={() => setShowCreateGroup(true)}
-                className="p-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer transition-colors"
+                className="p-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer transition-colors"
                 title="Создать группу или канал"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -833,11 +833,11 @@ export default function ChatManagement() {
                     onClick={() => setActiveGroupId(g.id)}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all ${
                       active
-                        ? 'bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/40 text-indigo-900 dark:text-white'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 text-emerald-900 dark:text-white'
                         : 'hover:bg-slate-100/75 dark:hover:bg-slate-800/40 border border-transparent'
                     }`}
                   >
-                    <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-950 flex items-center justify-center shrink-0 border border-indigo-200 dark:border-indigo-850 text-indigo-700 dark:text-indigo-400">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950 flex items-center justify-center shrink-0 border border-emerald-200 dark:border-emerald-850 text-emerald-700 dark:text-emerald-400">
                       {isCh ? <Radio className="w-4 h-4" /> : <Users className="w-4 h-4" />}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -924,7 +924,7 @@ export default function ChatManagement() {
                   </>
                 ) : activeGroup ? (
                   <>
-                    <div className="w-9 h-9 rounded-lg bg-indigo-100 dark:bg-indigo-950/45 flex items-center justify-center text-sm font-bold text-indigo-800 dark:text-indigo-300 border border-indigo-205 dark:border-indigo-855">
+                    <div className="w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-950/45 flex items-center justify-center text-sm font-bold text-emerald-800 dark:text-emerald-300 border border-emerald-205 dark:border-emerald-855">
                       👥
                     </div>
                     <div>
@@ -948,7 +948,7 @@ export default function ChatManagement() {
                     value={conversationSearch}
                     onChange={(e) => setConversationSearch(e.target.value)}
                     placeholder="Поиск в переписке..."
-                    className="w-44 pl-8 pr-7 py-1.5 bg-slate-100/70 dark:bg-slate-950 border border-transparent dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all"
+                    className="w-44 pl-8 pr-7 py-1.5 bg-slate-100/70 dark:bg-slate-950 border border-transparent dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all"
                   />
                   {conversationSearch && (
                     <button
@@ -1022,7 +1022,7 @@ export default function ChatManagement() {
                 <div className="h-full flex flex-col items-center justify-center p-6 text-center select-none">
                   <MessageSquare className="w-8 h-8 text-slate-300 dark:text-slate-700 mb-2 animate-bounce" />
                   <p className="text-xs text-slate-400 mt-1 max-w-xs">
-                    Напечатайте текст с инженерными тегами вида <span className="font-mono text-indigo-500 font-bold">#бл2.1</span> или привяжите спецификацию
+                    Напечатайте текст с инженерными тегами вида <span className="font-mono text-emerald-500 font-bold">#бл2.1</span> или привяжите спецификацию
                   </p>
                 </div>
               ) : (
@@ -1089,7 +1089,7 @@ export default function ChatManagement() {
                             <button
                               type="button"
                               onClick={() => handleStartReply(msg)}
-                              className="p-1 rounded hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer"
+                              className="p-1 rounded hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 cursor-pointer"
                               title="Ответить"
                             >
                               <Reply className="w-3 h-3" />
@@ -1144,7 +1144,7 @@ export default function ChatManagement() {
                         {/* Speech bubble bubble text */}
                         <div className={`p-3 rounded-lg border text-xs shadow-3xs relative overflow-hidden transition-all ${
                           isMe 
-                            ? 'bg-indigo-50/90 dark:bg-indigo-950/25 border-indigo-200 dark:border-indigo-900/40 text-slate-900 dark:text-indigo-150 rounded-tr-none' 
+                            ? 'bg-emerald-50/90 dark:bg-emerald-950/25 border-emerald-200 dark:border-emerald-900/40 text-slate-900 dark:text-emerald-150 rounded-tr-none' 
                             : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850/60 text-slate-800 dark:text-slate-150 rounded-tl-none'
                         }`}>
                           {msg.forwardedFrom && (
@@ -1153,8 +1153,8 @@ export default function ChatManagement() {
                             </div>
                           )}
                           {msg.replyTo && (
-                            <div className="mb-2 pl-2 border-l-2 border-indigo-400 dark:border-indigo-500 text-xs select-none">
-                              <div className="font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
+                            <div className="mb-2 pl-2 border-l-2 border-emerald-400 dark:border-emerald-500 text-xs select-none">
+                              <div className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                                 <CornerDownRight className="w-3 h-3" />
                                 {msg.replyTo.sender?.name || 'Сообщение'}
                               </div>
@@ -1195,9 +1195,9 @@ export default function ChatManagement() {
                                   className="w-full text-left flex items-center justify-between p-2 bg-slate-100 dark:bg-slate-900 hover:bg-slate-200/60 dark:hover:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-md cursor-pointer group transition-all"
                                 >
                                   <div className="flex items-center gap-2 min-w-0">
-                                    <File className="w-3.5 h-3.5 text-indigo-650 dark:text-indigo-400 shrink-0" />
+                                    <File className="w-3.5 h-3.5 text-emerald-650 dark:text-emerald-400 shrink-0" />
                                     <div className="min-w-0">
-                                      <p className="text-xs font-bold text-slate-850 dark:text-slate-250 truncate group-hover:text-indigo-700 dark:group-hover:text-indigo-400">
+                                      <p className="text-xs font-bold text-slate-850 dark:text-slate-250 truncate group-hover:text-emerald-700 dark:group-hover:text-emerald-400">
                                         {file.fileName}
                                       </p>
                                       <p className="text-xs text-slate-400 font-mono">
@@ -1205,7 +1205,7 @@ export default function ChatManagement() {
                                       </p>
                                     </div>
                                   </div>
-                                  <Download className="w-3.5 h-3.5 text-slate-400 hover:text-indigo-505 shrink-0 ml-2" />
+                                  <Download className="w-3.5 h-3.5 text-slate-400 hover:text-emerald-505 shrink-0 ml-2" />
                                 </button>
                               ))}
                             </div>
@@ -1251,15 +1251,15 @@ export default function ChatManagement() {
             /* Input Form Panel */
             <form onSubmit={handleSend} className="p-3 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2 shrink-0 relative">
               {(replyTarget || editingMessage) && (
-                <div className="flex items-center justify-between gap-2 px-3 py-2 bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/50 rounded-lg select-none">
+                <div className="flex items-center justify-between gap-2 px-3 py-2 bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 rounded-lg select-none">
                   <div className="flex items-center gap-2 min-w-0">
                     {editingMessage ? (
                       <Pencil className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                     ) : (
-                      <Reply className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                      <Reply className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                     )}
                     <div className="min-w-0">
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
                         {editingMessage ? 'Редактирование сообщения' : `Ответ: ${replyTarget?.sender?.name || ''}`}
                       </div>
                       <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
@@ -1280,7 +1280,7 @@ export default function ChatManagement() {
               
               {/* Autocomplete suggestions dropdown panel right above input bar */}
               {autocompleteSuggestions.length > 0 && (
-                <div id="tag-autocomplete-dropdown" className="absolute bottom-full left-3 right-3 mb-2 max-h-56 bg-white dark:bg-slate-950 border border-slate-200 dark:border-indigo-950 rounded-xl shadow-2xl overflow-y-auto z-50 divide-y divide-slate-100 dark:divide-slate-900 animate-in fade-in slide-in-from-bottom-2 duration-150">
+                <div id="tag-autocomplete-dropdown" className="absolute bottom-full left-3 right-3 mb-2 max-h-56 bg-white dark:bg-slate-950 border border-slate-200 dark:border-emerald-950 rounded-xl shadow-2xl overflow-y-auto z-50 divide-y divide-slate-100 dark:divide-slate-900 animate-in fade-in slide-in-from-bottom-2 duration-150">
                   <div className="p-2 bg-slate-50 dark:bg-slate-900/60 text-xs font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center justify-between select-none border-b border-slate-100 dark:border-slate-900">
                     <span>💡 Подходящие к вводу MAX/KKS теги</span>
                     <span className="font-mono text-xs opacity-80">Клавиши ↑ ↓ Enter для ввода</span>
@@ -1295,11 +1295,11 @@ export default function ChatManagement() {
                         onMouseEnter={() => setAutocompleteIndex(idx)}
                         className={`w-full text-left p-2.5 flex flex-col gap-1 transition-all text-xs border-l-2 outline-hidden cursor-pointer ${
                           active 
-                            ? 'bg-indigo-50 dark:bg-indigo-950/25 border-indigo-650 text-slate-900 dark:text-white font-semibold' 
+                            ? 'bg-emerald-50 dark:bg-emerald-950/25 border-emerald-650 text-slate-900 dark:text-white font-semibold' 
                             : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-900/10 text-slate-700 dark:text-slate-350'
                         }`}
                       >
-                        <span className="font-mono text-xs text-indigo-700 dark:text-indigo-400 font-extrabold flex items-center gap-0.5">
+                        <span className="font-mono text-xs text-emerald-700 dark:text-emerald-400 font-extrabold flex items-center gap-0.5">
                           #{sug.text}
                         </span>
                         <span className="text-xs text-slate-450 dark:text-slate-500 leading-normal truncate">
@@ -1333,7 +1333,7 @@ export default function ChatManagement() {
                       key={idx} 
                       className="flex items-center gap-1.5 px-2 py-1 bg-slate-105 dark:bg-slate-950/45 border border-slate-200 dark:border-slate-850 rounded-md text-xs text-slate-600 dark:text-slate-400 shrink-0"
                     >
-                      <File className="w-3.5 h-3.5 text-indigo-500" />
+                      <File className="w-3.5 h-3.5 text-emerald-500" />
                       <span className="truncate max-w-[120px]">{att.fileName}</span>
                       <button 
                         type="button" 
@@ -1360,7 +1360,7 @@ export default function ChatManagement() {
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="p-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-850 rounded-lg text-slate-500 hover:text-indigo-700 dark:hover:text-indigo-400 transition-colors cursor-pointer"
+                  className="p-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-850 rounded-lg text-slate-500 hover:text-emerald-700 dark:hover:text-emerald-400 transition-colors cursor-pointer"
                   title="Прикрепить файл чертежа"
                 >
                   <Paperclip className="w-4 h-4" />
@@ -1370,7 +1370,7 @@ export default function ChatManagement() {
                 <button
                   type="button"
                   onClick={() => setIsEquipmentModalOpen(true)}
-                  className="p-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-850 rounded-lg text-slate-500 hover:text-indigo-700 dark:hover:text-indigo-400 transition-colors cursor-pointer"
+                  className="p-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-850 rounded-lg text-slate-500 hover:text-emerald-700 dark:hover:text-emerald-400 transition-colors cursor-pointer"
                   title="Привязать узел оборудования"
                 >
                   <LinkIcon className="w-4 h-4" />
@@ -1459,12 +1459,12 @@ export default function ChatManagement() {
                     const q = getActiveTagQuery(val, e.target.selectionStart);
                     setActiveTagQuery(q);
                   }}
-                  className="flex-1 text-xs px-3 py-2 bg-slate-50 hover:bg-slate-100/50 dark:bg-slate-950 dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 focus:bg-white dark:focus:bg-slate-950 transition-all font-sans font-medium"
+                  className="flex-1 text-xs px-3 py-2 bg-slate-50 hover:bg-slate-100/50 dark:bg-slate-950 dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 focus:bg-white dark:focus:bg-slate-950 transition-all font-sans font-medium"
                 />
 
                 <button
                   type="submit"
-                  className="p-2 bg-indigo-650 hover:bg-indigo-800 text-white rounded-lg transition-colors cursor-pointer flex items-center justify-center shrink-0 shadow-sm"
+                  className="p-2 bg-emerald-650 hover:bg-emerald-800 text-white rounded-lg transition-colors cursor-pointer flex items-center justify-center shrink-0 shadow-sm"
                   title="Отправить сообщение"
                 >
                   <Send className="w-4 h-4" />
@@ -1493,8 +1493,8 @@ export default function ChatManagement() {
           {selectedTagElement ? (
             /* DYNAMIC TAG CARD SECTION (ФИЧА 2: Быстрая карточка тега) */
             <div className="flex-1 flex flex-col h-full select-none">
-              <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-indigo-50/55 dark:bg-indigo-950/25">
-                <span className="text-xs font-extrabold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-1.5 font-sans">
+              <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-emerald-50/55 dark:bg-emerald-950/25">
+                <span className="text-xs font-extrabold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1.5 font-sans">
                   ⚙️ Карточка тега
                 </span>
                 <button 
@@ -1579,7 +1579,7 @@ export default function ChatManagement() {
                     addToast('Перенаправление в Проводник...', 'success');
                     navigate(`/equipment?elementId=${selectedTagElement.id}`);
                   }}
-                  className="w-full py-2 bg-indigo-650 hover:bg-indigo-800 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-sm"
+                  className="w-full py-2 bg-emerald-650 hover:bg-emerald-800 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-sm"
                 >
                   <LinkIcon className="w-3.5 h-3.5" />
                   Открыть в Проводнике
@@ -1608,13 +1608,13 @@ export default function ChatManagement() {
                     </div>
                     <div className="bg-white dark:bg-slate-950/50 p-2 rounded-lg border border-slate-150 dark:border-slate-850">
                       <p className="text-slate-400 text-xs leading-tight mb-0.5">Окружение</p>
-                      <p className="font-bold text-indigo-700 dark:text-indigo-400 leading-none mt-1 truncate">MAX LOCAL</p>
+                      <p className="font-bold text-emerald-700 dark:text-emerald-400 leading-none mt-1 truncate">MAX LOCAL</p>
                     </div>
                   </div>
                 </div>
               ) : activeGroup ? (
                 <div className="p-5 text-center border-b border-slate-200 dark:border-slate-800">
-                  <div className="w-16 h-16 rounded-lg bg-indigo-100 dark:bg-indigo-950/60 flex items-center justify-center text-xl border border-indigo-250 dark:border-indigo-850/50 mx-auto mb-3">
+                  <div className="w-16 h-16 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 flex items-center justify-center text-xl border border-emerald-250 dark:border-emerald-850/50 mx-auto mb-3">
                     👥
                   </div>
                   <h4 className="text-xs font-extrabold text-slate-800 dark:text-white leading-tight truncate">
@@ -1631,7 +1631,7 @@ export default function ChatManagement() {
                     </div>
                     <div className="bg-white dark:bg-slate-950/50 p-2 rounded-lg border border-slate-150 dark:border-slate-850">
                       <p className="text-slate-400 text-xs leading-tight mb-0.5">Тип канала</p>
-                      <p className="font-bold text-indigo-700 dark:text-indigo-400 leading-none mt-1 truncate">Auto ROOM</p>
+                      <p className="font-bold text-emerald-700 dark:text-emerald-400 leading-none mt-1 truncate">Auto ROOM</p>
                     </div>
                   </div>
                 </div>
@@ -1658,9 +1658,9 @@ export default function ChatManagement() {
                         className="w-full text-left flex items-center justify-between p-2 hover:bg-slate-100/80 dark:hover:bg-slate-800 border border-slate-100 dark:border-transparent rounded-lg cursor-pointer group transition-all"
                       >
                         <div className="flex items-center gap-2 min-w-0">
-                          <File className="w-3.5 h-3.5 text-slate-450 shrink-0 group-hover:text-indigo-600" />
+                          <File className="w-3.5 h-3.5 text-slate-450 shrink-0 group-hover:text-emerald-600" />
                           <div className="min-w-0">
-                            <p className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate group-hover:text-slate-950 dark:group-hover:text-indigo-400">
+                            <p className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate group-hover:text-slate-950 dark:group-hover:text-emerald-400">
                               {f.fileName}
                             </p>
                             <p className="text-xs text-slate-400 font-mono">
@@ -1693,7 +1693,7 @@ export default function ChatManagement() {
               <div className="p-4 bg-slate-50 dark:bg-slate-950/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-1.5 font-sans">
-                    <Settings className="w-4 h-4 text-indigo-600 animate-spin" style={{ animationDuration: '6s' }} />
+                    <Settings className="w-4 h-4 text-emerald-600 animate-spin" style={{ animationDuration: '6s' }} />
                     Привязка узла к сообщению
                   </h3>
                   <p className="text-xs text-slate-400 mt-1">
@@ -1716,7 +1716,7 @@ export default function ChatManagement() {
                     placeholder="Поиск по наименованию детали в спецификации MAX..."
                     value={compSearch}
                     onChange={(e) => setCompSearch(e.target.value)}
-                    className="w-full text-xs pl-8 pr-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-250 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                    className="w-full text-xs pl-8 pr-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-250 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
                   />
                   <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400" />
                 </div>
@@ -1738,14 +1738,14 @@ export default function ChatManagement() {
                         setIsEquipmentModalOpen(false);
                         addToast(`Выбран узел: ${c.name}`, 'info');
                       }}
-                      className="w-full text-left p-2 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/10 border border-slate-100 dark:border-transparent rounded-lg cursor-pointer transition-all flex items-center justify-between"
+                      className="w-full text-left p-2 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/10 border border-slate-100 dark:border-transparent rounded-lg cursor-pointer transition-all flex items-center justify-between"
                     >
                       <div>
                         <p className="text-xs font-bold text-slate-805 dark:text-slate-200">
                           ⚙️ {c.name}
                         </p>
                         <p className="text-xs text-slate-400 mt-0.5">
-                          Код: <span className="font-mono text-indigo-500 font-bold">{c.itemCode}</span> • Моноблок: {c.monoblockName}
+                          Код: <span className="font-mono text-emerald-500 font-bold">{c.itemCode}</span> • Моноблок: {c.monoblockName}
                         </p>
                       </div>
                       <span className="text-xs bg-slate-100 dark:bg-slate-950 px-2 py-0.5 rounded font-bold text-slate-500 shadow-3xs">
@@ -1861,14 +1861,14 @@ export default function ChatManagement() {
               <button onClick={() => setShowCreateGroup(false)} className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5" /></button>
             </div>
             <div className="grid grid-cols-2 gap-2 mb-3">
-              <button type="button" onClick={() => setNgType('CUSTOM')} className={`flex items-center justify-center gap-1.5 py-2 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${ngType === 'CUSTOM' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300'}`}>
+              <button type="button" onClick={() => setNgType('CUSTOM')} className={`flex items-center justify-center gap-1.5 py-2 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${ngType === 'CUSTOM' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300'}`}>
                 <Users className="w-4 h-4" /> Группа
               </button>
-              <button type="button" onClick={() => setNgType('CHANNEL')} className={`flex items-center justify-center gap-1.5 py-2 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${ngType === 'CHANNEL' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300'}`}>
+              <button type="button" onClick={() => setNgType('CHANNEL')} className={`flex items-center justify-center gap-1.5 py-2 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${ngType === 'CHANNEL' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300'}`}>
                 <Radio className="w-4 h-4" /> Канал
               </button>
             </div>
-            <input type="text" value={ngName} onChange={(e) => setNgName(e.target.value)} placeholder={ngType === 'CHANNEL' ? 'Название канала' : 'Название группы'} className="w-full mb-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500" />
+            <input type="text" value={ngName} onChange={(e) => setNgName(e.target.value)} placeholder={ngType === 'CHANNEL' ? 'Название канала' : 'Название группы'} className="w-full mb-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500" />
             <p className="text-[11px] text-slate-400 mb-2">{ngType === 'CHANNEL' ? 'В канал пишет только владелец/админ, остальные читают.' : 'Участники группы могут писать и читать.'}</p>
             <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Участники ({ngMembers.length})</div>
             <div className="max-h-48 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-850 mb-4">
@@ -1896,7 +1896,7 @@ export default function ChatManagement() {
                 } catch (e: any) { addToast(e.message || 'Не удалось создать', 'error'); }
                 finally { setNgBusy(false); }
               }}
-              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-sm font-bold rounded-lg cursor-pointer transition-colors"
+              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-sm font-bold rounded-lg cursor-pointer transition-colors"
             >
               {ngBusy ? 'Создание…' : 'Создать'}
             </button>
@@ -1917,7 +1917,7 @@ export default function ChatManagement() {
               <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1 py-1">Группы и каналы</div>
               {groups.map(g => (
                 <button key={g.id} type="button" onClick={() => handleForwardTo({ groupId: g.id })} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs text-slate-700 dark:text-slate-200">
-                  {g.type === 'CHANNEL' ? <Radio className="w-4 h-4 text-indigo-500" /> : <Users className="w-4 h-4 text-indigo-500" />} {g.name}
+                  {g.type === 'CHANNEL' ? <Radio className="w-4 h-4 text-emerald-500" /> : <Users className="w-4 h-4 text-emerald-500" />} {g.name}
                 </button>
               ))}
               <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1 py-1 mt-2">Личные диалоги</div>
@@ -1940,7 +1940,7 @@ export default function ChatManagement() {
               <button onClick={() => setShowGroupSettings(false)} className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5" /></button>
             </div>
             <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Название</label>
-            <input type="text" defaultValue={activeGroup.name} onChange={(e) => setGsName(e.target.value)} className="w-full mb-3 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500" />
+            <input type="text" defaultValue={activeGroup.name} onChange={(e) => setGsName(e.target.value)} className="w-full mb-3 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500" />
             <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Участники</div>
             <div className="max-h-44 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-850 mb-4">
               {users.map(u => {
@@ -1970,7 +1970,7 @@ export default function ChatManagement() {
                   setShowGroupSettings(false); setGsName(''); setGsMembers([]);
                 } catch (e: any) { addToast(e.message || 'Не удалось сохранить', 'error'); }
               }}
-              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold rounded-lg cursor-pointer transition-colors"
+              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-lg cursor-pointer transition-colors"
             >
               Сохранить
             </button>
