@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
+import { useShareStore } from '../store/shareStore';
 import { dataService } from '../services/dataService';
 import { 
   Network, 
@@ -137,6 +138,20 @@ export default function Registry() {
   const [hoveredPort, setHoveredPort] = useState<PortHover | null>(null);
 
   const boardRef = useRef<HTMLDivElement>(null);
+  const CARD_W = 310, CARD_H_APPROX = 92;
+
+  // Размер холста — для расчёта видимой области (viewport culling)
+  const [boardSize, setBoardSize] = useState({ width: 1600, height: 900 });
+  useEffect(() => {
+    if (!boardRef.current || typeof ResizeObserver === 'undefined') return;
+    const el = boardRef.current;
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setBoardSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const [selectedConnection, setSelectedConnection] = useState<{ sourceId: string; targetId: string } | null>(null);
   const [hoveredConnection, setHoveredConnection] = useState<{ sourceId: string; targetId: string } | null>(null);
@@ -254,8 +269,150 @@ export default function Registry() {
   }, [tags]);
   const isDuplicateTag = (t: any) => duplicateCodes.has((t?.identifier || '').trim());
 
+  // Единая модель выделения на холсте: источник правды для поиска, «Связей»,
+  // центрирования и упорядочения — все они читают/пишут в один и тот же набор.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const selectOnly = useCallback((ids: string[], focus?: string | null) => {
+    setSelectedIds(new Set(ids));
+    setFocusId(focus !== undefined ? focus : (ids[0] || null));
+  }, []);
+  const clearSelection = useCallback(() => { setSelectedIds(new Set()); setFocusId(null); }, []);
+  const toggleSelectId = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Прямые дети по коду тега (для обхода «Связи: вниз»)
+  const childrenByTagId = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const t of tags) {
+      map[t.id] = (parseTagMetadata(t).connections || []).filter((id: string) => !!tagsById[id]);
+    }
+    return map;
+  }, [tags, tagsById]);
+
+  // Транзитивный обход вверх (все предки) / вниз (все потомки) с защитой от циклов
+  const collectAncestors = useCallback((id: string): Set<string> => {
+    const result = new Set<string>();
+    const visited = new Set<string>([id]);
+    const stack = [id];
+    while (stack.length) {
+      const cur = stack.pop()!;
+      for (const p of (incomingByTagId[cur] || [])) {
+        if (!visited.has(p)) { visited.add(p); result.add(p); stack.push(p); }
+      }
+    }
+    return result;
+  }, [incomingByTagId]);
+  const collectDescendants = useCallback((id: string): Set<string> => {
+    const result = new Set<string>();
+    const visited = new Set<string>([id]);
+    const stack = [id];
+    while (stack.length) {
+      const cur = stack.pop()!;
+      for (const c of (childrenByTagId[cur] || [])) {
+        if (!visited.has(c)) { visited.add(c); result.add(c); stack.push(c); }
+      }
+    }
+    return result;
+  }, [childrenByTagId]);
+
+  // Esc — снять выделение и закрыть контекстное меню карточки
+  useEffect(() => {
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) return;
+      setBoardContextMenu(null);
+      clearSelection();
+    };
+    window.addEventListener('keydown', onEsc);
+    return () => window.removeEventListener('keydown', onEsc);
+  }, [clearSelection]);
+
+  // Viewport culling: при большом числе тегов рисуем только карточки/связи,
+  // попадающие в видимую область холста (+ запас), чтобы не лагало на больших графах
+  const CULL_THRESHOLD = 80;
+  const visibleWorldRect = useMemo(() => {
+    const MARGIN = 500;
+    return {
+      minX: (-pan.x) / zoom - MARGIN,
+      minY: (-pan.y) / zoom - MARGIN,
+      maxX: (boardSize.width - pan.x) / zoom + MARGIN,
+      maxY: (boardSize.height - pan.y) / zoom + MARGIN,
+    };
+  }, [pan, zoom, boardSize]);
+
+  const visibleTagIds = useMemo(() => {
+    if (tags.length <= CULL_THRESHOLD) return null; // мало тегов — культ не нужен, рисуем всё
+    const set = new Set<string>();
+    for (const t of tags) {
+      const p = cardPositionsRef.current[t.id] || parseTagMetadata(t);
+      const x2 = p.x + CARD_W, y2 = p.y + CARD_H_APPROX;
+      if (x2 >= visibleWorldRect.minX && p.x <= visibleWorldRect.maxX && y2 >= visibleWorldRect.minY && p.y <= visibleWorldRect.maxY) {
+        set.add(t.id);
+      }
+    }
+    selectedIds.forEach(id => set.add(id));
+    if (draggedTagId) set.add(draggedTagId);
+    if (hoveredConnection) { set.add(hoveredConnection.sourceId); set.add(hoveredConnection.targetId); }
+    if (selectedConnection) { set.add(selectedConnection.sourceId); set.add(selectedConnection.targetId); }
+    return set;
+  }, [tags, visibleWorldRect, selectedIds, draggedTagId, hoveredConnection, selectedConnection]);
+
+  const isCardVisible = useCallback((id: string) => !visibleTagIds || visibleTagIds.has(id), [visibleTagIds]);
+
+  // Ориентация авто-раскладки дерева
+  const [treeOrientation, setTreeOrientation] = useState<'horizontal' | 'vertical'>('horizontal');
+
+  // Контекстное меню карточки (ПКМ): «Связи» + «Поделиться» в одном месте
+  const [boardContextMenu, setBoardContextMenu] = useState<{ x: number; y: number; tagId: string } | null>(null);
+
+  // Список «главных родителей» для одноклик-центрирования по кнопке «Центрировать»
+  const [rootPickerOpen, setRootPickerOpen] = useState(false);
+  const centerClickTimerRef = useRef<any>(null);
+
   // Filter/Search
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchDropdownOpen, setSearchDropdownOpen] = useState(false);
+  const [searchCheckedIds, setSearchCheckedIds] = useState<Set<string>>(new Set());
+  const [searchActiveIndex, setSearchActiveIndex] = useState(0);
+
+  // Универсальный поиск по разделу: код тега, наименование, марка, отдел, среда, WBS
+  // + спец-фильтр по слову «дубли/дубликаты»
+  const searchResults = useMemo(() => {
+    const raw = searchQuery.trim().toLowerCase();
+    if (!raw) return [];
+    const dupKeywords = ['дубли', 'дубль', 'дубликат', 'дубликаты', 'dup', 'duplicate'];
+    const matchedKeyword = dupKeywords.find(k => raw === k || raw.startsWith(k + ' ') || raw.startsWith(k));
+    const dupOnly = !!matchedKeyword;
+    const residual = dupOnly ? raw.slice(matchedKeyword!.length).trim() : raw;
+    const pool = dupOnly ? tags.filter(t => isDuplicateTag(t)) : tags;
+
+    const scored = pool.map(t => {
+      if (!residual) return { t, score: 1 };
+      const meta = parseTagMetadata(t);
+      const fields = [t.identifier, meta.mainName, t.brand, t.department, t.fluid, t.wbs]
+        .filter(Boolean).map((s: any) => String(s).toLowerCase());
+      let score = -1;
+      for (const f of fields) {
+        if (f === residual) score = Math.max(score, 100);
+        else if (f.startsWith(residual)) score = Math.max(score, 80);
+        else if (new RegExp(`[\\s\\-_/.]${residual.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(f)) score = Math.max(score, 60);
+        else if (f.includes(residual)) score = Math.max(score, 40);
+      }
+      return { t, score };
+    }).filter(r => r.score >= 0);
+
+    scored.sort((a, b) => b.score - a.score || (a.t.identifier || '').localeCompare(b.t.identifier || '', 'ru'));
+    return scored.slice(0, 50).map(r => r.t);
+  }, [tags, searchQuery, duplicateCodes]);
+
+  useEffect(() => { setSearchActiveIndex(0); }, [searchQuery]);
 
   // Sort state for Table View
   const [sortConfig, setSortConfig] = useState<{key: string; direction: 'asc' | 'desc'}>({ key: 'createdAt', direction: 'desc' });
@@ -847,6 +1004,8 @@ export default function Registry() {
   };
 
   // Node Drag Start
+  const dragScreenDistRef = useRef(0);
+
   const handleTagMouseDown = (e: React.MouseEvent, tagId: string, currentMeta: ParsedMetadata) => {
     if (e.button !== 0) return; // Left mouse only
     const target = e.target as HTMLElement;
@@ -855,6 +1014,7 @@ export default function Registry() {
     e.preventDefault();
     e.stopPropagation();
     setDraggedTagId(tagId);
+    dragScreenDistRef.current = 0;
     lastMousePosRef.current = { x: e.clientX, y: e.clientY };
   };
 
@@ -937,6 +1097,7 @@ export default function Registry() {
     const currentPan = panRef.current;
 
     if (draggedTagId) {
+      dragScreenDistRef.current += Math.abs(e.clientX - lastMousePosRef.current.x) + Math.abs(e.clientY - lastMousePosRef.current.y);
       const dx = (e.clientX - lastMousePosRef.current.x) / currentZoom;
       const dy = (e.clientY - lastMousePosRef.current.y) / currentZoom;
 
@@ -1032,7 +1193,8 @@ export default function Registry() {
     } else if (isPanning) {
       const dx = e.clientX - lastMousePosRef.current.x;
       const dy = e.clientY - lastMousePosRef.current.y;
-      
+
+      dragScreenDistRef.current += Math.abs(dx) + Math.abs(dy);
       lastMousePosRef.current = { x: e.clientX, y: e.clientY };
 
       setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
@@ -1040,8 +1202,12 @@ export default function Registry() {
   };
 
   // Unified MouseUp finishing events
-  const handleCanvasMouseUp = async () => {
+  const handleCanvasMouseUp = async (e?: React.MouseEvent) => {
     if (draggedTagId) {
+      // Клик без реального перетаскивания (< 4px) — выделение карточки вместо перемещения
+      if (dragScreenDistRef.current < 4) {
+        if (e?.shiftKey) toggleSelectId(draggedTagId); else selectOnly([draggedTagId]);
+      }
       const finalPos = cardPositionsRef.current[draggedTagId];
       if (finalPos) {
         const tag = tagsById[draggedTagId];
@@ -1127,6 +1293,11 @@ export default function Registry() {
       activeConnectionDragRef.current = null;
     }
 
+    // Клик по пустому месту холста (без панорамирования) — снимаем выделение
+    if (isPanning && dragScreenDistRef.current < 4 && !draggedTagId) {
+      clearSelection();
+    }
+
     setIsPanning(false);
   };
 
@@ -1143,69 +1314,203 @@ export default function Registry() {
     await saveTagMetadata(sourceId, meta);
   };
 
-  const fitCanvasToCenter = () => {
-    setZoom(0.85);
-    setPan({ x: 120, y: 80 });
+  // Вписывает переданный мировой прямоугольник в видимую область холста
+  const fitBBoxToView = useCallback((bbox: { minX: number; minY: number; maxX: number; maxY: number } | null, opts?: { maxZoom?: number }) => {
+    if (!bbox || !boardRef.current) return;
+    const rect = boardRef.current.getBoundingClientRect();
+    const PAD = 70;
+    const w = Math.max(1, bbox.maxX - bbox.minX);
+    const h = Math.max(1, bbox.maxY - bbox.minY);
+    const availW = Math.max(50, rect.width - PAD * 2);
+    const availH = Math.max(50, rect.height - PAD * 2);
+    const maxZoom = opts?.maxZoom ?? 1;
+    const newZoom = Math.min(maxZoom, Math.max(0.15, Math.min(availW / w, availH / h)));
+    const cx = (bbox.minX + bbox.maxX) / 2;
+    const cy = (bbox.minY + bbox.maxY) / 2;
+    setZoom(newZoom);
+    setPan({ x: rect.width / 2 - cx * newZoom, y: rect.height / 2 - cy * newZoom });
+  }, []);
+
+  const bboxForIds = useCallback((ids: string[]) => {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const id of ids) {
+      const t = tagsById[id];
+      if (!t) continue;
+      const p = cardPositionsRef.current[id] || parseTagMetadata(t);
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x + CARD_W);
+      maxY = Math.max(maxY, p.y + CARD_H_APPROX);
+    }
+    if (minX === Infinity) return null;
+    return { minX, minY, maxX, maxY };
+  }, [tagsById]);
+
+  // Список корневых тегов (без входящих связей) — для одноклик-выбора «главного родителя»
+  const rootTags = useMemo(() => {
+    return tags
+      .filter(t => !(incomingByTagId[t.id] && incomingByTagId[t.id].length > 0))
+      .sort((a, b) => (a.identifier || '').localeCompare(b.identifier || '', 'ru'));
+  }, [tags, incomingByTagId]);
+
+  // Центрирует холст на конкретной ветке (сам узел + все предки + все потомки) и выделяет её
+  const centerOnBranch = useCallback((tagId: string) => {
+    const branch = new Set<string>([tagId, ...collectAncestors(tagId), ...collectDescendants(tagId)]);
+    selectOnly([...branch], tagId);
+    fitBBoxToView(bboxForIds([...branch]), { maxZoom: 1 });
+  }, [collectAncestors, collectDescendants, selectOnly, fitBBoxToView, bboxForIds]);
+
+  // Переход к результату поиска: поведение зависит от текущего раздела
+  const goToSearchResult = useCallback((tagId: string) => {
+    if (activeTab === 'board') {
+      selectOnly([tagId], tagId);
+      fitBBoxToView(bboxForIds([tagId]), { maxZoom: 1.1 });
+    } else if (activeTab === 'tree') {
+      selectOnly([tagId], tagId);
+      const ancestorsChain = collectAncestors(tagId);
+      setExpandedTagIds(prev => {
+        const next = { ...prev };
+        ancestorsChain.forEach(id => { next[id] = true; });
+        return next;
+      });
+      setTimeout(() => {
+        document.getElementById(`tree-node-${tagId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 60);
+    } else {
+      selectOnly([tagId], tagId);
+    }
+    setSearchDropdownOpen(false);
+  }, [activeTab, collectAncestors, fitBBoxToView, bboxForIds, selectOnly]);
+
+  const showSelectedSearchResults = useCallback(() => {
+    const ids = [...searchCheckedIds];
+    if (!ids.length) return;
+    selectOnly(ids, ids[0]);
+    if (activeTab === 'board') fitBBoxToView(bboxForIds(ids), { maxZoom: 1 });
+    setSearchDropdownOpen(false);
+  }, [searchCheckedIds, activeTab, selectOnly, fitBBoxToView, bboxForIds]);
+
+  // Клик по «Центрировать»: если что-то выделено — центрируем выделение;
+  // если корень один — сразу его дерево; если корней несколько — открываем список выбора.
+  const handleCenterSingleClick = useCallback(() => {
+    if (selectedIds.size > 0) {
+      fitBBoxToView(bboxForIds([...selectedIds]), { maxZoom: 1 });
+      return;
+    }
+    if (rootTags.length <= 1) {
+      fitBBoxToView(bboxForIds(tags.map(t => t.id)), { maxZoom: 1 });
+      return;
+    }
+    setRootPickerOpen(true);
+  }, [selectedIds, rootTags, tags, fitBBoxToView, bboxForIds]);
+
+  const handleCenterClick = () => {
+    if (centerClickTimerRef.current) return;
+    centerClickTimerRef.current = setTimeout(() => {
+      centerClickTimerRef.current = null;
+      handleCenterSingleClick();
+    }, 260);
+  };
+  const handleCenterDoubleClick = () => {
+    if (centerClickTimerRef.current) { clearTimeout(centerClickTimerRef.current); centerClickTimerRef.current = null; }
+    setRootPickerOpen(false);
+    arrangeTreeLayout();
   };
 
-  // Авто-раскладка «Упорядочить»: строит аккуратное иерархическое дерево без наложений
+  // Авто-раскладка «Упорядочить»: строит аккуратное дерево без наложений.
+  // Независимые деревья упаковываются в компактную сетку (а не в одну длинную «простыню»),
+  // при наличии выделения — упорядочивает и вписывает только выбранную ветвь.
   const [isArranging, setIsArranging] = useState(false);
-  const arrangeTreeLayout = async () => {
-    if (tags.length === 0 || isArranging) return;
+  const arrangeTreeLayout = async (scopeIds?: string[]) => {
+    const scopeSet = scopeIds && scopeIds.length ? new Set(scopeIds) : null;
+    const workingTags = scopeSet ? tags.filter(t => scopeSet.has(t.id)) : tags;
+    if (workingTags.length === 0 || isArranging) return;
     setIsArranging(true);
     try {
-      const COL_W = 360, ROW_H = 150, MARGIN_X = 120, MARGIN_Y = 90;
+      const DEPTH_STEP = 360, SIB_STEP = 150, MARGIN_X = 120, MARGIN_Y = 90, GROUP_GAP = 140;
+      const vertical = treeOrientation === 'vertical';
+      const idSet = new Set(workingTags.map(t => t.id));
       const childrenMap: Record<string, string[]> = {};
       const hasParent: Record<string, boolean> = {};
-      const idSet = new Set(tags.map(t => t.id));
-      for (const t of tags) {
-        const meta = parseTagMetadata(t);
-        const kids = (meta.connections || []).filter(id => idSet.has(id));
+      for (const t of workingTags) {
+        const kids = (parseTagMetadata(t).connections || []).filter(id => idSet.has(id));
         childrenMap[t.id] = kids;
         kids.forEach(k => { hasParent[k] = true; });
       }
-      const roots = tags
+      const roots = workingTags
         .filter(t => !hasParent[t.id])
         .sort((a, b) => (a.identifier || '').localeCompare(b.identifier || '', 'ru'));
-      const positions: Record<string, { x: number; y: number }> = {};
+
       const visited = new Set<string>();
-      let leafRow = 0;
-      const assign = (id: string, depth: number): number => {
-        visited.add(id);
-        const kids = (childrenMap[id] || []).filter(k => !visited.has(k));
-        let yRaw: number;
-        if (kids.length === 0) {
-          yRaw = leafRow * ROW_H;
-          leafRow++;
-        } else {
-          const ys = kids.map(k => assign(k, depth + 1));
-          yRaw = (ys[0] + ys[ys.length - 1]) / 2;
-        }
-        positions[id] = { x: MARGIN_X + depth * COL_W, y: MARGIN_Y + yRaw };
-        return yRaw;
+      type Subtree = { local: Record<string, { depth: number; sib: number }>; width: number; height: number };
+      const subtrees: Subtree[] = [];
+
+      const layoutOne = (rootId: string): Subtree => {
+        let leafCounter = 0;
+        const local: Record<string, { depth: number; sib: number }> = {};
+        let maxDepth = 0;
+        const assign = (id: string, depth: number): number => {
+          visited.add(id);
+          maxDepth = Math.max(maxDepth, depth);
+          const kids = (childrenMap[id] || []).filter(k => !visited.has(k));
+          let sib: number;
+          if (kids.length === 0) {
+            sib = leafCounter;
+            leafCounter++;
+          } else {
+            const ys = kids.map(k => assign(k, depth + 1));
+            sib = (ys[0] + ys[ys.length - 1]) / 2;
+          }
+          local[id] = { depth, sib };
+          return sib;
+        };
+        assign(rootId, 0);
+        return { local, width: (maxDepth + 1) * DEPTH_STEP, height: Math.max(1, leafCounter) * SIB_STEP };
       };
-      roots.forEach(r => { if (!visited.has(r.id)) assign(r.id, 0); });
-      // Узлы в циклах / не охваченные обходом — выстраиваем в отдельную колонку
-      for (const t of tags) {
+
+      roots.forEach(r => { if (!visited.has(r.id)) subtrees.push(layoutOne(r.id)); });
+      // Узлы в циклах / не охваченные обходом — отдельными одиночными «деревьями»
+      for (const t of workingTags) {
         if (!visited.has(t.id)) {
-          positions[t.id] = { x: MARGIN_X, y: MARGIN_Y + leafRow * ROW_H };
-          leafRow++;
+          visited.add(t.id);
+          subtrees.push({ local: { [t.id]: { depth: 0, sib: 0 } }, width: DEPTH_STEP, height: SIB_STEP });
         }
       }
-      // Применяем локально и сохраняем
-      for (const t of tags) {
+
+      // Упаковка независимых деревьев в компактную сетку (близкую к квадрату),
+      // чтобы не получалась одна бесконечно длинная колонка/строка
+      const cols = Math.max(1, Math.round(Math.sqrt(subtrees.length)));
+      const cellW = Math.max(DEPTH_STEP, ...subtrees.map(s => s.width)) + GROUP_GAP;
+      const cellH = Math.max(SIB_STEP, ...subtrees.map(s => s.height)) + GROUP_GAP;
+
+      const positions: Record<string, { x: number; y: number }> = {};
+      subtrees.forEach((s, idx) => {
+        const gx = idx % cols, gy = Math.floor(idx / cols);
+        const originDepth = gx * cellW;
+        const originSib = gy * cellH;
+        Object.entries(s.local).forEach(([id, p]) => {
+          const depthCoord = originDepth + p.depth * DEPTH_STEP;
+          const sibCoord = originSib + p.sib * SIB_STEP;
+          positions[id] = vertical
+            ? { x: MARGIN_X + sibCoord, y: MARGIN_Y + depthCoord }
+            : { x: MARGIN_X + depthCoord, y: MARGIN_Y + sibCoord };
+        });
+      });
+
+      // Применяем локально и сохраняем (только для затронутых тегов — остальной холст не трогаем)
+      for (const t of workingTags) {
         const p = positions[t.id];
         if (p) cardPositionsRef.current[t.id] = p;
       }
-      await Promise.all(tags.map(t => {
+      await Promise.all(workingTags.map(t => {
         const p = positions[t.id];
         if (!p) return Promise.resolve();
         const meta = { ...parseTagMetadata(t), x: p.x, y: p.y };
         return saveTagMetadata(t.id, meta);
       }));
-      setZoom(0.7);
-      setPan({ x: 40, y: 40 });
-      addToast('Дерево упорядочено', 'success');
+
+      fitBBoxToView(bboxForIds(workingTags.map(t => t.id)), { maxZoom: 1 });
+      addToast(scopeSet ? 'Ветвь упорядочена' : 'Дерево упорядочено', 'success');
     } catch (e) {
       addToast('Не удалось упорядочить дерево', 'error');
     } finally {
@@ -2153,20 +2458,103 @@ export default function Registry() {
           )}
         </form>
 
-        {/* Small compacted search on the right */}
-        <div className="lg:col-span-2 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs flex flex-col justify-between text-left">
+        {/* Универсальный поиск по разделу: код/наименование/марка/отдел/среда/WBS + «дубли» */}
+        <div className="lg:col-span-2 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs flex flex-col justify-between text-left relative">
           <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase leading-none mb-1">
-            Поиск по реестру:
+            Поиск по разделу:
           </label>
           <div className="relative flex-1 flex items-end">
             <input
               type="search"
-              placeholder="Поиск..."
+              placeholder="Тег, наименование, марка, «дубли»…"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => { setSearchQuery(e.target.value); setSearchDropdownOpen(true); }}
+              onFocus={() => { if (searchQuery.trim()) setSearchDropdownOpen(true); }}
+              onKeyDown={(e) => {
+                if (!searchDropdownOpen || searchResults.length === 0) return;
+                if (e.key === 'ArrowDown') { e.preventDefault(); setSearchActiveIndex(i => Math.min(searchResults.length - 1, i + 1)); }
+                else if (e.key === 'ArrowUp') { e.preventDefault(); setSearchActiveIndex(i => Math.max(0, i - 1)); }
+                else if (e.key === 'Enter') { e.preventDefault(); const t = searchResults[searchActiveIndex]; if (t) goToSearchResult(t.id); }
+                else if (e.key === ' ' && e.shiftKey) { e.preventDefault(); const t = searchResults[searchActiveIndex]; if (t) setSearchCheckedIds(prev => { const n = new Set(prev); n.has(t.id) ? n.delete(t.id) : n.add(t.id); return n; }); }
+                else if (e.key === 'Escape') { setSearchDropdownOpen(false); }
+              }}
               className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs placeholder-slate-400 dark:placeholder-slate-550 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:bg-white dark:focus:bg-slate-950 text-slate-800 dark:text-slate-100 font-medium h-8"
             />
           </div>
+
+          {searchDropdownOpen && searchQuery.trim() && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setSearchDropdownOpen(false)} />
+              <div className="absolute top-full left-0 right-0 mt-1.5 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Найдено {searchResults.length}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setSearchCheckedIds(new Set(searchResults.map(t => t.id)))}
+                      className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer"
+                    >Выбрать все</button>
+                    <button
+                      onClick={() => setSearchCheckedIds(new Set())}
+                      className="text-[10px] font-bold text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >Очистить</button>
+                  </div>
+                </div>
+
+                <div className="max-h-72 overflow-y-auto style-scrollbar">
+                  {searchResults.length === 0 ? (
+                    <div className="px-3 py-6 text-center text-xs text-slate-400">Ничего не найдено</div>
+                  ) : searchResults.map((t, idx) => {
+                    const meta = parseTagMetadata(t);
+                    const dup = isDuplicateTag(t);
+                    const checked = searchCheckedIds.has(t.id);
+                    const active = idx === searchActiveIndex;
+                    const st = statusConfig[getTagOverallStatus(t)] || statusConfig.draft;
+                    return (
+                      <div
+                        key={t.id}
+                        className={`flex items-center gap-2 px-3 py-2 cursor-pointer border-b border-slate-50 dark:border-slate-900/60 last:border-0 ${active ? 'bg-emerald-50 dark:bg-emerald-950/30' : 'hover:bg-slate-50 dark:hover:bg-slate-900/60'}`}
+                        onMouseEnter={() => setSearchActiveIndex(idx)}
+                        onClick={() => goToSearchResult(t.id)}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {}}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSearchCheckedIds(prev => { const n = new Set(prev); checked ? n.delete(t.id) : n.add(t.id); return n; });
+                          }}
+                          className="shrink-0 rounded border-slate-300 text-emerald-600 cursor-pointer"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono font-bold text-xs text-slate-800 dark:text-slate-100 truncate">{t.identifier}</span>
+                            {dup && <span className="shrink-0 text-[9px] font-bold px-1 py-0.5 rounded bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300">дубль</span>}
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                            {meta.mainName || <span className="italic opacity-50">без наименования</span>}
+                            {t.brand ? ` · ${t.brand}` : ''}
+                          </div>
+                        </div>
+                        <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${st.bg} ${st.text} ${st.border}`}>{st.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {searchCheckedIds.size > 0 && (
+                  <button
+                    onClick={showSelectedSearchResults}
+                    className="w-full px-3 py-2 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold cursor-pointer"
+                  >
+                    Показать выбранные ({searchCheckedIds.size})
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -2192,6 +2580,7 @@ export default function Registry() {
               onMouseDown={(e) => {
                 if (e.button !== 0) return;
                 setIsPanning(true);
+                dragScreenDistRef.current = 0;
                 lastMousePosRef.current = { x: e.clientX, y: e.clientY };
               }}
               onMouseMove={handleCanvasMouseMove}
@@ -2201,8 +2590,8 @@ export default function Registry() {
               {/* Overlaid Zoom and Canvas Controls on the top-right */}
               <div className="absolute top-4 right-4 z-40 flex items-center gap-2 bg-white/90 dark:bg-slate-950/90 backdrop-blur-md p-1.5 rounded-xl border border-slate-200 dark:border-slate-800/80 shadow-md">
                 <div className="flex bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200/50 dark:border-slate-800">
-                  <button 
-                    onClick={() => setZoom(z => Math.max(0.15, z - 0.1))} 
+                  <button
+                    onClick={() => setZoom(z => Math.max(0.15, z - 0.1))}
                     className="p-1 px-1.5 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 rounded transition-colors cursor-pointer"
                   >
                     <ZoomOut className="w-3.5 h-3.5" />
@@ -2210,7 +2599,7 @@ export default function Registry() {
                   <span className="px-2 py-0.5 text-xs font-mono font-bold text-slate-600 dark:text-slate-400 self-center">
                     {Math.round(zoom * 100)}%
                   </span>
-                  <button 
+                  <button
                     onClick={() => setZoom(z => Math.min(2.5, z + 0.1))}
                     className="p-1 px-1.5 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 rounded transition-colors cursor-pointer"
                   >
@@ -2220,19 +2609,66 @@ export default function Registry() {
 
                 <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800" />
 
-                <button
-                  onClick={fitCanvasToCenter}
-                  title="Центрировать область со всеми карточками"
-                  className="px-2.5 py-1.5 bg-slate-200/70 dark:bg-slate-850 hover:bg-slate-300 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
-                >
-                  <RefreshCw className="w-3 h-3 text-emerald-600" />
-                  Центрировать
-                </button>
+                {selectedIds.size > 0 && (
+                  <>
+                    <button
+                      onClick={clearSelection}
+                      title="Снять выделение"
+                      className="px-2 py-1.5 bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-950/50 text-rose-600 dark:text-rose-400 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                      Выбрано {selectedIds.size}
+                    </button>
+                    <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800" />
+                  </>
+                )}
 
                 <button
-                  onClick={arrangeTreeLayout}
+                  onClick={() => setTreeOrientation(o => o === 'horizontal' ? 'vertical' : 'horizontal')}
+                  title={treeOrientation === 'horizontal' ? 'Раскладка слева-направо (клик — сверху-вниз)' : 'Раскладка сверху-вниз (клик — слева-направо)'}
+                  className="p-1.5 bg-slate-200/70 dark:bg-slate-850 hover:bg-slate-300 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg transition-colors cursor-pointer"
+                >
+                  {treeOrientation === 'horizontal'
+                    ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 12h16m0 0-5-5m5 5-5 5" /></svg>
+                    : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 4v16m0 0-5-5m5 5 5-5" /></svg>}
+                </button>
+
+                <div className="relative">
+                  <button
+                    onClick={handleCenterClick}
+                    onDoubleClick={handleCenterDoubleClick}
+                    title="Клик: центрировать выделение/дерево. Двойной клик: упорядочить весь холст"
+                    className="px-2.5 py-1.5 bg-slate-200/70 dark:bg-slate-850 hover:bg-slate-300 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    <RefreshCw className="w-3 h-3 text-emerald-600" />
+                    Центрировать
+                  </button>
+
+                  {rootPickerOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setRootPickerOpen(false)} />
+                      <div className="absolute right-0 top-full mt-1.5 z-50 w-56 max-h-72 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl py-1.5">
+                        <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-slate-800 mb-1">
+                          Выберите главного родителя
+                        </div>
+                        {rootTags.map(r => (
+                          <button
+                            key={r.id}
+                            onClick={() => { centerOnBranch(r.id); setRootPickerOpen(false); }}
+                            className="w-full text-left px-3 py-1.5 text-xs font-mono font-semibold text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 hover:text-emerald-700 dark:hover:text-emerald-400 truncate cursor-pointer"
+                          >
+                            {r.identifier}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => arrangeTreeLayout()}
                   disabled={isArranging}
-                  title="Авто-раскладка: аккуратное дерево связей без наложений"
+                  title="Авто-раскладка: аккуратное дерево связей без наложений (весь холст)"
                   className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
                 >
                   <Network className={`w-3 h-3 ${isArranging ? 'animate-pulse' : ''}`} />
@@ -2260,6 +2696,8 @@ export default function Registry() {
                     return sourceMeta.connections.map((targetId) => {
                       const targetTag = tagsById[targetId];
                       if (!targetTag) return null;
+                      // Отсечение по вьюпорту: рисуем связь, если хотя бы один конец виден
+                      if (visibleTagIds && !visibleTagIds.has(tag.id) && !visibleTagIds.has(targetId)) return null;
                       const targetMeta = parseTagMetadata(targetTag);
                       // Живые координаты: во время перетаскивания позиции лежат в ref,
                       // иначе ре-рендер (hover и т.п.) вернул бы линию в устаревшую точку
@@ -2339,10 +2777,13 @@ export default function Registry() {
                             }}
                           />
 
-                          {/* Flow indicator light dot */}
-                          <circle id={`flow-dot-${tag.id}-${targetId}`} r="3.5" fill={isSelected ? '#c084fc' : '#34d399'}>
-                            <animateMotion path={pathData} dur="6s" repeatCount="indefinite" />
-                          </circle>
+                          {/* Flow indicator light dot: анимация — дорогая штука при множестве связей,
+                              включаем всегда только пока тегов немного, иначе — только для выделенных/наведённых */}
+                          {(tags.length <= 150 || isSelected || isHovered) && (
+                            <circle id={`flow-dot-${tag.id}-${targetId}`} r="3.5" fill={isSelected ? '#c084fc' : '#34d399'}>
+                              <animateMotion path={pathData} dur="6s" repeatCount="indefinite" />
+                            </circle>
+                          )}
 
                           {/* Link Delete Button precisely placed in the mathematical middle */}
                           {(isHovered || isSelected) && (() => {
@@ -2397,6 +2838,7 @@ export default function Registry() {
                 {/* GRAPH CARDS CONTROLLERS */}
                 <div className="absolute inset-0">
                   {tags.map((tag) => {
+                    if (visibleTagIds && !visibleTagIds.has(tag.id)) return null;
                     const meta = parseTagMetadata(tag);
                     const isSourceOfDrag = activeConnectionDrag?.sourceId === tag.id;
                     const hoveredLeft = hoveredPort?.tagId === tag.id && hoveredPort.side === 'left';
@@ -2406,18 +2848,23 @@ export default function Registry() {
                     const overallStatus = getTagOverallStatus(tag);
                     const statusVal = statusConfig[overallStatus] || statusConfig.draft;
                     const dup = isDuplicateTag(tag);
+                    const isSelected = selectedIds.has(tag.id);
+                    const isDimmedOut = selectedIds.size > 0 && !isSelected && !isSourceOfDrag;
+                    const zIndexClass = isSourceOfDrag ? 'z-50' : (isExpanded ? 'z-40' : 'z-10');
+                    const borderClass = isSourceOfDrag
+                      ? 'ring-2 ring-emerald-500 border-emerald-500 shadow-xl'
+                      : dup
+                        ? 'ring-2 ring-rose-400/70 border-rose-300 dark:border-rose-700/60'
+                        : isSelected
+                          ? 'ring-2 ring-emerald-500/80 border-emerald-400 dark:border-emerald-600'
+                          : 'border-slate-200 dark:border-slate-850';
 
                     return (
                       <div
                         key={tag.id}
                         id={`tag-card-${tag.id}`}
-                        className={`absolute pointer-events-auto w-[310px] rounded-2xl border text-left transition-shadow duration-200 select-none ${
-                          isSourceOfDrag
-                            ? 'ring-2 ring-emerald-500 border-emerald-500 shadow-xl z-30'
-                            : dup
-                              ? 'bg-white dark:bg-slate-950 ring-2 ring-rose-400/70 border-rose-300 dark:border-rose-700/60 shadow-xs hover:shadow-md z-10 text-slate-900 dark:text-slate-100'
-                              : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 shadow-xs hover:shadow-md z-10 text-slate-900 dark:text-slate-100'
-                        }`}
+                        data-board-card="true"
+                        className={`absolute pointer-events-auto w-[310px] rounded-2xl border text-left transition-shadow duration-200 select-none bg-white dark:bg-slate-950 shadow-xs hover:shadow-md text-slate-900 dark:text-slate-100 ${zIndexClass} ${borderClass} ${isDimmedOut ? 'opacity-40' : ''}`}
                         style={{
                           transform: (() => {
                             const live = cardPositionsRef.current[tag.id] || meta;
@@ -2427,6 +2874,11 @@ export default function Registry() {
                           top: 0
                         }}
                         onMouseDown={(e) => handleTagMouseDown(e, tag.id, meta)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setBoardContextMenu({ x: e.clientX, y: e.clientY, tagId: tag.id });
+                        }}
                       >
                         {/* PORT SENSOR DOTS (Permanently placed at top center vertical line of card regardless of expansion height) */}
                         <div 
@@ -2499,6 +2951,16 @@ export default function Registry() {
                           {/* Main Name / Title always visible */}
                           <div className="text-xs font-semibold text-slate-600 dark:text-slate-350 truncate mt-0.5 pl-5" title={meta.mainName || 'Наименование отсутствует'}>
                             {meta.mainName || <span className="italic opacity-60">Наименование отсутствует</span>}
+                          </div>
+
+                          {/* Марка + актуальность — всегда видны, без разворота */}
+                          <div className="flex items-center justify-between gap-2 pl-5 mt-0.5">
+                            <span className="text-[11px] font-mono text-slate-450 dark:text-slate-500 truncate" title={tag.brand || ''}>
+                              {tag.brand || <span className="italic opacity-50">без марки</span>}
+                            </span>
+                            <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${statusVal.bg} ${statusVal.text} ${statusVal.border}`}>
+                              {statusVal.label}
+                            </span>
                           </div>
                         </div>
 
@@ -2732,6 +3194,86 @@ export default function Registry() {
                 </div>
               </div>
             </div>
+
+            {/* КОНТЕКСТНОЕ МЕНЮ КАРТОЧКИ: «Связи» + «Поделиться» в одном месте */}
+            {boardContextMenu && (() => {
+              const menuTag = tagsById[boardContextMenu.tagId];
+              if (!menuTag) return null;
+              const ancestors = collectAncestors(boardContextMenu.tagId);
+              const descendants = collectDescendants(boardContextMenu.tagId);
+              const branchIds = [boardContextMenu.tagId, ...ancestors, ...descendants];
+              const closeMenu = () => setBoardContextMenu(null);
+              const menuItemCls = "w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 hover:text-emerald-700 dark:hover:text-emerald-400 transition-colors cursor-pointer text-left disabled:opacity-35 disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-slate-700 dark:disabled:hover:text-slate-200";
+              return (
+                <>
+                  <div className="fixed inset-0 z-[95]" onClick={closeMenu} onContextMenu={(e) => { e.preventDefault(); closeMenu(); }} />
+                  <div
+                    className="fixed z-[100] w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl rounded-xl py-1.5"
+                    style={{ top: Math.min(boardContextMenu.y, window.innerHeight - 340), left: Math.min(boardContextMenu.x, window.innerWidth - 260) }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-slate-400 font-bold truncate border-b border-slate-100 dark:border-slate-800 mb-1">
+                      {menuTag.identifier}
+                    </div>
+
+                    <div className="px-3 pt-0.5 pb-1 text-[10px] uppercase tracking-wider text-slate-400 font-bold">Связи</div>
+                    <button
+                      disabled={ancestors.size === 0}
+                      className={menuItemCls}
+                      onClick={() => { selectOnly([boardContextMenu.tagId, ...ancestors], boardContextMenu.tagId); closeMenu(); }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0"><path d="M12 19V5m0 0-6 6m6-6 6 6" /></svg>
+                      Выделить родителей {ancestors.size > 0 ? `(${ancestors.size})` : ''}
+                    </button>
+                    <button
+                      disabled={descendants.size === 0}
+                      className={menuItemCls}
+                      onClick={() => { selectOnly([boardContextMenu.tagId, ...descendants], boardContextMenu.tagId); closeMenu(); }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0"><path d="M12 5v14m0 0 6-6m-6 6-6-6" /></svg>
+                      Выделить потомков {descendants.size > 0 ? `(${descendants.size})` : ''}
+                    </button>
+                    <button
+                      disabled={ancestors.size === 0 && descendants.size === 0}
+                      className={menuItemCls}
+                      onClick={() => { selectOnly(branchIds, boardContextMenu.tagId); fitBBoxToView(bboxForIds(branchIds), { maxZoom: 1 }); closeMenu(); }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0"><path d="M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4" /></svg>
+                      Выделить всю ветвь
+                    </button>
+                    <button className={menuItemCls} onClick={() => { arrangeTreeLayout(branchIds); closeMenu(); }}>
+                      <Network className="w-3.5 h-3.5 shrink-0" />
+                      Упорядочить ветвь
+                    </button>
+
+                    <div className="border-t border-slate-100 dark:border-slate-800 my-1" />
+
+                    <button
+                      className={menuItemCls}
+                      onClick={() => {
+                        useShareStore.getState().openPicker({
+                          route: '/registry',
+                          focus: `tag-card-${menuTag.id}`,
+                          label: menuTag.identifier,
+                          type: 'el',
+                        });
+                        closeMenu();
+                      }}
+                    >
+                      <Link2 className="w-3.5 h-3.5 shrink-0" />
+                      Поделиться
+                    </button>
+
+                    {selectedIds.size > 0 && (
+                      <button className={menuItemCls} onClick={() => { clearSelection(); closeMenu(); }}>
+                        <X className="w-3.5 h-3.5 shrink-0" />
+                        Снять выделение
+                      </button>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
           </motion.div>
         )}
 
@@ -4411,10 +4953,17 @@ export default function Registry() {
     const hasChildren = node.children && node.children.length > 0;
     const configList = node.meta.descriptions || [];
 
+    const isTreeSelected = selectedIds.has(node.id);
     return (
-      <div key={node.id} className="space-y-1">
+      <div key={node.id} id={`tree-node-${node.id}`} className="space-y-1">
         <div
-          className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${duplicateCodes.has((node.identifier || '').trim()) ? 'border-rose-300 dark:border-rose-700/60 bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-50 dark:hover:bg-rose-950/30' : 'border-slate-100 dark:border-slate-850 hover:bg-slate-50 dark:hover:bg-slate-900/60'}`}
+          className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${
+            duplicateCodes.has((node.identifier || '').trim())
+              ? 'border-rose-300 dark:border-rose-700/60 bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-50 dark:hover:bg-rose-950/30'
+              : isTreeSelected
+                ? 'border-emerald-400 dark:border-emerald-600 bg-emerald-50/60 dark:bg-emerald-950/20 ring-1 ring-emerald-400/60'
+                : 'border-slate-100 dark:border-slate-850 hover:bg-slate-50 dark:hover:bg-slate-900/60'
+          }`}
           style={{ marginLeft: `${level * 24}px` }}
         >
           <div className="flex items-center gap-2.5 min-w-0 flex-1 text-left">
