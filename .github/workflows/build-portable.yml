@@ -4,6 +4,9 @@ name: Портативный EXE
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - claude/management-section-redesign-bjdxoh
 
 permissions:
   contents: write
