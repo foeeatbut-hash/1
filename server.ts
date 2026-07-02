@@ -1847,6 +1847,24 @@ app.post('/api/projects/:projectId/tags/bulk-import', async (req: Request, res: 
 });
 
 // Update tag fields and json metadata
+// Массовое обновление metadata тегов одним запросом (Менеджмент: этап для N позиций).
+// Раньше клиент слал N последовательных PUT — на больших выборках это заметно тормозило.
+// ВАЖНО: маршрут объявлен раньше '/api/tags/:id', иначе «bulk-metadata» сматчится как id.
+app.put('/api/tags/bulk-metadata', async (req: Request, res: Response) => {
+  const { updates } = req.body as { updates: { id: string; metadata: string }[] };
+  if (!Array.isArray(updates) || updates.length === 0) {
+    return res.status(400).json({ error: 'updates[] required' });
+  }
+  const limited = updates.slice(0, 2000);
+  await prisma.$transaction(
+    limited.map(u => prisma.tag.update({
+      where: { id: String(u.id) },
+      data: { metadata: typeof u.metadata === 'string' ? u.metadata : JSON.stringify(u.metadata) },
+    }))
+  );
+  res.json({ success: true, updated: limited.length });
+});
+
 app.put('/api/tags/:id', async (req: Request, res: Response) => {
   const { identifier, department, wbs, fluid, metadata, equipmentId, brand } = req.body;
   const tag = await prisma.tag.update({
