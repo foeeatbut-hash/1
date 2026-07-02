@@ -232,8 +232,10 @@ export default function NotesManagement() {
   const handleExportWord = (e: React.MouseEvent, note: UserNote) => {
     e.stopPropagation();
     try {
-      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${note.title}</title></head>` +
-        `<body><h1>${note.title}</h1>${note.content || ''}</body></html>`;
+      // Инлайновые стили таблиц: Word не знает tailwind-классов, без них таблицы шли без рамок
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${note.title}</title>` +
+        `<style>body{font-family:Calibri,Arial,sans-serif;color:#0f172a} table{border-collapse:collapse;width:100%} td,th{border:1px solid #94a3b8;padding:6px} th{background:#f1f5f9}</style>` +
+        `</head><body><h1>${note.title}</h1>${note.content || ''}</body></html>`;
       const blob = new Blob(['﻿', html], { type: 'application/msword' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
