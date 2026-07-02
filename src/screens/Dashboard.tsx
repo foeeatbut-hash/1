@@ -11,7 +11,7 @@ import {
   Home, Clock, History, FileText, ArrowRight, ExternalLink,
   ChevronRight, Calendar, User, Database, BookmarkCheck,
   Layers, CheckSquare, Square, FolderPlus, Plus,
-  MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Tag, Fan, BookOpen, Users
+  MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Tag, Fan, BookOpen, Users, Briefcase
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -193,6 +193,7 @@ export default function Dashboard() {
             { name: 'Проекты', path: '/projects', icon: FolderKanban },
             { name: 'Проводник', path: '/explorer', icon: FolderOpen },
             { name: 'Теги', path: '/registry', icon: Tag },
+            { name: 'Менеджмент', path: '/management', icon: Briefcase },
             { name: 'Оборудование', path: '/equipment', icon: Fan },
             { name: 'Справочник', path: '/directory', icon: BookOpen },
             ...(user?.role === 'ADMIN' ? [{ name: 'Сотрудники', path: '/users', icon: Users }] : []),

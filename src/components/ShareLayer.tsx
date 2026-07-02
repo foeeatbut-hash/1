@@ -22,6 +22,8 @@ export default function ShareLayer() {
   useEffect(() => {
     if (!focusTarget) return;
     if (location.pathname !== focusTarget.r) return; // ждём перехода на нужный маршрут
+    // Карточки на холсте тегов центрирует сам раздел «Теги» (scrollIntoView не работает на холсте)
+    if (focusTarget.r === '/registry' && (focusTarget.f || '').startsWith('tag:')) return;
     const timer = setTimeout(() => {
       let el: HTMLElement | null = null;
       if (focusTarget.f) el = document.querySelector(`[data-share-focus="${CSS.escape(focusTarget.f)}"]`);
@@ -92,7 +94,8 @@ export default function ShareLayer() {
 
   const share = (target: User) => {
     if (!pickerCandidate) return;
-    const token = encodeShare({
+    // insert — готовый набор токенов (мультивыбор): каждый элемент отдельной кнопкой в одном сообщении
+    const token = pickerCandidate.insert ?? encodeShare({
       r: pickerCandidate.route,
       f: pickerCandidate.focus,
       l: pickerCandidate.label,

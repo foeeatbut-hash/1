@@ -23,6 +23,7 @@ const ProjectsManagement = lazy(() => import('./screens/ProjectsManagement'));
 const StickerWindow = lazy(() => import('./screens/StickerWindow'));
 const ChatManagement = lazy(() => import('./screens/ChatManagement'));
 const LogsManagement = lazy(() => import('./screens/LogsManagement'));
+const ProcurementManagement = lazy(() => import('./screens/ProcurementManagement'));
 
 import { SocketProvider } from './components/SocketProvider';
 import ActionLogWidget from './components/ActionLogWidget';
@@ -152,6 +153,7 @@ function AnimatedRoutes() {
             <Route path="/projects" element={<ProjectsManagement />} />
             <Route path="/explorer" element={<Explorer />} />
             <Route path="/registry" element={<Registry />} />
+            <Route path="/management" element={<ProcurementManagement />} />
             <Route path="/equipment" element={<Equipment />} />
             <Route path="/generator" element={<UniversalGenerator />} />
             <Route path="/directory" element={<DictionaryEditor />} />

@@ -7,6 +7,9 @@ export interface ShareCandidate {
   label: string;
   sel?: string;
   type: 'el' | 'text';
+  // Готовая строка вставки в чат (несколько токенов [[s:...]] в одном сообщении).
+  // Если задана — используется вместо кодирования route/focus/label.
+  insert?: string;
 }
 
 interface ShareState {
