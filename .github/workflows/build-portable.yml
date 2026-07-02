@@ -1,0 +1,75 @@
+# Сборка портативного Windows-exe на раннере GitHub и выкладка частей в papку portable/.
+# Запуск: вручную (workflow_dispatch) на нужной ветке.
+name: Портативный EXE
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-portable:
+    runs-on: windows-latest
+    steps:
+      - name: Код
+        uses: actions/checkout@v4
+
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Зависимости
+        run: npm ci
+
+      - name: Сборка фронтенда и сервера
+        run: npm run build
+
+      - name: Сборка Electron
+        run: npm run build:electron
+
+      # На Windows-раннере better-sqlite3 пересобирается под ABI Electron самим
+      # electron-builder (npmRebuild по умолчанию), поэтому prepare:win-native не нужен
+      - name: Портативный exe
+        run: npx electron-builder --win portable
+
+      - name: Разбивка на части (<95 МБ) и обновление portable/
+        shell: bash
+        run: |
+          set -e
+          VERSION=$(node -p "require('./package.json').version")
+          EXE=$(ls release/*.exe | head -1)
+          echo "Собран: $EXE ($(du -h "$EXE" | cut -f1))"
+          rm -f portable/*.part
+          split -b 95m -d -a 2 "$EXE" "portable/PDM-System-$VERSION.exe."
+          cd portable
+          for f in PDM-System-$VERSION.exe.??; do mv "$f" "$f.part"; done
+          PARTS=$(ls PDM-System-$VERSION.exe.*.part | sed 's/^/"/;s/$/"/' | paste -sd+ -)
+          printf '@echo off\r\nchcp 65001 >nul\r\ncopy /b %s "PDM System %s.exe" >nul\r\necho Готово: PDM System %s.exe — можно запускать.\r\npause\r\n' "$PARTS" "$VERSION" "$VERSION" > СОБРАТЬ-EXE.bat
+          ls -la
+
+      - name: Коммит частей в ветку
+        shell: bash
+        run: |
+          set -e
+          VERSION=$(node -p "require('./package.json').version")
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add portable
+          if git diff --cached --quiet; then
+            echo "Нет изменений в portable/"
+          else
+            git commit -m "build: портативный exe v$VERSION (собрано в GitHub Actions)
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+
+      - name: Целый exe как артефакт
+        uses: actions/upload-artifact@v4
+        with:
+          name: PDM-System-portable
+          path: release/*.exe
+          retention-days: 30
