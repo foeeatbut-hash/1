@@ -6,14 +6,12 @@ import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, Chevron
 import { motion, AnimatePresence } from 'motion/react';
 import ToastProvider from './ToastProvider';
 import ModalProvider from './ModalProvider';
-import UpdaterWidget from './UpdaterWidget';
 import { dataService } from '../services/dataService';
 import { useLogStore } from '../store/logStore';
 import { useAssistantStore } from '../store/assistantStore';
 import AssistantPanel from './AssistantPanel';
 import NotificationsPanel from './NotificationsPanel';
 import RightRail from './RightRail';
-import NotificationSettings from './NotificationSettings';
 import ShareLayer from './ShareLayer';
 import { useNotificationStore } from '../store/notificationStore';
 import { ENV_CONFIG } from '../config/env';
@@ -28,175 +26,59 @@ export default function Layout() {
   const sidebarHidden = location.pathname === '/';
   const chatUnread = useNotificationStore((s) => s.chatUnread);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-  const [profileTab, setProfileTab] = useState<'profile' | 'settings' | 'updates'>('profile');
-
-  const [dbLocation, setDbLocation] = useState('');
-  const [dbDisplayLocation, setDbDisplayLocation] = useState('');
-  const [dbType, setDbType] = useState<'LOCAL' | 'REMOTE' | string>('LOCAL');
-  const [activeDbType, setActiveDbType] = useState<'LOCAL' | 'REMOTE' | string>('LOCAL');
-  const [crashLogDir, setCrashLogDir] = useState('');
-  const [remoteUrl, setRemoteUrl] = useState('');
-  const [isTestingConnection, setIsTestingConnection] = useState(false);
-  const [isSavingDb, setIsSavingDb] = useState(false);
-  const [dbStatusMessage, setDbStatusMessage] = useState<{ text: string; success: boolean } | null>(null);
-
   const addLog = useLogStore((state) => state.addLog);
   const toggleAssistant = useAssistantStore((s) => s.toggleOpen);
 
-  React.useEffect(() => {
-    dataService.getDbConfig()
-      .then((config: any) => {
-        setDbLocation(config.databasePath);
-        setDbDisplayLocation(config.displayPath || config.databasePath);
-        setDbType(config.current_db_type || 'LOCAL');
-        setActiveDbType(config.current_db_type || 'LOCAL');
-        setRemoteUrl(config.database_url || '');
-        setCrashLogDir(config.crash_log_dir || '');
-      })
-      .catch(() => {});
+  // Глобальный перехват событий для детального логирования действий пользователя.
+  // Пишем КАЖДЫЙ клик (кнопка, поле, строка, пустое место) — чтобы при ошибке
+  // по журналу было видно, что именно нажали и что произошло дальше.
+  const describeElement = React.useCallback((el: HTMLElement, target?: HTMLElement): string => {
+    const getAttr = (node: HTMLElement | undefined, attr: string): string | null => {
+      if (!node) return null;
+      const val = node.getAttribute(attr);
+      return val && val.trim() ? val.trim() : null;
+    };
+    const labelOrTitle = getAttr(el, 'aria-label') || getAttr(el, 'title') || getAttr(el, 'placeholder')
+      || getAttr(target, 'aria-label') || getAttr(target, 'title') || getAttr(target, 'placeholder');
+    let text = '';
+    if (el.textContent) {
+      text = el.textContent.replace(/\s+/g, ' ').trim();
+      if (text.length > 40) text = text.substring(0, 37) + '...';
+    }
+    const idOrName = getAttr(el, 'id') || getAttr(el, 'name') || getAttr(target, 'id') || getAttr(target, 'name');
+    const shareLabel = getAttr(el, 'data-share-label');
+    return labelOrTitle || shareLabel || text || idOrName || `<${el.tagName.toLowerCase()}>`;
   }, []);
 
-  const handleDbSwitch = async (targetType: string, urlKey: string, dbPath?: string) => {
-    setIsSavingDb(true);
-    setDbStatusMessage(null);
-    try {
-      const resp = await fetch(`${ENV_CONFIG.apiUrl}/db/switch`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          current_db_type: targetType,
-          database_url: urlKey,
-          ...(typeof dbPath === 'string' ? { database_path: dbPath } : {})
-        })
-      });
-      const data = await resp.json();
-      if (data.success) {
-        setDbStatusMessage({ text: data.message, success: true });
-        
-        // Refresh active state
-        const config = await dataService.getDbConfig() as any;
-        setDbLocation(config.databasePath);
-        setDbDisplayLocation(config.displayPath || config.databasePath);
-        setDbType(config.current_db_type || 'LOCAL');
-        setActiveDbType(config.current_db_type || 'LOCAL');
-        setRemoteUrl(config.database_url || '');
-        
-        alert(data.message || 'Подключение успешно обновлено!');
-        window.location.reload();
-      } else {
-        setDbStatusMessage({ text: data.message || 'Ошибка подключения!', success: false });
-      }
-    } catch (err: any) {
-      setDbStatusMessage({ text: `Ошибка запроса: ${err.message}`, success: false });
-    } finally {
-      setIsSavingDb(false);
-    }
-  };
-
-  // Выбор существующего файла БД (например, созданного другим пользователем)
-  const handlePickDbFile = async () => {
-    const win = window as any;
-    if (!win.electron?.ipcRenderer?.invoke) {
-      alert('Выбор файла доступен только в приложении PDM System (Electron).');
-      return;
-    }
-    try {
-      const filePath = await win.electron.ipcRenderer.invoke('database:select-file');
-      if (filePath) {
-        await handleDbSwitch('LOCAL', '', String(filePath));
-      }
-    } catch (err: any) {
-      setDbStatusMessage({ text: `Ошибка выбора файла: ${err.message}`, success: false });
-    }
-  };
-
-  const handleResetDbPath = async () => {
-    if (!confirm('Вернуть стандартное расположение базы данных (папка профиля AppData/pdm-app)?')) return;
-    await handleDbSwitch('LOCAL', '', '');
-  };
-
-  const saveCrashLogDir = async (dir: string) => {
-    try {
-      const resp = await fetch(`${ENV_CONFIG.apiUrl}/config/logs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ crash_log_dir: dir })
-      });
-      const data = await resp.json();
-      if (data.success) {
-        setCrashLogDir(data.crash_log_dir || '');
-        addLog('INFO', 'Система', `Папка для crash-логов изменена: ${data.crash_log_dir || 'по умолчанию (AppData/pdm-app/logs)'}`);
-      }
-    } catch (err: any) {
-      addLog('ERROR', 'Система', `Не удалось сохранить папку crash-логов: ${err.message}`);
-    }
-  };
-
-  const handlePickCrashLogDir = async () => {
-    const win = window as any;
-    if (!win.electron?.ipcRenderer?.invoke) {
-      alert('Выбор папки доступен только в приложении PDM System (Electron).');
-      return;
-    }
-    try {
-      const dirPath = await win.electron.ipcRenderer.invoke('dialog:openDirectory');
-      if (dirPath) {
-        await saveCrashLogDir(String(dirPath));
-      }
-    } catch (err: any) {
-      addLog('ERROR', 'Система', `Ошибка выбора папки: ${err.message}`);
-    }
-  };
-
-  const handleDbTest = async () => {
-    setIsTestingConnection(true);
-    setDbStatusMessage(null);
-    try {
-      const resp = await fetch(`${ENV_CONFIG.apiUrl}/db/test`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          current_db_type: dbType,
-          database_url: remoteUrl
-        })
-      });
-      const data = await resp.json();
-      if (data.success) {
-        setDbStatusMessage({ text: data.message, success: true });
-      } else {
-        setDbStatusMessage({ text: data.message, success: false });
-      }
-    } catch (err: any) {
-      setDbStatusMessage({ text: `Ошибка при проверке: ${err.message}`, success: false });
-    } finally {
-      setIsTestingConnection(false);
-    }
-  };
-
-  // Глобальный перехват событий для детального логирования действий пользователя
   const handleGlobalClick = React.useCallback((e: MouseEvent) => {
     const target = e.target as HTMLElement | null;
     if (!target || typeof target.tagName !== 'string') return;
 
-    // Безопасное извлечение атрибутов
-    const getAttr = (el: HTMLElement, attr: string): string | null => {
-      const val = el.getAttribute(attr);
-      return val && val.trim() ? val.trim() : null;
-    };
+    const tagName = target.tagName.toUpperCase();
 
-    // Поиск ближайшего интерактивного элемента
+    // 1. Клик в поле ввода — отдельная запись (видно, если поле «не печатает»)
+    if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT' || (target as any).isContentEditable) {
+      const inputEl = target as HTMLInputElement;
+      if (inputEl.type === 'password') {
+        addLog('INFO', 'UI_CLICK', 'Клик в поле пароля');
+        return;
+      }
+      const state = inputEl.disabled ? ' [ПОЛЕ ОТКЛЮЧЕНО]' : (inputEl.readOnly ? ' [ТОЛЬКО ЧТЕНИЕ]' : '');
+      addLog('INFO', 'UI_CLICK', `Клик в поле: "${describeElement(target)}"${state}`);
+      return;
+    }
+
+    // 2. Ближайший интерактивный элемент (кнопка/ссылка/пункт списка)
     let interactive: HTMLElement | null = null;
     let current: HTMLElement | null = target;
-
     while (current && current !== document.body && current !== document.documentElement) {
-      const tagName = current.tagName.toUpperCase();
+      const tn = current.tagName.toUpperCase();
       const role = current.getAttribute('role');
       const classes = current.className || '';
       const hasCursorPointer = typeof classes === 'string' && (classes.includes('cursor-pointer') || current.classList.contains('cursor-pointer'));
-
       if (
-        tagName === 'BUTTON' ||
-        tagName === 'A' ||
+        tn === 'BUTTON' ||
+        tn === 'A' ||
         role === 'button' ||
         role === 'option' ||
         hasCursorPointer ||
@@ -209,34 +91,27 @@ export default function Layout() {
       current = current.parentElement;
     }
 
-    if (!interactive) return;
-
-    // Определение описания элемента по приоритетам
-    const labelOrTitle = getAttr(interactive, 'aria-label') || getAttr(interactive, 'title') || getAttr(target, 'aria-label') || getAttr(target, 'title');
-    
-    let text = '';
-    if (interactive.textContent) {
-      text = interactive.textContent.replace(/\s+/g, ' ').trim();
-      if (text.length > 40) {
-        text = text.substring(0, 37) + '...';
-      }
+    if (interactive) {
+      const disabledNote = (interactive as HTMLButtonElement).disabled ? ' [КНОПКА ОТКЛЮЧЕНА]' : '';
+      addLog('INFO', 'UI_CLICK', `Нажата кнопка/элемент: "${describeElement(interactive, target)}"${disabledNote}`);
+      return;
     }
 
-    const idOrName = getAttr(interactive, 'id') || getAttr(interactive, 'name') || getAttr(target, 'id') || getAttr(target, 'name');
+    // 3. Прочие клики (строка, карточка, пустое место) — тоже фиксируем
+    const desc = describeElement(target);
+    addLog('INFO', 'UI_CLICK', `Клик: ${desc}`);
+  }, [addLog, describeElement]);
 
-    let extractedText = '';
-    if (labelOrTitle) {
-      extractedText = labelOrTitle;
-    } else if (text) {
-      extractedText = text;
-    } else if (idOrName) {
-      extractedText = idOrName;
-    }
-
-    if (extractedText) {
-      addLog('INFO', 'UI_CLICK', `Нажата кнопка/элемент: "${extractedText}"`);
-    }
-  }, [addLog]);
+  // Фокус в поле ввода: фиксируем сам факт входа в поле —
+  // если дальше нет записи о вводе, значит поле не принимало текст
+  const handleGlobalFocus = React.useCallback((e: FocusEvent) => {
+    const target = e.target as HTMLElement | null;
+    if (!target || typeof target.tagName !== 'string') return;
+    const tagName = target.tagName.toUpperCase();
+    if (tagName !== 'INPUT' && tagName !== 'TEXTAREA' && tagName !== 'SELECT' && !(target as any).isContentEditable) return;
+    if (tagName === 'INPUT' && (target as HTMLInputElement).type === 'password') return;
+    addLog('INFO', 'UI_FOCUS', `Фокус в поле: "${describeElement(target)}"`);
+  }, [addLog, describeElement]);
 
   const handleGlobalBlur = React.useCallback((e: FocusEvent) => {
     const target = e.target as HTMLElement | null;
@@ -310,11 +185,27 @@ export default function Layout() {
   React.useEffect(() => {
     window.addEventListener('click', handleGlobalClick, true);
     window.addEventListener('blur', handleGlobalBlur, true);
+    window.addEventListener('focus', handleGlobalFocus, true);
+
+    // Ошибки JS и промисов — сразу в журнал, рядом с последним кликом
+    const onError = (e: ErrorEvent) => {
+      addLog('ERROR', 'JS_ERROR', `${e.message} (${e.filename?.split('/').pop() || ''}:${e.lineno})`, e.error?.stack);
+    };
+    const onRejection = (e: PromiseRejectionEvent) => {
+      const reason: any = e.reason;
+      addLog('ERROR', 'PROMISE', String(reason?.message || reason), reason?.stack);
+    };
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onRejection);
+
     return () => {
       window.removeEventListener('click', handleGlobalClick, true);
       window.removeEventListener('blur', handleGlobalBlur, true);
+      window.removeEventListener('focus', handleGlobalFocus, true);
+      window.removeEventListener('error', onError);
+      window.removeEventListener('unhandledrejection', onRejection);
     };
-  }, [handleGlobalClick, handleGlobalBlur]);
+  }, [handleGlobalClick, handleGlobalBlur, handleGlobalFocus, addLog]);
 
   const handleLogout = () => {
     setUser(null);
@@ -507,216 +398,24 @@ export default function Layout() {
                     </div>
                   </div>
 
-                  {/* Вкладки профиля */}
-                  <div className="flex gap-1 bg-slate-100 dark:bg-dark-surface rounded-lg p-1">
-                    {([['profile', 'Профиль'], ['settings', 'Настройки'], ['updates', 'Обновления']] as const).map(([id, label]) => (
-                      <button key={id} onClick={() => setProfileTab(id)}
-                        className={`flex-1 py-1.5 rounded-md text-xs font-semibold transition-colors cursor-pointer ${profileTab === id ? 'bg-white dark:bg-dark-panel shadow-sm text-slate-900 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:hover:text-white'}`}>
-                        {label}
-                      </button>
+                  {/* Данные профиля */}
+                  <div className="flex flex-col gap-1.5">
+                    {[['ФИО', user?.name], ['Логин', user?.symbol], ['Роль', user?.role]].map(([k, v]) => (
+                      <div key={k} className="flex items-center justify-between px-2.5 py-2 rounded-lg border border-slate-150 dark:border-dark-border bg-slate-50 dark:bg-dark-surface/40 text-xs">
+                        <span className="text-slate-400 dark:text-dark-text-muted font-semibold">{k}</span>
+                        <span className="text-slate-800 dark:text-dark-text-main font-bold truncate ml-2">{v || '—'}</span>
+                      </div>
                     ))}
                   </div>
 
-                  {profileTab === 'profile' && (
-                    <div className="flex flex-col gap-1.5">
-                      {[['ФИО', user?.name], ['Логин', user?.symbol], ['Роль', user?.role]].map(([k, v]) => (
-                        <div key={k} className="flex items-center justify-between px-2.5 py-2 rounded-lg border border-slate-150 dark:border-dark-border bg-slate-50 dark:bg-dark-surface/40 text-xs">
-                          <span className="text-slate-400 dark:text-dark-text-muted font-semibold">{k}</span>
-                          <span className="text-slate-800 dark:text-dark-text-main font-bold truncate ml-2">{v || '—'}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {profileTab === 'settings' && (<>
-                  {/* Themes Selection controls */}
-                  <div className="flex flex-col gap-1.5">
-                    <span className="text-xs font-bold text-slate-400 dark:text-dark-text-muted uppercase tracking-wider">Тема интерфейса:</span>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <button
-                        onClick={() => { if (theme !== 'light') toggleTheme(); }}
-                        className={`py-1.5 px-2 rounded-lg border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                          theme !== 'dark'
-                            ? 'bg-emerald-600 text-white border-emerald-700'
-                            : 'bg-slate-50 dark:bg-dark-surface text-slate-600 dark:text-dark-text-muted border-slate-200 dark:border-dark-border hover:bg-slate-100 dark:hover:bg-dark-panel'
-                        }`}
-                      >
-                        <Sun className="w-3 h-3 text-amber-500 shrink-0" />
-                        <span>Светлая</span>
-                      </button>
-                      <button
-                        onClick={() => { if (theme === 'light') toggleTheme(); }}
-                        className={`py-1.5 px-2 rounded-lg border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                          theme === 'dark'
-                            ? 'bg-emerald-600 text-white border-emerald-500 dark:bg-emerald-600 dark:border-emerald-500 dark:text-white'
-                            : 'bg-slate-50 dark:bg-dark-surface text-slate-600 dark:text-dark-text-muted border-slate-200 dark:border-dark-border hover:bg-slate-100 dark:hover:bg-dark-panel'
-                        }`}
-                      >
-                        <Moon className="w-3 h-3 text-emerald-400 shrink-0" />
-                        <span>Темная</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Active Database path display widget */}
-                  <div className="bg-slate-50 dark:bg-dark-surface/40 p-2.5 rounded-xl border border-slate-150 dark:border-dark-border text-left">
-                    <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-dark-text-muted font-bold uppercase tracking-wider mb-2 font-sans">
-                      <Database className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                      <span>База данных</span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-1.5 mb-2.5">
-                      <button
-                        type="button"
-                        onClick={() => setDbType('LOCAL')}
-                        className={`py-1 px-1.5 rounded-lg border text-[11px] font-semibold transition text-center cursor-pointer ${
-                          dbType === 'LOCAL'
-                            ? 'bg-emerald-600 text-white border-emerald-700'
-                            : 'bg-white dark:bg-dark-panel text-slate-600 dark:text-dark-text-muted border-slate-200 dark:border-dark-border hover:bg-slate-100 dark:hover:bg-dark-surface'
-                        }`}
-                      >
-                        Локальная
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDbType('REMOTE')}
-                        className={`py-1 px-1.5 rounded-lg border text-[11px] font-semibold transition text-center cursor-pointer ${
-                          dbType === 'REMOTE'
-                            ? 'bg-emerald-600 text-white border-emerald-700'
-                            : 'bg-white dark:bg-dark-panel text-slate-600 dark:text-dark-text-muted border-slate-200 dark:border-dark-border hover:bg-slate-100 dark:hover:bg-dark-surface'
-                        }`}
-                      >
-                        Сеть / PostgreSQL
-                      </button>
-                    </div>
-
-                    {dbType === 'LOCAL' ? (
-                      <div className="flex flex-col gap-1.5">
-                        <p className="text-[10px] text-slate-500 dark:text-dark-text-muted leading-tight">
-                          База database.sqlite в профиле пользователя. Работает автономно.
-                        </p>
-                        <p 
-                          className="font-mono text-[9px] text-slate-600 dark:text-dark-text-muted bg-white dark:bg-dark-panel p-1.5 border border-slate-200 dark:border-dark-border rounded leading-tight select-all truncate"
-                          title={dbLocation}
-                        >
-                          {dbDisplayLocation || 'database.sqlite'}
-                        </p>
-                        <div className="grid grid-cols-2 gap-1.5">
-                          <button
-                            type="button"
-                            disabled={isSavingDb}
-                            onClick={handlePickDbFile}
-                            className="bg-slate-100 hover:bg-slate-200 dark:bg-dark-surface dark:hover:bg-dark-panel text-slate-700 dark:text-dark-text-main text-[10px] font-semibold py-1 px-1.5 rounded-lg transition text-center cursor-pointer disabled:opacity-50"
-                          >
-                            Выбрать файл БД…
-                          </button>
-                          <button
-                            type="button"
-                            disabled={isSavingDb}
-                            onClick={handleResetDbPath}
-                            className="bg-slate-100 hover:bg-slate-200 dark:bg-dark-surface dark:hover:bg-dark-panel text-slate-700 dark:text-dark-text-main text-[10px] font-semibold py-1 px-1.5 rounded-lg transition text-center cursor-pointer disabled:opacity-50"
-                          >
-                            Стандартный путь
-                          </button>
-                        </div>
-                        <button
-                          type="button"
-                          disabled={isSavingDb}
-                          onClick={() => handleDbSwitch('LOCAL', '')}
-                          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold py-1 px-3 rounded-lg transition text-center cursor-pointer disabled:opacity-50"
-                        >
-                          {isSavingDb ? 'Подключение...' : activeDbType === 'LOCAL' ? 'Локальный режим активен ✓' : 'Включить Локальный режим'}
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col gap-1.5">
-                        <p className="text-[10px] text-slate-500 dark:text-dark-text-muted leading-tight">
-                          Адрес удаленного подключения PostgreSQL:
-                        </p>
-                        <input
-                          type="text"
-                          value={remoteUrl}
-                          onChange={(e) => setRemoteUrl(e.target.value)}
-                          placeholder="postgresql://user:password@host:5432/dbname"
-                          className="w-full font-mono text-[10px] bg-white dark:bg-dark-panel text-slate-850 dark:text-dark-text-main p-1.5 border border-slate-200 dark:border-dark-border rounded outline-none focus:border-emerald-500"
-                        />
-                        <div className="grid grid-cols-2 gap-1.5 mt-1">
-                          <button
-                            type="button"
-                            disabled={isTestingConnection}
-                            onClick={handleDbTest}
-                            className="bg-slate-100 hover:bg-slate-200 dark:bg-dark-surface dark:hover:bg-dark-panel text-slate-700 dark:text-dark-text-main text-[10px] font-semibold py-1 px-1.5 rounded-lg transition text-center cursor-pointer disabled:opacity-50"
-                          >
-                            {isTestingConnection ? 'Проверка...' : 'Тестировать'}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={isSavingDb}
-                            onClick={() => handleDbSwitch('REMOTE', remoteUrl)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold py-1 px-1.5 rounded-lg transition text-center cursor-pointer disabled:opacity-50"
-                          >
-                            {isSavingDb ? 'Загрузка...' : 'Сохранить'}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {dbStatusMessage && (
-                      <div className={`mt-2 p-1 text-[9px] font-bold text-center rounded leading-tight ${
-                        dbStatusMessage.success 
-                          ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-450' 
-                          : 'bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-450'
-                      }`}>
-                        {dbStatusMessage.text}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Crash-log directory settings */}
-                  <div className="bg-slate-50 dark:bg-dark-surface/40 p-2.5 rounded-xl border border-slate-150 dark:border-dark-border text-left">
-                    <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-dark-text-muted font-bold uppercase tracking-wider mb-1.5 font-sans">
-                      <Terminal className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                      <span>Crash-логи</span>
-                    </div>
-                    <p className="text-[10px] text-slate-500 dark:text-dark-text-muted leading-tight mb-1.5">
-                      Папка для аварийных журналов при закрытии приложения:
-                    </p>
-                    <p
-                      className="font-mono text-[9px] text-slate-600 dark:text-dark-text-muted bg-white dark:bg-dark-panel p-1.5 border border-slate-200 dark:border-dark-border rounded leading-tight select-all truncate mb-1.5"
-                      title={crashLogDir || 'AppData/pdm-app/logs (по умолчанию)'}
-                    >
-                      {crashLogDir || 'AppData/pdm-app/logs (по умолчанию)'}
-                    </p>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <button
-                        type="button"
-                        onClick={handlePickCrashLogDir}
-                        className="bg-slate-100 hover:bg-slate-200 dark:bg-dark-surface dark:hover:bg-dark-panel text-slate-700 dark:text-dark-text-main text-[10px] font-semibold py-1 px-1.5 rounded-lg transition text-center cursor-pointer"
-                      >
-                        Выбрать папку…
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => saveCrashLogDir('')}
-                        className="bg-slate-100 hover:bg-slate-200 dark:bg-dark-surface dark:hover:bg-dark-panel text-slate-700 dark:text-dark-text-main text-[10px] font-semibold py-1 px-1.5 rounded-lg transition text-center cursor-pointer"
-                      >
-                        По умолчанию
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Уведомления */}
-                  <div className="flex flex-col gap-1.5">
-                    <span className="text-xs font-bold text-slate-400 dark:text-dark-text-muted uppercase tracking-wider">Уведомления:</span>
-                    <NotificationSettings />
-                  </div>
-                  </>)}
-
-                  {profileTab === 'updates' && (
-                    <div className="w-full">
-                      <UpdaterWidget />
-                    </div>
-                  )}
+                  {/* Все настройки перенесены в раздел «Настройки» (левая панель) */}
+                  <button
+                    onClick={() => { setIsProfileMenuOpen(false); navigate('/settings'); }}
+                    className="flex w-full items-center justify-center gap-1.5 px-2 py-2 text-xs font-bold text-slate-700 dark:text-dark-text-main bg-slate-100 dark:bg-dark-surface hover:bg-slate-200 dark:hover:bg-dark-panel border border-slate-200 dark:border-dark-border rounded-lg transition-all cursor-pointer"
+                  >
+                    <Settings className="w-3.5 h-3.5 text-emerald-600" />
+                    Настройки программы
+                  </button>
 
                   {/* Foot Actions: Logout */}
                   <button 
@@ -732,6 +431,22 @@ export default function Layout() {
             </AnimatePresence>,
             document.body
           )}
+
+          {/* Настройки программы — над профилем (перенесены из окна профиля) */}
+          <Link
+            to="/settings"
+            data-share-route="/settings"
+            data-share-label="Настройки"
+            title="Настройки программы"
+            className={`w-full flex flex-col items-center gap-1 p-2 mb-1.5 rounded-xl transition-all cursor-pointer select-none ${
+              location.pathname === '/settings'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-panel hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Settings className="w-5 h-5 shrink-0" />
+            <span className="text-[10px] font-semibold leading-tight">Настройки</span>
+          </Link>
 
           {/* Interactive Profile Clickable Button (Trigger) */}
           <button

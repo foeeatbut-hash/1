@@ -4,9 +4,9 @@ import { useToastStore } from '../store/toastStore';
 import { dataService, UserNote } from '../services/dataService';
 import RichTextEditor from '../components/RichTextEditor';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Plus, Search, BookOpen, Calendar, Trash2, ExternalLink, 
-  Save, FileText, CheckCircle2, RefreshCw, Pin, PinOff, Copy, Download
+import {
+  Plus, Search, BookOpen, Calendar, Trash2, ExternalLink,
+  Save, FileText, CheckCircle2, RefreshCw, Pin, PinOff, Copy, Download, FileType2, Printer
 } from 'lucide-react';
 
 const COLORS = [
@@ -228,6 +228,46 @@ export default function NotesManagement() {
     }
   };
 
+  // Экспорт заметки в Word (.doc открывается Word'ом как HTML-документ)
+  const handleExportWord = (e: React.MouseEvent, note: UserNote) => {
+    e.stopPropagation();
+    try {
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${note.title}</title></head>` +
+        `<body><h1>${note.title}</h1>${note.content || ''}</body></html>`;
+      const blob = new Blob(['﻿', html], { type: 'application/msword' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${(note.title || 'заметка').replace(/[\\/:*?"<>|]/g, '_')}.doc`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      addToast('Заметка экспортирована в Word (.doc)', 'success');
+    } catch (err: any) {
+      addToast('Не удалось экспортировать заметку', 'error');
+    }
+  };
+
+  // Печать заметки (скрытый iframe, чтобы не печатать весь интерфейс)
+  const handlePrintNote = (e: React.MouseEvent, note: UserNote) => {
+    e.stopPropagation();
+    try {
+      const frame = document.createElement('iframe');
+      frame.style.position = 'fixed';
+      frame.style.right = '-10000px';
+      document.body.appendChild(frame);
+      const doc = frame.contentDocument!;
+      doc.open();
+      doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${note.title}</title>` +
+        `<style>body{font-family:Arial,sans-serif;padding:24px;color:#0f172a} table{border-collapse:collapse} td,th{border:1px solid #94a3b8;padding:6px}</style>` +
+        `</head><body><h1>${note.title}</h1>${note.content || ''}</body></html>`);
+      doc.close();
+      frame.contentWindow!.focus();
+      frame.contentWindow!.print();
+      setTimeout(() => document.body.removeChild(frame), 2000);
+    } catch (err: any) {
+      addToast('Не удалось открыть печать', 'error');
+    }
+  };
+
   // Ctrl+S — мгновенное сохранение
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -389,6 +429,20 @@ export default function NotesManagement() {
                         title="Экспорт в TXT"
                       >
                         <Download className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={(e) => handleExportWord(e, note)}
+                        className="p-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded transition-colors"
+                        title="Экспорт в Word (.doc)"
+                      >
+                        <FileType2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={(e) => handlePrintNote(e, note)}
+                        className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded transition-colors"
+                        title="Печать заметки"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={(e) => handleOpenSticker(e, note.id)}

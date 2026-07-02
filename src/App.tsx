@@ -24,6 +24,7 @@ const StickerWindow = lazy(() => import('./screens/StickerWindow'));
 const ChatManagement = lazy(() => import('./screens/ChatManagement'));
 const LogsManagement = lazy(() => import('./screens/LogsManagement'));
 const ProcurementManagement = lazy(() => import('./screens/ProcurementManagement'));
+const SettingsScreen = lazy(() => import('./screens/SettingsScreen'));
 
 import { SocketProvider } from './components/SocketProvider';
 import ActionLogWidget from './components/ActionLogWidget';
@@ -154,6 +155,7 @@ function AnimatedRoutes() {
             <Route path="/explorer" element={<Explorer />} />
             <Route path="/registry" element={<Registry />} />
             <Route path="/management" element={<ProcurementManagement />} />
+            <Route path="/settings" element={<SettingsScreen />} />
             <Route path="/equipment" element={<Equipment />} />
             <Route path="/generator" element={<UniversalGenerator />} />
             <Route path="/directory" element={<DictionaryEditor />} />

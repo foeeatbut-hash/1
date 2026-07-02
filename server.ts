@@ -161,9 +161,12 @@ function ensureHealthyLocalDb(dbPath: string) {
     const Database = require('better-sqlite3');
     const db = new Database(dbPath);
     try {
-      const integrity = db.pragma('integrity_check') as Array<{ integrity_check: string }>;
+      // quick_check вместо полного integrity_check: на больших базах (файлы
+      // хранятся внутри БД) полная проверка занимала многие секунды при каждом
+      // запуске — это главная причина «долго запускается»
+      const integrity = db.pragma('quick_check') as Array<{ quick_check: string }>;
       const ok = Array.isArray(integrity) && integrity.length > 0 &&
-        String(integrity[0].integrity_check ?? integrity[0]).toLowerCase() === 'ok';
+        String((integrity[0] as any).quick_check ?? (integrity[0] as any).integrity_check ?? integrity[0]).toLowerCase() === 'ok';
       if (!ok) {
         problem = `integrity_check провален: ${JSON.stringify(integrity).slice(0, 300)}`;
       } else {
@@ -854,6 +857,114 @@ app.post('/api/db/save', async (req: Request, res: Response) => {
   (app as any).handle(req, res);
 });
 
+// ── Надёжное время (анти-обход срока действия профиля переводом часов) ─────────
+// Локальные часы легко перевести назад, поэтому срок действия профиля проверяем
+// по «надёжному времени»: максимум из локальных часов, монотонного якоря
+// (максимальное когда-либо замеченное время, хранится в БД и в скрытом файле)
+// и сетевого времени (заголовок Date с надёжных HTTPS-серверов, когда есть сеть).
+// Часы назад не переводятся: якорь только растёт.
+
+const TIME_ANCHOR_FILE = path.join(os.homedir(), '.pdm-time-anchor');
+let timeAnchorMs = 0;          // максимальное замеченное время
+let timeTampered = false;      // зафиксирован откат часов
+let lastAnchorPersistMs = 0;   // троттлинг записи якоря
+
+function loadTimeAnchorFromFile(): number {
+  try {
+    const raw = fs.readFileSync(TIME_ANCHOR_FILE, 'utf-8').trim();
+    const v = parseInt(raw, 36); // не бросается в глаза как timestamp
+    return Number.isFinite(v) ? v : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function loadTimeAnchorFromDb(): Promise<number> {
+  try {
+    const s = await prisma.appSetting.findFirst({ where: { key: 'time_anchor', userId: null } });
+    const v = s ? parseInt(String(s.value), 36) : 0;
+    return Number.isFinite(v) ? v : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function persistTimeAnchor(ms: number) {
+  try { fs.writeFileSync(TIME_ANCHOR_FILE, ms.toString(36), 'utf-8'); } catch (_) {}
+  try { await upsertSetting('time_anchor', null, ms.toString(36)); } catch (_) {}
+}
+
+// Синхронная оценка надёжного времени (для быстрых проверок прав)
+function trustedNowSync(): number {
+  const now = Date.now();
+  if (timeAnchorMs === 0) timeAnchorMs = loadTimeAnchorFromFile();
+  if (now >= timeAnchorMs) {
+    timeAnchorMs = now;
+    if (now - lastAnchorPersistMs > 60_000) {
+      lastAnchorPersistMs = now;
+      persistTimeAnchor(now);
+    }
+    return now;
+  }
+  // Часы позади якоря. Небольшая разница (< 6 ч) — допуск на смену пояса,
+  // больше — явный перевод часов назад
+  if (timeAnchorMs - now > 6 * 3600_000) timeTampered = true;
+  return timeAnchorMs;
+}
+
+// Сетевое время: заголовок Date от нескольких независимых HTTPS-серверов
+function fetchNetworkTimeMs(timeoutMs = 2500): Promise<number | null> {
+  const https = require('https');
+  const hosts = ['www.google.com', 'ya.ru', 'www.cloudflare.com'];
+  const tryHost = (host: string) => new Promise<number | null>((resolve) => {
+    try {
+      const req = https.request({ host, method: 'HEAD', path: '/', timeout: timeoutMs }, (r: any) => {
+        const d = r.headers && r.headers.date ? Date.parse(r.headers.date) : NaN;
+        r.resume();
+        resolve(Number.isFinite(d) ? d : null);
+      });
+      req.on('timeout', () => { req.destroy(); resolve(null); });
+      req.on('error', () => resolve(null));
+      req.end();
+    } catch {
+      resolve(null);
+    }
+  });
+  return new Promise((resolve) => {
+    let settled = false;
+    let pending = hosts.length;
+    const done = (v: number | null) => {
+      if (v !== null && !settled) { settled = true; resolve(v); }
+      else if (--pending === 0 && !settled) resolve(null);
+    };
+    hosts.forEach(h => tryHost(h).then(done));
+    setTimeout(() => { if (!settled) { settled = true; resolve(null); } }, timeoutMs + 500);
+  });
+}
+
+// Полная проверка (используется при входе): якорь из БД + сетевое время
+async function trustedNowFull(): Promise<{ now: number; tampered: boolean; source: string }> {
+  const dbAnchor = await loadTimeAnchorFromDb();
+  if (dbAnchor > timeAnchorMs) timeAnchorMs = dbAnchor;
+  let source = 'local';
+  let now = trustedNowSync();
+
+  const netTime = await fetchNetworkTimeMs();
+  if (netTime) {
+    source = 'network';
+    // Сетевое время авторитетно: если локальные часы отстают от него
+    // больше чем на 10 минут — часы переведены назад
+    if (netTime - Date.now() > 10 * 60_000) timeTampered = true;
+    if (netTime > now) now = netTime;
+    if (netTime > timeAnchorMs) {
+      timeAnchorMs = netTime;
+      lastAnchorPersistMs = Date.now();
+      await persistTimeAnchor(netTime);
+    }
+  }
+  return { now, tampered: timeTampered, source };
+}
+
 // Users
 app.post('/api/login', async (req: Request, res: Response) => {
   const { symbol, password } = req.body;
@@ -884,9 +995,19 @@ app.post('/api/login', async (req: Request, res: Response) => {
         if (user.isActive === false) {
           return res.status(403).json({ success: false, message: 'Профиль отключен администратором. Обратитесь к администратору системы.' });
         }
-        if (user.validUntil && new Date(user.validUntil).getTime() < Date.now()) {
-          const dt = new Date(user.validUntil).toLocaleDateString('ru-RU');
-          return res.status(403).json({ success: false, message: `Срок действия профиля истек ${dt}. Обратитесь к администратору для продления доступа.` });
+        if (user.validUntil) {
+          // Срок проверяем по надёжному времени: якорь + сеть (перевод часов не помогает)
+          const { now, tampered } = await trustedNowFull();
+          if (tampered && user.role !== 'ADMIN') {
+            return res.status(403).json({ success: false, message: 'Обнаружен перевод системных часов назад. Вход для профилей со сроком действия заблокирован — верните корректную дату и время.' });
+          }
+          if (new Date(user.validUntil).getTime() < now) {
+            const dt = new Date(user.validUntil).toLocaleDateString('ru-RU');
+            return res.status(403).json({ success: false, message: `Срок действия профиля истек ${dt}. Обратитесь к администратору для продления доступа.` });
+          }
+        } else {
+          // Обновляем якорь времени и для бессрочных входов
+          trustedNowSync();
         }
         return res.json({ success: true, user });
       } else {
@@ -919,8 +1040,14 @@ app.get('/api/auth/check', async (req: Request, res: Response) => {
     if (user.isActive === false) {
       return res.json({ valid: false, reason: 'Профиль отключен администратором.' });
     }
-    if (user.validUntil && new Date(user.validUntil).getTime() < Date.now()) {
-      return res.json({ valid: false, reason: `Срок действия профиля истек ${new Date(user.validUntil).toLocaleDateString('ru-RU')}.` });
+    if (user.validUntil) {
+      const now = trustedNowSync();
+      if (timeTampered && user.role !== 'ADMIN') {
+        return res.json({ valid: false, reason: 'Обнаружен перевод системных часов назад. Верните корректную дату и время.' });
+      }
+      if (new Date(user.validUntil).getTime() < now) {
+        return res.json({ valid: false, reason: `Срок действия профиля истек ${new Date(user.validUntil).toLocaleDateString('ru-RU')}.` });
+      }
     }
     return res.json({ valid: true });
   } catch (err: any) {
@@ -1169,12 +1296,14 @@ function userCan(user: any, feature: string): boolean {
   if (!user) return false;
   if (user.role === 'ADMIN') return true;                       // админ всегда главнее
   if (user.isActive === false) return false;
-  if (user.validUntil && new Date(user.validUntil).getTime() < Date.now()) return false;
+  // Сроки проверяем по надёжному времени (перевод часов назад не продлевает доступ)
+  const now = trustedNowSync();
+  if (user.validUntil && (timeTampered || new Date(user.validUntil).getTime() < now)) return false;
   let map: any = {};
   try { map = user.permissions ? JSON.parse(user.permissions) : {}; } catch { map = {}; }
   const e = map[feature];
   if (!e || !e.enabled) return false;
-  if (e.until && new Date(e.until).getTime() < Date.now()) return false;
+  if (e.until && new Date(e.until).getTime() < now) return false;
   return true;
 }
 
