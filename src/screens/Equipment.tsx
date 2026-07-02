@@ -3,8 +3,9 @@ import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import {
   RefreshCw, AlertTriangle, History, Check, Pencil, Eye, EyeOff, Settings,
-  ChevronRight, ChevronDown, Trash2, Tag as TagIcon, X, Plus, Boxes, Layers, Wind
+  ChevronRight, ChevronDown, Trash2, Tag as TagIcon, X, Plus, Boxes, Layers, Wind, Sparkles
 } from 'lucide-react';
+import DocImportWizard from '../components/DocImportWizard';
 
 // ── Типы данных ──
 interface SpecParam { key: string; value: string; unit: string; }
@@ -45,6 +46,7 @@ export default function Equipment() {
   const [historyFor, setHistoryFor] = useState<Component | null>(null);
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [tagPickerFor, setTagPickerFor] = useState<Component | null>(null);
+  const [showDocImport, setShowDocImport] = useState(false);
 
   // Профиль видимости параметров по типу оборудования
   const [visibility, setVisibility] = useState<Record<string, string[]>>({}); // equipType -> ["g:группа","p:группа||ключ"]
@@ -212,10 +214,29 @@ export default function Equipment() {
             );
           })}
         </div>
-        <div className="p-2 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400">
-          Импорт: Проводник → ПКМ по расчёту → «Добавить в оборудование»
+        <div className="p-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
+          <button
+            onClick={() => setShowDocImport(true)}
+            className="w-full flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-colors"
+            title="Распознать бланк, ведомость или страницу каталога: PDF, Excel, Word, XML"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Импорт из документов
+          </button>
+          <div className="text-[10px] text-slate-400 text-center">
+            PDF · Excel · Word · XML, или расчёт через «Проводник»
+          </div>
         </div>
       </div>
+
+      {showDocImport && (
+        <DocImportWizard
+          projectId={pid}
+          categories={categories}
+          onClose={() => setShowDocImport(false)}
+          onImported={() => { loadSystems(); }}
+        />
+      )}
 
       {/* ДЕРЕВО */}
       <div className="w-80 shrink-0 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
