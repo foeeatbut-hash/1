@@ -13,7 +13,22 @@ import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
+// Виртуальные корневые разделы проводника: «Общий» и «Личный».
+// Они зашиты в программу: их нельзя удалить, переименовать или переместить.
+const SEC_SHARED = 'sec:shared';
+const personalSecId = (uid: string) => `sec:personal:${uid}`;
+const isSectionId = (id: string | null | undefined): boolean => !!id && id.startsWith('sec:');
+const parseSection = (id: string): { scope: 'SHARED' | 'PERSONAL'; ownerId: string | null } =>
+  id === SEC_SHARED
+    ? { scope: 'SHARED', ownerId: null }
+    : { scope: 'PERSONAL', ownerId: id.slice('sec:personal:'.length) || null };
+
 const getFileIcon = (item: any, classNameStr: string) => {
+  if (item.isSection) {
+    return item.id === SEC_SHARED
+      ? <Folder className={`${classNameStr} text-emerald-600 fill-emerald-200`} />
+      : <Folder className={`${classNameStr} text-sky-600 fill-sky-200`} />;
+  }
   if (item.isFolder) return <Folder className={`${classNameStr} text-yellow-500 fill-yellow-200`} />;
   if (item.type === 'IMAGE' || item.name?.match(/\.(jpe?g|png|gif|webp)$/i)) return <ImageIcon className={`${classNameStr} text-emerald-500`} />;
   if (item.type === 'PDF' || item.name?.match(/\.pdf$/i)) return <FileText className={`${classNameStr} text-red-500`} />;
@@ -48,6 +63,9 @@ export default function Explorer() {
   const [folders, setFolders] = useState<any[]>([]);
   const [rootFiles, setRootFiles] = useState<any[]>([]);
   const [projectTags, setProjectTags] = useState<any[]>([]);
+  // Главный Администратор видит личные разделы всех пользователей
+  const [isMainAdmin, setIsMainAdmin] = useState(false);
+  const [owners, setOwners] = useState<Array<{ id: string; name: string; symbol: string }>>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' }>({ key: 'name', direction: 'asc' });
@@ -64,7 +82,7 @@ export default function Explorer() {
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
 
   // Context Menu
-  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, targetId?: string, isFile?: boolean, isContainer?: boolean } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, targetId?: string, isFile?: boolean, isContainer?: boolean, isSection?: boolean } | null>(null);
 
   // Clipboard (for Copy/Paste within app)
   const [clipboard, setClipboard] = useState<{ ids: string[], type: 'copy' | 'cut' } | null>(null);
@@ -101,13 +119,15 @@ export default function Explorer() {
     try {
       const projectId = activeProject?.id || 'default';
       const [fRes, tRes] = await Promise.all([
-        fetch(`/api/projects/${projectId}/folders`),
+        fetch(`/api/projects/${projectId}/folders?actorId=${encodeURIComponent(user?.id || '')}`),
         fetch(`/api/projects/${projectId}/tags`)
       ]);
       const fData = await fRes.json();
       const tData = await tRes.json();
       setFolders(fData.folders || []);
       setRootFiles(fData.rootFiles || []);
+      setIsMainAdmin(!!fData.isMainAdmin);
+      setOwners(fData.owners || []);
       setProjectTags(tData.tags || []);
     } catch (err) {
       console.error("Failed to fetch explorer data:", err);
@@ -213,21 +233,69 @@ export default function Explorer() {
     setSelectedIds(new Set());
   };
 
-  const handleNavigateUp = () => {
-    if (currentFolderId) {
-      const folder = folders.find(f => f.id === currentFolderId);
-      navigateTo(folder?.parentId || null);
+  // Раздел (общий/личный), которому принадлежит папка или файл
+  const itemSection = useCallback((item: any): string => {
+    return item?.scope === 'PERSONAL' && item?.ownerId ? personalSecId(item.ownerId) : SEC_SHARED;
+  }, []);
+
+  // Список корневых разделов: «Общий», «Личный» (+ личные всех пользователей у ГлавАдмина)
+  const sections = useMemo(() => {
+    const list: Array<{ id: string; name: string; ownerId: string | null; isFolder: boolean; isSection: boolean }> = [
+      { id: SEC_SHARED, name: 'Общий', ownerId: null, isFolder: true, isSection: true },
+      { id: personalSecId(user?.id || ''), name: 'Личный', ownerId: user?.id || null, isFolder: true, isSection: true },
+    ];
+    if (isMainAdmin) {
+      for (const o of owners) {
+        if (o.id !== user?.id) {
+          list.push({ id: personalSecId(o.id), name: `Личная: ${o.name}`, ownerId: o.id, isFolder: true, isSection: true });
+        }
+      }
     }
+    return list;
+  }, [user?.id, isMainAdmin, owners]);
+
+  const sectionName = useCallback((secId: string): string => {
+    return sections.find(s => s.id === secId)?.name || (secId === SEC_SHARED ? 'Общий' : 'Личный');
+  }, [sections]);
+
+  // Раздел, в котором пользователь находится сейчас (null — на списке разделов)
+  const currentSectionId = useMemo(() => {
+    if (!currentFolderId) return null;
+    if (isSectionId(currentFolderId)) return currentFolderId;
+    const folder = folders.find(f => f.id === currentFolderId);
+    return folder ? itemSection(folder) : null;
+  }, [currentFolderId, folders, itemSection]);
+
+  const handleNavigateUp = () => {
+    if (!currentFolderId) return;
+    if (isSectionId(currentFolderId)) {
+      navigateTo(null);
+      return;
+    }
+    const folder = folders.find(f => f.id === currentFolderId);
+    if (folder?.parentId) navigateTo(folder.parentId);
+    else navigateTo(folder ? itemSection(folder) : null);
   };
 
   const createFolder = async (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    if (!currentFolderId) {
+      addToast('Откройте раздел «Общий» или «Личный», чтобы создать папку.', 'error');
+      return;
+    }
     const name = await openPrompt("Новая папка", "Имя папки:") || "Новая папка";
     if (!name.trim()) return;
+    const inSectionRoot = isSectionId(currentFolderId);
+    const sec = inSectionRoot ? parseSection(currentFolderId) : null;
     const res = await fetch('/api/folders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, projectId: activeProject?.id || 'default', parentId: currentFolderId })
+      body: JSON.stringify({
+        name,
+        projectId: activeProject?.id || 'default',
+        parentId: inSectionRoot ? null : currentFolderId,
+        ...(sec ? { scope: sec.scope, ownerId: sec.ownerId || user?.id } : {})
+      })
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data?.folder) {
@@ -283,11 +351,14 @@ export default function Explorer() {
   };
 
   const uploadFiles = async (files: FileList | File[], targetFolderId: string | null = currentFolderId) => {
-    if (!targetFolderId && targetFolderId !== null) {
-      addToast("Сначала выберите или создайте папку!", 'error');
+    if (!targetFolderId) {
+      addToast('Откройте раздел «Общий» или «Личный», чтобы загрузить файлы.', 'error');
       return;
     }
-    
+    const inSectionRoot = isSectionId(targetFolderId);
+    const sec = inSectionRoot ? parseSection(targetFolderId) : null;
+    const realFolderId = inSectionRoot ? null : targetFolderId;
+
     setUploadProgress({ current: 0, total: files.length });
     
     for (let i = 0; i < files.length; i++) {
@@ -315,9 +386,10 @@ export default function Explorer() {
         await fetch('/api/files', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              name: file.name, 
-              folderId: targetFolderId, 
+            body: JSON.stringify({
+              name: file.name,
+              folderId: realFolderId,
+              ...(sec ? { scope: sec.scope, ownerId: sec.ownerId || user?.id } : {}),
               filePath: `/shared/${file.name}`,
               size: file.size || Math.floor(Math.random() * 5000000), // mock size if 0
               type,
@@ -340,6 +412,12 @@ export default function Explorer() {
   };
 
   const createEmptyFile = async (name: string, type: string, defaultContent: string) => {
+     if (!currentFolderId) {
+       addToast('Откройте раздел «Общий» или «Личный», чтобы создать документ.', 'error');
+       return;
+     }
+     const inSectionRoot = isSectionId(currentFolderId);
+     const sec = inSectionRoot ? parseSection(currentFolderId) : null;
      let uniqueName = name;
      let counter = 1;
      while (files.some((f: any) => f.name === uniqueName)) {
@@ -359,7 +437,8 @@ export default function Explorer() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: uniqueName,
-          folderId: currentFolderId,
+          folderId: inSectionRoot ? null : currentFolderId,
+          ...(sec ? { scope: sec.scope, ownerId: sec.ownerId || user?.id } : {}),
           filePath: `/shared/${uniqueName}`,
           size: defaultContent.length,
           type,
@@ -372,11 +451,24 @@ export default function Explorer() {
      fetchData();
   };
 
+  // Тело запроса перемещения/копирования с учётом виртуальных разделов:
+  // при переносе в корень раздела передаём его область видимости
+  const buildCopyBody = (ids: string[], target: string | null, isCut: boolean) => {
+    const realIds = ids.filter(id => !isSectionId(id));
+    if (target && isSectionId(target)) {
+      const sec = parseSection(target);
+      return { ids: realIds, targetFolderId: null, isCut, targetScope: sec.scope, targetOwnerId: sec.ownerId || user?.id };
+    }
+    return { ids: realIds, targetFolderId: target, isCut };
+  };
+
   const handleMoveItems = async (ids: string[], targetFolderId: string | null) => {
+    const body = buildCopyBody(ids, targetFolderId, true);
+    if (body.ids.length === 0) return;
     await fetch('/api/files/copy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids, targetFolderId, isCut: true })
+      body: JSON.stringify(body)
     });
     fetchData();
   };
@@ -406,6 +498,10 @@ export default function Explorer() {
   };
 
   const handleDelete = async (id: string, isFile: boolean) => {
+    if (isSectionId(id)) {
+      addToast('Разделы «Общий» и «Личный» встроены в программу — их нельзя удалить.', 'error');
+      return;
+    }
     const confirmed = await openConfirm("Подтверждение", "Вы уверены, что хотите удалить этот элемент?");
     if (!confirmed) return;
     const endpoint = isFile ? `/api/files/${id}` : `/api/folders/${id}`;
@@ -445,14 +541,16 @@ export default function Explorer() {
 
   const handlePaste = async () => {
     if (!clipboard || clipboard.ids.length === 0) return;
+    if (!currentFolderId) {
+      addToast('Вставка возможна только внутри раздела «Общий» или «Личный».', 'error');
+      return;
+    }
+    const body = buildCopyBody(clipboard.ids, currentFolderId, clipboard.type === 'cut');
+    if (body.ids.length === 0) return;
     await fetch('/api/files/copy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        ids: clipboard.ids, 
-        targetFolderId: currentFolderId, 
-        isCut: clipboard.type === 'cut' 
-      })
+      body: JSON.stringify(body)
     });
     addToast(clipboard.type === 'cut' ? 'Элементы перемещены' : 'Элементы скопированы', 'success');
     if (clipboard.type === 'cut') setClipboard(null);
@@ -486,17 +584,36 @@ export default function Explorer() {
     document.body.removeChild(a);
   };
 
-  const currentFolder = folders.find(f => f.id === currentFolderId);
-  const files = currentFolderId === null ? rootFiles : (currentFolder?.files || []);
-  
+  const currentFolder = isSectionId(currentFolderId) ? undefined : folders.find(f => f.id === currentFolderId);
+  const files = currentFolderId === null
+    ? []
+    : isSectionId(currentFolderId)
+      ? rootFiles.filter((f: any) => itemSection(f) === currentFolderId)
+      : (currentFolder?.files || []);
+
   const allCurrentItems = useMemo(() => {
-    const childFolders = folders.filter(f => f.parentId === currentFolderId);
     const searchLower = searchQuery.toLowerCase();
-    
+
+    // Список разделов (корень проводника): «Общий», «Личный», у ГлавАдмина — личные всех
+    if (currentFolderId === null && !searchQuery) {
+      return sections.map(s => ({ ...s, type: 'Раздел' }));
+    }
+
+    // Папки уровня: в корне раздела — папки без родителя из этого раздела
+    const childFolders = isSectionId(currentFolderId)
+      ? folders.filter(f => !f.parentId && itemSection(f) === currentFolderId)
+      : folders.filter(f => f.parentId === currentFolderId);
+
+    // Поиск ограничен текущим разделом (или всеми доступными, если раздел не открыт)
+    const searchScope = (it: any) => !currentSectionId || itemSection(it) === currentSectionId;
+
     const items = [
-      ...(searchQuery ? folders.filter(f => f.name.toLowerCase().includes(searchLower)) : childFolders).map(f => ({ ...f, isFolder: true })),
-      ...(searchQuery 
-        ? [...rootFiles, ...folders.flatMap(f => f.files || [])].filter((f: any) => f.name.toLowerCase().includes(searchLower)) 
+      ...(searchQuery
+        ? folders.filter(f => searchScope(f) && f.name.toLowerCase().includes(searchLower))
+        : childFolders
+      ).map(f => ({ ...f, isFolder: true })),
+      ...(searchQuery
+        ? [...rootFiles, ...folders.flatMap(f => f.files || [])].filter((f: any) => searchScope(f) && f.name.toLowerCase().includes(searchLower))
         : files
       ).map((f: any) => ({ ...f, isFolder: false }))
     ];
@@ -519,7 +636,7 @@ export default function Explorer() {
     });
 
     return items;
-  }, [folders, rootFiles, currentFolderId, searchQuery, sortConfig]);
+  }, [folders, rootFiles, currentFolderId, currentSectionId, sections, searchQuery, sortConfig]);
 
   useEffect(() => { allCurrentItemsRef.current = allCurrentItems; }, [allCurrentItems]);
 
@@ -566,15 +683,21 @@ export default function Explorer() {
 
   const handleDropOnFolder = useCallback(async (ids: string[], targetFolderId: string | null) => {
     if (ids.includes(targetFolderId || '')) return;
+    const body = buildCopyBody(ids, targetFolderId, true);
+    if (body.ids.length === 0) return;
     await fetch('/api/files/copy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids, targetFolderId, isCut: true })
+      body: JSON.stringify(body)
     });
     fetchData();
-  }, [activeProject]);
+  }, [activeProject, user?.id]);
 
   const handleDragStart = useCallback((e: React.DragEvent, item: any) => {
+    if (item.isSection) {
+      e.preventDefault();
+      return;
+    }
     let currentSelected = selectedIdsRef.current;
     if (!currentSelected.has(item.id)) {
       const newSelected = new Set(currentSelected);
@@ -635,7 +758,7 @@ export default function Explorer() {
       setSelectedIds(new Set([id]));
       setLastSelectedId(id);
     }
-    setContextMenu({ x: e.clientX, y: e.clientY, targetId: id, isFile });
+    setContextMenu({ x: e.clientX, y: e.clientY, targetId: id, isFile, isSection: isSectionId(id) });
   }, []);
 
   useEffect(() => {
@@ -658,9 +781,11 @@ export default function Explorer() {
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'v' && clip) {
         handlePasteRef.current();
       } else if (e.key === 'Delete' && selected.size > 0) {
-        openConfirm("Удаление", `Удалить ${selected.size} элементов?`).then(confirmed => {
+        const deletable = Array.from(selected).filter(id => !isSectionId(id));
+        if (deletable.length === 0) return;
+        openConfirm("Удаление", `Удалить ${deletable.length} элементов?`).then(confirmed => {
            if (confirmed) {
-             selected.forEach(id => {
+             deletable.forEach(id => {
                const item = items.find(i => i.id === id);
                const isFile = item ? !item.isFolder : false;
                handleDeleteRef.current(id, isFile);
@@ -670,6 +795,7 @@ export default function Explorer() {
         });
       } else if (e.key === 'F2' && selected.size === 1) {
         const id = Array.from(selected)[0];
+        if (isSectionId(id)) return; // встроенные разделы не переименовываются
         setRenamingId(id);
         const item = items.find(i => i.id === id);
         setRenameValue(item?.name || '');
@@ -707,8 +833,16 @@ export default function Explorer() {
         }
       } else if (e.key === 'Backspace') {
         e.preventDefault();
-        const parentId = foldersRef.current.find(f => f.id === currFolderId)?.parentId || null;
-        if (currFolderId) navigateToRef.current(parentId);
+        if (!currFolderId) return;
+        if (isSectionId(currFolderId)) {
+          navigateToRef.current(null);
+          return;
+        }
+        const folder = foldersRef.current.find(f => f.id === currFolderId);
+        // Из папки на верхнем уровне возвращаемся в её раздел (Общий/Личный)
+        const target = folder?.parentId
+          || (folder ? (folder.scope === 'PERSONAL' && folder.ownerId ? personalSecId(folder.ownerId) : SEC_SHARED) : null);
+        navigateToRef.current(target);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -845,6 +979,12 @@ export default function Explorer() {
           <div className="flex-1 flex items-center bg-white dark:bg-dark-panel border border-slate-250 dark:border-dark-border px-2 py-1 rounded-md flex-wrap gap-1 hover:border-emerald-405 transition-colors">
             <Folder className="w-4 h-4 text-yellow-555 mr-2" />
             <span className="cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-surface text-slate-700 dark:text-dark-text-main px-1.5 py-0.5 rounded hover:underline" onClick={() => navigateTo(null)}>{activeProject?.name || 'Общий проводник'}</span>
+            {currentSectionId && (
+              <>
+                <ChevronRight className="w-3 h-3 text-slate-400 dark:text-slate-655 mx-0.5" />
+                <span className="cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-surface text-slate-700 dark:text-dark-text-main px-1.5 py-0.5 rounded hover:underline font-medium" onClick={() => navigateTo(currentSectionId)}>{sectionName(currentSectionId)}</span>
+              </>
+            )}
             {breadcrumbs.map((crumb, idx) => (
               <React.Fragment key={crumb.id}>
                 <ChevronRight className="w-3 h-3 text-slate-400 dark:text-slate-655 mx-0.5" />
@@ -874,30 +1014,43 @@ export default function Explorer() {
           className="w-56 border-r border-slate-200 dark:border-slate-850 bg-slate-50/60 dark:bg-slate-950/40 overflow-y-auto pt-2 flex-shrink-0 select-none scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-800"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
-            <div 
+            <div
               className={`flex items-center py-1.5 px-3 mx-2 rounded-lg cursor-pointer transition-colors text-slate-700 dark:text-slate-250 ${currentFolderId === null ? 'bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-200 font-medium' : 'hover:bg-slate-200/50 dark:hover:bg-slate-900'}`}
               onClick={() => navigateTo(null)}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                 e.preventDefault();
-                 if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                    uploadFiles(e.dataTransfer.files, null);
-                 } else {
-                    const dataStr = e.dataTransfer.getData('text/plain');
-                    if (dataStr) {
-                       try {
-                          const data = JSON.parse(dataStr);
-                          if (data.type === 'app_items') handleMoveItems(data.ids, null);
-                       } catch (err) {}
-                    }
-                 }
-              }}
             >
               <FileIcon className="w-4 h-4 mr-2 text-slate-500 shrink-0" />
-              <span className="text-sm">Корень</span>
+              <span className="text-sm">Проводник</span>
             </div>
-            {folders.filter(f => !f.parentId).map(folder => (
-              <TreeFolder key={folder.id} folder={folder} allFolders={folders} currentFolderId={currentFolderId} onSelect={navigateTo} onDropFiles={uploadFiles} onMoveItems={handleMoveItems} />
+            {sections.map(sec => (
+              <div key={sec.id}>
+                <div
+                  className={`flex items-center py-1.5 px-3 mx-2 mt-1 rounded-lg cursor-pointer transition-colors text-slate-700 dark:text-slate-250 ${currentFolderId === sec.id ? 'bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-200 font-medium' : 'hover:bg-slate-200/50 dark:hover:bg-slate-900'}`}
+                  onClick={() => navigateTo(sec.id)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                     e.preventDefault();
+                     e.stopPropagation();
+                     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        uploadFiles(e.dataTransfer.files, sec.id);
+                     } else {
+                        const dataStr = e.dataTransfer.getData('text/plain');
+                        if (dataStr) {
+                           try {
+                              const data = JSON.parse(dataStr);
+                              if (data.type === 'app_items') handleMoveItems(data.ids, sec.id);
+                           } catch (err) {}
+                        }
+                     }
+                  }}
+                  title={sec.id === SEC_SHARED ? 'Общий раздел: файлы видят все пользователи' : 'Личный раздел: файлы видит только владелец'}
+                >
+                  {getFileIcon({ isSection: true, id: sec.id }, 'w-4 h-4 mr-2 shrink-0')}
+                  <span className="text-sm font-medium truncate">{sec.name}</span>
+                </div>
+                {folders.filter(f => !f.parentId && itemSection(f) === sec.id).map(folder => (
+                  <TreeFolder key={folder.id} folder={folder} allFolders={folders} currentFolderId={currentFolderId} onSelect={navigateTo} onDropFiles={uploadFiles} onMoveItems={handleMoveItems} depth={2} />
+                ))}
+              </div>
             ))}
         </div>
 
@@ -1198,7 +1351,14 @@ export default function Explorer() {
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={(e) => e.stopPropagation()}
         >
-          {contextMenu.isContainer ? (
+          {contextMenu.isSection ? (
+            <>
+              <MenuItem icon={<Folder />} label="Открыть" onClick={() => { navigateTo(contextMenu.targetId!); setContextMenu(null); }} />
+              <MenuItem icon={<RefreshCw />} label="Обновить" onClick={() => { fetchData(); setContextMenu(null); }} />
+              <div className="h-px bg-slate-300 dark:bg-dark-border my-1 mx-2" />
+              <div className="px-6 py-1 text-[10px] text-slate-400 select-none">Встроенный раздел: нельзя удалить или переименовать</div>
+            </>
+          ) : contextMenu.isContainer ? (
             <>
               <MenuItem icon={<FolderPlus />} label="Новая папка" onClick={() => { createFolder(); setContextMenu(null); }} />
               <MenuItem icon={<FileIcon />} label="Новый текстовый документ" onClick={() => { createEmptyFile("Новый документ.txt", "TXT", ""); setContextMenu(null); }} />

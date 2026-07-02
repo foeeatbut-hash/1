@@ -299,6 +299,29 @@ function ensureSchemaColumns(dbPath: string) {
       // Таблица личных уведомлений
       db.exec('CREATE TABLE IF NOT EXISTS "Notification" ("id" TEXT PRIMARY KEY NOT NULL, "userId" TEXT NOT NULL, "category" TEXT NOT NULL DEFAULT \'СИСТЕМА\', "title" TEXT NOT NULL, "body" TEXT NOT NULL DEFAULT \'\', "targetRoute" TEXT NOT NULL DEFAULT \'\', "isRead" BOOLEAN NOT NULL DEFAULT false, "createdAt" DATETIME NOT NULL DEFAULT current_timestamp)');
       try { db.exec('CREATE INDEX IF NOT EXISTS "Notification_userId_isRead_idx" ON "Notification"("userId", "isRead")'); } catch (e) {}
+      // Разделы проводника «Общий/Личный»: область видимости папок и файлов
+      const folderCols = db.prepare('PRAGMA table_info("Folder")').all() as Array<{ name: string }>;
+      if (folderCols.length > 0) {
+        if (!folderCols.find(c => c.name === 'scope')) {
+          db.exec('ALTER TABLE "Folder" ADD COLUMN "scope" TEXT NOT NULL DEFAULT \'SHARED\'');
+          logInit('[DB Migrate] Добавлена колонка Folder.scope');
+        }
+        if (!folderCols.find(c => c.name === 'ownerId')) {
+          db.exec('ALTER TABLE "Folder" ADD COLUMN "ownerId" TEXT');
+          logInit('[DB Migrate] Добавлена колонка Folder.ownerId');
+        }
+      }
+      const fileCols = db.prepare('PRAGMA table_info("FileNode")').all() as Array<{ name: string }>;
+      if (fileCols.length > 0) {
+        if (!fileCols.find(c => c.name === 'scope')) {
+          db.exec('ALTER TABLE "FileNode" ADD COLUMN "scope" TEXT NOT NULL DEFAULT \'SHARED\'');
+          logInit('[DB Migrate] Добавлена колонка FileNode.scope');
+        }
+        if (!fileCols.find(c => c.name === 'ownerId')) {
+          db.exec('ALTER TABLE "FileNode" ADD COLUMN "ownerId" TEXT');
+          logInit('[DB Migrate] Добавлена колонка FileNode.ownerId');
+        }
+      }
     } finally {
       db.close();
     }
@@ -1264,30 +1287,54 @@ app.post('/api/notifications/read', async (req: Request, res: Response) => {
 });
 
 // Folders & Files (Explorer)
+// «Главный Администратор» — единственный: самый первый созданный пользователь с ролью ADMIN.
+// Пользователи, которым админ выдал права/роль позже, главными не считаются.
+async function getMainAdminId(): Promise<string | null> {
+  try {
+    const admin = await prisma.user.findFirst({
+      where: { role: 'ADMIN' },
+      orderBy: { createdAt: 'asc' }
+    });
+    return admin ? admin.id : null;
+  } catch {
+    return null;
+  }
+}
+
 app.get('/api/projects/:projectId/folders', async (req: Request, res: Response) => {
   const { projectId } = req.params;
+  const actorId = String(req.query.actorId || '');
   try {
-    let folders;
-    let rootFiles;
-    if (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default') {
-      folders = await prisma.folder.findMany({
-        include: { files: { include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true } } }
-      });
-      rootFiles = await prisma.fileNode.findMany({
-        where: { folderId: null },
-        include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true }
-      });
-    } else {
-      folders = await prisma.folder.findMany({
-        where: { projectId },
-        include: { files: { include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true } } }
-      });
-      rootFiles = await prisma.fileNode.findMany({
-        where: { folderId: null },
-        include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true }
-      });
+    const projectWhere = (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default')
+      ? {}
+      : { projectId };
+
+    const mainAdminId = await getMainAdminId();
+    const isMainAdmin = !!actorId && actorId === mainAdminId;
+
+    // Личные папки/файлы видит только их владелец; Главный Администратор видит все
+    const scopeWhere = isMainAdmin
+      ? {}
+      : actorId
+        ? { OR: [{ scope: { not: 'PERSONAL' } }, { ownerId: actorId }] }
+        : { scope: { not: 'PERSONAL' } };
+
+    const folders = await prisma.folder.findMany({
+      where: { ...projectWhere, ...scopeWhere },
+      include: { files: { include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true } } }
+    });
+    const rootFiles = await prisma.fileNode.findMany({
+      where: { folderId: null, ...scopeWhere },
+      include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true }
+    });
+
+    // Главному Администратору отдаём список владельцев для подписей личных разделов
+    let owners: Array<{ id: string; name: string; symbol: string }> = [];
+    if (isMainAdmin) {
+      const users = await prisma.user.findMany({ select: { id: true, name: true, symbol: true } });
+      owners = users;
     }
-    res.json({ folders, rootFiles });
+    res.json({ folders, rootFiles, isMainAdmin, mainAdminId, owners });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1295,7 +1342,7 @@ app.get('/api/projects/:projectId/folders', async (req: Request, res: Response) 
 
 app.post('/api/folders', async (req: Request, res: Response) => {
   try {
-    let { name, projectId, parentId } = req.body;
+    let { name, projectId, parentId, scope, ownerId } = req.body;
     if (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default') {
       let firstProject = await prisma.project.findFirst();
       if (!firstProject) {
@@ -1305,8 +1352,20 @@ app.post('/api/folders', async (req: Request, res: Response) => {
       }
       projectId = firstProject.id;
     }
+    // Вложенные папки наследуют раздел (общий/личный) родителя
+    if (parentId) {
+      const parent = await prisma.folder.findUnique({ where: { id: parentId } });
+      if (parent) {
+        scope = (parent as any).scope || 'SHARED';
+        ownerId = (parent as any).ownerId || null;
+      }
+    }
     const folder = await prisma.folder.create({
-      data: { name, projectId, parentId }
+      data: {
+        name, projectId, parentId,
+        scope: scope === 'PERSONAL' ? 'PERSONAL' : 'SHARED',
+        ownerId: scope === 'PERSONAL' ? (ownerId || null) : null
+      }
     });
     res.json({ folder });
   } catch (err: any) {
@@ -1329,23 +1388,68 @@ app.delete('/api/folders/:id', async (req: Request, res: Response) => {
 });
 
 app.post('/api/files', async (req: Request, res: Response) => {
-  const file = await prisma.fileNode.create({ 
-    data: req.body,
+  const data = { ...req.body };
+  // Файл внутри папки наследует её раздел (общий/личный)
+  if (data.folderId) {
+    try {
+      const parent = await prisma.folder.findUnique({ where: { id: data.folderId } });
+      if (parent) {
+        data.scope = (parent as any).scope || 'SHARED';
+        data.ownerId = (parent as any).ownerId || null;
+      }
+    } catch {}
+  } else {
+    data.scope = data.scope === 'PERSONAL' ? 'PERSONAL' : 'SHARED';
+    data.ownerId = data.scope === 'PERSONAL' ? (data.ownerId || null) : null;
+  }
+  const file = await prisma.fileNode.create({
+    data,
     include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true }
   });
   res.json({ file });
 });
 
+// Рекурсивно проставляет раздел (общий/личный) папке, её файлам и подпапкам
+async function applyScopeRecursive(folderId: string, scope: string, ownerId: string | null) {
+  await prisma.folder.update({ where: { id: folderId }, data: { scope, ownerId } as any });
+  await prisma.fileNode.updateMany({ where: { folderId }, data: { scope, ownerId } as any });
+  const children = await prisma.folder.findMany({ where: { parentId: folderId } });
+  for (const child of children) {
+    await applyScopeRecursive(child.id, scope, ownerId);
+  }
+}
+
 app.post('/api/files/copy', async (req: Request, res: Response) => {
-  const { ids, targetFolderId, isCut } = req.body;
-  // This is a simplified copy/move logic
+  // targetScope/targetOwnerId передаются при перемещении в корень раздела «Общий»/«Личный».
+  // При перемещении внутрь папки раздел наследуется от неё.
+  const { ids, targetFolderId, isCut, targetScope, targetOwnerId } = req.body;
   try {
+    let scope: string | null = null;
+    let ownerId: string | null = null;
+    if (targetFolderId) {
+      const target = await prisma.folder.findUnique({ where: { id: targetFolderId } });
+      if (target) {
+        scope = (target as any).scope || 'SHARED';
+        ownerId = (target as any).ownerId || null;
+      }
+    } else if (targetScope) {
+      scope = targetScope === 'PERSONAL' ? 'PERSONAL' : 'SHARED';
+      ownerId = scope === 'PERSONAL' ? (targetOwnerId || null) : null;
+    }
+
     for (const id of ids) {
       if (isCut) {
         // Just move it
         const file = await prisma.fileNode.findUnique({ where: { id } });
-        if (file) await prisma.fileNode.update({ where: { id }, data: { folderId: targetFolderId } });
-        else await prisma.folder.update({ where: { id }, data: { parentId: targetFolderId } });
+        if (file) {
+          await prisma.fileNode.update({
+            where: { id },
+            data: { folderId: targetFolderId, ...(scope ? { scope, ownerId } as any : {}) }
+          });
+        } else {
+          await prisma.folder.update({ where: { id }, data: { parentId: targetFolderId } });
+          if (scope) await applyScopeRecursive(id, scope, ownerId);
+        }
       } else {
         // Copy (files only for simplicity)
         const file = await prisma.fileNode.findUnique({ where: { id }, include: { mainTags: true, additionalTags: true } });
@@ -1356,6 +1460,7 @@ app.post('/api/files/copy', async (req: Request, res: Response) => {
               ...fileData,
               name: fileData.name + ' - Copy',
               folderId: targetFolderId,
+              ...(scope ? { scope, ownerId } as any : {}),
               mainTags: { connect: mainTags.map(t => ({ id: t.id })) },
               additionalTags: { connect: additionalTags.map(t => ({ id: t.id })) }
             }

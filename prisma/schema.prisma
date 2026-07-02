@@ -81,11 +81,13 @@ model Folder {
   name        String
   projectId   String
   project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  
+  scope       String   @default("SHARED") // "SHARED" — общий раздел, "PERSONAL" — личный раздел пользователя
+  ownerId     String?  // Владелец личной папки (User.id); null для общих
+
   parentId    String?
   parent      Folder?  @relation("FolderToFolder", fields: [parentId], references: [id], onDelete: Cascade)
   children    Folder[] @relation("FolderToFolder")
-  
+
   files       FileNode[]
   updatedAt   DateTime @default(now()) @updatedAt
 }
@@ -99,6 +101,8 @@ model FileNode {
   department  String?
   statusCode  String   @default("D")
   revision    String   @default("1")
+  scope       String   @default("SHARED") // "SHARED" | "PERSONAL" (для файлов в корне раздела)
+  ownerId     String?  // Владелец личного файла (User.id); null для общих
   createdAt   DateTime @default(now())
   createdById String?
   createdBy   User?    @relation("FileCreator", fields: [createdById], references: [id])
