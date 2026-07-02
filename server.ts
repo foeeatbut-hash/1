@@ -2895,6 +2895,62 @@ app.post('/api/equipment/import-to-category', async (req: Request, res: Response
   }
 });
 
+// Импорт из мастера распознавания документов (PDF/Excel/XML/Word):
+// клиент присылает уже проверенный пользователем результат в формате EquipParseResult
+app.post('/api/equipment/import-draft', async (req: Request, res: Response) => {
+  const { units, category, fileName, projectId: reqProjectId } = req.body;
+  if (!Array.isArray(units) || units.length === 0) {
+    return res.status(400).json({ error: 'Пустой результат распознавания' });
+  }
+  if (!category) return res.status(400).json({ error: 'Не указана категория оборудования' });
+
+  let projectId = reqProjectId;
+  if (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default') {
+    let firstProject = await prisma.project.findFirst();
+    if (!firstProject) firstProject = await prisma.project.create({ data: { name: 'Общий Проект' } });
+    projectId = firstProject.id;
+  }
+
+  try {
+    // Санитизация структуры: только ожидаемые поля, строки, ограниченные размеры
+    const clean = (s: any, max = 200) => String(s ?? '').slice(0, max);
+    const cleanGroups = (groups: any): any[] => (Array.isArray(groups) ? groups : []).slice(0, 40).map((g: any) => ({
+      title: clean(g?.title, 80) || 'Характеристики',
+      params: (Array.isArray(g?.params) ? g.params : []).slice(0, 200).map((p: any) => ({
+        key: clean(p?.key, 120), value: clean(p?.value, 300), unit: clean(p?.unit, 40),
+      })).filter((p: any) => p.key && p.value),
+    })).filter((g: any) => g.params.length);
+
+    const result = {
+      units: units.slice(0, 100).map((u: any) => ({
+        name: clean(u?.name, 120) || 'Импорт',
+        title: clean(u?.title, 200) || 'Импортированное оборудование',
+        groups: cleanGroups(u?.groups),
+        monoblocks: (Array.isArray(u?.monoblocks) ? u.monoblocks : []).slice(0, 50).map((mb: any) => ({
+          name: clean(mb?.name, 120) || 'M1',
+          title: clean(mb?.title, 200) || '',
+          blocks: (Array.isArray(mb?.blocks) ? mb.blocks : []).slice(0, 200).map((b: any) => ({
+            name: clean(b?.name, 120) || 'Позиция',
+            title: clean(b?.title, 200) || '',
+            equipType: clean(b?.equipType, 60) || 'component',
+            groups: cleanGroups(b?.groups),
+          })),
+        })),
+      })),
+    };
+
+    const modeSetting = await prisma.appSetting.findFirst({ where: { key: 'equip_conflict_mode', userId: null } });
+    const conflictMode: 'immediate' | 'wait' = (modeSetting && modeSetting.value === 'immediate') ? 'immediate' : 'wait';
+
+    const summary = await importEquipmentToDB(prisma, projectId, category, clean(fileName, 200) || 'Распознанный документ', result, conflictMode);
+
+    res.json({ success: true, ...summary, conflictMode });
+  } catch (error: any) {
+    console.error('Error in import-draft:', error);
+    res.status(500).json({ error: error.message || 'Не удалось импортировать распознанные данные' });
+  }
+});
+
 // ── Настройки (глобальные/админ и персональные) ──
 async function upsertSetting(key: string, userId: string | null, value: string) {
   const existing = await prisma.appSetting.findFirst({ where: { key, userId: userId || null } });
