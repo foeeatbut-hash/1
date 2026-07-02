@@ -52,6 +52,13 @@ jobs:
           printf '@echo off\r\nchcp 65001 >nul\r\ncopy /b %s "PDM System %s.exe" >nul\r\necho Готово: PDM System %s.exe — можно запускать.\r\npause\r\n' "$PARTS" "$VERSION" "$VERSION" > СОБРАТЬ-EXE.bat
           ls -la
 
+      - name: Целый exe как артефакт
+        uses: actions/upload-artifact@v4
+        with:
+          name: PDM-System-portable
+          path: release/*.exe
+          retention-days: 30
+
       - name: Коммит частей в ветку
         shell: bash
         run: |
@@ -64,13 +71,7 @@ jobs:
             echo "Нет изменений в portable/"
           else
             git commit -m "build: портативный exe v$VERSION (собрано в GitHub Actions)" -m "Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
-            git pull --rebase origin "${GITHUB_REF_NAME}"
+            # --autostash: сборка меняет генерируемые файлы (prisma-клиенты) в рабочем дереве
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
             git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
-
-      - name: Целый exe как артефакт
-        uses: actions/upload-artifact@v4
-        with:
-          name: PDM-System-portable
-          path: release/*.exe
-          retention-days: 30
