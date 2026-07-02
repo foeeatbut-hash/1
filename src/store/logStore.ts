@@ -19,6 +19,10 @@ interface LogState {
   setHasUnreadError: (val: boolean) => void;
 }
 
+// Журнал ограничен по размеру: без лимита каждый клик/запрос копил записи
+// бесконечно, массив копировался целиком и программа начинала фризить
+const MAX_LOGS = 800;
+
 export const useLogStore = create<LogState>((set, get) => ({
   logs: [],
   hasUnreadError: false,
@@ -27,7 +31,7 @@ export const useLogStore = create<LogState>((set, get) => ({
   addLog: (type, context, message, stack) => {
     const id = Math.random().toString(36).substring(2, 9) + '-' + Date.now();
     const timestamp = new Date().toLocaleTimeString('ru-RU', { hour12: false });
-    
+
     const newLog: LogItem = {
       id,
       timestamp,
@@ -38,13 +42,15 @@ export const useLogStore = create<LogState>((set, get) => ({
     };
 
     set((state) => {
-      const updatedLogs = [...state.logs, newLog];
+      const appended = state.logs.length >= MAX_LOGS
+        ? [...state.logs.slice(state.logs.length - MAX_LOGS + 1), newLog]
+        : [...state.logs, newLog];
 
       // If error occurs and widget is not open, mark as unread error
       const shouldMarkUnread = type === 'ERROR' && !state.widgetOpen;
 
       return {
-        logs: updatedLogs,
+        logs: appended,
         hasUnreadError: shouldMarkUnread ? true : state.hasUnreadError,
       };
     });

@@ -13,6 +13,9 @@ permissions:
 
 jobs:
   build-portable:
+    # По push собираем только когда в сообщении коммита есть [build-exe] —
+    # иначе каждый обычный коммит порождал бы новую сборку и коммит частей
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[build-exe]') }}
     runs-on: windows-latest
     steps:
       - name: Код

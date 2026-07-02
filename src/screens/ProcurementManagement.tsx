@@ -1,42 +1,34 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { dataService } from '../services/dataService';
 import {
-  Briefcase, Search, ShoppingCart, ClipboardCheck, PackageCheck, PlusCircle,
-  RefreshCw, Database, AlertTriangle, X, ChevronDown, ChevronUp, Filter
+  Briefcase, Search, RefreshCw, Database, AlertTriangle, X, ChevronDown, ChevronUp,
+  ChevronRight, Filter, List, FolderTree, Settings2, CheckSquare
 } from 'lucide-react';
 import { motion } from 'motion/react';
+import CustomSelect from '../components/CustomSelect';
+import {
+  ProcurementStage, loadProcurementStages, stageIcon, stageColor
+} from '../lib/procurementStages';
 
 // ── Раздел «Менеджмент» ────────────────────────────────────────────────────────
-// Оболочка над той же базой тегов, но под задачи менеджеров по закупкам:
-// жизненный цикл позиции «Добавлен → Заказан → Утверждён → Куплен» с датами
-// каждого этапа, поставщиком, количеством и примечанием. Данные хранятся
-// в metadata тега (ключ procurement) — отдельная таблица не нужна.
-
-type Stage = 'added' | 'ordered' | 'approved' | 'purchased';
+// Оболочка над той же базой тегов под задачи менеджеров по закупкам.
+// Этапы закупки настраиваются в «Настройки → Менеджмент» (название/значок/цвет).
+// Отметки этапов хранятся в metadata тега: procurement.stage + stageLog.
 
 interface ProcurementInfo {
-  stage?: Stage;
-  orderedAt?: string;
-  orderedBy?: string;
-  approvedAt?: string;
-  approvedBy?: string;
-  purchasedAt?: string;
-  purchasedBy?: string;
+  stage?: string;
+  stageLog?: Record<string, { at: string; by: string }>;
+  // Старый формат (v0.21.0) — переносится в stageLog при чтении
+  orderedAt?: string; orderedBy?: string;
+  approvedAt?: string; approvedBy?: string;
+  purchasedAt?: string; purchasedBy?: string;
   supplier?: string;
   qty?: string;
   note?: string;
 }
-
-const STAGES: Array<{ id: Stage; label: string; icon: any; color: string; bg: string; border: string }> = [
-  { id: 'added', label: 'Добавлен', icon: PlusCircle, color: 'text-slate-500 dark:text-slate-400', bg: 'bg-slate-100 dark:bg-slate-900', border: 'border-slate-300 dark:border-slate-700' },
-  { id: 'ordered', label: 'Заказан', icon: ShoppingCart, color: 'text-sky-600 dark:text-sky-400', bg: 'bg-sky-50 dark:bg-sky-950/40', border: 'border-sky-300 dark:border-sky-800' },
-  { id: 'approved', label: 'Утверждён', icon: ClipboardCheck, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950/40', border: 'border-amber-300 dark:border-amber-800' },
-  { id: 'purchased', label: 'Куплен', icon: PackageCheck, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950/40', border: 'border-emerald-300 dark:border-emerald-800' },
-];
-
-const STAGE_ORDER: Stage[] = ['added', 'ordered', 'approved', 'purchased'];
 
 const ACTUALITY_LABELS: Record<string, { label: string; cls: string }> = {
   actual: { label: 'Актуально', cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' },
@@ -64,6 +56,15 @@ function tagActuality(meta: any): string {
   return 'draft';
 }
 
+// Перенос отметок старого формата (orderedAt/approvedAt/purchasedAt) в stageLog
+function normalizeProc(proc: ProcurementInfo): ProcurementInfo {
+  const out: ProcurementInfo = { ...proc, stageLog: { ...(proc.stageLog || {}) } };
+  if (proc.orderedAt && !out.stageLog!['ordered']) out.stageLog!['ordered'] = { at: proc.orderedAt, by: proc.orderedBy || '' };
+  if (proc.approvedAt && !out.stageLog!['approved']) out.stageLog!['approved'] = { at: proc.approvedAt, by: proc.approvedBy || '' };
+  if (proc.purchasedAt && !out.stageLog!['purchased']) out.stageLog!['purchased'] = { at: proc.purchasedAt, by: proc.purchasedBy || '' };
+  return out;
+}
+
 function fmtDate(iso?: string): string {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -71,36 +72,62 @@ function fmtDate(iso?: string): string {
   return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
 }
 
+interface Row {
+  tag: any;
+  meta: any;
+  proc: ProcurementInfo;
+  stageIdx: number;
+  actuality: string;
+  isDup: boolean;
+  name: string;
+  qtyNum: number;
+}
+
 export default function ProcurementManagement() {
   const { activeProject, user } = useStore();
   const { addToast } = useToastStore();
+  const navigate = useNavigate();
 
   const [tags, setTags] = useState<any[]>([]);
+  const [stages, setStages] = useState<ProcurementStage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [search, setSearch] = useState('');
-  const [stageFilter, setStageFilter] = useState<Stage | 'all'>('all');
+  const [stageFilter, setStageFilter] = useState<string>('all');
+  const [deptFilter, setDeptFilter] = useState<string>('');
   const [onlyDuplicates, setOnlyDuplicates] = useState(false);
   const [onlyCritical, setOnlyCritical] = useState(false);
-  const [sortKey, setSortKey] = useState<'identifier' | 'stage' | 'purchasedAt' | 'brand'>('identifier');
+  const [viewMode, setViewMode] = useState<'list' | 'tree'>('list');
+  const [sortKey, setSortKey] = useState<'identifier' | 'stage' | 'lastDate' | 'brand' | 'qty'>('identifier');
   const [sortAsc, setSortAsc] = useState(true);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [expandedTree, setExpandedTree] = useState<Record<string, boolean>>({});
 
-  const loadTags = useCallback(async () => {
+  const loadAll = useCallback(async () => {
     if (!activeProject) return;
     setIsLoading(true);
     try {
-      const data = await dataService.getTags(activeProject.id);
-      setTags(data.tags || []);
+      const [data, loadedStages] = await Promise.all([
+        dataService.getTags(activeProject.id),
+        loadProcurementStages()
+      ]);
+      const tagsList = data.tags || [];
+      setTags(tagsList);
+      setStages(loadedStages);
+      const liveIds = new Set(tagsList.map((t: any) => t.id));
+      setSelectedIds(prev => new Set(Array.from(prev).filter(id => liveIds.has(id))));
     } catch (err) {
-      console.error('Failed to load procurement tags:', err);
+      console.error('Failed to load procurement data:', err);
     } finally {
       setIsLoading(false);
     }
   }, [activeProject]);
 
   useEffect(() => {
-    loadTags();
-  }, [loadTags]);
+    loadAll();
+  }, [loadAll]);
+
+  const stageIds = useMemo(() => stages.map(s => s.id), [stages]);
 
   const duplicateCodes = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -111,57 +138,120 @@ export default function ProcurementManagement() {
     return new Set(Object.keys(counts).filter(c => counts[c] > 1));
   }, [tags]);
 
-  // Строки таблицы: тег + распарсенные закупочные данные
-  const rows = useMemo(() => {
+  const departments = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of tags) if (t.department) set.add(t.department);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ru'));
+  }, [tags]);
+
+  // Строки: тег + распарсенные закупочные данные с учётом настроенных этапов
+  const rows = useMemo<Row[]>(() => {
     return tags.map(t => {
       const meta = parseMeta(t);
-      const proc: ProcurementInfo = meta.procurement || {};
-      const stage: Stage = proc.stage && STAGE_ORDER.includes(proc.stage) ? proc.stage : 'added';
+      const proc = normalizeProc(meta.procurement || {});
+      let stageIdx = proc.stage ? stageIds.indexOf(proc.stage) : 0;
+      if (stageIdx < 0) stageIdx = 0; // этап удалили из настроек — позиция на первом
       return {
         tag: t,
         meta,
         proc,
-        stage,
+        stageIdx,
         actuality: tagActuality(meta),
         isDup: duplicateCodes.has((t.identifier || '').trim()),
         name: meta.mainName || '',
+        qtyNum: parseFloat(String(proc.qty || '').replace(',', '.')) || 0,
       };
     });
-  }, [tags, duplicateCodes]);
+  }, [tags, duplicateCodes, stageIds]);
 
-  const counts = useMemo(() => {
-    const c: Record<Stage, number> = { added: 0, ordered: 0, approved: 0, purchased: 0 };
-    for (const r of rows) c[r.stage]++;
-    return c;
+  const rowsById = useMemo(() => {
+    const m: Record<string, Row> = {};
+    for (const r of rows) m[r.tag.id] = r;
+    return m;
   }, [rows]);
 
-  const filtered = useMemo(() => {
+  const counts = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const s of stages) c[s.id] = 0;
+    for (const r of rows) {
+      const id = stages[r.stageIdx]?.id;
+      if (id) c[id] = (c[id] || 0) + 1;
+    }
+    return c;
+  }, [rows, stages]);
+
+  const rowMatchesFilters = useCallback((r: Row): boolean => {
+    if (stageFilter !== 'all' && stages[r.stageIdx]?.id !== stageFilter) return false;
+    if (deptFilter && r.tag.department !== deptFilter) return false;
+    if (onlyDuplicates && !r.isDup) return false;
+    if (onlyCritical && r.actuality !== 'critical' && r.actuality !== 'warning') return false;
     const q = search.trim().toLowerCase();
-    let list = rows;
-    if (stageFilter !== 'all') list = list.filter(r => r.stage === stageFilter);
-    if (onlyDuplicates) list = list.filter(r => r.isDup);
-    if (onlyCritical) list = list.filter(r => r.actuality === 'critical' || r.actuality === 'warning');
     if (q) {
-      list = list.filter(r =>
-        (r.tag.identifier || '').toLowerCase().includes(q) ||
+      const hit = (r.tag.identifier || '').toLowerCase().includes(q) ||
         r.name.toLowerCase().includes(q) ||
         (r.tag.brand || '').toLowerCase().includes(q) ||
         (r.proc.supplier || '').toLowerCase().includes(q) ||
-        (r.proc.note || '').toLowerCase().includes(q)
-      );
+        (r.proc.note || '').toLowerCase().includes(q);
+      if (!hit) return false;
     }
+    return true;
+  }, [stageFilter, deptFilter, onlyDuplicates, onlyCritical, search, stages]);
+
+  const lastDateOf = (r: Row): number => {
+    let max = new Date(r.tag.createdAt || 0).getTime();
+    for (const id of stageIds) {
+      const rec = r.proc.stageLog?.[id];
+      if (rec?.at) max = Math.max(max, new Date(rec.at).getTime());
+    }
+    return max;
+  };
+
+  const filtered = useMemo(() => {
+    const list = rows.filter(rowMatchesFilters);
     const dir = sortAsc ? 1 : -1;
     return [...list].sort((a, b) => {
       if (sortKey === 'identifier') return dir * (a.tag.identifier || '').localeCompare(b.tag.identifier || '', 'ru');
       if (sortKey === 'brand') return dir * (a.tag.brand || '').localeCompare(b.tag.brand || '', 'ru');
-      if (sortKey === 'stage') return dir * (STAGE_ORDER.indexOf(a.stage) - STAGE_ORDER.indexOf(b.stage));
-      // purchasedAt: последняя достигнутая дата
-      const dateOf = (r: typeof a) => new Date(r.proc.purchasedAt || r.proc.approvedAt || r.proc.orderedAt || r.tag.createdAt || 0).getTime();
-      return dir * (dateOf(a) - dateOf(b));
+      if (sortKey === 'stage') return dir * (a.stageIdx - b.stageIdx);
+      if (sortKey === 'qty') return dir * (a.qtyNum - b.qtyNum);
+      return dir * (lastDateOf(a) - lastDateOf(b));
     });
-  }, [rows, search, stageFilter, onlyDuplicates, onlyCritical, sortKey, sortAsc]);
+  }, [rows, rowMatchesFilters, sortKey, sortAsc, stageIds]);
 
-  // Сохранение закупочных данных в metadata тега (та же БД, PUT /api/tags/:id)
+  // ── Дерево: родитель → дочерние (по связям тегов на холсте) ────────────────
+  const tree = useMemo(() => {
+    if (viewMode !== 'tree') return [];
+    const idSet = new Set(tags.map(t => t.id));
+    const childrenMap: Record<string, string[]> = {};
+    const hasParent: Record<string, boolean> = {};
+    for (const t of tags) {
+      const meta = parseMeta(t);
+      const kids = (Array.isArray(meta.connections) ? meta.connections : []).filter((id: string) => idSet.has(id));
+      childrenMap[t.id] = kids;
+      kids.forEach((k: string) => { hasParent[k] = true; });
+    }
+    const visible = new Set<string>();
+    // Узел показываем, если он или любой его потомок проходит фильтры
+    const passes = (id: string, seen: Set<string>): boolean => {
+      if (seen.has(id)) return false;
+      seen.add(id);
+      const row = rowsById[id];
+      let ok = row ? rowMatchesFilters(row) : false;
+      for (const k of (childrenMap[id] || [])) {
+        if (passes(k, seen)) ok = true;
+      }
+      if (ok) visible.add(id);
+      return ok;
+    };
+    const roots = tags.filter(t => !hasParent[t.id]);
+    for (const r of roots) passes(r.id, new Set());
+    return roots
+      .filter(r => visible.has(r.id))
+      .sort((a, b) => (a.identifier || '').localeCompare(b.identifier || '', 'ru'))
+      .map(r => ({ id: r.id, childrenMap, visible }));
+  }, [viewMode, tags, rowsById, rowMatchesFilters]);
+
+  // ── Сохранение и смена этапов ───────────────────────────────────────────────
   const saveProc = async (tag: any, meta: any, proc: ProcurementInfo) => {
     const newMeta = { ...meta, procurement: proc };
     setTags(prev => prev.map(t => t.id === tag.id ? { ...t, metadata: JSON.stringify(newMeta), parsedMetadata: undefined } : t));
@@ -177,50 +267,68 @@ export default function ProcurementManagement() {
     }
   };
 
-  // Клик по этапу: продвигаем позицию до него (или откатываем, если кликнули текущий)
-  const setStage = async (row: any, stage: Stage) => {
+  // Установка этапа одной позиции (с датами промежуточных этапов)
+  const applyStage = (row: Row, targetIdx: number): ProcurementInfo => {
     const now = new Date().toISOString();
     const who = user?.name || 'Пользователь';
-    const proc: ProcurementInfo = { ...row.proc };
-    const targetIdx = STAGE_ORDER.indexOf(stage);
-    const currentIdx = STAGE_ORDER.indexOf(row.stage);
-
-    if (stage === row.stage && stage !== 'added') {
-      // Повторный клик по текущему этапу — откат на шаг назад
-      const prevStage = STAGE_ORDER[currentIdx - 1];
-      if (stage === 'ordered') { delete proc.orderedAt; delete proc.orderedBy; }
-      if (stage === 'approved') { delete proc.approvedAt; delete proc.approvedBy; }
-      if (stage === 'purchased') { delete proc.purchasedAt; delete proc.purchasedBy; }
-      proc.stage = prevStage;
-      await saveProc(row.tag, row.meta, proc);
-      addToast(`«${row.tag.identifier}»: возврат на этап «${STAGES[currentIdx - 1].label}»`, 'info');
-      return;
+    const proc = normalizeProc(row.proc);
+    const log = { ...(proc.stageLog || {}) };
+    for (let i = 1; i < stages.length; i++) {
+      const sid = stages[i].id;
+      if (i <= targetIdx) {
+        if (!log[sid]) log[sid] = { at: now, by: who };
+      } else {
+        delete log[sid];
+      }
     }
+    // Старые поля больше не используем — вычищаем, чтобы не было двух источников
+    delete proc.orderedAt; delete proc.orderedBy;
+    delete proc.approvedAt; delete proc.approvedBy;
+    delete proc.purchasedAt; delete proc.purchasedBy;
+    proc.stageLog = log;
+    proc.stage = stages[targetIdx]?.id;
+    return proc;
+  };
 
-    // Продвижение вперёд: фиксируем даты всех промежуточных этапов
-    if (targetIdx >= 1 && !proc.orderedAt) { proc.orderedAt = now; proc.orderedBy = who; }
-    if (targetIdx >= 2 && !proc.approvedAt) { proc.approvedAt = now; proc.approvedBy = who; }
-    if (targetIdx >= 3 && !proc.purchasedAt) { proc.purchasedAt = now; proc.purchasedBy = who; }
-    // Откат назад через клик по более раннему этапу
-    if (targetIdx < 1) { delete proc.orderedAt; delete proc.orderedBy; }
-    if (targetIdx < 2) { delete proc.approvedAt; delete proc.approvedBy; }
-    if (targetIdx < 3) { delete proc.purchasedAt; delete proc.purchasedBy; }
-    proc.stage = stage;
-    await saveProc(row.tag, row.meta, proc);
-    if (targetIdx > currentIdx) {
-      addToast(`«${row.tag.identifier}»: этап «${STAGES[targetIdx].label}»`, 'success');
+  const setStage = async (row: Row, targetIdx: number) => {
+    // Повторный клик по текущему этапу — откат на шаг назад
+    const finalIdx = (targetIdx === row.stageIdx && targetIdx > 0) ? targetIdx - 1 : targetIdx;
+    await saveProc(row.tag, row.meta, applyStage(row, finalIdx));
+    if (finalIdx !== row.stageIdx) {
+      addToast(`«${row.tag.identifier}»: этап «${stages[finalIdx]?.label}»`, finalIdx > row.stageIdx ? 'success' : 'info');
     }
   };
 
-  const saveField = async (row: any, field: 'supplier' | 'qty' | 'note', value: string) => {
-    const proc: ProcurementInfo = { ...row.proc, [field]: value };
-    await saveProc(row.tag, row.meta, proc);
+  // Массовая установка этапа всем выбранным
+  const setStageBulk = async (targetIdx: number) => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    for (const id of ids) {
+      const row = rowsById[id];
+      if (row) await saveProc(row.tag, row.meta, applyStage(row, targetIdx));
+    }
+    addToast(`Этап «${stages[targetIdx]?.label}» установлен для позиций: ${ids.length}`, 'success');
+  };
+
+  const saveField = async (row: Row, field: 'supplier' | 'qty' | 'note', value: string) => {
+    await saveProc(row.tag, row.meta, { ...normalizeProc(row.proc), [field]: value });
   };
 
   const toggleSort = (key: typeof sortKey) => {
     if (sortKey === key) setSortAsc(v => !v);
     else { setSortKey(key); setSortAsc(true); }
   };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const allVisibleSelected = filtered.length > 0 && filtered.every(r => selectedIds.has(r.tag.id));
 
   if (!activeProject) {
     return (
@@ -231,6 +339,194 @@ export default function ProcurementManagement() {
       </div>
     );
   }
+
+  // ── Строка позиции (общая для списка и дерева) ──────────────────────────────
+  const renderRow = (row: Row, treeLevel: number | null, treeHasChildren?: boolean, treeExpanded?: boolean, onTreeToggle?: () => void) => {
+    const act = ACTUALITY_LABELS[row.actuality] || ACTUALITY_LABELS.draft;
+    const isSelected = selectedIds.has(row.tag.id);
+    return (
+      <tr
+        key={row.tag.id}
+        data-share-route="/management"
+        data-share-focus={`ptag:${row.tag.id}`}
+        data-share-label={row.tag.identifier}
+        onClick={(e) => {
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            toggleSelect(row.tag.id);
+          }
+        }}
+        className={`border-b border-slate-100 dark:border-slate-900 transition-colors ${
+          isSelected
+            ? 'bg-indigo-50 dark:bg-indigo-950/30'
+            : row.isDup
+              ? 'bg-rose-50/40 dark:bg-rose-950/10 hover:bg-rose-50/70 dark:hover:bg-rose-950/20'
+              : 'hover:bg-slate-50/60 dark:hover:bg-slate-900/40'
+        }`}
+      >
+        {/* Галочка мультивыбора */}
+        <td className="px-3 py-3 align-top w-8">
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => toggleSelect(row.tag.id)}
+            onClick={(e) => e.stopPropagation()}
+            className="accent-indigo-500 cursor-pointer"
+            title="Выбрать для массовых действий (или Ctrl+клик по строке)"
+          />
+        </td>
+
+        {/* Позиция */}
+        <td className="px-4 py-3 align-top">
+          <div className="flex items-center gap-1.5" style={treeLevel !== null ? { paddingLeft: `${treeLevel * 22}px` } : undefined}>
+            {treeLevel !== null && (
+              treeHasChildren ? (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onTreeToggle && onTreeToggle(); }}
+                  className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer shrink-0"
+                  title={treeExpanded ? 'Свернуть дочерние' : 'Развернуть дочерние'}
+                >
+                  {treeExpanded ? <ChevronDown className="w-3.5 h-3.5 text-slate-500" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-500" />}
+                </button>
+              ) : <span className="w-4.5 inline-block shrink-0" style={{ width: 18 }} />
+            )}
+            <span className="font-mono font-bold text-xs text-slate-900 dark:text-white select-all">{row.tag.identifier}</span>
+            {row.isDup && (
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 uppercase" title="Дубликат кода тега">дубль</span>
+            )}
+          </div>
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 max-w-[220px] truncate" title={row.name} style={treeLevel !== null ? { paddingLeft: `${treeLevel * 22 + 18}px` } : undefined}>
+            {row.name || <span className="italic opacity-60">Без наименования</span>}
+          </div>
+          <div className="text-[10px] text-slate-400 font-mono mt-0.5" style={treeLevel !== null ? { paddingLeft: `${treeLevel * 22 + 18}px` } : undefined}>
+            {row.tag.department || '—'} · добавлен {fmtDate(row.tag.createdAt)}
+          </div>
+        </td>
+
+        {/* Марка */}
+        <td className="px-4 py-3 align-top">
+          {row.tag.brand ? (
+            <span className="font-mono text-xs font-semibold px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 inline-block max-w-[150px] truncate" title={row.tag.brand}>
+              {row.tag.brand}
+            </span>
+          ) : <span className="text-xs text-slate-400 italic">—</span>}
+        </td>
+
+        {/* Актуальность */}
+        <td className="px-4 py-3 align-top">
+          <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full border ${act.cls}`}>
+            {(row.actuality === 'critical' || row.actuality === 'warning') && <AlertTriangle className="w-3 h-3" />}
+            {act.label}
+          </span>
+        </td>
+
+        {/* Этап закупки: настроенный степпер */}
+        <td className="px-4 py-3 align-top">
+          <div className="flex items-center gap-0.5 flex-wrap">
+            {stages.map((s, idx) => {
+              const Icon = stageIcon(s.icon);
+              const c = stageColor(s.color);
+              const reached = idx <= row.stageIdx;
+              return (
+                <React.Fragment key={s.id}>
+                  {idx > 0 && <div className={`w-3 h-0.5 ${idx <= row.stageIdx ? 'bg-emerald-400' : 'bg-slate-200 dark:bg-slate-800'}`} />}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setStage(row, idx); }}
+                    title={`${s.label}${idx === row.stageIdx && idx > 0 ? ' (клик — откат на шаг назад)' : ''}`}
+                    className={`w-7 h-7 rounded-full border flex items-center justify-center transition-all cursor-pointer ${
+                      reached
+                        ? `${c.bg} ${c.border} ${c.color} ${idx === row.stageIdx ? 'ring-2 ring-offset-1 dark:ring-offset-slate-950 ring-current scale-110' : ''}`
+                        : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-300 dark:text-slate-700 hover:border-slate-400'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                  </button>
+                </React.Fragment>
+              );
+            })}
+          </div>
+          <div className="text-[10px] font-bold mt-1 text-slate-500 dark:text-slate-400">{stages[row.stageIdx]?.label || '—'}</div>
+        </td>
+
+        {/* Даты этапов */}
+        <td className="px-4 py-3 align-top">
+          <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 space-y-0.5 leading-tight">
+            {stages.slice(1).map(s => {
+              const rec = row.proc.stageLog?.[s.id];
+              const c = stageColor(s.color);
+              return (
+                <div key={s.id} title={rec?.by ? `Отметил: ${rec.by}` : ''}>
+                  {s.label.toLowerCase()}: <strong className={rec?.at ? c.color : ''}>{fmtDate(rec?.at)}</strong>
+                </div>
+              );
+            })}
+          </div>
+        </td>
+
+        {/* Поставщик и количество */}
+        <td className="px-4 py-3 align-top">
+          <input
+            type="text"
+            defaultValue={row.proc.supplier || ''}
+            placeholder="Поставщик…"
+            onClick={(e) => e.stopPropagation()}
+            onBlur={(e) => { if (e.target.value !== (row.proc.supplier || '')) saveField(row, 'supplier', e.target.value); }}
+            className="w-32 px-2 py-1 mb-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded text-xs focus:outline-none focus:border-indigo-400 text-slate-800 dark:text-slate-100 block"
+          />
+          <input
+            type="text"
+            defaultValue={row.proc.qty || ''}
+            placeholder="Кол-во…"
+            onClick={(e) => e.stopPropagation()}
+            onBlur={(e) => { if (e.target.value !== (row.proc.qty || '')) saveField(row, 'qty', e.target.value); }}
+            className="w-32 px-2 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded text-xs focus:outline-none focus:border-indigo-400 text-slate-800 dark:text-slate-100 block"
+          />
+        </td>
+
+        {/* Примечание */}
+        <td className="px-4 py-3 align-top min-w-[180px]">
+          {editingNoteId === row.tag.id ? (
+            <textarea
+              autoFocus
+              defaultValue={row.proc.note || ''}
+              rows={2}
+              onClick={(e) => e.stopPropagation()}
+              onBlur={(e) => {
+                if (e.target.value !== (row.proc.note || '')) saveField(row, 'note', e.target.value);
+                setEditingNoteId(null);
+              }}
+              className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 rounded text-xs focus:outline-none text-slate-800 dark:text-slate-100"
+            />
+          ) : (
+            <button
+              onClick={(e) => { e.stopPropagation(); setEditingNoteId(row.tag.id); }}
+              className="text-xs text-left text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 cursor-text w-full min-h-[24px]"
+              title="Нажмите, чтобы изменить примечание"
+            >
+              {row.proc.note || <span className="italic opacity-50">добавить примечание…</span>}
+            </button>
+          )}
+        </td>
+      </tr>
+    );
+  };
+
+  // Рекурсивный рендер дерева в строки таблицы
+  const renderTreeRows = (id: string, childrenMap: Record<string, string[]>, visible: Set<string>, level: number, seen: Set<string>): React.ReactNode[] => {
+    if (seen.has(id) || !visible.has(id)) return [];
+    seen.add(id);
+    const row = rowsById[id];
+    if (!row) return [];
+    const kids = (childrenMap[id] || []).filter(k => visible.has(k) && !seen.has(k));
+    const expanded = expandedTree[id] !== false; // по умолчанию раскрыто
+    const out: React.ReactNode[] = [
+      renderRow(row, level, kids.length > 0, expanded, () => setExpandedTree(prev => ({ ...prev, [id]: !(prev[id] !== false) })))
+    ];
+    if (expanded) {
+      for (const k of kids) out.push(...renderTreeRows(k, childrenMap, visible, level + 1, seen));
+    }
+    return out;
+  };
 
   return (
     <motion.div
@@ -247,19 +543,43 @@ export default function ProcurementManagement() {
           </div>
           <div className="text-left">
             <h1 className="text-lg font-bold tracking-tight text-slate-900 dark:text-white">Менеджмент · Закупки</h1>
-            <p className="text-xs text-slate-400">Актуальность позиций проекта и жизненный цикл закупки. База данных общая с реестром тегов.</p>
+            <p className="text-xs text-slate-400">Жизненный цикл позиций проекта. Этапы настраиваются в «Настройки → Менеджмент».</p>
           </div>
         </div>
-        <button
-          onClick={loadTags}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer self-start lg:self-auto"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /> Обновить
-        </button>
+        <div className="flex items-center gap-2 self-start lg:self-auto">
+          <div className="flex bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200/60 dark:border-slate-800">
+            <button
+              onClick={() => setViewMode('list')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer ${viewMode === 'list' ? 'bg-white dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 shadow-xs' : 'text-slate-500'}`}
+            >
+              <List className="w-3.5 h-3.5" /> Список
+            </button>
+            <button
+              onClick={() => setViewMode('tree')}
+              title="Группировка: родительский тег → дочерние"
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer ${viewMode === 'tree' ? 'bg-white dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 shadow-xs' : 'text-slate-500'}`}
+            >
+              <FolderTree className="w-3.5 h-3.5" /> Дерево
+            </button>
+          </div>
+          <button
+            onClick={() => navigate('/settings?section=management')}
+            title="Настроить этапы закупки"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer"
+          >
+            <Settings2 className="w-3.5 h-3.5" /> Этапы
+          </button>
+          <button
+            onClick={loadAll}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /> Обновить
+          </button>
+        </div>
       </div>
 
       {/* Счётчики этапов: клик — фильтр */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
         <button
           onClick={() => setStageFilter('all')}
           className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${stageFilter === 'all' ? 'bg-indigo-600 border-indigo-700 text-white shadow-md' : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 hover:border-indigo-300'}`}
@@ -267,20 +587,21 @@ export default function ProcurementManagement() {
           <div className="text-2xl font-black leading-none">{rows.length}</div>
           <div className={`text-xs font-bold mt-1 ${stageFilter === 'all' ? 'text-indigo-100' : 'text-slate-400'}`}>Все позиции</div>
         </button>
-        {STAGES.map(s => {
-          const Icon = s.icon;
+        {stages.map(s => {
+          const Icon = stageIcon(s.icon);
+          const c = stageColor(s.color);
           const active = stageFilter === s.id;
           return (
             <button
               key={s.id}
               onClick={() => setStageFilter(active ? 'all' : s.id)}
-              className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${active ? `${s.bg} ${s.border} ring-2 ring-offset-1 dark:ring-offset-slate-950 ring-current ${s.color} shadow-md` : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 hover:shadow-sm'}`}
+              className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${active ? `${c.bg} ${c.border} ring-2 ring-offset-1 dark:ring-offset-slate-950 ring-current ${c.color} shadow-md` : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 hover:shadow-sm'}`}
             >
               <div className="flex items-center justify-between">
-                <div className={`text-2xl font-black leading-none ${s.color}`}>{counts[s.id]}</div>
-                <Icon className={`w-5 h-5 ${s.color}`} />
+                <div className={`text-2xl font-black leading-none ${c.color}`}>{counts[s.id] || 0}</div>
+                <Icon className={`w-5 h-5 ${c.color}`} />
               </div>
-              <div className="text-xs font-bold mt-1 text-slate-400">{s.label}</div>
+              <div className="text-xs font-bold mt-1 text-slate-400 truncate">{s.label}</div>
             </button>
           );
         })}
@@ -298,6 +619,14 @@ export default function ProcurementManagement() {
             className="w-full pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800 dark:text-slate-100"
           />
         </div>
+        <div className="w-44">
+          <CustomSelect
+            value={deptFilter}
+            onChange={setDeptFilter}
+            placeholder="Все отделы"
+            options={[{ value: '', label: 'Все отделы' }, ...departments.map(d => ({ value: d, label: d }))]}
+          />
+        </div>
         <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer select-none px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900">
           <input type="checkbox" checked={onlyDuplicates} onChange={(e) => setOnlyDuplicates(e.target.checked)} className="accent-rose-500" />
           Только дубли
@@ -309,11 +638,53 @@ export default function ProcurementManagement() {
         <span className="text-xs text-slate-400 flex items-center gap-1"><Filter className="w-3.5 h-3.5" /> Показано: {filtered.length}</span>
       </div>
 
+      {/* Панель массовых действий */}
+      {selectedIds.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2 p-3 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900 rounded-xl">
+          <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5">
+            <CheckSquare className="w-4 h-4" /> Выбрано: {selectedIds.size}
+          </span>
+          <span className="text-xs text-slate-500 dark:text-slate-400">Установить этап:</span>
+          {stages.map((s, idx) => {
+            const Icon = stageIcon(s.icon);
+            const c = stageColor(s.color);
+            return (
+              <button
+                key={s.id}
+                onClick={() => setStageBulk(idx)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all hover:scale-105 ${c.bg} ${c.border} ${c.color}`}
+              >
+                <Icon className="w-3.5 h-3.5" /> {s.label}
+              </button>
+            );
+          })}
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="ml-auto p-1.5 rounded-lg hover:bg-white/60 dark:hover:bg-slate-900 text-slate-400 cursor-pointer"
+            title="Снять выделение"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Таблица позиций */}
       <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs overflow-x-auto">
-        <table className="w-full text-left border-collapse min-w-[900px]">
+        <table className="w-full text-left border-collapse min-w-[980px]">
           <thead className="bg-slate-50 dark:bg-slate-900/60 text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-850">
             <tr>
+              <th className="px-3 py-2.5 w-8">
+                <input
+                  type="checkbox"
+                  checked={allVisibleSelected}
+                  onChange={() => {
+                    if (allVisibleSelected) setSelectedIds(new Set());
+                    else setSelectedIds(new Set(filtered.map(r => r.tag.id)));
+                  }}
+                  className="accent-indigo-500 cursor-pointer"
+                  title="Выбрать все показанные"
+                />
+              </th>
               <th className="px-4 py-2.5 cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('identifier')}>
                 Позиция {sortKey === 'identifier' && (sortAsc ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />)}
               </th>
@@ -324,145 +695,30 @@ export default function ProcurementManagement() {
               <th className="px-4 py-2.5 cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('stage')}>
                 Этап закупки {sortKey === 'stage' && (sortAsc ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />)}
               </th>
-              <th className="px-4 py-2.5 cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('purchasedAt')}>
-                Даты этапов {sortKey === 'purchasedAt' && (sortAsc ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />)}
+              <th className="px-4 py-2.5 cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('lastDate')}>
+                Даты этапов {sortKey === 'lastDate' && (sortAsc ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />)}
               </th>
-              <th className="px-4 py-2.5">Поставщик / Кол-во</th>
+              <th className="px-4 py-2.5 cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('qty')}>
+                Поставщик / Кол-во {sortKey === 'qty' && (sortAsc ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />)}
+              </th>
               <th className="px-4 py-2.5">Примечание</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && filtered.length === 0 ? (
-              <tr><td colSpan={7} className="text-center py-16 text-slate-400 text-sm">
+              <tr><td colSpan={8} className="text-center py-16 text-slate-400 text-sm">
                 <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" /> Загрузка позиций…
               </td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={7} className="text-center py-16 text-slate-400 text-sm">
+              <tr><td colSpan={8} className="text-center py-16 text-slate-400 text-sm">
                 <Database className="w-8 h-8 mx-auto mb-2 opacity-50" />
                 {rows.length === 0 ? 'В проекте нет позиций. Добавьте теги в разделе «Теги».' : 'Ничего не найдено по заданным фильтрам.'}
               </td></tr>
-            ) : filtered.map(row => {
-              const act = ACTUALITY_LABELS[row.actuality] || ACTUALITY_LABELS.draft;
-              const stageIdx = STAGE_ORDER.indexOf(row.stage);
-              return (
-                <tr
-                  key={row.tag.id}
-                  data-share-route="/management"
-                  data-share-focus={`ptag:${row.tag.id}`}
-                  data-share-label={row.tag.identifier}
-                  className={`border-b border-slate-100 dark:border-slate-900 transition-colors hover:bg-slate-50/60 dark:hover:bg-slate-900/40 ${row.isDup ? 'bg-rose-50/40 dark:bg-rose-950/10' : ''}`}
-                >
-                  {/* Позиция */}
-                  <td className="px-4 py-3 align-top">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-mono font-bold text-xs text-slate-900 dark:text-white select-all">{row.tag.identifier}</span>
-                      {row.isDup && (
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 uppercase" title="Дубликат кода тега">дубль</span>
-                      )}
-                    </div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 max-w-[220px] truncate" title={row.name}>
-                      {row.name || <span className="italic opacity-60">Без наименования</span>}
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">добавлен {fmtDate(row.tag.createdAt)}</div>
-                  </td>
-
-                  {/* Марка */}
-                  <td className="px-4 py-3 align-top">
-                    {row.tag.brand ? (
-                      <span className="font-mono text-xs font-semibold px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 inline-block max-w-[150px] truncate" title={row.tag.brand}>
-                        {row.tag.brand}
-                      </span>
-                    ) : <span className="text-xs text-slate-400 italic">—</span>}
-                  </td>
-
-                  {/* Актуальность */}
-                  <td className="px-4 py-3 align-top">
-                    <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full border ${act.cls}`}>
-                      {(row.actuality === 'critical' || row.actuality === 'warning') && <AlertTriangle className="w-3 h-3" />}
-                      {act.label}
-                    </span>
-                  </td>
-
-                  {/* Этап закупки: степпер */}
-                  <td className="px-4 py-3 align-top">
-                    <div className="flex items-center gap-0.5">
-                      {STAGES.map((s, idx) => {
-                        const Icon = s.icon;
-                        const reached = idx <= stageIdx;
-                        return (
-                          <React.Fragment key={s.id}>
-                            {idx > 0 && <div className={`w-3 h-0.5 ${idx <= stageIdx ? 'bg-emerald-400' : 'bg-slate-200 dark:bg-slate-800'}`} />}
-                            <button
-                              onClick={() => setStage(row, s.id)}
-                              title={`${s.label}${idx === stageIdx && idx > 0 ? ' (клик — откат на шаг назад)' : ''}`}
-                              className={`w-7 h-7 rounded-full border flex items-center justify-center transition-all cursor-pointer ${
-                                reached
-                                  ? `${s.bg} ${s.border} ${s.color} ${idx === stageIdx ? 'ring-2 ring-offset-1 dark:ring-offset-slate-950 ring-current scale-110' : ''}`
-                                  : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-300 dark:text-slate-700 hover:border-slate-400'
-                              }`}
-                            >
-                              <Icon className="w-3.5 h-3.5" />
-                            </button>
-                          </React.Fragment>
-                        );
-                      })}
-                    </div>
-                    <div className="text-[10px] font-bold mt-1 text-slate-500 dark:text-slate-400">{STAGES[stageIdx].label}</div>
-                  </td>
-
-                  {/* Даты этапов */}
-                  <td className="px-4 py-3 align-top">
-                    <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 space-y-0.5 leading-tight">
-                      <div title={row.proc.orderedBy ? `Отметил: ${row.proc.orderedBy}` : ''}>заказан: <strong className={row.proc.orderedAt ? 'text-sky-600 dark:text-sky-400' : ''}>{fmtDate(row.proc.orderedAt)}</strong></div>
-                      <div title={row.proc.approvedBy ? `Отметил: ${row.proc.approvedBy}` : ''}>утверждён: <strong className={row.proc.approvedAt ? 'text-amber-600 dark:text-amber-400' : ''}>{fmtDate(row.proc.approvedAt)}</strong></div>
-                      <div title={row.proc.purchasedBy ? `Отметил: ${row.proc.purchasedBy}` : ''}>куплен: <strong className={row.proc.purchasedAt ? 'text-emerald-600 dark:text-emerald-400' : ''}>{fmtDate(row.proc.purchasedAt)}</strong></div>
-                    </div>
-                  </td>
-
-                  {/* Поставщик и количество */}
-                  <td className="px-4 py-3 align-top">
-                    <input
-                      type="text"
-                      defaultValue={row.proc.supplier || ''}
-                      placeholder="Поставщик…"
-                      onBlur={(e) => { if (e.target.value !== (row.proc.supplier || '')) saveField(row, 'supplier', e.target.value); }}
-                      className="w-32 px-2 py-1 mb-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded text-xs focus:outline-none focus:border-indigo-400 text-slate-800 dark:text-slate-100 block"
-                    />
-                    <input
-                      type="text"
-                      defaultValue={row.proc.qty || ''}
-                      placeholder="Кол-во…"
-                      onBlur={(e) => { if (e.target.value !== (row.proc.qty || '')) saveField(row, 'qty', e.target.value); }}
-                      className="w-32 px-2 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded text-xs focus:outline-none focus:border-indigo-400 text-slate-800 dark:text-slate-100 block"
-                    />
-                  </td>
-
-                  {/* Примечание */}
-                  <td className="px-4 py-3 align-top min-w-[180px]">
-                    {editingNoteId === row.tag.id ? (
-                      <textarea
-                        autoFocus
-                        defaultValue={row.proc.note || ''}
-                        rows={2}
-                        onBlur={(e) => {
-                          if (e.target.value !== (row.proc.note || '')) saveField(row, 'note', e.target.value);
-                          setEditingNoteId(null);
-                        }}
-                        className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 rounded text-xs focus:outline-none text-slate-800 dark:text-slate-100"
-                      />
-                    ) : (
-                      <button
-                        onClick={() => setEditingNoteId(row.tag.id)}
-                        className="text-xs text-left text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 cursor-text w-full min-h-[24px]"
-                        title="Нажмите, чтобы изменить примечание"
-                      >
-                        {row.proc.note || <span className="italic opacity-50">добавить примечание…</span>}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
+            ) : viewMode === 'list' ? (
+              filtered.map(row => renderRow(row, null))
+            ) : (
+              tree.flatMap(({ id, childrenMap, visible }) => renderTreeRows(id, childrenMap, visible, 0, new Set()))
+            )}
           </tbody>
         </table>
       </div>

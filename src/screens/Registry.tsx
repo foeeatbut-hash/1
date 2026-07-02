@@ -48,6 +48,237 @@ import { useShareStore } from '../store/shareStore';
 const CARD_W = 330;
 const CARD_H = 140;
 
+// Чистые функции уровня модуля: не зависят от состояния компонента,
+// используются и главным экраном, и выделенным компонентом поиска
+function parseTagMetadata(tag: any): ParsedMetadata {
+  if (!tag) {
+    return {
+      x: Math.floor(Math.random() * 550 + 80),
+      y: Math.floor(Math.random() * 320 + 80),
+      connections: [],
+      descriptions: []
+    };
+  }
+  if (tag.parsedMetadata) {
+    return tag.parsedMetadata;
+  }
+  try {
+    if (tag.metadata) {
+      const parsed = typeof tag.metadata === 'string' ? JSON.parse(tag.metadata) : tag.metadata;
+      const res: ParsedMetadata = {
+        ...parsed,
+        x: parsed.x !== undefined ? parsed.x : Math.floor(Math.random() * 500 + 100),
+        y: parsed.y !== undefined ? parsed.y : Math.floor(Math.random() * 300 + 100),
+        parentId: parsed.parentId,
+        connections: Array.isArray(parsed.connections) ? parsed.connections : [],
+        descriptions: Array.isArray(parsed.descriptions) ? parsed.descriptions : []
+      };
+      tag.parsedMetadata = res;
+      return res;
+    }
+  } catch (e) {
+    console.error('Error parsing tag metadata:', e);
+  }
+  const fallback: ParsedMetadata = {
+    x: Math.floor(Math.random() * 550 + 80),
+    y: Math.floor(Math.random() * 320 + 80),
+    connections: [],
+    descriptions: []
+  };
+  tag.parsedMetadata = fallback;
+  return fallback;
+}
+
+function getTagOverallStatus(tag: any): 'actual' | 'warning' | 'critical' | 'info' | 'draft' {
+  const meta = parseTagMetadata(tag);
+  if (!meta.descriptions || meta.descriptions.length === 0) {
+    return 'draft';
+  }
+  if (meta.descriptions.some(d => d.status === 'critical')) return 'critical';
+  if (meta.descriptions.some(d => d.status === 'warning')) return 'warning';
+  if (meta.descriptions.some(d => d.status === 'info')) return 'info';
+  if (meta.descriptions.some(d => d.status === 'actual')) return 'actual';
+  return 'draft';
+}
+
+const statusConfig = {
+  actual: { bg: 'bg-emerald-500/10 dark:bg-emerald-500/20', text: 'text-emerald-500 dark:text-emerald-400', border: 'border-emerald-500/20', icon: CheckCircle2, label: 'Актуально' },
+  warning: { bg: 'bg-amber-500/10 dark:bg-amber-500/20', text: 'text-amber-500 dark:text-amber-400', border: 'border-amber-500/20', icon: AlertTriangle, label: 'Проверить' },
+  critical: { bg: 'bg-rose-500/10 dark:bg-rose-500/20', text: 'text-rose-500 dark:text-rose-400', border: 'border-rose-500/20', icon: XCircle, label: 'Критично' },
+  info: { bg: 'bg-teal-500/10 dark:bg-teal-500/20', text: 'text-teal-500 dark:text-teal-400', border: 'border-teal-500/20', icon: Info, label: 'В работе' },
+  draft: { bg: 'bg-slate-500/10 dark:bg-slate-500/20', text: 'text-slate-500 dark:text-slate-400', border: 'border-slate-500/20', icon: HelpCircle, label: 'Устарело' }
+};
+
+// Панель универсального поиска. Отдельный memo-компонент: ввод текста
+// перерисовывает только эту панель, а не весь холст с карточками —
+// иначе на больших проектах поиск «залагивал» при каждом символе.
+interface TagSearchPanelProps {
+  tags: any[];
+  selectedTagIds: Set<string>;
+  activeTab: string;
+  onQueryChange: (q: string) => void;          // дебаунс — для фильтра таблицы/дерева
+  onToggleSelect: (tagId: string) => void;
+  onOpenResult: (tagId: string) => void;       // клик по строке: выделить и показать
+  onShowSelected: () => void;
+  onClearSelection: () => void;
+}
+
+const TagSearchPanel = React.memo(function TagSearchPanel({
+  tags, selectedTagIds, activeTab, onQueryChange, onToggleSelect, onOpenResult, onShowSelected, onClearSelection
+}: TagSearchPanelProps) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const [onlyDuplicates, setOnlyDuplicates] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Дебаунс наружу: фильтр таблицы/дерева обновляется после паузы в наборе
+  const handleInput = (val: string) => {
+    setQuery(val);
+    setOpen(true);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => onQueryChange(val), 300);
+  };
+
+  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const duplicateCodes = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const t of tags) {
+      const code = (t.identifier || '').trim();
+      if (code) counts[code] = (counts[code] || 0) + 1;
+    }
+    return new Set(Object.keys(counts).filter(c => counts[c] > 1));
+  }, [tags]);
+
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const dupMode = onlyDuplicates || q === 'дубли' || q === 'дубликаты';
+    if (!q && !dupMode) return [];
+    let list = tags;
+    if (dupMode) list = list.filter(t => duplicateCodes.has((t.identifier || '').trim()));
+    const qq = (q === 'дубли' || q === 'дубликаты') ? '' : q;
+    if (qq) {
+      list = list.filter(t => {
+        const meta = parseTagMetadata(t);
+        return (t.identifier || '').toLowerCase().includes(qq) ||
+          (meta.mainName || '').toLowerCase().includes(qq) ||
+          (t.brand || '').toLowerCase().includes(qq) ||
+          (t.department || '').toLowerCase().includes(qq) ||
+          (t.fluid || '').toLowerCase().includes(qq);
+      });
+    }
+    return list.slice(0, 60);
+  }, [tags, query, onlyDuplicates, duplicateCodes]);
+
+  return (
+    <div ref={boxRef} className="lg:col-span-2 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs flex flex-col justify-between text-left relative">
+      <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase leading-none mb-1">
+        Поиск по разделу:
+      </label>
+      <div className="relative flex-1 flex items-end">
+        <input
+          type="search"
+          placeholder="Тег, название, марка…"
+          value={query}
+          onChange={(e) => handleInput(e.target.value)}
+          onFocus={() => setOpen(true)}
+          className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs placeholder-slate-400 dark:placeholder-slate-550 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:bg-white dark:focus:bg-slate-950 text-slate-800 dark:text-slate-100 font-medium h-8"
+        />
+      </div>
+
+      {open && (query.trim() || onlyDuplicates) && (
+        <div className="absolute top-full right-0 mt-1 w-[min(94vw,420px)] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl z-[60] overflow-hidden">
+          <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-850 flex items-center justify-between gap-2">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+              Найдено: {results.length}
+            </span>
+            <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={onlyDuplicates}
+                onChange={(e) => setOnlyDuplicates(e.target.checked)}
+                className="accent-rose-500"
+              />
+              Только дубли
+            </label>
+          </div>
+          <div className="max-h-72 overflow-y-auto p-1.5 space-y-0.5">
+            {results.length === 0 ? (
+              <div className="text-center text-xs text-slate-400 py-5">Ничего не найдено</div>
+            ) : results.map(t => {
+              const meta = parseTagMetadata(t);
+              const st = statusConfig[getTagOverallStatus(t)] || statusConfig.draft;
+              const dup = duplicateCodes.has((t.identifier || '').trim());
+              const checked = selectedTagIds.has(t.id);
+              return (
+                <div
+                  key={t.id}
+                  className={`flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900 cursor-pointer ${checked ? 'bg-indigo-50 dark:bg-indigo-950/30' : ''}`}
+                  onClick={() => {
+                    onOpenResult(t.id);
+                    setOpen(false);
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      onToggleSelect(t.id);
+                    }}
+                    className="accent-indigo-500 shrink-0"
+                    title="Отметить для мультивыбора"
+                  />
+                  <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${st.text} bg-current`} title={`Актуальность: ${st.label}`} />
+                  <span className="font-mono font-bold text-xs text-emerald-700 dark:text-emerald-400 truncate">{t.identifier}</span>
+                  {dup && (
+                    <span className="shrink-0 text-[9px] font-bold px-1 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 uppercase">дубль</span>
+                  )}
+                  <span className="text-xs text-slate-500 dark:text-slate-400 truncate flex-1">{meta.mainName || ''}</span>
+                  {t.brand && <span className="font-mono text-[10px] text-slate-400 truncate max-w-[80px] shrink-0">{t.brand}</span>}
+                </div>
+              );
+            })}
+          </div>
+          {selectedTagIds.size > 0 && (
+            <div className="px-3 py-2 border-t border-slate-100 dark:border-slate-850 flex items-center justify-between gap-2 bg-slate-50/60 dark:bg-slate-900/40">
+              <span className="text-xs font-bold text-indigo-600 dark:text-indigo-300">Отмечено: {selectedTagIds.size}</span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => {
+                    onShowSelected();
+                    setOpen(false);
+                  }}
+                  className="px-2 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold cursor-pointer"
+                >
+                  Показать
+                </button>
+                <button
+                  onClick={onClearSelection}
+                  className="px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 text-xs cursor-pointer"
+                >
+                  Сбросить
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
+
 const actualitySelectOptions = [
   { value: 'actual', label: '🟢 Актуально' },
   { value: 'warning', label: '🟡 Проверить' },
@@ -267,13 +498,8 @@ export default function Registry() {
   }, [tags]);
   const isDuplicateTag = (t: any) => duplicateCodes.has((t?.identifier || '').trim());
 
-  // Filter/Search
+  // Filter/Search (обновляется с дебаунсом из панели поиска — для таблицы/дерева)
   const [searchQuery, setSearchQuery] = useState('');
-
-  // Универсальный поиск: выпадающий список результатов под окном поиска
-  const [showSearchDropdown, setShowSearchDropdown] = useState(false);
-  const [searchOnlyDuplicates, setSearchOnlyDuplicates] = useState(false);
-  const searchBoxRef = useRef<HTMLDivElement>(null);
 
   // Выделение карточек на холсте: Ctrl+клик, галочки в поиске, функция «Связи»
   const [selectedTagIds, setSelectedTagIds] = useState<Set<string>>(new Set());
@@ -287,27 +513,6 @@ export default function Registry() {
 
   // Размер видимой области холста — для центрирования и отсечения невидимых карточек
   const [boardSize, setBoardSize] = useState({ w: 1200, h: 700 });
-
-  // Результаты универсального поиска (тег, наименование, марка, отдел, среда, дубли)
-  const searchResults = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    const dupMode = searchOnlyDuplicates || q === 'дубли' || q === 'дубликаты';
-    if (!q && !dupMode) return [];
-    let list = tags;
-    if (dupMode) list = list.filter(t => isDuplicateTag(t));
-    const qq = (q === 'дубли' || q === 'дубликаты') ? '' : q;
-    if (qq) {
-      list = list.filter(t => {
-        const meta = parseTagMetadata(t);
-        return (t.identifier || '').toLowerCase().includes(qq) ||
-          (meta.mainName || '').toLowerCase().includes(qq) ||
-          (t.brand || '').toLowerCase().includes(qq) ||
-          (t.department || '').toLowerCase().includes(qq) ||
-          (t.fluid || '').toLowerCase().includes(qq);
-      });
-    }
-    return list.slice(0, 60);
-  }, [tags, searchQuery, searchOnlyDuplicates, duplicateCodes]);
 
   // Оптимизация больших холстов: рендерим только карточки в видимой области (+запас)
   const cullInfo = useMemo(() => {
@@ -328,18 +533,6 @@ export default function Registry() {
 
   // Анимированные точки на связях отключаем на больших графах (экономия ресурсов)
   const showFlowDots = tags.length <= 60;
-
-  // Закрытие выпадающего поиска по клику вне его
-  useEffect(() => {
-    if (!showSearchDropdown) return;
-    const onDown = (e: MouseEvent) => {
-      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) {
-        setShowSearchDropdown(false);
-      }
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [showSearchDropdown]);
 
   // Закрытие контекстного меню карточки и списка «главных родителей»
   useEffect(() => {
@@ -478,6 +671,14 @@ export default function Registry() {
         parsedMetadata: parseTagMetadata(t)
       }));
       setTags(tagsWithParsedMetadata);
+      // Выделение не должно ссылаться на удалённые теги (иначе «Выбрано: 2»
+      // после удаления одного из выбранных и лишние рендеры)
+      const liveIds = new Set(tagsList.map((t: any) => t.id));
+      setSelectedTagIds(prev => {
+        if (prev.size === 0) return prev;
+        const next = new Set(Array.from(prev).filter(id => liveIds.has(id)));
+        return next.size === prev.size ? prev : next;
+      });
     } catch (err) {
       console.error('Failed to load tags:', err);
     } finally {
@@ -740,61 +941,8 @@ export default function Registry() {
     }
   };
 
-  // Safe parse metadata
-  // Функция-декларация (hoisted): используется в useMemo выше по коду (incomingByTagId),
-  // который исполняется во время рендера до этой строки. С const возникала бы
-  // временная мёртвая зона (ReferenceError) при заходе на граф.
-  function parseTagMetadata(tag: any): ParsedMetadata {
-    if (!tag) {
-      return {
-        x: Math.floor(Math.random() * 550 + 80),
-        y: Math.floor(Math.random() * 320 + 80),
-        connections: [],
-        descriptions: []
-      };
-    }
-    if (tag.parsedMetadata) {
-      return tag.parsedMetadata;
-    }
-    try {
-      if (tag.metadata) {
-        const parsed = typeof tag.metadata === 'string' ? JSON.parse(tag.metadata) : tag.metadata;
-        const res: ParsedMetadata = {
-          ...parsed,
-          x: parsed.x !== undefined ? parsed.x : Math.floor(Math.random() * 500 + 100),
-          y: parsed.y !== undefined ? parsed.y : Math.floor(Math.random() * 300 + 100),
-          parentId: parsed.parentId,
-          connections: Array.isArray(parsed.connections) ? parsed.connections : [],
-          descriptions: Array.isArray(parsed.descriptions) ? parsed.descriptions : []
-        };
-        tag.parsedMetadata = res;
-        return res;
-      }
-    } catch (e) {
-      console.error('Error parsing tag metadata:', e);
-    }
-    const fallback: ParsedMetadata = {
-      x: Math.floor(Math.random() * 550 + 80),
-      y: Math.floor(Math.random() * 320 + 80),
-      connections: [],
-      descriptions: []
-    };
-    tag.parsedMetadata = fallback;
-    return fallback;
-  }
-
-  // Get consolidated actuality status of a Tag based on worst-case sub-description status
-  const getTagOverallStatus = (tag: any): 'actual' | 'warning' | 'critical' | 'info' | 'draft' => {
-    const meta = parseTagMetadata(tag);
-    if (!meta.descriptions || meta.descriptions.length === 0) {
-      return 'draft';
-    }
-    if (meta.descriptions.some(d => d.status === 'critical')) return 'critical';
-    if (meta.descriptions.some(d => d.status === 'warning')) return 'warning';
-    if (meta.descriptions.some(d => d.status === 'info')) return 'info';
-    if (meta.descriptions.some(d => d.status === 'actual')) return 'actual';
-    return 'draft';
-  };
+  // parseTagMetadata / getTagOverallStatus / statusConfig вынесены на уровень
+  // модуля (см. выше компонента): они чистые и нужны компоненту поиска.
 
   // Human date formatting with safety check
   const formatDateStr = (isoString?: string): string => {
@@ -1814,6 +1962,13 @@ export default function Registry() {
 
       await fetch(`/api/tags/${tagId}`, { method: 'DELETE' });
       setEditingTag(null);
+      // Убираем удалённый тег из выделения сразу, не дожидаясь перезагрузки
+      setSelectedTagIds(prev => {
+        if (!prev.has(tagId)) return prev;
+        const next = new Set(prev);
+        next.delete(tagId);
+        return next;
+      });
       loadTags();
     } catch (err) {
       console.error('Failed to delete tag:', err);
@@ -2145,14 +2300,6 @@ export default function Registry() {
     document.body.removeChild(link);
   };
 
-  const statusConfig = {
-    actual: { bg: 'bg-emerald-500/10 dark:bg-emerald-500/20', text: 'text-emerald-500 dark:text-emerald-400', border: 'border-emerald-500/20', icon: CheckCircle2, label: 'Актуально' },
-    warning: { bg: 'bg-amber-500/10 dark:bg-amber-500/20', text: 'text-amber-500 dark:text-amber-400', border: 'border-amber-500/20', icon: AlertTriangle, label: 'Проверить' },
-    critical: { bg: 'bg-rose-500/10 dark:bg-rose-500/20', text: 'text-rose-500 dark:text-rose-400', border: 'border-rose-500/20', icon: XCircle, label: 'Критично' },
-    info: { bg: 'bg-teal-500/10 dark:bg-teal-500/20', text: 'text-teal-500 dark:text-teal-400', border: 'border-teal-500/20', icon: Info, label: 'В работе' },
-    draft: { bg: 'bg-slate-500/10 dark:bg-slate-500/20', text: 'text-slate-500 dark:text-slate-400', border: 'border-slate-500/20', icon: HelpCircle, label: 'Устарело' }
-  };
-
   const isIdentifierUnique = !newTagIdentifier || !checkTagExists(newTagIdentifier);
 
   if (!activeProject) {
@@ -2435,109 +2582,28 @@ export default function Registry() {
         </form>
 
         {/* Универсальный поиск по разделу: тег, наименование, марка, дубли */}
-        <div ref={searchBoxRef} className="lg:col-span-2 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs flex flex-col justify-between text-left relative">
-          <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase leading-none mb-1">
-            Поиск по разделу:
-          </label>
-          <div className="relative flex-1 flex items-end">
-            <input
-              type="search"
-              placeholder="Тег, название, марка…"
-              value={searchQuery}
-              onChange={(e) => { setSearchQuery(e.target.value); setShowSearchDropdown(true); }}
-              onFocus={() => setShowSearchDropdown(true)}
-              className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs placeholder-slate-400 dark:placeholder-slate-550 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:bg-white dark:focus:bg-slate-950 text-slate-800 dark:text-slate-100 font-medium h-8"
-            />
-          </div>
-
-          {/* Выпадающий список результатов: клик — выделить и показать; галочки — мультивыбор */}
-          {showSearchDropdown && (searchQuery.trim() || searchOnlyDuplicates) && (
-            <div className="absolute top-full right-0 mt-1 w-[min(94vw,420px)] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl z-[60] overflow-hidden">
-              <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-850 flex items-center justify-between gap-2">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                  Найдено: {searchResults.length}
-                </span>
-                <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={searchOnlyDuplicates}
-                    onChange={(e) => setSearchOnlyDuplicates(e.target.checked)}
-                    className="accent-rose-500"
-                  />
-                  Только дубли
-                </label>
-              </div>
-              <div className="max-h-72 overflow-y-auto p-1.5 space-y-0.5">
-                {searchResults.length === 0 ? (
-                  <div className="text-center text-xs text-slate-400 py-5">Ничего не найдено</div>
-                ) : searchResults.map(t => {
-                  const meta = parseTagMetadata(t);
-                  const st = statusConfig[getTagOverallStatus(t)] || statusConfig.draft;
-                  const dup = isDuplicateTag(t);
-                  const checked = selectedTagIds.has(t.id);
-                  return (
-                    <div
-                      key={t.id}
-                      className={`flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900 cursor-pointer ${checked ? 'bg-indigo-50 dark:bg-indigo-950/30' : ''}`}
-                      onClick={() => {
-                        // Клик по результату: выделить и показать в текущем разделе
-                        setSelectedTagIds(new Set([t.id]));
-                        if (activeTab === 'board') centerOnTag(t.id);
-                        setShowSearchDropdown(false);
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          setSelectedTagIds(prev => {
-                            const next = new Set(prev);
-                            if (next.has(t.id)) next.delete(t.id);
-                            else next.add(t.id);
-                            return next;
-                          });
-                        }}
-                        className="accent-indigo-500 shrink-0"
-                        title="Отметить для мультивыбора"
-                      />
-                      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${st.text} bg-current`} title={`Актуальность: ${st.label}`} />
-                      <span className="font-mono font-bold text-xs text-emerald-700 dark:text-emerald-400 truncate">{t.identifier}</span>
-                      {dup && (
-                        <span className="shrink-0 text-[9px] font-bold px-1 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 uppercase">дубль</span>
-                      )}
-                      <span className="text-xs text-slate-500 dark:text-slate-400 truncate flex-1">{meta.mainName || ''}</span>
-                      {t.brand && <span className="font-mono text-[10px] text-slate-400 truncate max-w-[80px] shrink-0">{t.brand}</span>}
-                    </div>
-                  );
-                })}
-              </div>
-              {selectedTagIds.size > 0 && (
-                <div className="px-3 py-2 border-t border-slate-100 dark:border-slate-850 flex items-center justify-between gap-2 bg-slate-50/60 dark:bg-slate-900/40">
-                  <span className="text-xs font-bold text-indigo-600 dark:text-indigo-300">Отмечено: {selectedTagIds.size}</span>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => {
-                        if (activeTab === 'board') fitToTags(tags.filter(t => selectedTagIds.has(t.id)));
-                        setShowSearchDropdown(false);
-                      }}
-                      className="px-2 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold cursor-pointer"
-                    >
-                      Показать
-                    </button>
-                    <button
-                      onClick={() => setSelectedTagIds(new Set())}
-                      className="px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 text-xs cursor-pointer"
-                    >
-                      Сбросить
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+        <TagSearchPanel
+          tags={tags}
+          selectedTagIds={selectedTagIds}
+          activeTab={activeTab}
+          onQueryChange={setSearchQuery}
+          onToggleSelect={(tagId) => {
+            setSelectedTagIds(prev => {
+              const next = new Set(prev);
+              if (next.has(tagId)) next.delete(tagId);
+              else next.add(tagId);
+              return next;
+            });
+          }}
+          onOpenResult={(tagId) => {
+            setSelectedTagIds(new Set([tagId]));
+            if (activeTab === 'board') centerOnTag(tagId);
+          }}
+          onShowSelected={() => {
+            if (activeTab === 'board') fitToTags(tags.filter(t => selectedTagIds.has(t.id)));
+          }}
+          onClearSelection={() => setSelectedTagIds(new Set())}
+        />
       </div>
 
       {/* TABS INTERFACE */}
@@ -3196,70 +3262,94 @@ export default function Registry() {
               )}
             </div>
 
-            {/* Контекстное меню карточки: «Связи» вверх/вниз, «Поделиться в чате» */}
-            {cardMenu && createPortal(
-              <div
-                className="fixed z-[120] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 shadow-2xl rounded-xl py-1.5 min-w-[240px] text-xs"
-                style={{ top: Math.min(cardMenu.y, window.innerHeight - 230), left: Math.min(cardMenu.x, window.innerWidth - 260) }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-slate-400 truncate font-mono">
-                  {tagsById[cardMenu.tagId]?.identifier || 'Тег'}
-                  {selectedTagIds.size > 1 && <span className="ml-1 text-indigo-500">+{selectedTagIds.size - 1}</span>}
-                </div>
-                <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-slate-400">Связи</div>
-                <button
-                  onClick={() => {
-                    setSelectedTagIds(collectAncestors(cardMenu.tagId));
-                    setCardMenu(null);
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 text-slate-800 dark:text-slate-200 cursor-pointer"
-                >
-                  <ChevronUp className="w-3.5 h-3.5 text-indigo-500" /> Выделить вверх по ступеньке (родители)
-                </button>
-                <button
-                  onClick={() => {
-                    setSelectedTagIds(collectDescendants(cardMenu.tagId));
-                    setCardMenu(null);
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 text-slate-800 dark:text-slate-200 cursor-pointer"
-                >
-                  <ChevronDown className="w-3.5 h-3.5 text-indigo-500" /> Выделить вниз по лестнице (дочерние)
-                </button>
-                <div className="h-px bg-slate-100 dark:bg-slate-850 my-1 mx-2" />
-                <button
-                  onClick={() => {
-                    const ids = selectedTagIds.size > 0 ? Array.from(selectedTagIds) : [cardMenu.tagId];
-                    shareTagsInChat(ids);
-                    setCardMenu(null);
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-200 cursor-pointer"
-                >
-                  <Link2 className="w-3.5 h-3.5 text-emerald-600" />
-                  Поделиться в рабочем чате{selectedTagIds.size > 1 ? ` (${selectedTagIds.size})` : ''}
-                </button>
-                <button
-                  onClick={() => {
-                    centerOnTag(cardMenu.tagId);
-                    setCardMenu(null);
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-800 dark:text-slate-200 cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5 text-slate-400" /> Центрировать на карточке
-                </button>
-                <button
-                  onClick={() => {
-                    setSelectedTagIds(new Set());
-                    setCardMenu(null);
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-400 cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" /> Снять выделение
-                </button>
-              </div>,
-              document.body
-            )}
           </motion.div>
+        )}
+
+        {/* Контекстное меню тега: доступно во всех вкладках раздела
+            (холст, дерево связей, спецификация) — «Связи», «Поделиться в чате» */}
+        {cardMenu && createPortal(
+          <div
+            className="fixed z-[120] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 shadow-2xl rounded-xl py-1.5 min-w-[240px] text-xs"
+            style={{ top: Math.min(cardMenu.y, window.innerHeight - 230), left: Math.min(cardMenu.x, window.innerWidth - 260) }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-slate-400 truncate font-mono">
+              {tagsById[cardMenu.tagId]?.identifier || 'Тег'}
+              {selectedTagIds.size > 1 && <span className="ml-1 text-indigo-500">+{selectedTagIds.size - 1}</span>}
+            </div>
+            <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-slate-400">Связи</div>
+            <button
+              onClick={() => {
+                setSelectedTagIds(collectAncestors(cardMenu.tagId));
+                setCardMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 text-slate-800 dark:text-slate-200 cursor-pointer"
+            >
+              <ChevronUp className="w-3.5 h-3.5 text-indigo-500" /> Выделить вверх по ступеньке (родители)
+            </button>
+            <button
+              onClick={() => {
+                setSelectedTagIds(collectDescendants(cardMenu.tagId));
+                setCardMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 text-slate-800 dark:text-slate-200 cursor-pointer"
+            >
+              <ChevronDown className="w-3.5 h-3.5 text-indigo-500" /> Выделить вниз по лестнице (дочерние)
+            </button>
+            <div className="h-px bg-slate-100 dark:bg-slate-850 my-1 mx-2" />
+            <button
+              onClick={() => {
+                const ids = selectedTagIds.size > 0 ? Array.from(selectedTagIds) : [cardMenu.tagId];
+                shareTagsInChat(ids);
+                setCardMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-200 cursor-pointer"
+            >
+              <Link2 className="w-3.5 h-3.5 text-emerald-600" />
+              Поделиться в рабочем чате{selectedTagIds.size > 1 ? ` (${selectedTagIds.size})` : ''}
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab('board');
+                setTimeout(() => centerOnTag(cardMenu.tagId), 150);
+                setCardMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-800 dark:text-slate-200 cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-slate-400" /> Показать на холсте
+            </button>
+            <button
+              onClick={() => {
+                setSelectedTagIds(new Set());
+                setCardMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-400 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" /> Снять выделение
+            </button>
+          </div>,
+          document.body
+        )}
+
+        {/* Панель выделения для вкладок «Дерево связей» и «Спецификация» */}
+        {selectedTagIds.size > 0 && activeTab !== 'board' && createPortal(
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[110] flex items-center gap-2 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md px-3 py-2 rounded-xl border border-indigo-200 dark:border-indigo-900 shadow-lg text-xs">
+            <span className="font-bold text-indigo-700 dark:text-indigo-300">Выбрано: {selectedTagIds.size}</span>
+            <button
+              onClick={() => shareTagsInChat(Array.from(selectedTagIds))}
+              className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold cursor-pointer"
+            >
+              Поделиться в чате
+            </button>
+            <button
+              onClick={() => setSelectedTagIds(new Set())}
+              className="px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 cursor-pointer"
+              title="Снять выделение (Esc)"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>,
+          document.body
         )}
 
         {/* TREE VIEW */}
@@ -4251,6 +4341,24 @@ export default function Registry() {
                           key={t.id}
                           ref={tableVirtualizer.measureElement}
                           data-index={virtualRow.index}
+                          onClick={(e) => {
+                            // Ctrl+клик — мультивыбор строк для «Поделиться»
+                            if (e.ctrlKey || e.metaKey) {
+                              e.preventDefault();
+                              setSelectedTagIds(prev => {
+                                const next = new Set(prev);
+                                if (next.has(t.id)) next.delete(t.id);
+                                else next.add(t.id);
+                                return next;
+                              });
+                            }
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (!selectedTagIds.has(t.id)) setSelectedTagIds(new Set([t.id]));
+                            setCardMenu({ x: e.clientX, y: e.clientY, tagId: t.id });
+                          }}
                           className={`transition-colors ${selectedTagIds.has(t.id) ? 'bg-indigo-50 dark:bg-indigo-950/30 ring-1 ring-inset ring-indigo-300 dark:ring-indigo-800' : 'hover:bg-slate-50/60 dark:hover:bg-slate-950/40'}`}
                         >
                           <td className="px-5 py-4">
@@ -4941,7 +5049,31 @@ export default function Registry() {
     return (
       <div key={node.id} className="space-y-1">
         <div
-          className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${duplicateCodes.has((node.identifier || '').trim()) ? 'border-rose-300 dark:border-rose-700/60 bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-50 dark:hover:bg-rose-950/30' : 'border-slate-100 dark:border-slate-850 hover:bg-slate-50 dark:hover:bg-slate-900/60'}`}
+          onClick={(e) => {
+            // Ctrl+клик — мультивыбор для «Поделиться в чате»
+            if (e.ctrlKey || e.metaKey) {
+              e.preventDefault();
+              setSelectedTagIds(prev => {
+                const next = new Set(prev);
+                if (next.has(node.id)) next.delete(node.id);
+                else next.add(node.id);
+                return next;
+              });
+            }
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!selectedTagIds.has(node.id)) setSelectedTagIds(new Set([node.id]));
+            setCardMenu({ x: e.clientX, y: e.clientY, tagId: node.id });
+          }}
+          className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${
+            selectedTagIds.has(node.id)
+              ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/30 ring-1 ring-indigo-300 dark:ring-indigo-800'
+              : duplicateCodes.has((node.identifier || '').trim())
+                ? 'border-rose-300 dark:border-rose-700/60 bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-50 dark:hover:bg-rose-950/30'
+                : 'border-slate-100 dark:border-slate-850 hover:bg-slate-50 dark:hover:bg-slate-900/60'
+          }`}
           style={{ marginLeft: `${level * 24}px` }}
         >
           <div className="flex items-center gap-2.5 min-w-0 flex-1 text-left">

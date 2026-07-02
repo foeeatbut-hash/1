@@ -70,11 +70,14 @@ if (typeof window !== 'undefined') {
     const method = (init?.method || (input instanceof Request ? input.method : 'GET') || 'GET').toUpperCase();
     const isApi = /\/api\//.test(urlForLog);
     const shortUrl = urlForLog.replace(/^https?:\/\/[^/]+/, '').replace(/^.*\/api\//, '/api/');
-    if (isApi) logApi('INFO', 'Запрос', `${method} ${shortUrl}`);
+    // Фоновые поллинги (уведомления, чат) идут каждые несколько секунд —
+    // их успешные запросы не пишем, чтобы не забивать журнал шумом (ошибки пишем)
+    const isBackgroundPoll = method === 'GET' && /\/api\/(notifications|chat\/(messages|group-messages|groups))/.test(shortUrl);
+    if (isApi && !isBackgroundPoll) logApi('INFO', 'Запрос', `${method} ${shortUrl}`);
 
     try {
       const res = await originalFetch(input as any, init);
-      if (isApi) logApi(res.ok ? 'INFO' : 'ERROR', 'Ответ', `${res.status} ${method} ${shortUrl}`);
+      if (isApi && (!isBackgroundPoll || !res.ok)) logApi(res.ok ? 'INFO' : 'ERROR', 'Ответ', `${res.status} ${method} ${shortUrl}`);
       return res;
     } catch (err: any) {
       if (isApi) logApi('ERROR', 'Сбой запроса', `${method} ${shortUrl}: ${err?.message || err}`);
