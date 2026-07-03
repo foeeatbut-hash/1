@@ -453,8 +453,11 @@ export default function Registry() {
         }
       }
 
-      // Esc — снять выделение карточек на холсте
+      // Esc: сначала закрываем панели и режим мультивыбора, затем снимаем выделение
       if (e.key === 'Escape') {
+        setCardPanel(null);
+        setDupPanel(null);
+        setMultiSelectMode(false);
         setSelectedTagIds(prev => (prev.size > 0 ? new Set<string>() : prev));
       }
     };
@@ -507,6 +510,20 @@ export default function Registry() {
   // Контекстное меню карточки (ПКМ): «Связи» вверх/вниз, «Поделиться в чате»
   const [cardMenu, setCardMenu] = useState<{ x: number; y: number; tagId: string } | null>(null);
 
+  // Мини-панель действий у курсора: появляется по клику на карточку (клик = выделение)
+  const [cardPanel, setCardPanel] = useState<{ x: number; y: number; tagId: string } | null>(null);
+  const cardPanelOpenedAtRef = useRef(0);
+
+  // Режим «Выбрать несколько»: каждый клик добавляет карточку без зажатого Ctrl
+  const [multiSelectMode, setMultiSelectMode] = useState(false);
+
+  // Панель дублей: список позиций с тем же кодом; колесо/наведение перемещает вид
+  const [dupPanel, setDupPanel] = useState<{ code: string; ids: string[]; activeIdx: number } | null>(null);
+  const dupPanelRef = useRef<HTMLDivElement>(null);
+
+  // Порог перетаскивания: mousedown ещё не перенос — ждём сдвига >5px, иначе это клик
+  const pendingDragRef = useRef<{ tagId: string; startX: number; startY: number } | null>(null);
+
   // Выбор «главного родителя» для центрирования его дерева (один клик по «Центрировать»)
   const [centerPickerOpen, setCenterPickerOpen] = useState(false);
   const centerClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -534,10 +551,18 @@ export default function Registry() {
   // Анимированные точки на связях отключаем на больших графах (экономия ресурсов)
   const showFlowDots = tags.length <= 60;
 
-  // Закрытие контекстного меню карточки и списка «главных родителей»
+  // Закрытие контекстного меню карточки, мини-панели и списка «главных родителей»
   useEffect(() => {
-    if (!cardMenu && !centerPickerOpen) return;
-    const close = () => { setCardMenu(null); setCenterPickerOpen(false); };
+    if (!cardMenu && !centerPickerOpen && !cardPanel) return;
+    const close = (ev?: Event) => {
+      // Клик, который открыл мини-панель, не должен тут же её закрыть
+      if (ev && Date.now() - cardPanelOpenedAtRef.current < 200) return;
+      const target = ev?.target as HTMLElement | undefined;
+      if (target?.closest?.('[data-card-panel]')) return;
+      setCardMenu(null);
+      setCenterPickerOpen(false);
+      setCardPanel(null);
+    };
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
     window.addEventListener('click', close);
     window.addEventListener('keydown', onKey);
@@ -545,7 +570,7 @@ export default function Registry() {
       window.removeEventListener('click', close);
       window.removeEventListener('keydown', onKey);
     };
-  }, [cardMenu, centerPickerOpen]);
+  }, [cardMenu, centerPickerOpen, cardPanel]);
 
   // Sort state for Table View
   const [sortConfig, setSortConfig] = useState<{key: string; direction: 'asc' | 'desc'}>({ key: 'createdAt', direction: 'desc' });
@@ -1111,7 +1136,9 @@ export default function Registry() {
       return;
     }
 
-    setDraggedTagId(tagId);
+    // Перенос начнётся только после сдвига >5px (см. handleCanvasMouseMove) —
+    // иначе обычный клик «дёргал» карточку и не позволял просто выделить её
+    pendingDragRef.current = { tagId, startX: e.clientX, startY: e.clientY };
     lastMousePosRef.current = { x: e.clientX, y: e.clientY };
   };
 
@@ -1192,6 +1219,18 @@ export default function Registry() {
 
     const currentZoom = zoomRef.current;
     const currentPan = panRef.current;
+
+    // Ожидающий перенос: карточка зажата, но ещё не сдвинута на порог
+    if (pendingDragRef.current && !draggedTagId) {
+      const dx = e.clientX - pendingDragRef.current.startX;
+      const dy = e.clientY - pendingDragRef.current.startY;
+      if (Math.hypot(dx, dy) > 5) {
+        setDraggedTagId(pendingDragRef.current.tagId);
+        pendingDragRef.current = null;
+        lastMousePosRef.current = { x: e.clientX, y: e.clientY };
+      }
+      return;
+    }
 
     if (draggedTagId) {
       const dx = (e.clientX - lastMousePosRef.current.x) / currentZoom;
@@ -1297,7 +1336,31 @@ export default function Registry() {
   };
 
   // Unified MouseUp finishing events
-  const handleCanvasMouseUp = async () => {
+  const handleCanvasMouseUp = async (e?: React.MouseEvent) => {
+    // Отпустили без сдвига — это клик по карточке: выделение + мини-панель действий.
+    // onMouseLeave тоже зовёт этот обработчик — там клик не засчитываем
+    const pending = pendingDragRef.current;
+    pendingDragRef.current = null;
+    if (pending && !draggedTagId && e?.type === 'mouseup') {
+      const tagId = pending.tagId;
+      if (multiSelectMode) {
+        setSelectedTagIds(prev => {
+          const next = new Set(prev);
+          if (next.has(tagId)) next.delete(tagId);
+          else next.add(tagId);
+          return next;
+        });
+      } else {
+        setSelectedTagIds(new Set([tagId]));
+        if (e) {
+          cardPanelOpenedAtRef.current = Date.now();
+          setCardPanel({ x: e.clientX + 14, y: e.clientY - 10, tagId });
+        }
+      }
+      setIsPanning(false);
+      return;
+    }
+
     if (draggedTagId) {
       const finalPos = cardPositionsRef.current[draggedTagId];
       if (finalPos) {
@@ -1499,6 +1562,99 @@ export default function Registry() {
     () => tags.filter(t => !(incomingByTagId[t.id] && incomingByTagId[t.id].length > 0)),
     [tags, incomingByTagId]
   );
+
+  // ── «Найти дубли»: перелёт/скролл к дублю на любой вкладке ──────────────────
+
+  // Показывает тег на текущей вкладке: холст — перелёт камеры с пульсом,
+  // дерево — раскрытие ветки и скролл, спецификация — скролл виртуализатора
+  const focusTagEverywhere = (tagId: string) => {
+    if (activeTab === 'board') {
+      centerOnTag(tagId);
+      return;
+    }
+    if (activeTab === 'tree') {
+      // Раскрываем всех родителей, чтобы узел был видим
+      const toExpand: Record<string, boolean> = {};
+      for (const anc of collectAncestors(tagId)) toExpand[anc] = true;
+      setExpandedTagIds(prev => ({ ...prev, ...toExpand }));
+      setTimeout(() => {
+        const el = document.getElementById(`tree-node-${tagId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.classList.add('share-pulse');
+          setTimeout(() => el.classList.remove('share-pulse'), 2500);
+        }
+      }, 120);
+      return;
+    }
+    if (activeTab === 'table') {
+      const idx = sortedTagsList.findIndex((t: any) => t.id === tagId);
+      if (idx >= 0) {
+        tableVirtualizer.scrollToIndex(idx, { align: 'center' });
+        setTimeout(() => {
+          const el = document.getElementById(`spec-row-${tagId}`);
+          if (el) {
+            el.classList.add('share-pulse');
+            setTimeout(() => el.classList.remove('share-pulse'), 2500);
+          }
+        }, 250);
+      }
+      return;
+    }
+  };
+
+  // Все теги с тем же кодом; один дубль — сразу летим к нему, несколько — панель справа
+  const openDuplicates = (tagId: string) => {
+    const tag = tagsById[tagId];
+    if (!tag) return;
+    const code = (tag.identifier || '').trim();
+    const ids = tags
+      .filter(t => (t.identifier || '').trim() === code)
+      .map(t => t.id);
+    if (ids.length <= 1) {
+      addToast('Дубликатов этого кода не найдено', 'info');
+      return;
+    }
+    const others = ids.filter(id => id !== tagId);
+    if (others.length === 1) {
+      focusTagEverywhere(others[0]);
+      addToast(`Дубль «${code}» найден и показан`, 'success');
+      return;
+    }
+    const startIdx = Math.max(0, ids.indexOf(tagId));
+    setDupPanel({ code, ids, activeIdx: startIdx });
+    focusTagEverywhere(ids[startIdx]);
+  };
+
+  const dupCountOf = (tagId: string): number => {
+    const code = (tagsById[tagId]?.identifier || '').trim();
+    if (!code || !duplicateCodes.has(code)) return 0;
+    return tags.filter(t => (t.identifier || '').trim() === code).length;
+  };
+
+  // Переход по списку дублей (клик по строке, колесо мыши)
+  const gotoDup = (idx: number) => {
+    setDupPanel(prev => {
+      if (!prev) return prev;
+      const next = ((idx % prev.ids.length) + prev.ids.length) % prev.ids.length;
+      focusTagEverywhere(prev.ids[next]);
+      return { ...prev, activeIdx: next };
+    });
+  };
+
+  // Колесо мыши над панелью дублей листает позиции (нужен непассивный слушатель,
+  // иначе preventDefault не сработает и прокрутится страница)
+  useEffect(() => {
+    const el = dupPanelRef.current;
+    if (!el || !dupPanel) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      gotoDup((dupPanel.activeIdx) + (e.deltaY > 0 ? 1 : -1));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [dupPanel]);
 
   // Свободная позиция для новой карточки: не перекрывает существующие
   const findFreePosition = (baseX: number, baseY: number): { x: number; y: number } => {
@@ -3297,6 +3453,18 @@ export default function Registry() {
               <ChevronDown className="w-3.5 h-3.5 text-indigo-500" /> Выделить вниз по лестнице (дочерние)
             </button>
             <div className="h-px bg-slate-100 dark:bg-slate-850 my-1 mx-2" />
+            {dupCountOf(cardMenu.tagId) > 1 && (
+              <button
+                onClick={() => {
+                  openDuplicates(cardMenu.tagId);
+                  setCardMenu(null);
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-slate-800 dark:text-slate-200 cursor-pointer"
+              >
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
+                Найти дубли ({dupCountOf(cardMenu.tagId)})
+              </button>
+            )}
             <button
               onClick={() => {
                 const ids = selectedTagIds.size > 0 ? Array.from(selectedTagIds) : [cardMenu.tagId];
@@ -3327,6 +3495,140 @@ export default function Registry() {
             >
               <X className="w-3.5 h-3.5" /> Снять выделение
             </button>
+          </div>,
+          document.body
+        )}
+
+        {/* Мини-панель действий у курсора: появляется по одиночному клику на карточку */}
+        {cardPanel && createPortal(
+          <div
+            data-card-panel
+            className="fixed z-[120] flex items-center gap-0.5 p-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 shadow-2xl rounded-xl"
+            style={{ top: Math.min(cardPanel.y, window.innerHeight - 52), left: Math.min(cardPanel.x, window.innerWidth - 300) }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="px-1.5 text-[10px] font-mono font-bold text-slate-400 max-w-[110px] truncate">
+              {tagsById[cardPanel.tagId]?.identifier}
+            </span>
+            <button
+              onClick={() => { setMultiSelectMode(true); setCardPanel(null); }}
+              className="p-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-indigo-500 cursor-pointer"
+              title="Выбрать несколько: дальше каждый клик добавляет карточку (Esc — готово)"
+            >
+              <ClipboardCheck className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => { setSelectedTagIds(collectAncestors(cardPanel.tagId)); setCardPanel(null); }}
+              className="p-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-indigo-500 cursor-pointer"
+              title="Выделить вверх по ступеньке (родители)"
+            >
+              <ChevronUp className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => { setSelectedTagIds(collectDescendants(cardPanel.tagId)); setCardPanel(null); }}
+              className="p-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-indigo-500 cursor-pointer"
+              title="Выделить вниз по лестнице (дочерние)"
+            >
+              <ChevronDown className="w-4 h-4" />
+            </button>
+            {dupCountOf(cardPanel.tagId) > 1 && (
+              <button
+                onClick={() => { openDuplicates(cardPanel.tagId); setCardPanel(null); }}
+                className="p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500 cursor-pointer"
+                title={`Найти дубли (${dupCountOf(cardPanel.tagId)})`}
+              >
+                <AlertTriangle className="w-4 h-4" />
+              </button>
+            )}
+            <button
+              onClick={() => {
+                const ids = selectedTagIds.size > 0 ? Array.from(selectedTagIds) : [cardPanel.tagId];
+                shareTagsInChat(ids);
+                setCardPanel(null);
+              }}
+              className="p-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-600 cursor-pointer"
+              title="Поделиться в рабочем чате"
+            >
+              <Link2 className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => { setEditingTag(tagsById[cardPanel.tagId]); setCardPanel(null); }}
+              className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-500 cursor-pointer"
+              title="Редактировать тег"
+            >
+              <Edit2 className="w-4 h-4" />
+            </button>
+          </div>,
+          document.body
+        )}
+
+        {/* Индикатор режима «Выбрать несколько» */}
+        {multiSelectMode && createPortal(
+          <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[115] flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-xl shadow-lg text-xs font-semibold">
+            <ClipboardCheck className="w-4 h-4" />
+            Мультивыбор: {selectedTagIds.size} — клик добавляет карточку
+            <button
+              onClick={() => setMultiSelectMode(false)}
+              className="ml-1 px-2 py-0.5 rounded-lg bg-white/20 hover:bg-white/30 cursor-pointer"
+              title="Завершить (Esc)"
+            >
+              Готово
+            </button>
+          </div>,
+          document.body
+        )}
+
+        {/* Панель дублей: список позиций с тем же кодом, колесо мыши листает и перемещает вид */}
+        {dupPanel && createPortal(
+          <div
+            ref={dupPanelRef}
+            className="fixed right-4 top-28 z-[118] w-72 bg-white/97 dark:bg-slate-950/97 backdrop-blur-md border border-rose-200 dark:border-rose-900 rounded-2xl shadow-2xl overflow-hidden"
+          >
+            <div className="flex items-center justify-between px-3 py-2 bg-rose-50/80 dark:bg-rose-950/30 border-b border-rose-100 dark:border-rose-900/60">
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-rose-700 dark:text-rose-300 truncate">Дубли: {dupPanel.code}</div>
+                <div className="text-[10px] text-slate-400">колесо мыши — листать · Esc — закрыть</div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="text-[10px] font-mono font-bold text-rose-600 dark:text-rose-400">
+                  {dupPanel.activeIdx + 1} / {dupPanel.ids.length}
+                </span>
+                <button
+                  onClick={() => setDupPanel(null)}
+                  className="p-1 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/50 text-slate-400 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+            <div className="max-h-72 overflow-y-auto p-1.5 space-y-0.5">
+              {dupPanel.ids.map((id, i) => {
+                const t = tagsById[id];
+                if (!t) return null;
+                const m = parseTagMetadata(t);
+                const isActive = i === dupPanel.activeIdx;
+                return (
+                  <button
+                    key={id}
+                    onClick={() => gotoDup(i)}
+                    onMouseEnter={() => { if (!isActive) gotoDup(i); }}
+                    className={`w-full text-left px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer border ${
+                      isActive
+                        ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800'
+                        : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-900'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono font-bold text-slate-800 dark:text-slate-100">{i + 1}. {t.identifier}</span>
+                      {isActive && <Eye className="w-3.5 h-3.5 text-rose-500 shrink-0" />}
+                    </div>
+                    <div className="text-[10px] text-slate-400 truncate mt-0.5">
+                      {m.mainName || 'Без наименования'} · {t.department || '—'}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>,
           document.body
         )}
@@ -4339,6 +4641,7 @@ export default function Registry() {
                       return (
                         <tr
                           key={t.id}
+                          id={`spec-row-${t.id}`}
                           ref={tableVirtualizer.measureElement}
                           data-index={virtualRow.index}
                           onClick={(e) => {
@@ -5049,6 +5352,7 @@ export default function Registry() {
     return (
       <div key={node.id} className="space-y-1">
         <div
+          id={`tree-node-${node.id}`}
           onClick={(e) => {
             // Ctrl+клик — мультивыбор для «Поделиться в чате»
             if (e.ctrlKey || e.metaKey) {

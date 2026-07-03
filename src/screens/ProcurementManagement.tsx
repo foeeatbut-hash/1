@@ -7,7 +7,6 @@ import {
   Briefcase, Search, RefreshCw, Database, AlertTriangle, X, ChevronDown, ChevronUp,
   ChevronRight, Filter, List, FolderTree, Settings2, CheckSquare
 } from 'lucide-react';
-import { motion } from 'motion/react';
 import CustomSelect from '../components/CustomSelect';
 import {
   ProcurementStage, loadProcurementStages, stageIcon, stageColor
@@ -39,9 +38,14 @@ const ACTUALITY_LABELS: Record<string, { label: string; cls: string }> = {
 };
 
 function parseMeta(tag: any): any {
+  // Кэш на объекте тега: JSON.parse для сотен позиций на каждый рендер — источник лагов
+  if (tag.__procMeta) return tag.__procMeta;
   try {
-    return tag.metadata ? (typeof tag.metadata === 'string' ? JSON.parse(tag.metadata) : tag.metadata) : {};
+    const meta = tag.metadata ? (typeof tag.metadata === 'string' ? JSON.parse(tag.metadata) : tag.metadata) : {};
+    tag.__procMeta = meta;
+    return meta;
   } catch {
+    tag.__procMeta = {};
     return {};
   }
 }
@@ -92,6 +96,14 @@ export default function ProcurementManagement() {
   const [stages, setStages] = useState<ProcurementStage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [search, setSearch] = useState('');
+  // Дебаунс поиска: фильтрация и сортировка всех строк на каждый символ фризили ввод
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 200);
+    return () => clearTimeout(t);
+  }, [search]);
+  // Порционный рендер: DOM из тысяч строк тормозил прокрутку — рисуем частями
+  const [renderLimit, setRenderLimit] = useState(120);
   const [stageFilter, setStageFilter] = useState<string>('all');
   const [deptFilter, setDeptFilter] = useState<string>('');
   const [onlyDuplicates, setOnlyDuplicates] = useState(false);
@@ -185,7 +197,7 @@ export default function ProcurementManagement() {
     if (deptFilter && r.tag.department !== deptFilter) return false;
     if (onlyDuplicates && !r.isDup) return false;
     if (onlyCritical && r.actuality !== 'critical' && r.actuality !== 'warning') return false;
-    const q = search.trim().toLowerCase();
+    const q = debouncedSearch.trim().toLowerCase();
     if (q) {
       const hit = (r.tag.identifier || '').toLowerCase().includes(q) ||
         r.name.toLowerCase().includes(q) ||
@@ -195,7 +207,12 @@ export default function ProcurementManagement() {
       if (!hit) return false;
     }
     return true;
-  }, [stageFilter, deptFilter, onlyDuplicates, onlyCritical, search, stages]);
+  }, [stageFilter, deptFilter, onlyDuplicates, onlyCritical, debouncedSearch, stages]);
+
+  // Смена фильтров возвращает порционный рендер к началу
+  useEffect(() => {
+    setRenderLimit(120);
+  }, [stageFilter, deptFilter, onlyDuplicates, onlyCritical, debouncedSearch, viewMode]);
 
   const lastDateOf = (r: Row): number => {
     let max = new Date(r.tag.createdAt || 0).getTime();
@@ -254,7 +271,7 @@ export default function ProcurementManagement() {
   // ── Сохранение и смена этапов ───────────────────────────────────────────────
   const saveProc = async (tag: any, meta: any, proc: ProcurementInfo) => {
     const newMeta = { ...meta, procurement: proc };
-    setTags(prev => prev.map(t => t.id === tag.id ? { ...t, metadata: JSON.stringify(newMeta), parsedMetadata: undefined } : t));
+    setTags(prev => prev.map(t => t.id === tag.id ? { ...t, metadata: JSON.stringify(newMeta), parsedMetadata: undefined, __procMeta: undefined } : t));
     try {
       await fetch(`/api/tags/${tag.id}`, {
         method: 'PUT',
@@ -299,15 +316,36 @@ export default function ProcurementManagement() {
     }
   };
 
-  // Массовая установка этапа всем выбранным
+  // Массовая установка этапа всем выбранным — одним запросом
+  // (последовательные PUT по каждой позиции заметно фризили интерфейс)
   const setStageBulk = async (targetIdx: number) => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
+    const updates: { id: string; metadata: string }[] = [];
     for (const id of ids) {
       const row = rowsById[id];
-      if (row) await saveProc(row.tag, row.meta, applyStage(row, targetIdx));
+      if (!row) continue;
+      const newMeta = { ...row.meta, procurement: applyStage(row, targetIdx) };
+      updates.push({ id, metadata: JSON.stringify(newMeta) });
     }
-    addToast(`Этап «${stages[targetIdx]?.label}» установлен для позиций: ${ids.length}`, 'success');
+    // Мгновенное локальное обновление
+    const metaById = new Map(updates.map(u => [u.id, u.metadata]));
+    setTags(prev => prev.map(t => metaById.has(t.id)
+      ? { ...t, metadata: metaById.get(t.id), parsedMetadata: undefined, __procMeta: undefined }
+      : t));
+    try {
+      const res = await fetch('/api/tags/bulk-metadata', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates }),
+      });
+      if (!res.ok) throw new Error('bulk update failed');
+      addToast(`Этап «${stages[targetIdx]?.label}» установлен для позиций: ${updates.length}`, 'success');
+    } catch (err) {
+      console.error('Bulk stage update failed:', err);
+      addToast('Не удалось сохранить массовое изменение — обновите страницу', 'error');
+      loadAll();
+    }
   };
 
   const saveField = async (row: Row, field: 'supplier' | 'qty' | 'note', value: string) => {
@@ -528,13 +566,9 @@ export default function ProcurementManagement() {
     return out;
   };
 
+  // Без входной анимации: на большом списке она добавляла заметный фриз при открытии раздела
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }}
-      className="flex flex-col gap-3 text-slate-800 dark:text-slate-100"
-    >
+    <div className="flex flex-col gap-3 text-slate-800 dark:text-slate-100">
       {/* Заголовок */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs">
         <div className="flex items-center gap-3">
@@ -715,13 +749,25 @@ export default function ProcurementManagement() {
                 {rows.length === 0 ? 'В проекте нет позиций. Добавьте теги в разделе «Теги».' : 'Ничего не найдено по заданным фильтрам.'}
               </td></tr>
             ) : viewMode === 'list' ? (
-              filtered.map(row => renderRow(row, null))
+              filtered.slice(0, renderLimit).map(row => renderRow(row, null))
             ) : (
               tree.flatMap(({ id, childrenMap, visible }) => renderTreeRows(id, childrenMap, visible, 0, new Set()))
+            )}
+            {viewMode === 'list' && filtered.length > renderLimit && (
+              <tr>
+                <td colSpan={8} className="p-0">
+                  <button
+                    onClick={() => setRenderLimit(l => l + 300)}
+                    className="w-full py-3 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50/60 dark:hover:bg-indigo-950/20 cursor-pointer"
+                  >
+                    Показать ещё ({filtered.length - renderLimit} позиций скрыто)
+                  </button>
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
       </div>
-    </motion.div>
+    </div>
   );
 }
