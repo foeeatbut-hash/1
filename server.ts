@@ -2885,9 +2885,24 @@ app.post('/api/equipment/import-to-category', async (req: Request, res: Response
     const buffer = Buffer.from(base64, 'base64');
     const extension = fileNode.name.split('.').pop()?.toLowerCase();
 
-    const result = (extension === 'xml')
-      ? parseEquipmentXML(buffer.toString('utf-8'))
-      : parseEquipmentExcel(buffer);
+    // Этот путь понимает только файлы расчёта. Word/PDF, прочитанные как Excel,
+    // раньше давали 500 или систему с бинарным мусором в названии.
+    if (!['xlsx', 'xls', 'xml', 'csv'].includes(extension || '')) {
+      return res.status(400).json({
+        error: `Файл .${extension} этим способом не импортируется. Откройте «Оборудование» → «Импорт из документов» — там поддерживаются PDF, Word, Excel и XML с распознаванием.`,
+      });
+    }
+
+    let result;
+    try {
+      result = (extension === 'xml')
+        ? parseEquipmentXML(buffer.toString('utf-8'))
+        : parseEquipmentExcel(buffer);
+    } catch (parseErr: any) {
+      return res.status(400).json({
+        error: 'Не удалось прочитать файл как расчёт. Для бланков и опросных листов используйте «Оборудование» → «Импорт из документов».',
+      });
+    }
 
     if (!result.units.length) {
       return res.status(400).json({ error: 'Не удалось распознать оборудование в файле. Проверьте формат расчёта.' });
@@ -2930,8 +2945,13 @@ app.post('/api/equipment/import-draft', async (req: Request, res: Response) => {
   }
 
   try {
-    // Санитизация структуры: только ожидаемые поля, строки, ограниченные размеры
-    const clean = (s: any, max = 200) => String(s ?? '').slice(0, max);
+    // Санитизация структуры: ожидаемые поля, строки, ограниченные размеры.
+    // Управляющие/бинарные символы вырезаются — «кракозябры» в названия не попадают.
+    const clean = (s: any, max = 200) => String(s ?? '')
+      .replace(/[ ----�]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, max);
     const cleanGroups = (groups: any): any[] => (Array.isArray(groups) ? groups : []).slice(0, 40).map((g: any) => ({
       title: clean(g?.title, 80) || 'Характеристики',
       params: (Array.isArray(g?.params) ? g.params : []).slice(0, 200).map((p: any) => ({
