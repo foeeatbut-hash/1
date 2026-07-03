@@ -3,6 +3,7 @@
 
 import * as XLSX from 'xlsx';
 import { DocBlock, ExtractedDoc } from './types';
+import { textQuality, sanitizeText } from './dictionary';
 
 // ── Excel / CSV ──────────────────────────────────────────────────────────────
 
@@ -58,7 +59,8 @@ function decodeEntities(s: string): string {
 }
 
 function stripTags(s: string): string {
-  return decodeEntities(s.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+  const noSupSub = s.replace(/<\/?su[bp][^>]*>/gi, '');
+  return decodeEntities(noSupSub.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
 }
 
 /** HTML (упрощённый, как выдаёт mammoth) → блоки. Вложенные таблицы уплощаются. */
@@ -102,6 +104,18 @@ function pushParas(html: string, blocks: DocBlock[]) {
   }
 }
 
+/** Текст ячейки с сохранением границ абзацев (нужно для «ключ: значение» построчно) */
+function cellText(html: string): string {
+  // Индексы (м<sup>3</sup>/ч) приклеиваем без пробела, иначе единицы разваливаются
+  const noSupSub = html.replace(/<\/?su[bp][^>]*>/gi, '');
+  const withBreaks = noSupSub.replace(/<\/(?:p|li|h[1-6])>|<br\s*\/?>/gi, '\n');
+  return decodeEntities(withBreaks.replace(/<[^>]+>/g, ' '))
+    .split('\n')
+    .map(l => l.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n');
+}
+
 function parseHtmlTable(tableHtml: string): string[][] {
   // Вложенные таблицы уплощаются: их ячейки становятся текстом родительской ячейки
   const rows: string[][] = [];
@@ -113,7 +127,13 @@ function parseHtmlTable(tableHtml: string): string[][] {
     let tdm: RegExpExecArray | null;
     while ((tdm = tdRe.exec(trm[1])) !== null) {
       const colspan = parseInt(tdm[1] || '1', 10) || 1;
-      cells.push(stripTags(tdm[2]));
+      const text = cellText(tdm[2]);
+      // Двуязычные бланки дублируют значение в соседних ячейках — схлопываем
+      if (text && cells.length && cells[cells.length - 1] === text) {
+        cells.push('');
+      } else {
+        cells.push(text);
+      }
       for (let k = 1; k < colspan; k++) cells.push(''); // разворачиваем объединённые
     }
     if (cells.length) rows.push(cells);
@@ -129,7 +149,10 @@ export async function extractDocx(data: ArrayBuffer): Promise<ExtractedDoc> {
   } else {
     mammoth = await import(/* @vite-ignore */ 'mammoth');
   }
-  const result = await mammoth.convertToHtml({ arrayBuffer: data });
+  // Браузерная сборка mammoth принимает arrayBuffer, Node-сборка — buffer
+  const result = typeof window !== 'undefined'
+    ? await mammoth.convertToHtml({ arrayBuffer: data })
+    : await mammoth.convertToHtml({ buffer: (globalThis as any).Buffer.from(data) });
   const blocks = htmlToBlocks(result.value || '');
   const warnings: string[] = [];
   if (!blocks.length) warnings.push('Документ Word пуст или не содержит распознаваемого текста.');
@@ -316,10 +339,18 @@ export async function extractPdf(data: ArrayBuffer): Promise<PdfExtractOutcome> 
     const tc = await pg.getTextContent();
     const items = (tc.items as any[])
       .filter(i => typeof i.str === 'string')
-      .map(i => ({ str: i.str, x: i.transform[4], y: i.transform[5], w: i.width || 0 }));
+      .map(i => ({ str: sanitizeText(i.str), x: i.transform[4], y: i.transform[5], w: i.width || 0 }));
     const meaningful = items.filter(i => i.str.trim().length > 0);
     if (meaningful.length < 5) {
       scanPages.push(p);
+      continue;
+    }
+    // Защита от «кракозябр»: у PDF с битой таблицей кодировки (нет ToUnicode)
+    // текстовый слой — мусор. Такую страницу честнее распознать как скан через OCR.
+    const joined = meaningful.map(i => i.str).join(' ');
+    if (textQuality(joined) < 0.6) {
+      scanPages.push(p);
+      warnings.push(`Стр. ${p}: текстовый слой повреждён (нечитаемая кодировка) — используйте «Распознать скан (OCR)».`);
       continue;
     }
     blocks.push(...pageItemsToBlocks(meaningful, p));

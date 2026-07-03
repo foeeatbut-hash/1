@@ -20,10 +20,10 @@ export interface FieldDef {
 // Порядок синонимов не важен; сравнение идёт по нормализованной подписи (см. normalizeLabel)
 export const FIELDS: FieldDef[] = [
   { id: 'name', label: 'Наименование', target: 'name', group: 'Общие',
-    synonyms: ['наименование', 'название', 'изделие', 'оборудование', 'наименование оборудования', 'наименование изделия', 'позиция', 'предмет закупки'],
+    synonyms: ['наименование', 'название', 'изделие', 'оборудование', 'наименование оборудования', 'наименование изделия', 'позиция', 'предмет закупки', 'тип системы'],
     kind: 'text' },
   { id: 'brand', label: 'Марка', target: 'brand', group: 'Общие',
-    synonyms: ['марка', 'тип', 'типоразмер', 'модель', 'артикул', 'обозначение', 'маркировка', 'марка типоразмер', 'тип модель', 'исполнение модель'],
+    synonyms: ['марка', 'тип', 'типоразмер', 'модель', 'артикул', 'обозначение', 'маркировка', 'марка типоразмер', 'тип модель', 'исполнение модель', 'индекс', 'назв'],
     kind: 'code' },
   { id: 'system', label: 'Система', target: 'system', group: 'Общие',
     synonyms: ['система', 'номер системы', 'обслуживаемая система', '系统'],
@@ -87,6 +87,18 @@ export const FIELDS: FieldDef[] = [
   { id: 'filterclass', label: 'Класс фильтрации', target: 'spec', group: 'Конструкция',
     synonyms: ['класс фильтра', 'класс очистки', 'класс фильтрации', 'степень очистки'],
     kind: 'code' },
+  { id: 'climate', label: 'Климатическое исполнение', target: 'spec', group: 'Конструкция',
+    synonyms: ['климатическое исполнение', 'клим исполнение', 'климат исп', 'клим исп', 'климатическое исполнение гост'],
+    kind: 'code' },
+  { id: 'explosion', label: 'Взрывозащита', target: 'spec', group: 'Конструкция',
+    synonyms: ['взрывозащита', 'взрывозащищенное исполнение', 'исполнение по взрывозащите'],
+    kind: 'text' },
+  { id: 'ip', label: 'Степень защиты', target: 'spec', group: 'Электрика',
+    synonyms: ['степень защиты', 'ip', 'класс защиты'],
+    kind: 'code' },
+  { id: 'speed', label: 'Скорость воздуха', target: 'spec', group: 'Аэродинамика',
+    synonyms: ['скорость', 'скорость воздуха', 'скорость в сечении'],
+    kind: 'number', units: ['м/с', 'м/c'], range: [0.01, 100] },
 ];
 
 // Типы оборудования: слово в тексте → equipType + категория раздела «Оборудование»
@@ -123,6 +135,132 @@ export const GARBAGE_MARKERS = [
   'страница', 'инн', 'кпп', 'огрн', 'р/с', 'бик',
 ];
 
+// Административные поля бланков-заказов и опросных листов (включая двуязычные шапки
+// CONTRACTOR/OWNER/VENDOR). Это реквизиты документа, а не характеристики оборудования —
+// в карточку они не попадают. Проверяется по подписи поля.
+export const ADMIN_LABEL_RE = new RegExp(
+  '(заказчик|подрядчик|исполнитель|менеджер|выполнил|проверил|подготовил|утвердил|согласовал|разработал'
+  + '|contractor|owner|vendor|checker|approved|prepared|buyer|purchase\\s*order|material\\s*requisition'
+  + '|заказ на закупку|заказная спецификация|номер контракта|проекта подрядчика|описание установки'
+  + '|document|документа|№ документа|опросного листа|№ опросного|ревиз|rev\\b|причина выпуска|reason for issue'
+  + '|дата заявки|заявка|телефон|факс|fax|e-?mail|почта|адрес|код проверки|статус|status|acceptance'
+  + '|plant\\b|описание изменения|название документа|title of document|бланк[- ]?заказ|объект|код здания'
+  + '|входящий|record of revisions|учет ревизий|лист технических данных|подпись|signature|дата|date\\b'
+  + '|организация|проект\\b|project\\b|номер б/з|шифр|стадия)',
+  'i'
+);
+
+// Подписи, из которых даже в административной шапке извлекается польза:
+// технологическая позиция (тег) и производитель
+export const ADMIN_TAG_RE = /(tag\s*n|технологическ\w*\s*позици|код системы)/i;
+export const ADMIN_VENDOR_RE = /(vendor|поставщик|производитель|изготовитель)/i;
+
+/**
+ * Качество текста: доля «нормальных» символов (кириллица/латиница/цифры/пунктуация).
+ * Бинарный мусор, прочитанный как текст («Y4±)HJА%p¼×Ñ@…»), даёт низкое значение —
+ * такие строки/страницы отбрасываются или уходят в OCR.
+ */
+export function textQuality(s: string): number {
+  const t = (s || '').trim();
+  if (!t) return 0;
+  let good = 0;
+  for (const ch of t) {
+    if (/[а-яёА-ЯЁa-zA-Z0-9\s.,:;()\[\]{}\-+*/%№«»"'’=°³²×хx_·|!?&№@#™®]/u.test(ch)) good++;
+  }
+  return good / [...t].length;
+}
+
+/** Вырезает управляющие и заведомо мусорные символы из извлечённого текста */
+export function sanitizeText(s: string): string {
+  return (s || '')
+    // управляющие (C0/C1), PUA, замещающий символ
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\uE000-\uF8FF\uFFFD]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** «X X» (двуязычные бланки часто дублируют значение) → «X» */
+export function dedupeRepeatedPhrase(s: string): string {
+  const t = (s || '').trim();
+  if (t.length < 6) return t;
+  // Нечётная длина: середина — пробел, половинки равны
+  if (t.length % 2 === 1) {
+    const half = (t.length - 1) / 2;
+    if (/\s/.test(t[half])) {
+      const a = t.slice(0, half).trim();
+      const b = t.slice(half + 1).trim();
+      if (a && a === b) return a;
+    }
+  }
+  return t;
+}
+
+// ── Формульные записи: «Lв=42860м³/ч; Pполн=250 Па; n=2130об/мин» ────────────
+// Поле определяется ПО ЕДИНИЦЕ ИЗМЕРЕНИЯ (надёжнее, чем по символу:
+// L=194 мм — длина, а Lв=140 м³/ч — расход). Символ остаётся в подписи.
+const UNIT_TO_FIELD: { re: RegExp; fieldId: string }[] = [
+  { re: /^(м3\/ч|м³\/ч|куб\.?\s*м\.?\/ч|м3\/час|l\/s|л\/с)$/i, fieldId: 'airflow' },
+  { re: /^(па|кпа|pa)$/i, fieldId: 'pressure' },
+  { re: /^(квт|вт|ква|kw|w)$/i, fieldId: 'power' },
+  { re: /^(в|v|вольт)$/i, fieldId: 'voltage' },
+  { re: /^(а|a)$/i, fieldId: 'current' },
+  { re: /^(об\/мин|rpm)$/i, fieldId: 'rpm' },
+  { re: /^(кг|kg|т)$/i, fieldId: 'weight' },
+  { re: /^(дб|дба|дб\(а\))$/i, fieldId: 'noise' },
+  { re: /^(°c|гр\.?c|c|с)$/i, fieldId: 'temp' },
+  { re: /^(шт|компл)$/i, fieldId: 'qty' },
+];
+
+// Человеческие подписи для типовых символов формул
+const FORMULA_LABELS: { re: RegExp; label: string }[] = [
+  { re: /^l\s*в?$/i, label: 'Расход воздуха' },
+  { re: /^p\s*полн/i, label: 'Полное давление' },
+  { re: /^p\s*сеть/i, label: 'Давление сети' },
+  { re: /^dp/i, label: 'Потери давления' },
+  { re: /^p[vу]?$/i, label: 'Давление' },
+  { re: /^n[yу]?$/i, label: 'Мощность' },
+  { re: /^n$/i, label: 'Частота вращения' },
+  { re: /^u/i, label: 'Напряжение' },
+  { re: /^i/i, label: 'Ток' },
+  { re: /^[mм]\s*(сум)?$/i, label: 'Масса' },
+  { re: /^v$/i, label: 'Скорость' },
+];
+
+export interface FormulaParam { label: string; value: string; unit: string; fieldId?: string; }
+
+/**
+ * Разбирает формульную строку бланка: «Lв=140 куб.м./ч; Pполн=250 Па, n=2130об/мин».
+ * Возвращает параметры с полем, определённым по единице. Не-формульные строки → [].
+ */
+export function parseFormulaLine(line: string): FormulaParam[] {
+  const out: FormulaParam[] = [];
+  // Делим по ; и по запятой, если после неё идёт новый «символ=» (а не десятичная часть)
+  const chunks = line.split(/;|,(?=\s*[A-Za-zА-Яа-яёΔ][\wв]{0,12}\s*=)/);
+  for (const chunk of chunks) {
+    const m = chunk.match(/^\s*([A-Za-zА-Яа-яё][\wв.\s]{0,14}?)\s*=\s*[~≈]?\s*(-?[\d\s.,]+)\s*(.*?)\s*$/);
+    if (!m) {
+      // Отдельный токен степени защиты: IP54
+      const ip = chunk.match(/^\s*(IP\s?\d{2})\s*$/i);
+      if (ip) out.push({ label: 'Степень защиты', value: ip[1].replace(/\s/g, '').toUpperCase(), unit: '' });
+      continue;
+    }
+    const sym = m[1].trim();
+    const value = m[2].trim().replace(/\s+/g, '');
+    const unitRaw = (m[3] || '').trim().replace(/\.$/, '');
+    if (!/\d/.test(value)) continue;
+    if (unitRaw.length > 14 || unitRaw.split(/\s+/).length > 3) continue; // не формула, а текст
+    const unitKey = unitRaw.toLowerCase().replace(/[\s.]/g, '');
+    const fieldId = UNIT_TO_FIELD.find(u => u.re.test(unitKey))?.fieldId;
+    // «L=80 мм» — длина, а не расход: человеческую подпись даём только при
+    // совпадении поля по единице, иначе остаётся символ (уйдёт в «Прочее»)
+    const label = fieldId ? (FORMULA_LABELS.find(f => f.re.test(sym))?.label || sym) : sym;
+    const unit = UNIT_ALIASES[unitKey] || unitRaw;
+    out.push({ label, value, unit, fieldId });
+  }
+  // Строка считается формульной, только если распознано ≥1 параметра с единицей/полем
+  return out.some(p => p.fieldId || p.unit) ? out : [];
+}
+
 /** Номера страниц/листов: «Лист 3 из 8», «стр. 5» */
 export const PAGE_MARKER_RE = /^(?:лист|стр|страница|page)\.?\s*№?\s*\d+/i;
 
@@ -147,8 +285,13 @@ const CYR_TO_LAT: Record<string, string> = {
 
 export function normalizeCode(raw: string): { value: string; changed: boolean } {
   const src = (raw || '').trim();
-  // Меняем только если строка выглядит как код: есть цифра и латиница/разделители
+  // Меняем только если строка выглядит как код: есть цифра
   if (!/\d/.test(src)) return { value: src, changed: false };
+  // Однозначно латинские (не имеют кириллических двойников) и однозначно кириллические буквы
+  const distinctLat = /[DFGIJLNQRSUVWZdfgijlnqrsuvwz]/.test(src);
+  const distinctCyr = /[БГДЖЗИЙЛПФЦЧШЩЪЫЬЭЮЯбгджзийлпфцчшщъыьэюя]/.test(src);
+  // Чисто кириллическая марка (ВЕРОСА-670-УХЛ3) или смесь с явной кириллицей — не трогаем
+  if (distinctCyr || !distinctLat) return { value: src, changed: false };
   let out = '';
   let changed = false;
   for (const ch of src) {
@@ -269,10 +412,14 @@ export function detectEquip(text: string): EquipTypeDef | null {
   return best;
 }
 
-/** Обозначение системы в тексте: П1, В-2, ПВ3, ДУ1... */
+/** Обозначение системы в тексте: П1, В-2, ПВ3, ДУ1... (не климат-код У3/УХЛ3) */
 export function findSystem(text: string): string | null {
-  const m = (text || '').match(/(?:^|[\s,(«])((?:ПВ|ДУ|ДВ|КД|ПД|П|В|У|K)\s?-?\d{1,3})(?=[\s.,;)»]|$)/);
-  return m ? m[1].replace(/\s/g, '') : null;
+  const m = (text || '').match(/(?:^|[\s,(«])((?:ПВ|ДУ|ДВ|ПД|П|В)\s?-?\d{1,3})(?=[\s.,;)»]|$)/);
+  if (!m) return null;
+  const code = m[1].replace(/\s/g, '');
+  // «В3»/«П2» рядом с «климат»/«УХЛ» — это исполнение, не система
+  if (/УХЛ|клим|исполнени/i.test(text) && /^[ВУ]\d$/.test(code)) return null;
+  return code;
 }
 
 /** Код марки/тега: латиница-цифры с разделителями, минимум одна цифра */

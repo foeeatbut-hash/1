@@ -35,7 +35,10 @@ check('словарь: постороннее «Примечания по мон
 check('число: «5 000,5» → 5000.5', parseNumber('5 000,5') === 5000.5);
 check('число: «5 тыс. м3/ч» → 5000', parseNumber('5 тыс.') === 5000);
 check('единицы: «5000 м3/ч» → м³/ч', splitValueUnit('5000 м3/ч').unit === 'м³/ч');
-check('коды: кириллица ВР-80-75 → BP-80-75', normalizeCode('ВР-80-75').value === 'BP-80-75');
+// Чисто кириллическая марка сохраняется (ВЕРОСА-670, ВР-86-77 — реальные русские марки,
+// превращать в латиницу нельзя); транслитерация только для явно латинских кодов со смесью
+check('коды: кириллическая марка ВР-80-75 сохраняется', normalizeCode('ВР-80-75').value === 'ВР-80-75');
+check('коды: латинский код со стрей кириллицей RSВ-60 → RSB-60', normalizeCode('RSВ-60').value === 'RSB-60', normalizeCode('RSВ-60').value);
 const airflowField = FIELDS.find(f => f.id === 'airflow')!;
 check('валидация: «ВР-80» под якорем «Расход» отклоняется', validateValue(airflowField, 'ВР-80', '') === 'reject');
 check('валидация: расход 5000 — ок', validateValue(airflowField, '5000', 'м³/ч') === 'ok');
@@ -86,7 +89,7 @@ check('таблица: оформительская (1 колонка)', classif
   check('карточка: docType=card', r.docType === 'card');
   check('карточка: 1 позиция', r.items.length === 1);
   check('карточка: название', r.items[0]?.title === 'Вентилятор радиальный');
-  check('карточка: марка нормализована', r.items[0]?.brand === 'BP-86-77-4', r.items[0]?.brand);
+  check('карточка: кириллическая марка сохранена', r.items[0]?.brand === 'ВР-86-77-4', r.items[0]?.brand);
   check('карточка: тип fan', r.items[0]?.equipType === 'fan');
   check('карточка: расход high', field(r, 'airflow')?.confidence === 'high');
   check('карточка: мощность 1,5 кВт', field(r, 'power')?.value === '1,5');
@@ -386,6 +389,124 @@ async function testPdf() {
   const b0 = units[0].monoblocks[0].blocks[0];
   check('units: марка в группе Общие', b0.groups.some(g => g.title === 'Общие' && g.params.some(p => p.key === 'Марка')), JSON.stringify(b0.groups));
   check('units: кол-во в группе Общие', b0.groups.some(g => g.params.some(p => p.key === 'Количество' && p.value === '2')));
+}
+
+// ── 21. Реальные бланки: административная шапка не тащит реквизиты ────────────
+{
+  const r = recognize(doc([
+    { kind: 'para', text: 'Вентилятор канальный Канал-ВЕНТ' },
+    { kind: 'table', rows: [
+      ['OWNER / ЗАКАЗЧИК:', 'ООО «ЗАПСИБНЕФТЕХИМ»'],
+      ['CONTRACTOR / ПОДРЯДЧИК:', 'Wison Engineering'],
+      ['VENDOR / ПОСТАВЩИК:', 'ООО ВЕЗА'],
+      ['TAG N. / № Технологической позиции', '3700-C03-BL-001'],
+      ['Телефон/Факс', 'Тип'],
+      ['Заказчик:', ''],
+    ] },
+    { kind: 'table', rows: [
+      ['Марка', 'Канал-ВЕНТ-125'],
+      ['Производительность', '140 м3/ч'],
+      ['Свободный напор', '250 Па'],
+    ] },
+  ]));
+  const labels = r.items.flatMap(i => i.fields.map(f => f.label.toLowerCase()));
+  check('админ: заказчик/подрядчик не в полях', !labels.some(l => /заказчик|подрядчик|телефон|owner|contractor/.test(l)), JSON.stringify(labels));
+  check('админ: производитель извлечён', r.items.some(i => i.fields.some(f => f.fieldId === 'manufacturer')));
+  check('админ: тег позиции как система', r.items.some(i => i.system === '3700-C03-BL-001'), r.items.map(i=>i.system).join());
+  check('админ: расход 140 распознан', r.items.some(i => i.fields.some(f => f.fieldId === 'airflow' && f.value === '140')));
+}
+
+// ── 22. Формульная строка бланка: Lв=…м³/ч; Pполн=…Па; n=…об/мин ─────────────
+{
+  const r = recognize(doc([
+    { kind: 'para', text: 'Вентилятор ВСК' },
+    { kind: 'table', rows: [
+      ['Индекс', 'ГЕРМИК-П-1770'],
+      ['характеристики', 'Lв=42860м3/ч\ndpсеть0=700Па\npv=964Па'],
+    ] },
+  ]));
+  const it = r.items[0];
+  const air = it?.fields.find(f => f.fieldId === 'airflow');
+  const prs = it?.fields.find(f => f.fieldId === 'pressure');
+  check('формула: Lв=42860 → расход 42860 м³/ч', air?.value === '42860' && /м³\/ч/.test(air?.unit || ''), JSON.stringify(air));
+  check('формула: pv=964 → давление', prs?.value === '964' || it?.fields.some(f => f.fieldId==='pressure'&&f.value==='964'));
+  check('формула: марка из индекса', (it?.brand || '').includes('ГЕРМИК'), it?.brand);
+}
+
+// ── 23. «L=80 мм» — длина, не расход (единица решает) ────────────────────────
+{
+  const r = recognize(doc([
+    { kind: 'para', text: 'Клапан КЕДР-С' },
+    { kind: 'table', rows: [
+      ['Марка', 'КЕДР-С-1200'],
+      ['габарит', 'L=80мм; M=94кг'],
+    ] },
+  ]));
+  const it = r.items[0];
+  check('L=80мм не стало расходом воздуха', !it?.fields.some(f => f.fieldId === 'airflow' && f.value === '80'), JSON.stringify(it?.fields.filter(f=>f.value==='80')));
+  check('M=94кг → масса', it?.fields.some(f => f.fieldId === 'weight' && f.value === '94'));
+}
+
+// ── 24. Климатическое исполнение У3/УХЛ3 не считается системой ────────────────
+{
+  const r = recognize(doc([
+    { kind: 'para', text: 'Вентилятор канальный Канал-ВЕНТ' },
+    { kind: 'table', rows: [
+      ['Марка', 'Канал-ВЕНТ-125'],
+      ['Расход', '140 м3/ч'],
+      ['Климатическое исполнение', 'У3'],
+    ] },
+  ]));
+  check('климат: У3 не в системе', r.items[0]?.system !== 'У3', r.items[0]?.system);
+}
+
+// ── 25. Двуязычный бланк: RU и EN половины схлопываются в одну позицию ────────
+{
+  const r = recognize(doc([
+    { kind: 'para', text: 'Вентилятор канальный круглый Канал-ВЕНТ' },
+    { kind: 'table', rows: [
+      ['Марка', 'Канал-ВЕНТ-125'],
+      ['Расход', '140 м3/ч'],
+      ['Мощность', '0,07 кВт'],
+    ] },
+    { kind: 'para', text: 'Round duct fan Канал-ВЕНТ' },
+    { kind: 'table', rows: [
+      ['Type', 'Канал-ВЕНТ-125'],
+      ['Airflow', '140 m3/h'],
+      ['Power', '0,07 kW'],
+    ] },
+  ]));
+  check('двуязычный: одна позиция после схлопывания', r.items.length === 1, String(r.items.length));
+}
+
+// ── 26. Мусор в значениях («не нужное»): строительные примечания отсеиваются ──
+{
+  const r = recognize(doc([
+    { kind: 'para', text: 'Вентилятор ВР' },
+    { kind: 'table', rows: [
+      ['Марка', 'ВР-80'],
+      ['Расход', '5000 м3/ч'],
+      ['сторона', 'справа'],
+      ['выбор', 'оптимальный'],
+      ['ЧР', 'да'],
+      ['Mвен', '212кг'],
+    ] },
+  ]));
+  const raw = r.items[0]?.fields.filter(f => f.group === 'Прочее').map(f => f.label) || [];
+  check('мусор: «сторона/выбор/ЧР» отсеяны', !raw.some(l => /сторона|выбор|чр/i.test(l)), JSON.stringify(raw));
+  check('мусор: Mвен=212кг сохранён (реальный параметр)', r.items[0]?.fields.some(f => f.value === '212' && /кг/.test(f.unit || '')), JSON.stringify(raw));
+}
+
+// ── 27. Позиционный тег KKS не становится маркой ──────────────────────────────
+{
+  const r = recognize(doc([
+    { kind: 'para', text: 'Фильтр карманный ФВК для системы 3700-B09-AS-001' },
+    { kind: 'table', rows: [
+      ['Расход', '845 м3/ч'],
+      ['Масса', '247 кг'],
+    ] },
+  ]));
+  check('KKS: 3700-B09-AS-001 не марка', r.items[0]?.brand !== '3700-B09-AS-001', r.items[0]?.brand);
 }
 
 // ── Запуск ───────────────────────────────────────────────────────────────────
