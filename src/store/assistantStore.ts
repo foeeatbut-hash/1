@@ -9,14 +9,22 @@ import { parse, hasIntent, fieldMatchesStems, Parsed } from '../assistant/nlp';
 export interface AssistantAction {
   label: string;
   kind: 'tour' | 'export-excel' | 'export-word' | 'navigate' | 'ask'
-      | 'focus-tag' | 'find-duplicates' | 'create-note' | 'open-section';
+      | 'focus-tag' | 'find-duplicates' | 'create-note' | 'open-section'
+      | 'bulk-stage' | 'apply-links' | 'checklist-note' | 'undo-bulk';
   tourId?: string;
   route?: string;
   query?: string;
   tagId?: string;   // для focus-tag
   code?: string;    // для find-duplicates
   noteTitle?: string; // для create-note
+  // Планы действий (превью → выполнение)
+  stagePlan?: { tagIds: string[]; stageId: string; stageLabel: string };
+  linkPlan?: { pairs: { childId: string; parentId: string }[] };
+  checklist?: { title: string; items: string[] };
 }
+
+// Снимок для «Отмены» массовой операции: прежние metadata по тегам
+interface UndoSnapshot { label: string; before: { id: string; metadata: string }[]; }
 
 export interface AssistantTable {
   columns: string[];
@@ -35,7 +43,7 @@ export interface AssistantMessage {
 interface AssistantData {
   projectId: string;
   projects: { id: string; name: string; status: string }[];
-  tags: { id: string; identifier: string; brand?: string; department?: string; wbs?: string; fluid?: string; mainName?: string; actuality?: string; stageId?: string; stageLabel?: string; supplier?: string; qty?: string }[];
+  tags: { id: string; identifier: string; brand?: string; department?: string; wbs?: string; fluid?: string; mainName?: string; actuality?: string; stageId?: string; stageLabel?: string; supplier?: string; qty?: string; connCount?: number; hasEquipment?: boolean; metadata?: string }[];
   components: { id: string; name: string; itemCode: string; systemName: string; category: string; monoblockName: string; status: string; hasConflict: boolean; tags: string[] }[];
   stages: { id: string; label: string }[];
   duplicates: { code: string; count: number; ids: string[] }[];
@@ -75,6 +83,8 @@ interface AssistantState {
   setRoute: (route: string) => void;
   ask: (text: string) => Promise<void>;
   runAction: (action: AssistantAction) => void;
+  pushAssistant: (text: string, actions?: AssistantAction[]) => void;
+  maybeDigest: () => Promise<void>;
   runSuggestion: (s: { kind: 'ask' | 'tour'; query?: string; tourId?: string }) => void;
   describeCurrentSection: () => void;
   startTour: (tourId: string) => void;
@@ -95,36 +105,14 @@ export function setAssistantProjectGetter(fn: () => string | null) {
 
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 
-// Стоп-слова: их выкидываем при выделении искомого термина
-const STOPWORDS = new Set([
-  'покажи', 'показать', 'дай', 'мне', 'нужны', 'нужен', 'нужно', 'все', 'всё', 'весь',
-  'вся', 'список', 'найди', 'найти', 'сколько', 'выгрузи', 'выведи', 'хочу', 'это',
-  'и', 'в', 'на', 'по', 'для', 'с', 'со', 'про', 'теги', 'тег', 'тегов', 'тега',
-  'оборудование', 'оборудования', 'компоненты', 'компонент', 'компонентов',
-  'есть', 'какие', 'какой', 'что', 'a', 'the',
-]);
-
-function tokensFrom(text: string): string[] {
-  return text.toLowerCase()
-    .replace(/[^\wа-яё\s-]/gi, ' ')
-    .split(/\s+/)
-    .filter(w => w.length >= 3 && !STOPWORDS.has(w));
-}
-
-// Грубое сопоставление с учётом русских окончаний: совпадает, если поле
-// содержит токен или его «корень» (токен без 1-2 последних букв)
-function fieldMatches(fieldValue: string | undefined, token: string): boolean {
-  if (!fieldValue) return false;
-  const f = fieldValue.toLowerCase();
-  if (f.includes(token)) return true;
-  if (token.length > 4) {
-    const stem = token.slice(0, token.length - 2);
-    if (stem.length >= 3 && f.includes(stem)) return true;
-  }
-  return false;
-}
+// Разбор запроса и сопоставление живёт в nlp.ts (стеммер, опечатки, синонимы) —
+// прежние tokensFrom/fieldMatches удалены как дублирующие.
 
 let dataCache: { data: AssistantData; ts: number } | null = null;
+
+// Сброс кэша: вызывается после изменений данных (в т.ч. действий самого чата),
+// чтобы ответы всегда были свежими, а не устаревшими на 15 секунд.
+export function invalidateAssistantData() { dataCache = null; }
 
 async function fetchAssistantData(): Promise<AssistantData> {
   const now = Date.now();
@@ -267,6 +255,33 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
     }
   },
 
+  pushAssistant: (text, actions) => set(s => ({ messages: [...s.messages, { id: uid(), role: 'assistant', text, actions }] })),
+
+  // Проактивный дайджест при первом открытии за сессию: коротко о том, что горит
+  maybeDigest: async () => {
+    if (digestShownThisSession) return;
+    digestShownThisSession = true;
+    try {
+      const data = await fetchAssistantData();
+      const c = data.counts;
+      const problems = (c.duplicates || 0) + (c.critical || 0);
+      if (problems === 0) return; // молчим, если всё в порядке — не шумим
+      const parts: string[] = [];
+      if (c.duplicates) parts.push(`дублей ${c.duplicates}`);
+      if (c.critical) parts.push(`критичных ${c.critical}`);
+      if (c.warning) parts.push(`на проверку ${c.warning}`);
+      const stuck = data.tags.filter(t => t.stageId === 'added').length;
+      if (stuck) parts.push(`ждут заказа ${stuck}`);
+      get().pushAssistant(
+        `📋 По проекту требуют внимания: ${parts.join(', ')}.`,
+        [
+          { label: 'Полный аудит', kind: 'ask', query: 'аудит проекта' },
+          { label: 'Что мне доделать', kind: 'ask', query: 'что мне доделать' },
+        ]
+      );
+    } catch (_) { /* тихо */ }
+  },
+
   runAction: (action) => {
     if (action.kind === 'tour' && action.tourId) {
       get().startTour(action.tourId);
@@ -290,6 +305,14 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
       navigateFn(`/registry?dup=${encodeURIComponent(action.code)}`);
     } else if (action.kind === 'create-note' && navigateFn) {
       navigateFn(`/notes?new=${encodeURIComponent(action.noteTitle || 'Новая заметка')}`);
+    } else if (action.kind === 'bulk-stage' && action.stagePlan) {
+      executeBulkStage(action.stagePlan, get().pushAssistant);
+    } else if (action.kind === 'apply-links' && action.linkPlan) {
+      executeApplyLinks(action.linkPlan, get().pushAssistant);
+    } else if (action.kind === 'checklist-note' && action.checklist) {
+      executeChecklistNote(action.checklist, get().pushAssistant);
+    } else if (action.kind === 'undo-bulk') {
+      executeUndo(get().pushAssistant);
     }
   },
 
@@ -325,6 +348,134 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   cancelTour: () => set({ activeTour: null, tourStepIndex: 0, highlightSelector: null }),
 }));
 
+// ── Выполнение действий над данными (превью → выполнить → отмена) ────────────
+
+let lastUndo: UndoSnapshot | null = null;
+let digestShownThisSession = false;
+
+async function bulkPutMetadata(updates: { id: string; metadata: string }[]) {
+  const res = await fetch(`${ENV_CONFIG.apiUrl}/tags/bulk-metadata`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ updates }),
+  });
+  if (!res.ok) throw new Error('Сервер отклонил изменение');
+}
+
+function parseMeta(raw?: string): any { try { return raw ? JSON.parse(raw) : {}; } catch { return {}; } }
+
+type Push = (text: string, actions?: AssistantAction[]) => void;
+
+// Массовая смена этапа закупки
+async function executeBulkStage(plan: { tagIds: string[]; stageId: string; stageLabel: string }, push: Push) {
+  try {
+    const data = await fetchAssistantData();
+    const byId = new Map(data.tags.map(t => [t.id, t]));
+    const stageIds = data.stages.map(s => s.id);
+    const targetIdx = stageIds.indexOf(plan.stageId);
+    const now = new Date().toISOString();
+    const before: { id: string; metadata: string }[] = [];
+    const updates: { id: string; metadata: string }[] = [];
+    for (const id of plan.tagIds) {
+      const t = byId.get(id); if (!t) continue;
+      before.push({ id, metadata: t.metadata || '' });
+      const meta = parseMeta(t.metadata);
+      const proc = { ...(meta.procurement || {}) };
+      const log = { ...(proc.stageLog || {}) };
+      for (let i = 1; i < data.stages.length; i++) {
+        const sid = data.stages[i].id;
+        if (i <= targetIdx) { if (!log[sid]) log[sid] = { at: now, by: 'ИИ-помощник' }; }
+        else delete log[sid];
+      }
+      proc.stage = plan.stageId; proc.stageLog = log;
+      updates.push({ id, metadata: JSON.stringify({ ...meta, procurement: proc }) });
+    }
+    if (updates.length === 0) { push('Не нашёл позиции для изменения.'); return; }
+    await bulkPutMetadata(updates);
+    lastUndo = { label: `этап «${plan.stageLabel}»`, before };
+    invalidateAssistantData();
+    push(`Готово: этап «${plan.stageLabel}» установлен для ${updates.length} позиц.`, [
+      { label: '↶ Отменить', kind: 'undo-bulk' },
+      { label: 'Открыть Менеджмент', kind: 'open-section', route: '/management' },
+    ]);
+  } catch (e: any) {
+    push(`Не удалось выполнить: ${e.message}`);
+  }
+}
+
+// Применение предложенных связей (родитель→дочерний)
+async function executeApplyLinks(plan: { pairs: { childId: string; parentId: string }[] }, push: Push) {
+  try {
+    const data = await fetchAssistantData();
+    const byId = new Map(data.tags.map(t => [t.id, t]));
+    const metaById = new Map<string, any>();
+    const before: { id: string; metadata: string }[] = [];
+    const touched = new Set<string>();
+    const getMeta = (id: string) => {
+      if (!metaById.has(id)) {
+        const t = byId.get(id);
+        before.push({ id, metadata: t?.metadata || '' });
+        metaById.set(id, parseMeta(t?.metadata));
+      }
+      return metaById.get(id);
+    };
+    for (const { childId, parentId } of plan.pairs) {
+      if (!byId.has(childId) || !byId.has(parentId)) continue;
+      const pm = getMeta(parentId);
+      pm.connections = Array.isArray(pm.connections) ? pm.connections : [];
+      if (!pm.connections.includes(childId)) pm.connections.push(childId);
+      const cm = getMeta(childId);
+      cm.parentId = parentId;
+      touched.add(parentId); touched.add(childId);
+    }
+    const updates = Array.from(touched).map(id => ({ id, metadata: JSON.stringify(metaById.get(id)) }));
+    if (updates.length === 0) { push('Нечего связывать.'); return; }
+    await bulkPutMetadata(updates);
+    lastUndo = { label: 'связи по коду', before };
+    invalidateAssistantData();
+    push(`Готово: создано связей ${plan.pairs.length}. Проверьте на холсте.`, [
+      { label: '↶ Отменить', kind: 'undo-bulk' },
+      { label: 'Открыть холст', kind: 'open-section', route: '/registry' },
+    ]);
+  } catch (e: any) {
+    push(`Не удалось связать: ${e.message}`);
+  }
+}
+
+// Чек-лист задач → новая заметка в блокноте
+async function executeChecklistNote(checklist: { title: string; items: string[] }, push: Push) {
+  try {
+    const boxes = checklist.items.map(it =>
+      `<li style="display:flex;align-items:flex-start;margin:3px 0;list-style:none;">` +
+      `<span data-clbox="1" contenteditable="false" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:4px;border:1.5px solid #94a3b8;margin-right:8px;font-size:11px;vertical-align:-3px;flex:none;"></span>` +
+      `<span style="flex:1;min-width:0;">${it.replace(/</g, '&lt;')}</span></li>`).join('');
+    const content = `<h2>${checklist.title}</h2><ul data-checklist="1" style="list-style:none;padding-left:2px;margin:8px 0;">${boxes}</ul>`;
+    const res = await fetch(`${ENV_CONFIG.apiUrl}/notes`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: checklist.title, content }),
+    });
+    if (!res.ok) throw new Error('не удалось создать заметку');
+    invalidateAssistantData();
+    push(`Чек-лист «${checklist.title}» (${checklist.items.length} пунктов) добавлен в Блокнот.`, [
+      { label: 'Открыть блокнот', kind: 'open-section', route: '/notes' },
+    ]);
+  } catch (e: any) {
+    push(`Не удалось создать чек-лист: ${e.message}`);
+  }
+}
+
+async function executeUndo(push: Push) {
+  if (!lastUndo) { push('Отменять нечего.'); return; }
+  try {
+    await bulkPutMetadata(lastUndo.before);
+    const label = lastUndo.label;
+    lastUndo = null;
+    invalidateAssistantData();
+    push(`Отменено: ${label}. Значения возвращены.`);
+  } catch (e: any) {
+    push(`Не удалось отменить: ${e.message}`);
+  }
+}
+
 // Результат распознавания: сообщение + (опционально) контекст последнего списка
 interface Resolved { message: AssistantMessage; result?: LastResult | null; }
 const msg = (text: string, extra: Partial<AssistantMessage> = {}): Resolved =>
@@ -346,6 +497,30 @@ const ROUTE_WORDS: { stems: string[]; route: string; name: string }[] = [
   { stems: ['чат', 'переписк'], route: '/chat', name: 'Рабочий чат' },
   { stems: ['проект'], route: '/projects', name: 'Проекты' },
 ];
+
+// «Как …» — обучающий вопрос, а не команда (защита bulk-команд от «как перевести»)
+function wantsTourGuard(lower: string): boolean {
+  return /(^|[^а-яёa-z])как([^а-яёa-z]|$)/i.test(lower);
+}
+
+// Предложение связей по структуре кода KKS: дочерний код = родительский + суффикс.
+// Для каждого тега без родителя ищем самый длинный код-префикс среди других тегов.
+export function suggestKksLinks(tags: AssistantData['tags']): { childId: string; parentId: string }[] {
+  const rows = tags.map(t => ({ id: t.id, code: (t.identifier || '').trim(), meta: parseMeta(t.metadata) }));
+  const pairs: { childId: string; parentId: string }[] = [];
+  for (const c of rows) {
+    if (!c.code || c.meta.parentId) continue;
+    let best: { id: string; code: string } | null = null;
+    for (const par of rows) {
+      if (par.id === c.id || !par.code) continue;
+      if (c.code.length > par.code.length && c.code.startsWith(par.code) && /[-./]/.test(c.code[par.code.length])) {
+        if (!best || par.code.length > best.code.length) best = { id: par.id, code: par.code };
+      }
+    }
+    if (best) pairs.push({ childId: c.id, parentId: best.id });
+  }
+  return pairs;
+}
 
 // --- Распознавание запроса (полностью локальное) ---
 // injectedData — тестовый шов: подставить данные вместо обращения к серверу.
@@ -389,6 +564,52 @@ export async function resolveQuery(
     });
   }
 
+  // B2. Массовая смена этапа: «переведи/пометь/установи <фильтр> в <этап>»
+  if (/(перевед|переведи|пометь|помет|установи|поставь|отметь|переключи)/.test(lower) && !wantsTourGuard(lower)) {
+    const data = await getData();
+    // Целевой этап — по словам этапа или синонимам
+    const stageMap: { re: RegExp; id: string }[] = [
+      { re: /куплен|закуплен|оплач/, id: 'purchased' },
+      { re: /заказан|заказ/, id: 'ordered' },
+      { re: /утвержд|согласован/, id: 'approved' },
+      { re: /добавлен|сброс|в начал/, id: 'added' },
+    ];
+    let target = stageMap.find(s => s.re.test(lower));
+    let stage = target ? data.stages.find(s => s.id === target!.id) : undefined;
+    if (!stage) stage = data.stages.find(s => fieldMatchesStems(s.label, p.stems));
+    if (stage) {
+      // Из фильтра выкидываем командные глаголы и слова этапов (двусторонний префикс)
+      const noise = ['перевед', 'помет', 'установ', 'поставь', 'отмет', 'переключ', 'этап', 'закупк', 'все', 'всех', 'куплен', 'закуплен', 'заказан', 'утвержд', 'согласован', 'добавлен', 'оплач', 'сброс'];
+      const filterStems = p.stems.filter(s => !noise.some(x => (s.length >= 3 && (s.startsWith(x) || x.startsWith(s)))));
+      const affected = filterStems.length === 0
+        ? data.tags
+        : data.tags.filter(t => fieldMatchesStems(t.identifier, filterStems) || fieldMatchesStems(t.brand, filterStems) || fieldMatchesStems(t.mainName, filterStems) || fieldMatchesStems(t.department, filterStems));
+      const toChange = affected.filter(t => t.stageId !== stage!.id);
+      if (affected.length === 0) return msg(`Не нашёл позиции по фильтру${filterStems.length ? ` «${filterStems.join(' ')}»` : ''}. Уточните.`);
+      if (toChange.length === 0) return msg(`Все ${affected.length} позиц. уже на этапе «${stage.label}».`);
+      return msg(
+        `Переведу в «${stage.label}» позиц.: ${toChange.length}${filterStems.length ? ` (фильтр: ${filterStems.join(' ')})` : ''}.\nПримеры: ${toChange.slice(0, 5).map(t => t.identifier).join(', ')}${toChange.length > 5 ? '…' : ''}`,
+        { actions: [
+          { label: `✓ Выполнить (${toChange.length})`, kind: 'bulk-stage', stagePlan: { tagIds: toChange.map(t => t.id), stageId: stage.id, stageLabel: stage.label } },
+          { label: 'Показать список', kind: 'ask', query: `${filterStems.join(' ')} закупки` },
+        ] }
+      );
+    }
+  }
+
+  // B3. Автосвязывание по коду KKS: «свяжи похожие / автосвязывание / построй граф»
+  if (/(свяжи|связать|автосвяз|построй граф|соедини похож|связи по коду)/.test(lower)) {
+    const data = await getData();
+    const pairs = suggestKksLinks(data.tags);
+    if (pairs.length === 0) return msg('Не нашёл очевидных родитель-дочерних связей по кодам. Коды должны иметь общий префикс, например 3700-C01-AHU-001 и 3700-C01-AHU-001-FAN.');
+    const byId = new Map(data.tags.map(t => [t.id, t]));
+    const sample = pairs.slice(0, 6).map(pr => `${byId.get(pr.childId)?.identifier} → ${byId.get(pr.parentId)?.identifier}`).join('\n');
+    return msg(
+      `Нашёл ${pairs.length} возможных связей по структуре кода (дочерний → родитель):\n${sample}${pairs.length > 6 ? '\n…' : ''}`,
+      { actions: [{ label: `🔗 Связать (${pairs.length})`, kind: 'apply-links', linkPlan: { pairs } }, { label: 'Открыть холст', kind: 'open-section', route: '/registry' }] }
+    );
+  }
+
   // C. Вопрос-определение → справка
   if (/(что так|что эт|для чего|зачем|расскажи|объясни|чем отлич|что значит|как работает)/.test(lower)) {
     const knowledge = findKnowledge(lower);
@@ -415,7 +636,7 @@ export async function resolveQuery(
       const dup = data.duplicates.find(d => d.code === (t.identifier || '').trim());
       const actions: AssistantAction[] = [
         { label: 'Открыть на холсте', kind: 'focus-tag', tagId: t.id },
-        { label: 'Показать в Менеджменте', kind: 'open-section', route: '/management' },
+        { label: 'Показать в Менеджменте', kind: 'open-section', route: `/management?focus=${encodeURIComponent(t.id)}` },
       ];
       if (dup) actions.push({ label: `Найти дубли (${dup.count})`, kind: 'find-duplicates', code: dup.code });
       const lines = [
@@ -424,6 +645,7 @@ export async function resolveQuery(
         t.department ? `Отдел: ${t.department}` : '',
         `Актуальность: ${ACTUALITY_RU[t.actuality || 'draft'] || t.actuality}`,
         `Этап закупки: ${t.stageLabel || '—'}${t.supplier ? `, поставщик: ${t.supplier}` : ''}`,
+        (t.connCount || 0) === 0 ? '⚠ Нет связей на графе (сирота)' : '',
         dup ? `⚠ Дубль кода: встречается ${dup.count} раз(а)` : '',
       ].filter(Boolean);
       return { message: { id: uid(), role: 'assistant', text: lines.join('\n'), actions }, result: { kind: 'tags', ids: found.map(f => f.id), label: code } };
@@ -440,11 +662,65 @@ export async function resolveQuery(
 
   // G. Домены данных
   const wantsData = /(покажи|показать|список|сколько|количеств|выгруз|экспорт|найд|дай|выведи|собери|все|всё|скольк)/.test(lower)
-    || hasIntent(p, ['тег', 'оборудован', 'компонент', 'вентилятор', 'установк', 'клапан', 'проект', 'систем', 'дубл', 'закупк', 'критичн', 'внимани', 'проблем', 'заметк', 'этап', 'поставщик'])
-    || /не заказан|не куплен|куплен|закуплен|заказан|утвержд|просроч|что изменилос|кто менял|что менял|последн.*(действ|измен|запис)|что требует|требует внимани|конфликт ревиз/.test(lower);
+    || hasIntent(p, ['тег', 'оборудован', 'компонент', 'вентилятор', 'установк', 'клапан', 'проект', 'систем', 'дубл', 'закупк', 'критичн', 'внимани', 'проблем', 'заметк', 'этап', 'поставщик', 'аудит', 'сирот'])
+    || /не заказан|не куплен|куплен|закуплен|заказан|утвержд|просроч|что изменилос|кто менял|что менял|последн.*(действ|измен|запис)|что требует|требует внимани|конфликт ревиз|аудит|проверь проект|что не так|доделать|что.{0,6}сделать|мои задач|план дня|чек.?лист задач|без поставщик|без наименован|без имени|без связ/.test(lower);
   if (wantsData) {
     const data = await getData();
     const c = data.counts;
+
+    // G0. Аудит проекта — свод проблем с кнопками
+    if (/аудит|проверь проект|что не так|проверк проект|линтер/.test(lower) || hasIntent(p, ['аудит'])) {
+      const unnamed = data.tags.filter(t => !t.mainName);
+      const orphans = data.tags.filter(t => (t.connCount || 0) === 0);
+      const noEquip = data.tags.filter(t => !t.hasEquipment);
+      const conflicts = data.components.filter(cm => cm.hasConflict);
+      const issues: { n: number; text: string; q?: string }[] = [
+        { n: data.duplicates.length, text: `Дубли кодов: ${data.duplicates.length}`, q: 'покажи дубли' },
+        { n: c.critical || 0, text: `Критичные позиции: ${c.critical || 0}`, q: 'критичные позиции' },
+        { n: unnamed.length, text: `Без наименования: ${unnamed.length}`, q: 'теги без наименования' },
+        { n: orphans.length, text: `Сироты (без связей): ${orphans.length}`, q: 'теги без связей' },
+        { n: noEquip.length, text: `Без привязки к оборудованию: ${noEquip.length}` },
+        { n: conflicts.length, text: `Конфликты ревизий оборудования: ${conflicts.length}` },
+      ].filter(i => i.n > 0);
+      if (issues.length === 0) return msg('✓ Аудит пройден: дублей, сирот, конфликтов и позиций без наименования не найдено. Проект в порядке!');
+      const actions: AssistantAction[] = issues.filter(i => i.q).slice(0, 3).map(i => ({ label: i.text.split(':')[0], kind: 'ask', query: i.q! }));
+      actions.push({ label: '✅ План в блокнот', kind: 'ask', query: 'что мне доделать' });
+      return msg(`Аудит проекта — найдено ${issues.reduce((s, i) => s + i.n, 0)} замечаний:\n${issues.map(i => `• ${i.text}`).join('\n')}`, { actions });
+    }
+
+    // G0b. «Что мне доделать» → чек-лист задач в блокнот
+    if (/что.*(доделать|сделать)|мои задач|мой план|чек.?лист задач|план дня/.test(lower)) {
+      const items: string[] = [];
+      const unnamed = data.tags.filter(t => !t.mainName);
+      const orphans = data.tags.filter(t => (t.connCount || 0) === 0);
+      const stuck = data.tags.filter(t => t.stageId === 'added');
+      if (data.duplicates.length) items.push(`Разобрать дубли кодов: ${data.duplicates.slice(0, 5).map(d => d.code).join(', ')}${data.duplicates.length > 5 ? '…' : ''}`);
+      if (unnamed.length) items.push(`Задать наименование ${unnamed.length} тегам`);
+      if (orphans.length) items.push(`Связать на графе ${orphans.length} тегов-сирот`);
+      if ((c.critical || 0)) items.push(`Проверить ${c.critical} критичных позиций`);
+      if (stuck.length) items.push(`Заказать ${stuck.length} позиций (этап «Добавлен»)`);
+      if (items.length === 0) return msg('По проекту нет висящих задач — всё сделано. 👍');
+      return msg(`Собрал план из ${items.length} задач:\n${items.map(i => `• ${i}`).join('\n')}`, {
+        actions: [{ label: '✅ Добавить чек-лист в Блокнот', kind: 'checklist-note', checklist: { title: `Задачи по проекту ${new Date().toLocaleDateString('ru-RU')}`, items } }],
+      });
+    }
+
+    // G0c. Аналитика: без поставщика / без наименования / без связей
+    if (/без поставщик|нет поставщик/.test(lower)) {
+      const sel = data.tags.filter(t => !t.supplier);
+      if (sel.length === 0) return msg('У всех позиций указан поставщик. 👍');
+      return { message: { id: uid(), role: 'assistant', text: `Без поставщика: ${sel.length} позиц.`, table: { title: 'Без поставщика', columns: ['Тег', 'Наименование', 'Этап'], rows: sel.map(t => [t.identifier || '', t.mainName || '', t.stageLabel || '']) }, actions: EXPORT_ACTIONS }, result: { kind: 'tags', ids: sel.map(t => t.id), label: 'без поставщика' } };
+    }
+    if (/без наименован|без имени|нет наименован/.test(lower)) {
+      const sel = data.tags.filter(t => !t.mainName);
+      if (sel.length === 0) return msg('У всех тегов есть наименование. 👍');
+      return { message: { id: uid(), role: 'assistant', text: `Без наименования: ${sel.length} тегов.`, table: { title: 'Без наименования', columns: ['Тег', 'Марка', 'Отдел'], rows: sel.map(t => [t.identifier || '', t.brand || '', t.department || '']) }, actions: [{ label: 'Открыть на холсте', kind: 'focus-tag', tagId: sel[0].id }, ...EXPORT_ACTIONS] }, result: { kind: 'tags', ids: sel.map(t => t.id), label: 'без наименования' } };
+    }
+    if (/без связ|сирот|не связан/.test(lower)) {
+      const sel = data.tags.filter(t => (t.connCount || 0) === 0);
+      if (sel.length === 0) return msg('Тегов-сирот нет — все связаны на графе. 👍');
+      return { message: { id: uid(), role: 'assistant', text: `Сироты (без связей): ${sel.length}. Можно связать автоматически по коду.`, table: { title: 'Без связей', columns: ['Тег', 'Наименование'], rows: sel.map(t => [t.identifier || '', t.mainName || '']) }, actions: [{ label: '🔗 Связать по коду', kind: 'ask', query: 'свяжи похожие' }, ...EXPORT_ACTIONS] }, result: { kind: 'tags', ids: sel.map(t => t.id), label: 'сироты' } };
+    }
 
     // G1. Сводка/счётчики
     if (hasIntent(p, ['сводк', 'статус']) || /сколько всего|общая|итого|готовност/.test(lower)

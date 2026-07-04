@@ -1,5 +1,5 @@
 // Тесты распознавания запросов ИИ-чата: npx tsx scripts/test-assistant.ts
-import { resolveQuery } from '../src/store/assistantStore';
+import { resolveQuery, suggestKksLinks } from '../src/store/assistantStore';
 
 let ok = 0, fail = 0; const fails: string[] = [];
 const check = (n: string, c: boolean, d?: string) => { if (c) ok++; else { fail++; fails.push(`✗ ${n}${d ? ' — ' + d : ''}`); } };
@@ -12,6 +12,7 @@ const DATA: any = {
     { id: 't2', identifier: '3700-K02-HV-209', brand: 'ВР-80', department: 'ОВиК', fluid: 'Воздух', mainName: 'Вентилятор вытяжной (дубль)', actuality: 'actual', stageId: 'ordered', stageLabel: 'Заказан', supplier: 'ВЕЗА' },
     { id: 't3', identifier: '3700-C01-AHU-001', brand: 'ВЕРОСА-670', department: 'ОВиК', fluid: 'Воздух', mainName: 'Приточная установка', actuality: 'actual', stageId: 'purchased', stageLabel: 'Куплен', supplier: 'ВЕЗА' },
     { id: 't4', identifier: '3700-V03-KL-011', brand: 'КЛОП-1', department: 'ОВиК', fluid: 'Воздух', mainName: 'Клапан огнезадерживающий', actuality: 'warning', stageId: 'added', stageLabel: 'Добавлен', supplier: '' },
+    { id: 't5', identifier: '3700-V03-KL-012', brand: 'КЛОП-1', department: 'ОВиК', fluid: 'Воздух', mainName: '', actuality: 'actual', stageId: 'ordered', stageLabel: 'Заказан', supplier: 'ВЕЗА', connCount: 1 },
   ],
   components: [
     { id: 'c1', name: 'Двигатель вентилятора', itemCode: 'BLM-1', systemName: '3700-C01-AHU-001', category: 'AHU', monoblockName: 'M1', status: 'ok', hasConflict: false, tags: ['3700-C01-AHU-001'] },
@@ -122,6 +123,66 @@ const hasAction = (m: any, kind: string) => (m.actions || []).some((a: any) => a
   {
     const { message } = await R('абырвалг зюзюка мырк пщ');
     check('фоллбэк: три темы', (message.actions?.length || 0) >= 3, JSON.stringify(message.actions?.map((a:any)=>a.label)));
+  }
+
+  // ── WOW: массовая смена этапа (превью) ─────────────────────────────────────
+  {
+    const { message } = await R('переведи клапаны в заказан');
+    check('bulk: превью смены этапа', hasAction(message, 'bulk-stage'), message.text);
+    const plan = (message.actions || []).find((a: any) => a.kind === 'bulk-stage')?.stagePlan;
+    check('bulk: план на клапан (t4)', !!plan && plan.tagIds.includes('t4') && plan.stageId === 'ordered', JSON.stringify(plan));
+  }
+  {
+    const { message } = await R('пометь всё куплено');
+    check('bulk: всё в куплено', hasAction(message, 'bulk-stage'), message.text);
+  }
+  {
+    const { message } = await R('как перевести тег в заказан'); // это вопрос, не команда
+    check('bulk: «как перевести» → НЕ команда', !hasAction(message, 'bulk-stage'));
+  }
+
+  // ── WOW: аудит проекта ─────────────────────────────────────────────────────
+  {
+    const { message } = await R('аудит проекта');
+    check('аудит: свод проблем', message.text.includes('Аудит') && message.text.includes('Дубли'), message.text);
+    check('аудит: кнопка плана', hasAction(message, 'ask'));
+  }
+
+  // ── WOW: что доделать → чек-лист ───────────────────────────────────────────
+  {
+    const { message } = await R('что мне доделать');
+    check('чек-лист: собран план', message.text.includes('план') || message.text.includes('задач'), message.text);
+    check('чек-лист: кнопка в блокнот', hasAction(message, 'checklist-note'));
+  }
+
+  // ── WOW: аналитика ─────────────────────────────────────────────────────────
+  {
+    const { message } = await R('у кого нет поставщика');
+    check('аналитика: без поставщика (t1,t4)', (message.table?.rows.length || 0) === 2, String(message.table?.rows.length));
+  }
+  {
+    const { message } = await R('теги без наименования');
+    check('аналитика: без наименования', !!message.table, message.text);
+  }
+
+  // ── WOW: автосвязывание по KKS ─────────────────────────────────────────────
+  {
+    const kksTags: any = [
+      { id: 'a', identifier: '3700-C01-AHU-001', metadata: '{}' },
+      { id: 'b', identifier: '3700-C01-AHU-001-FAN', metadata: '{}' },
+      { id: 'c', identifier: '3700-C01-AHU-001-FAN-MTR', metadata: '{}' },
+      { id: 'd', identifier: 'X-99', metadata: '{}' },
+    ];
+    const pairs = suggestKksLinks(kksTags);
+    const has = (child: string, parent: string) => pairs.some(p => p.childId === child && p.parentId === parent);
+    check('kks: FAN→AHU', has('b', 'a'), JSON.stringify(pairs));
+    check('kks: MTR→FAN (ближайший родитель)', has('c', 'b'), JSON.stringify(pairs));
+    check('kks: одиночка без родителя', !pairs.some(p => p.childId === 'd'));
+  }
+  {
+    const { message } = await R('свяжи похожие', null);
+    // на DATA (без KKS-иерархии) связей нет → сообщение об отсутствии
+    check('kks: команда обрабатывается', message.text.length > 0);
   }
 
   console.log(`\nАссистент: пройдено ${ok}, провалено ${fail}`);

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAssistantStore, AssistantMessage } from '../store/assistantStore';
 import { getSection } from '../assistant/sections';
-import { Sparkles, Send, X, FileSpreadsheet, FileText, Play, HelpCircle, Loader2, GraduationCap, MessageCircleQuestion, Info } from 'lucide-react';
+import { Sparkles, Send, X, FileSpreadsheet, FileText, Play, HelpCircle, Loader2, MessageCircleQuestion, Info } from 'lucide-react';
 
 function ActionButton({ msg }: { msg: AssistantMessage }) {
   const runAction = useAssistantStore(s => s.runAction);
@@ -68,8 +68,6 @@ export default function AssistantPanel() {
   const messages = useAssistantStore(s => s.messages);
   const loading = useAssistantStore(s => s.loading);
   const ask = useAssistantStore(s => s.ask);
-  const demoMode = useAssistantStore(s => s.demoMode);
-  const toggleDemoMode = useAssistantStore(s => s.toggleDemoMode);
   const currentRoute = useAssistantStore(s => s.currentRoute);
   const runSuggestion = useAssistantStore(s => s.runSuggestion);
   const describeCurrentSection = useAssistantStore(s => s.describeCurrentSection);
@@ -105,8 +103,12 @@ export default function AssistantPanel() {
     return () => window.removeEventListener('keydown', onKey);
   }, [setOpen]);
 
+  const maybeDigest = useAssistantStore(s => s.maybeDigest);
   useEffect(() => {
-    if (isOpen) setTimeout(() => inputRef.current?.focus(), 60);
+    if (isOpen) {
+      setTimeout(() => inputRef.current?.focus(), 60);
+      maybeDigest(); // проактивный дайджест при первом открытии за сессию
+    }
   }, [isOpen]);
 
   const submit = (e: React.FormEvent) => {
@@ -213,27 +215,6 @@ export default function AssistantPanel() {
         </div>
       )}
 
-      {/* Переключатель режима «Демонстрация» */}
-      <div className="px-3 py-2 shrink-0">
-        <button
-          onClick={() => toggleDemoMode()}
-          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${
-            demoMode
-              ? 'bg-emerald-600/15 border-emerald-600/40 text-emerald-700 dark:text-emerald-300'
-              : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400'
-          }`}
-          title="В режиме демонстрации любой вопрос превращается в пошаговую инструкцию"
-        >
-          <span className="flex items-center gap-2">
-            <GraduationCap className="w-4 h-4" />
-            Режим «Демонстрация»
-          </span>
-          <span className={`w-9 h-5 rounded-full relative transition-colors ${demoMode ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`}>
-            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${demoMode ? 'left-[18px]' : 'left-0.5'}`} />
-          </span>
-        </button>
-      </div>
-
       {/* Поле ввода */}
       <form onSubmit={submit} className="px-3 pb-3 shrink-0 flex items-center gap-2">
         <input
@@ -242,10 +223,8 @@ export default function AssistantPanel() {
           value={input}
           onChange={(e) => { setInput(e.target.value); setHistIdx(-1); }}
           onKeyDown={onInputKeyDown}
-          placeholder={demoMode ? 'Что показать? Напишите вопрос…' : 'Спросите (Ctrl+K) — данные, действия, справка…'}
-          className={`flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border rounded-lg text-xs text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 transition-all ${
-            demoMode ? 'border-emerald-500/50 focus:ring-emerald-500/30 focus:border-emerald-500' : 'border-slate-200 dark:border-slate-800 focus:ring-emerald-500/30 focus:border-emerald-500'
-          }`}
+          placeholder="Спросите (Ctrl+K) — данные, действия, справка…"
+          className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all"
         />
         <button
           type="submit"

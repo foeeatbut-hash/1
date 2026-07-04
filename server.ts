@@ -1125,11 +1125,21 @@ app.get('/api/assistant/data', async (req: Request, res: Response) => {
       return 'draft';
     };
 
+    // Входящие связи по всем тегам (для определения «сирот» на графе)
+    const incoming: Record<string, number> = {};
+    for (const t of tags as any[]) {
+      const meta = parseTagMeta(t);
+      for (const childId of (Array.isArray(meta.connections) ? meta.connections : [])) {
+        incoming[childId] = (incoming[childId] || 0) + 1;
+      }
+    }
+
     const enrichedTags = (tags as any[]).map((t: any) => {
       const meta = parseTagMeta(t);
       const proc = meta.procurement || {};
       let stageIdx = proc.stage ? stageIds.indexOf(proc.stage) : 0;
       if (stageIdx < 0) stageIdx = 0;
+      const outConns = Array.isArray(meta.connections) ? meta.connections.length : 0;
       return {
         id: t.id, identifier: t.identifier, brand: t.brand,
         department: t.department, wbs: t.wbs, fluid: t.fluid,
@@ -1138,6 +1148,10 @@ app.get('/api/assistant/data', async (req: Request, res: Response) => {
         stageId: stages[stageIdx]?.id || 'added',
         stageLabel: stages[stageIdx]?.label || 'Добавлен',
         supplier: proc.supplier || '', qty: proc.qty || '',
+        // Аудит: связи на графе и привязка к оборудованию
+        connCount: outConns + (incoming[t.id] || 0),
+        hasEquipment: !!t.equipmentId,
+        metadata: t.metadata || '',
       };
     });
 

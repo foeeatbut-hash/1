@@ -139,6 +139,25 @@ export default function ProcurementManagement() {
     loadAll();
   }, [loadAll]);
 
+  // Глубокая ссылка от ИИ-помощника: /management?focus=<tagId> — прокрутить и подсветить строку
+  const focusHandledRef = React.useRef(false);
+  useEffect(() => {
+    if (focusHandledRef.current || tags.length === 0) return;
+    const params = new URLSearchParams(window.location.hash.split('?')[1] || '');
+    const focus = params.get('focus');
+    if (!focus) return;
+    focusHandledRef.current = true;
+    setTimeout(() => {
+      const el = document.getElementById(`mgmt-row-${focus}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('share-pulse');
+        setTimeout(() => el.classList.remove('share-pulse'), 2500);
+      }
+      window.history.replaceState(null, '', window.location.hash.split('?')[0]);
+    }, 250);
+  }, [tags]);
+
   const stageIds = useMemo(() => stages.map(s => s.id), [stages]);
 
   const duplicateCodes = useMemo(() => {
@@ -385,6 +404,7 @@ export default function ProcurementManagement() {
     return (
       <tr
         key={row.tag.id}
+        id={`mgmt-row-${row.tag.id}`}
         data-share-route="/management"
         data-share-focus={`ptag:${row.tag.id}`}
         data-share-label={row.tag.identifier}
