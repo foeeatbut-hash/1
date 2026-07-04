@@ -4,13 +4,18 @@ import { ENV_CONFIG } from '../config/env';
 import { findKnowledge } from '../assistant/knowledge';
 import { TOURS, findTourByText, findBestTour, Tour } from '../assistant/tours';
 import { getSection } from '../assistant/sections';
+import { parse, hasIntent, fieldMatchesStems, Parsed } from '../assistant/nlp';
 
 export interface AssistantAction {
   label: string;
-  kind: 'tour' | 'export-excel' | 'export-word' | 'navigate' | 'ask';
+  kind: 'tour' | 'export-excel' | 'export-word' | 'navigate' | 'ask'
+      | 'focus-tag' | 'find-duplicates' | 'create-note' | 'open-section';
   tourId?: string;
   route?: string;
   query?: string;
+  tagId?: string;   // для focus-tag
+  code?: string;    // для find-duplicates
+  noteTitle?: string; // для create-note
 }
 
 export interface AssistantTable {
@@ -30,9 +35,20 @@ export interface AssistantMessage {
 interface AssistantData {
   projectId: string;
   projects: { id: string; name: string; status: string }[];
-  tags: { id: string; identifier: string; brand?: string; department?: string; wbs?: string; fluid?: string }[];
+  tags: { id: string; identifier: string; brand?: string; department?: string; wbs?: string; fluid?: string; mainName?: string; actuality?: string; stageId?: string; stageLabel?: string; supplier?: string; qty?: string }[];
   components: { id: string; name: string; itemCode: string; systemName: string; category: string; monoblockName: string; status: string; hasConflict: boolean; tags: string[] }[];
+  stages: { id: string; label: string }[];
+  duplicates: { code: string; count: number; ids: string[] }[];
+  notes: { id: string; title: string; updatedAt: string }[];
+  recentLogs: { description: string; userName: string; targetRoute: string; createdAt: string }[];
   counts: Record<string, number>;
+}
+
+// Последний результат — для follow-up вопросов («а сколько их?», «выгрузи», «первый на холсте»)
+interface LastResult {
+  kind: 'tags' | 'components' | 'duplicates';
+  ids: string[];
+  label: string;
 }
 
 interface AssistantState {
@@ -50,6 +66,8 @@ interface AssistantState {
 
   // Последняя выборка для экспорта
   lastTable: AssistantTable | null;
+  // Контекст диалога — последний найденный список (для «а сколько их / выгрузи / первый»)
+  lastResult: LastResult | null;
 
   toggleOpen: () => void;
   setOpen: (open: boolean) => void;
@@ -165,9 +183,10 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   messages: [{
     id: uid(),
     role: 'assistant',
-    text: 'Здравствуйте! Я встроенный помощник PDM System и работаю полностью локально.\n\nСпросите меня о данных («покажи все теги», «теги коробок», «сколько оборудования») или о том, как что-то сделать («как добавить тег»). Я могу подсветить нужные кнопки прямо в программе и выгрузить данные в Excel или Word.',
+    text: 'Здравствуйте! Я помощник PDM System — работаю локально, понимаю обычную речь и опечатки.\n\nМожно спросить про данные («покажи вентиляторы», «где 3700-K02»), проблемы («покажи дубли», «что требует внимания»), закупки («что не заказано») — а я найду и дам кнопки: открыть на холсте, показать в Менеджменте, выгрузить в Excel. Могу и выполнить: «открой менеджмент», «создай заметку». Ctrl+K — вызвать меня из любого места.',
     actions: [
-      { label: 'Как добавить тег', kind: 'tour', tourId: 'add-tag' },
+      { label: 'Покажи дубли', kind: 'ask', query: 'покажи дубли' },
+      { label: 'Что не заказано', kind: 'ask', query: 'что не заказано' },
       { label: 'Что ты умеешь?', kind: 'navigate', route: '__help' },
     ],
   }],
@@ -179,6 +198,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   tourStepIndex: 0,
   highlightSelector: null,
   lastTable: null,
+  lastResult: null,
 
   toggleOpen: () => set(s => ({ isOpen: !s.isOpen })),
   setOpen: (open) => set({ isOpen: open }),
@@ -232,8 +252,13 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
     set(s => ({ messages: [...s.messages, userMsg], loading: true }));
 
     try {
-      const reply = await resolveQuery(clean, get().demoMode);
-      set(s => ({ messages: [...s.messages, reply], loading: false, lastTable: reply.table || s.lastTable }));
+      const { message, result } = await resolveQuery(clean, get().demoMode, get().lastResult);
+      set(s => ({
+        messages: [...s.messages, message],
+        loading: false,
+        lastTable: message.table || s.lastTable,
+        lastResult: result !== undefined ? result : s.lastResult,
+      }));
     } catch (err: any) {
       set(s => ({
         messages: [...s.messages, { id: uid(), role: 'assistant', text: `Не удалось обработать запрос: ${err.message}` }],
@@ -251,13 +276,20 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
       exportTableToExcel(get().lastTable!);
     } else if (action.kind === 'export-word' && get().lastTable) {
       exportTableToWord(get().lastTable!);
-    } else if (action.kind === 'navigate') {
+    } else if (action.kind === 'navigate' || action.kind === 'open-section') {
       if (action.route === '__help') {
         const ans = findKnowledge('что умеешь');
         set(s => ({ messages: [...s.messages, { id: uid(), role: 'assistant', text: ans || '' }] }));
       } else if (action.route && navigateFn) {
         navigateFn(action.route);
       }
+    } else if (action.kind === 'focus-tag' && action.tagId && navigateFn) {
+      // Глубокая ссылка: раздел прочитает ?focus= и центрирует/подсветит позицию
+      navigateFn(`/registry?focus=${encodeURIComponent(action.tagId)}`);
+    } else if (action.kind === 'find-duplicates' && action.code && navigateFn) {
+      navigateFn(`/registry?dup=${encodeURIComponent(action.code)}`);
+    } else if (action.kind === 'create-note' && navigateFn) {
+      navigateFn(`/notes?new=${encodeURIComponent(action.noteTitle || 'Новая заметка')}`);
     }
   },
 
@@ -293,143 +325,276 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   cancelTour: () => set({ activeTour: null, tourStepIndex: 0, highlightSelector: null }),
 }));
 
+// Результат распознавания: сообщение + (опционально) контекст последнего списка
+interface Resolved { message: AssistantMessage; result?: LastResult | null; }
+const msg = (text: string, extra: Partial<AssistantMessage> = {}): Resolved =>
+  ({ message: { id: uid(), role: 'assistant', text, ...extra } });
+
+const EXPORT_ACTIONS: AssistantAction[] = [
+  { label: 'Выгрузить в Excel', kind: 'export-excel' },
+  { label: 'Выгрузить в Word', kind: 'export-word' },
+];
+
+// Разделы для навигационных команд «открой …»
+const ROUTE_WORDS: { stems: string[]; route: string; name: string }[] = [
+  { stems: ['менеджмент', 'закупк'], route: '/management', name: 'Менеджмент' },
+  { stems: ['тег', 'реестр', 'холст', 'граф'], route: '/registry', name: 'Теги' },
+  { stems: ['оборудован'], route: '/equipment', name: 'Оборудование' },
+  { stems: ['проводник', 'файл'], route: '/explorer', name: 'Проводник' },
+  { stems: ['блокнот', 'заметк'], route: '/notes', name: 'Блокнот' },
+  { stems: ['справочник', 'словар'], route: '/directory', name: 'Справочник' },
+  { stems: ['чат', 'переписк'], route: '/chat', name: 'Рабочий чат' },
+  { stems: ['проект'], route: '/projects', name: 'Проекты' },
+];
+
 // --- Распознавание запроса (полностью локальное) ---
-async function resolveQuery(text: string, demoMode = false): Promise<AssistantMessage> {
-  const lower = text.toLowerCase();
+// injectedData — тестовый шов: подставить данные вместо обращения к серверу.
+export async function resolveQuery(
+  text: string, demoMode = false, lastResult: LastResult | null = null,
+  injectedData?: AssistantData,
+): Promise<Resolved> {
+  const lower = text.toLowerCase().replace(/ё/g, 'е');
+  const p = parse(text);
+  const getData = () => injectedData ? Promise.resolve(injectedData) : fetchAssistantData();
 
   // Режим «Демонстрация»: любой вопрос → ближайшая по смыслу демонстрация
   if (demoMode) {
     const m = findBestTour(text);
     if (m && m.tour) {
-      const sure = m.score >= 1.5;
-      return {
-        id: uid(), role: 'assistant',
-        text: sure
-          ? `${m.tour.intro}`
-          : `Похоже, вам подойдёт демонстрация «${m.tour.title}». ${m.tour.intro}`,
-        actions: [{ label: '▶ Показать демонстрацию', kind: 'tour', tourId: m.tour.id }],
-      };
+      return msg(
+        m.score >= 1.5 ? m.tour.intro : `Похоже, вам подойдёт демонстрация «${m.tour.title}». ${m.tour.intro}`,
+        { actions: [{ label: '▶ Показать демонстрацию', kind: 'tour', tourId: m.tour.id }] }
+      );
     }
-    return { id: uid(), role: 'assistant', text: 'Не нашёл подходящую демонстрацию. Попробуйте переформулировать — например, «как добавить тег» или «как импортировать оборудование».' };
+    return msg('Не нашёл подходящую демонстрацию. Попробуйте, например, «как добавить тег» или «как импортировать оборудование».');
   }
 
-  // 0. Вопрос-определение ("что такое", "для чего", "объясни") -> сразу справка,
-  //    чтобы "что такое реестр тегов" не уходило в выборку данных
-  const isInfoQuestion = /(что так|что эт|для чего|зачем|расскажи|объясни|чем отлич|что значит|как работает)/.test(lower);
-  if (isInfoQuestion) {
+  // A. Навигационная команда: «открой/перейди в <раздел>»
+  if (/(^|\s)(открой|открыть|перейд|зайд|покажи раздел|переключ)/.test(lower)) {
+    for (const r of ROUTE_WORDS) {
+      if (hasIntent(p, r.stems)) {
+        return msg(`Открываю раздел «${r.name}».`, {
+          actions: [{ label: `Перейти в «${r.name}»`, kind: 'open-section', route: r.route }],
+        });
+      }
+    }
+  }
+
+  // B. Команда «создай заметку [про X]»
+  if (/(создай|создать|新)\s*(заметк|запис)/.test(lower) || /(заметк|запис).*(создай|добав|нов)/.test(lower)) {
+    const about = text.replace(/.*(заметк\w*|запис\w*)\s*(про|о|об)?\s*/i, '').trim();
+    const title = about && about.length < 60 ? about : 'Новая заметка';
+    return msg(`Создаю заметку${about ? ` «${title}»` : ''} в блокноте.`, {
+      actions: [{ label: 'Открыть блокнот', kind: 'create-note', noteTitle: title }],
+    });
+  }
+
+  // C. Вопрос-определение → справка
+  if (/(что так|что эт|для чего|зачем|расскажи|объясни|чем отлич|что значит|как работает)/.test(lower)) {
     const knowledge = findKnowledge(lower);
-    if (knowledge) return { id: uid(), role: 'assistant', text: knowledge };
+    if (knowledge) return msg(knowledge);
   }
 
-  // 1. Демонстрация: "как ...", "покажи как", "демонстрация".
-  // ВАЖНО: \b в JS не работает с кириллицей, поэтому "как" ищем как отдельное
-  // слово вручную через границы из не-кириллических символов.
+  // D. Демонстрация: «как …»
   const wantsTour = /(^|[^а-яёa-z])как([^а-яёa-z]|$)/i.test(lower)
     || /(демонстрац|научи|инструкц|покажи как|пошагов)/.test(lower);
   if (wantsTour) {
     const tour = findTourByText(lower);
-    if (tour) {
-      return {
-        id: uid(), role: 'assistant', text: tour.intro,
-        actions: [{ label: '▶ Показать демонстрацию', kind: 'tour', tourId: tour.id }],
-      };
+    if (tour) return msg(tour.intro, { actions: [{ label: '▶ Показать демонстрацию', kind: 'tour', tourId: tour.id }] });
+  }
+
+  // E. Прямой код тега/марки → карточка позиции
+  if (p.codes.length > 0) {
+    const data = await getData();
+    const code = p.codes[0];
+    const found = data.tags.filter(t => (t.identifier || '').toLowerCase() === code.toLowerCase()
+      || (t.identifier || '').toLowerCase().includes(code.toLowerCase())
+      || (t.brand || '').toLowerCase().includes(code.toLowerCase()));
+    if (found.length) {
+      const t = found[0];
+      const dup = data.duplicates.find(d => d.code === (t.identifier || '').trim());
+      const actions: AssistantAction[] = [
+        { label: 'Открыть на холсте', kind: 'focus-tag', tagId: t.id },
+        { label: 'Показать в Менеджменте', kind: 'open-section', route: '/management' },
+      ];
+      if (dup) actions.push({ label: `Найти дубли (${dup.count})`, kind: 'find-duplicates', code: dup.code });
+      const lines = [
+        `${t.identifier}${t.mainName ? ` — ${t.mainName}` : ''}`,
+        t.brand ? `Марка: ${t.brand}` : '',
+        t.department ? `Отдел: ${t.department}` : '',
+        `Актуальность: ${ACTUALITY_RU[t.actuality || 'draft'] || t.actuality}`,
+        `Этап закупки: ${t.stageLabel || '—'}${t.supplier ? `, поставщик: ${t.supplier}` : ''}`,
+        dup ? `⚠ Дубль кода: встречается ${dup.count} раз(а)` : '',
+      ].filter(Boolean);
+      return { message: { id: uid(), role: 'assistant', text: lines.join('\n'), actions }, result: { kind: 'tags', ids: found.map(f => f.id), label: code } };
     }
   }
 
-  // 2. Запрос данных: явный глагол выборки или упоминание сущности с "все/список"
-  const hasDataVerb = /(покажи|показать|список|сколько|количеств|выгруз|экспорт|найд|дай|сформируй|выведи|собери|все|всё|выбор)/.test(lower);
-  const hasEntity = /(тег|оборудован|компонент|вентилятор|короб|клапан|проект|систем|моноблок|аху|ahu)/.test(lower);
-  const wantsData = hasDataVerb || hasEntity;
-  if (wantsData) {
-    const data = await fetchAssistantData();
+  // F. Follow-up: «а сколько их / выгрузи / покажи их» по прошлому результату
+  if (lastResult && /^(а\s+)?(сколько|скольк).{0,6}(их| их\?)?$|^выгруз|^экспорт|^покажи их|^их$/.test(lower.trim())) {
+    if (/выгруз|экспорт/.test(lower)) {
+      return msg(`Готовлю выгрузку по предыдущему списку «${lastResult.label}» — нажмите кнопку.`, { actions: EXPORT_ACTIONS });
+    }
+    return msg(`В предыдущем списке «${lastResult.label}»: ${lastResult.ids.length}.`);
+  }
 
-    // Счётчик
-    if (/сколько|количеств/.test(lower)) {
-      const c = data.counts;
+  // G. Домены данных
+  const wantsData = /(покажи|показать|список|сколько|количеств|выгруз|экспорт|найд|дай|выведи|собери|все|всё|скольк)/.test(lower)
+    || hasIntent(p, ['тег', 'оборудован', 'компонент', 'вентилятор', 'установк', 'клапан', 'проект', 'систем', 'дубл', 'закупк', 'критичн', 'внимани', 'проблем', 'заметк', 'этап', 'поставщик'])
+    || /не заказан|не куплен|куплен|закуплен|заказан|утвержд|просроч|что изменилос|кто менял|что менял|последн.*(действ|измен|запис)|что требует|требует внимани|конфликт ревиз/.test(lower);
+  if (wantsData) {
+    const data = await getData();
+    const c = data.counts;
+
+    // G1. Сводка/счётчики
+    if (hasIntent(p, ['сводк', 'статус']) || /сколько всего|общая|итого|готовност/.test(lower)
+        || (/сколько|количеств/.test(lower) && !hasIntent(p, ['дубл', 'критичн', 'закупк', 'вентилятор', 'клапан', 'установк']))) {
+      const problems = (c.critical || 0) + (c.duplicates || 0);
+      return msg(
+        `Сводка по активному проекту:\n• Тегов: ${c.tags}\n• Оборудования: ${c.components}\n• Систем: ${c.systems}\n• Файлов: ${c.files}, заметок: ${c.notes}\n` +
+        `${problems > 0 ? `\n⚠ Требуют внимания: критичных ${c.critical || 0}, дублей ${c.duplicates || 0}.` : '\n✓ Критичных позиций и дублей нет.'}`,
+        { actions: problems > 0 ? [{ label: 'Показать дубли', kind: 'ask', query: 'покажи дубли' }, { label: 'Показать критичные', kind: 'ask', query: 'критичные позиции' }] : [] }
+      );
+    }
+
+    // G2. Дубли
+    if (hasIntent(p, ['дубл'])) {
+      if (data.duplicates.length === 0) return msg('Дубликатов кодов тегов в проекте нет — все коды уникальны. 👍');
+      const table: AssistantTable = {
+        title: 'Дубликаты кодов тегов',
+        columns: ['Код тега', 'Повторов'],
+        rows: data.duplicates.map(d => [d.code, d.count]),
+      };
+      const first = data.duplicates[0];
       return {
-        id: uid(), role: 'assistant',
-        text: `В активном проекте сейчас:\n• Тегов: ${c.tags}\n• Компонентов оборудования: ${c.components}\n• Систем: ${c.systems}\n• Папок: ${c.folders}\n• Файлов: ${c.files}\n\nВсего проектов: ${c.projects}, пользователей: ${c.users}, заметок: ${c.notes}.`,
+        message: {
+          id: uid(), role: 'assistant',
+          text: `Нашёл дублей: ${data.duplicates.length}. Всего повторяющихся позиций: ${data.duplicates.reduce((s, d) => s + d.count, 0)}.`,
+          table,
+          actions: [
+            { label: `Найти на холсте: ${first.code}`, kind: 'find-duplicates', code: first.code },
+            ...EXPORT_ACTIONS,
+          ],
+        },
+        result: { kind: 'duplicates', ids: data.duplicates.flatMap(d => d.ids), label: 'дубли' },
       };
     }
 
-    const terms = tokensFrom(text);
-    const mentionsEquip = /(оборудован|компонент|систем|моноблок)/.test(lower);
-    const mentionsTag = /(тег)/.test(lower);
-
-    // Поиск по тегам
-    const matchedTags = data.tags.filter(tg => {
-      if (terms.length === 0) return true;
-      return terms.some(term =>
-        fieldMatches(tg.identifier, term) || fieldMatches(tg.brand, term) ||
-        fieldMatches(tg.department, term) || fieldMatches(tg.fluid, term) || fieldMatches(tg.wbs, term)
-      );
-    });
-
-    // Поиск по оборудованию
-    const matchedComps = data.components.filter(c => {
-      if (terms.length === 0) return true;
-      return terms.some(term =>
-        fieldMatches(c.name, term) || fieldMatches(c.itemCode, term) ||
-        fieldMatches(c.category, term) || fieldMatches(c.systemName, term) ||
-        c.tags.some(tag => fieldMatches(tag, term))
-      );
-    });
-
-    // Решаем, что показывать
-    const showTags = mentionsTag || (!mentionsEquip && matchedTags.length >= matchedComps.length);
-
-    if (showTags) {
-      if (matchedTags.length === 0) {
-        return { id: uid(), role: 'assistant', text: terms.length ? `По запросу «${terms.join(' ')}» теги не найдены. Попробуйте другое слово или проверьте активный проект.` : 'В активном проекте пока нет тегов.' };
-      }
+    // G3. Проблемы / актуальность
+    if (hasIntent(p, ['критичн', 'внимани', 'проблем', 'конфликт'])) {
+      const bad = data.tags.filter(t => t.actuality === 'critical' || t.actuality === 'warning');
+      if (bad.length === 0) return msg('Критичных позиций и позиций «на проверку» нет. ✓');
       const table: AssistantTable = {
-        title: terms.length ? `Теги: ${terms.join(' ')}` : 'Все теги проекта',
-        columns: ['Тег', 'Марка', 'Отдел', 'WBS', 'Среда'],
-        rows: matchedTags.map(t => [t.identifier || '', t.brand || '', t.department || '', t.wbs || '', t.fluid || '']),
+        title: 'Требуют внимания',
+        columns: ['Тег', 'Наименование', 'Состояние'],
+        rows: bad.map(t => [t.identifier || '', t.mainName || '', ACTUALITY_RU[t.actuality || 'draft'] || '']),
       };
       return {
-        id: uid(), role: 'assistant',
-        text: `Нашёл тегов: ${matchedTags.length}${terms.length ? ` по запросу «${terms.join(' ')}»` : ''}.`,
-        table,
-        actions: [
-          { label: 'Выгрузить в Excel', kind: 'export-excel' },
-          { label: 'Выгрузить в Word', kind: 'export-word' },
-        ],
+        message: { id: uid(), role: 'assistant', text: `Требуют внимания: ${bad.length} (критичных ${bad.filter(t => t.actuality === 'critical').length}).`, table, actions: EXPORT_ACTIONS },
+        result: { kind: 'tags', ids: bad.map(t => t.id), label: 'требуют внимания' },
+      };
+    }
+
+    // G4. Закупки / этапы
+    if (hasIntent(p, ['закупк', 'этап', 'поставщик']) || /не заказан|не куплен|заказан|куплен|утвержд/.test(lower)) {
+      let sel = data.tags;
+      let label = 'позиции закупки';
+      if (/не заказан|не куплен|осталось|просроч/.test(lower)) { sel = data.tags.filter(t => t.stageId === 'added'); label = 'не заказано'; }
+      else if (/куплен|закуплен/.test(lower)) { sel = data.tags.filter(t => t.stageId === 'purchased'); label = 'куплено'; }
+      else if (/заказан/.test(lower)) { sel = data.tags.filter(t => t.stageId === 'ordered'); label = 'заказано'; }
+      const table: AssistantTable = {
+        title: `Закупки: ${label}`,
+        columns: ['Тег', 'Наименование', 'Этап', 'Поставщик'],
+        rows: sel.map(t => [t.identifier || '', t.mainName || '', t.stageLabel || '', t.supplier || '']),
+      };
+      return {
+        message: {
+          id: uid(), role: 'assistant',
+          text: `${label[0].toUpperCase()}${label.slice(1)}: ${sel.length} позиц.`,
+          table,
+          actions: [{ label: 'Открыть Менеджмент', kind: 'open-section', route: '/management' }, ...EXPORT_ACTIONS],
+        },
+        result: { kind: 'tags', ids: sel.map(t => t.id), label },
+      };
+    }
+
+    // G5. Поиск по заметкам
+    if (hasIntent(p, ['заметк', 'запис']) && p.stems.some(s => !['заметк', 'запис', 'блокнот'].includes(s))) {
+      const q = p.stems.filter(s => !['заметк', 'запис', 'блокнот', 'найд', 'поиск'].includes(s));
+      const found = data.notes.filter(n => fieldMatchesStems(n.title, q));
+      if (found.length === 0) return msg('Заметок по этому запросу не нашёл. Поиск идёт по заголовкам — уточните слово.');
+      return msg(`Нашёл заметок: ${found.length}.\n${found.slice(0, 8).map(n => `• ${n.title}`).join('\n')}`, {
+        actions: [{ label: 'Открыть блокнот', kind: 'open-section', route: '/notes' }],
+      });
+    }
+
+    // G6. История / последние изменения
+    if (hasIntent(p, ['изменени', 'истори', 'изменил']) || /кто менял|что менял|последн.*(действ|измен|запис)|что изменилос/.test(lower)) {
+      if (!data.recentLogs.length) return msg('Записей об изменениях пока нет.');
+      const items = data.recentLogs.slice(0, 10).map(l => `• ${l.description} — ${l.userName}`);
+      return msg(`Последние изменения:\n${items.join('\n')}`);
+    }
+
+    // G7. Поиск тегов/оборудования (по стемам с синонимами)
+    const stems = p.stems.filter(s => !['тег', 'оборудован', 'компонент', 'покажи', 'список', 'найд'].includes(s));
+    const mentionsEquip = hasIntent(p, ['оборудован', 'компонент', 'систем', 'моноблок']);
+    const mentionsTag = hasIntent(p, ['тег']);
+
+    const matchedTags = data.tags.filter(tg => stems.length === 0
+      || fieldMatchesStems(tg.identifier, stems) || fieldMatchesStems(tg.brand, stems)
+      || fieldMatchesStems(tg.department, stems) || fieldMatchesStems(tg.fluid, stems)
+      || fieldMatchesStems(tg.mainName, stems));
+    const matchedComps = data.components.filter(cm => stems.length === 0
+      || fieldMatchesStems(cm.name, stems) || fieldMatchesStems(cm.itemCode, stems)
+      || fieldMatchesStems(cm.category, stems) || fieldMatchesStems(cm.systemName, stems)
+      || cm.tags.some(tag => fieldMatchesStems(tag, stems)));
+
+    const showTags = mentionsTag || (!mentionsEquip && matchedTags.length >= matchedComps.length);
+    if (showTags) {
+      if (matchedTags.length === 0) return msg(stems.length ? `По запросу «${stems.join(' ')}» теги не найдены. Попробуйте другое слово или проверьте активный проект.` : 'В активном проекте пока нет тегов.');
+      const table: AssistantTable = {
+        title: stems.length ? `Теги: ${stems.join(' ')}` : 'Все теги проекта',
+        columns: ['Тег', 'Марка', 'Отдел', 'Среда', 'Этап'],
+        rows: matchedTags.map(t => [t.identifier || '', t.brand || '', t.department || '', t.fluid || '', t.stageLabel || '']),
+      };
+      const actions: AssistantAction[] = [...EXPORT_ACTIONS];
+      if (matchedTags.length === 1) actions.unshift({ label: 'Открыть на холсте', kind: 'focus-tag', tagId: matchedTags[0].id });
+      return {
+        message: { id: uid(), role: 'assistant', text: `Нашёл тегов: ${matchedTags.length}${stems.length ? ` по запросу «${stems.join(' ')}»` : ''}.`, table, actions },
+        result: { kind: 'tags', ids: matchedTags.map(t => t.id), label: stems.join(' ') || 'все теги' },
       };
     } else {
-      if (matchedComps.length === 0) {
-        return { id: uid(), role: 'assistant', text: terms.length ? `По запросу «${terms.join(' ')}» оборудование не найдено.` : 'В активном проекте пока нет оборудования.' };
-      }
+      if (matchedComps.length === 0) return msg(stems.length ? `По запросу «${stems.join(' ')}» оборудование не найдено.` : 'В активном проекте пока нет оборудования.');
       const table: AssistantTable = {
-        title: terms.length ? `Оборудование: ${terms.join(' ')}` : 'Всё оборудование проекта',
+        title: stems.length ? `Оборудование: ${stems.join(' ')}` : 'Всё оборудование проекта',
         columns: ['Компонент', 'Код', 'Категория', 'Система', 'Теги'],
-        rows: matchedComps.map(c => [c.name || '', c.itemCode || '', c.category || '', c.systemName || '', c.tags.join(', ')]),
+        rows: matchedComps.map(cm => [cm.name || '', cm.itemCode || '', cm.category || '', cm.systemName || '', cm.tags.join(', ')]),
       };
       return {
-        id: uid(), role: 'assistant',
-        text: `Нашёл компонентов: ${matchedComps.length}${terms.length ? ` по запросу «${terms.join(' ')}»` : ''}.`,
-        table,
-        actions: [
-          { label: 'Выгрузить в Excel', kind: 'export-excel' },
-          { label: 'Выгрузить в Word', kind: 'export-word' },
-        ],
+        message: { id: uid(), role: 'assistant', text: `Нашёл компонентов: ${matchedComps.length}${stems.length ? ` по запросу «${stems.join(' ')}»` : ''}.`, table, actions: [{ label: 'Открыть Оборудование', kind: 'open-section', route: '/equipment' }, ...EXPORT_ACTIONS] },
+        result: { kind: 'components', ids: matchedComps.map(cm => cm.id), label: stems.join(' ') || 'всё оборудование' },
       };
     }
   }
 
-  // 3. База знаний (справка о разделах)
+  // H. База знаний (справка о разделах)
   const knowledge = findKnowledge(lower);
-  if (knowledge) {
-    return { id: uid(), role: 'assistant', text: knowledge };
-  }
+  if (knowledge) return msg(knowledge);
 
-  // 4. Фоллбэк с подсказками
-  return {
-    id: uid(), role: 'assistant',
-    text: 'Я не уверен, что вы имеете в виду. Я работаю локально и могу: найти данные («покажи теги коробок»), показать демонстрацию («как добавить тег») или рассказать о разделе («что такое реестр тегов»).',
-    actions: [
-      { label: 'Что ты умеешь?', kind: 'navigate', route: '__help' },
-      { label: 'Как добавить тег', kind: 'tour', tourId: 'add-tag' },
-    ],
-  };
+  // I. Честное «не знаю» с тремя кликабельными темами
+  return msg(
+    'Не понял вопрос. Возможно, вам нужно одно из этого:',
+    {
+      actions: [
+        { label: 'Показать дубли', kind: 'ask', query: 'покажи дубли' },
+        { label: 'Этапы закупки', kind: 'ask', query: 'что не заказано' },
+        { label: 'Как импортировать бланк', kind: 'ask', query: 'как импортировать оборудование' },
+        { label: 'Что ты умеешь?', kind: 'navigate', route: '__help' },
+      ],
+    }
+  );
 }
+
+const ACTUALITY_RU: Record<string, string> = {
+  actual: 'актуально', warning: 'проверить', critical: 'критично', info: 'в работе', draft: 'черновик',
+};

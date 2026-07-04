@@ -1099,16 +1099,78 @@ app.get('/api/assistant/data', async (req: Request, res: Response) => {
       }
     }
 
+    // Настроенные этапы закупки (для ответов «на каком этапе…»)
+    let stages: { id: string; label: string }[] = [
+      { id: 'added', label: 'Добавлен' }, { id: 'ordered', label: 'Заказан' },
+      { id: 'approved', label: 'Утверждён' }, { id: 'purchased', label: 'Куплен' },
+    ];
+    try {
+      const stSetting = await prisma.appSetting.findFirst({ where: { key: 'procurement_stages', userId: null } });
+      if (stSetting?.value) {
+        const parsed = JSON.parse(stSetting.value);
+        if (Array.isArray(parsed) && parsed.length) stages = parsed.map((s: any) => ({ id: s.id, label: s.label }));
+      }
+    } catch (_) {}
+    const stageIds = stages.map(s => s.id);
+
+    // Разбор metadata тега: актуальность (по descriptions) и этап закупки (procurement)
+    const parseTagMeta = (t: any) => { try { return t.metadata ? JSON.parse(t.metadata) : {}; } catch { return {}; } };
+    const actualityOf = (meta: any): string => {
+      const d = Array.isArray(meta?.descriptions) ? meta.descriptions : [];
+      if (d.length === 0) return 'draft';
+      if (d.some((x: any) => x.status === 'critical')) return 'critical';
+      if (d.some((x: any) => x.status === 'warning')) return 'warning';
+      if (d.some((x: any) => x.status === 'info')) return 'info';
+      if (d.some((x: any) => x.status === 'actual')) return 'actual';
+      return 'draft';
+    };
+
+    const enrichedTags = (tags as any[]).map((t: any) => {
+      const meta = parseTagMeta(t);
+      const proc = meta.procurement || {};
+      let stageIdx = proc.stage ? stageIds.indexOf(proc.stage) : 0;
+      if (stageIdx < 0) stageIdx = 0;
+      return {
+        id: t.id, identifier: t.identifier, brand: t.brand,
+        department: t.department, wbs: t.wbs, fluid: t.fluid,
+        mainName: meta.mainName || '',
+        actuality: actualityOf(meta),
+        stageId: stages[stageIdx]?.id || 'added',
+        stageLabel: stages[stageIdx]?.label || 'Добавлен',
+        supplier: proc.supplier || '', qty: proc.qty || '',
+      };
+    });
+
+    // Дубликаты кодов тегов
+    const codeCounts: Record<string, string[]> = {};
+    for (const t of enrichedTags) {
+      const code = (t.identifier || '').trim();
+      if (code) (codeCounts[code] = codeCounts[code] || []).push(t.id);
+    }
+    const duplicates = Object.entries(codeCounts)
+      .filter(([, ids]) => ids.length > 1)
+      .map(([code, ids]) => ({ code, count: ids.length, ids }));
+
+    const criticalCount = enrichedTags.filter(t => t.actuality === 'critical').length;
+    const warningCount = enrichedTags.filter(t => t.actuality === 'warning').length;
+
+    // Заметки (только заголовки) и последние изменения (логи)
+    const [notesList, recentLogs] = await Promise.all([
+      prisma.userNote.findMany({ select: { id: true, title: true, updatedAt: true }, orderBy: { updatedAt: 'desc' }, take: 40 }),
+      prisma.systemChangeLog.findMany({ orderBy: { createdAt: 'desc' }, take: 20 }),
+    ]);
+
     res.json({
       projectId,
       projects,
-      tags: (tags as any[]).map((t: any) => ({
-        id: t.id, identifier: t.identifier, brand: t.brand,
-        department: t.department, wbs: t.wbs, fluid: t.fluid,
-      })),
+      tags: enrichedTags,
       components,
+      stages,
+      duplicates,
+      notes: (notesList as any[]).map((n: any) => ({ id: n.id, title: n.title, updatedAt: n.updatedAt })),
+      recentLogs: (recentLogs as any[]).map((l: any) => ({ description: l.description, userName: l.userName, targetRoute: l.targetRoute, createdAt: l.createdAt })),
       counts: {
-        tags: (tags as any[]).length,
+        tags: enrichedTags.length,
         components: components.length,
         systems: (systems as any[]).length,
         users: usersCount,
@@ -1116,6 +1178,9 @@ app.get('/api/assistant/data', async (req: Request, res: Response) => {
         folders: foldersCount,
         files: filesCount,
         projects: (projects as any[]).length,
+        duplicates: duplicates.length,
+        critical: criticalCount,
+        warning: warningCount,
       },
     });
   } catch (err: any) {

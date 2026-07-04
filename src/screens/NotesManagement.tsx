@@ -96,6 +96,20 @@ export default function NotesManagement() {
     loadNotes();
   }, []);
 
+  // Глубокая ссылка от ИИ-помощника: /notes?new=<заголовок> — создать заметку сразу
+  const newNoteHandledRef = useRef(false);
+  useEffect(() => {
+    if (newNoteHandledRef.current) return;
+    const params = new URLSearchParams(window.location.hash.split('?')[1] || '');
+    const preset = params.get('new');
+    if (preset !== null) {
+      newNoteHandledRef.current = true;
+      handleCreateNote(preset || undefined);
+      // убираем параметр из адреса
+      window.history.replaceState(null, '', window.location.hash.split('?')[0]);
+    }
+  }, []);
+
   // Handle note deletion
   const handleDeleteNote = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -124,10 +138,10 @@ export default function NotesManagement() {
   };
 
   // Create new note
-  const handleCreateNote = async () => {
+  const handleCreateNote = async (presetTitle?: string) => {
     try {
       const newNote = await dataService.createNote({
-        title: 'Новая заметка',
+        title: presetTitle && presetTitle.trim() ? presetTitle.trim() : 'Новая заметка',
         content: '<p>Запишите здесь расчеты оборудования или важные детали...</p>',
         color: 'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200'
       });
@@ -354,7 +368,7 @@ export default function NotesManagement() {
               <span>Инженерный блокнот</span>
             </h2>
             <button
-              onClick={handleCreateNote}
+              onClick={() => handleCreateNote()}
               data-tour="note-create-btn"
               className="p-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg cursor-pointer transition-all flex items-center justify-center shadow-xs"
               title="Создать заметку"
@@ -582,7 +596,7 @@ export default function NotesManagement() {
               Создайте новую инженерную заметку или выберите существующую из левой панели, чтобы приступить к документированию расчетов и спецификаций оборудования.
             </p>
             <button
-              onClick={handleCreateNote}
+              onClick={() => handleCreateNote()}
               className="mt-4 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 active:bg-emerald-800 text-white rounded-lg text-xs font-semibold cursor-pointer transition-all shadow-md hover:shadow-lg flex items-center gap-1.5"
             >
               <Plus className="w-4 h-4" />

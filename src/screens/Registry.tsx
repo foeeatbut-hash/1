@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
@@ -339,6 +340,8 @@ interface ActiveConnectionDrag {
 
 export default function Registry() {
   const { activeProject, theme, user } = useStore();
+  const location = useLocation();
+  const navigate = useNavigate();
   const { addToast } = useToastStore();
   const [tags, setTags] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'board' | 'tree' | 'segments' | 'table' | 'equipment'>('board');
@@ -1655,6 +1658,27 @@ export default function Registry() {
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
   }, [dupPanel]);
+
+  // Глубокие ссылки от ИИ-помощника: /registry?focus=<tagId> — центрировать на холсте,
+  // /registry?dup=<code> — открыть панель дублей этого кода. Параметр гасим после срабатывания.
+  const deepLinkHandledRef = useRef<string>('');
+  useEffect(() => {
+    if (tags.length === 0) return;
+    const params = new URLSearchParams(location.search);
+    const focus = params.get('focus');
+    const dup = params.get('dup');
+    const sig = `${focus || ''}|${dup || ''}`;
+    if (!sig.trim() || deepLinkHandledRef.current === sig) return;
+    deepLinkHandledRef.current = sig;
+    if (focus && tagsById[focus]) {
+      setActiveTab('board');
+      setTimeout(() => centerOnTag(focus), 200);
+    } else if (dup) {
+      const t = tags.find(x => (x.identifier || '').trim() === dup.trim());
+      if (t) { setActiveTab('board'); setTimeout(() => openDuplicates(t.id), 200); }
+    }
+    navigate('/registry', { replace: true });
+  }, [location.search, tags]);
 
   // Свободная позиция для новой карточки: не перекрывает существующие
   const findFreePosition = (baseX: number, baseY: number): { x: number; y: number } => {
