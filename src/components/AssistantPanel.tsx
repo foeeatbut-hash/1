@@ -79,6 +79,10 @@ export default function AssistantPanel() {
   const [input, setInput] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // История отправленных запросов — листается стрелкой вверх, как в терминале
+  const historyRef = useRef<string[]>([]);
+  const [histIdx, setHistIdx] = useState(-1);
 
   useEffect(() => {
     // Прокручиваем ТОЛЬКО контейнер сообщений, а не весь документ:
@@ -88,12 +92,48 @@ export default function AssistantPanel() {
     }
   }, [messages, isOpen, loading]);
 
+  // Ctrl+K / Cmd+K — открыть помощника и сразу поставить фокус в поле ввода
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setOpen(true);
+        setTimeout(() => inputRef.current?.focus(), 60);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [setOpen]);
+
+  useEffect(() => {
+    if (isOpen) setTimeout(() => inputRef.current?.focus(), 60);
+  }, [isOpen]);
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const text = input.trim();
     if (!text || loading) return;
+    historyRef.current = [text, ...historyRef.current.filter(h => h !== text)].slice(0, 50);
+    setHistIdx(-1);
     setInput('');
     ask(text);
+  };
+
+  const onInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Стрелка вверх/вниз — листаем историю запросов (когда поле пустое или уже листаем)
+    if (e.key === 'ArrowUp' && historyRef.current.length > 0) {
+      if (input === '' || histIdx >= 0) {
+        e.preventDefault();
+        const next = Math.min(histIdx + 1, historyRef.current.length - 1);
+        setHistIdx(next);
+        setInput(historyRef.current[next]);
+      }
+    } else if (e.key === 'ArrowDown' && histIdx >= 0) {
+      e.preventDefault();
+      const next = histIdx - 1;
+      setHistIdx(next);
+      setInput(next < 0 ? '' : historyRef.current[next]);
+    }
   };
 
   return (
@@ -197,10 +237,12 @@ export default function AssistantPanel() {
       {/* Поле ввода */}
       <form onSubmit={submit} className="px-3 pb-3 shrink-0 flex items-center gap-2">
         <input
+          ref={inputRef}
           type="text"
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={demoMode ? 'Что показать? Напишите вопрос…' : 'Спросите о данных или функциях…'}
+          onChange={(e) => { setInput(e.target.value); setHistIdx(-1); }}
+          onKeyDown={onInputKeyDown}
+          placeholder={demoMode ? 'Что показать? Напишите вопрос…' : 'Спросите (Ctrl+K) — данные, действия, справка…'}
           className={`flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border rounded-lg text-xs text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 transition-all ${
             demoMode ? 'border-emerald-500/50 focus:ring-emerald-500/30 focus:border-emerald-500' : 'border-slate-200 dark:border-slate-800 focus:ring-emerald-500/30 focus:border-emerald-500'
           }`}
