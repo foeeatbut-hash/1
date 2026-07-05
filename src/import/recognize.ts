@@ -614,6 +614,7 @@ export function recognize(doc: ExtractedDoc): DraftResult {
 
     // Матрица: марка из уже найденных пар помогает выбрать колонку
     let matrixHeaders: string[] | undefined;
+    let matrixRaw: string[][] | undefined;
     if (matrixTables.length) {
       const brandPair = pairs.find(p => matchLabel(p.label)?.field.id === 'brand');
       for (const t of matrixTables) {
@@ -621,6 +622,7 @@ export function recognize(doc: ExtractedDoc): DraftResult {
         if (mx.chosen >= 0) pairs.push(...mx.pairs);
         else if (mx.headers.length) {
           matrixHeaders = mx.headers;
+          matrixRaw = t.rows; // сохраняем строки, чтобы подставить значения после выбора колонки
           warnings.push('В таблице несколько типоразмеров — выберите нужную колонку.');
         }
       }
@@ -640,7 +642,7 @@ export function recognize(doc: ExtractedDoc): DraftResult {
     }
 
     const item = buildItem(cleaned, '', isOcr);
-    if (matrixHeaders) item.matrixHeaders = matrixHeaders;
+    if (matrixHeaders) { item.matrixHeaders = matrixHeaders; item.matrixRaw = matrixRaw; }
     items.push(item);
   }
 
@@ -703,6 +705,32 @@ export function recognize(doc: ExtractedDoc): DraftResult {
     warnings,
     stats: { dataBlocks, totalBlocks: doc.blocks.length },
   };
+}
+
+// ── Выбор колонки матричной таблицы ──────────────────────────────────────────
+// Когда в бланке несколько типоразмеров, пользователь выбирает нужный. Тогда
+// заново извлекаем значения именно этой колонки из сохранённых строк матрицы и
+// доклеиваем их к позиции (не дублируя уже имеющиеся подписи).
+export function applyMatrixColumn(item: DraftItem, header: string): DraftItem {
+  const base: DraftItem = {
+    ...item,
+    brand: header,
+    name: item.name || header,
+    matrixHeaders: undefined,
+    matrixRaw: undefined,
+  };
+  if (!item.matrixRaw) return base;
+  const { pairs } = pairsFromMatrixTable(item.matrixRaw, header);
+  if (!pairs.length) return base;
+  const built = buildItem(pairs, item.title);
+  const haveLabels = new Set(item.fields.map(f => f.label.toLowerCase().trim()));
+  const added = built.fields.filter(f => {
+    const key = f.label.toLowerCase().trim();
+    if (haveLabels.has(key)) return false;
+    haveLabels.add(key);
+    return true;
+  });
+  return { ...base, fields: [...item.fields, ...added] };
 }
 
 // ── Черновик → payload для сервера ───────────────────────────────────────────

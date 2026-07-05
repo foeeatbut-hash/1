@@ -6,7 +6,8 @@ import {
 } from 'lucide-react';
 import { useToastStore } from '../store/toastStore';
 import { extractByName, extractClipboard } from '../import/extractors';
-import { recognize, draftToUnits } from '../import/recognize';
+import { draftToUnits, applyMatrixColumn } from '../import/recognize';
+import { recognizeAsync, extractRecognizeAsync } from '../import/importClient';
 import { DraftItem, DraftField, DraftResult, Confidence } from '../import/types';
 import CustomSelect from './CustomSelect';
 
@@ -30,6 +31,8 @@ interface FileJob {
   /** Исходные данные PDF — нужны для запуска OCR по кнопке */
   pdfData?: ArrayBuffer;
   scanPages?: number[];
+  /** Управление отменой текущего OCR */
+  ocrController?: AbortController;
 }
 
 const CONF_STYLE: Record<Confidence, string> = {
@@ -64,10 +67,22 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
     setActiveJobId(prev => prev || id);
     try {
       const data = await file.arrayBuffer();
-      const outcome = await extractByName(file.name, data);
-      let doc = outcome.doc;
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
 
-      // PDF со сканами: если текста нет совсем — сразу предлагаем OCR
+      // «Чистые» форматы: извлечение и распознавание целиком в фоновом воркере
+      if (ext === 'xlsx' || ext === 'xls' || ext === 'csv' || ext === 'xml') {
+        const draft = await extractRecognizeAsync(ext, data);
+        updateJob(id, { status: 'ready', draft });
+        return;
+      }
+
+      // PDF/DOCX/прочее: извлечение на главном потоке (нужны браузерные библиотеки),
+      // распознавание — в фоне
+      const outcome = await extractByName(file.name, data, (done, total) =>
+        updateJob(id, { statusText: `Чтение PDF: страница ${done} из ${total}…` }));
+      const doc = outcome.doc;
+
+      // PDF со сканами: показываем кнопку OCR
       if (outcome.pdf && outcome.pdf.scanPages.length > 0) {
         updateJob(id, { pdfData: data, scanPages: outcome.pdf.scanPages });
       }
@@ -81,7 +96,8 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
         return;
       }
 
-      const draft = recognize(doc);
+      updateJob(id, { statusText: 'Распознавание…' });
+      const draft = await recognizeAsync(doc);
       updateJob(id, { status: 'ready', draft });
     } catch (err: any) {
       console.error('Ошибка разбора документа:', err);
@@ -97,30 +113,41 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
 
   const runOcr = useCallback(async (job: FileJob) => {
     if (!job.pdfData || !job.scanPages?.length) return;
-    updateJob(job.id, { status: 'ocr', statusText: 'Подготовка OCR…' });
+    const controller = new AbortController();
+    updateJob(job.id, { status: 'ocr', statusText: 'Подготовка OCR…', ocrController: controller });
     try {
       const { ocrPdfPages, ocrAvailable } = await import('../import/ocr');
       if (!(await ocrAvailable())) {
-        updateJob(job.id, { status: 'ready', statusText: undefined });
+        updateJob(job.id, { status: 'ready', statusText: undefined, ocrController: undefined });
         addToast('OCR-модуль недоступен в этой сборке. Пересохраните документ с текстовым слоем или используйте Excel/Word.', 'error');
         return;
       }
-      const { blocks, failed } = await ocrPdfPages(job.pdfData, job.scanPages, p => {
-        updateJob(job.id, { statusText: p.status });
+      const { blocks, failed, aborted } = await ocrPdfPages(job.pdfData, job.scanPages, {
+        signal: controller.signal,
+        onProgress: p => updateJob(job.id, { statusText: p.status }),
       });
+      if (aborted) {
+        updateJob(job.id, { status: 'ready', statusText: undefined, ocrController: undefined });
+        addToast('Распознавание скана остановлено.', 'info');
+        return;
+      }
       if (!blocks.length) {
-        updateJob(job.id, { status: 'ready', statusText: undefined });
+        updateJob(job.id, { status: 'ready', statusText: undefined, ocrController: undefined });
         addToast('Не удалось распознать текст на скане. Попробуйте скан лучшего качества (300 dpi).', 'error');
         return;
       }
-      const draft = recognize({ blocks, source: 'pdf-ocr', warnings: failed.length ? [`Страницы не распознаны: ${failed.join(', ')}`] : [] });
-      updateJob(job.id, { status: 'ready', statusText: undefined, draft });
+      const draft = await recognizeAsync({ blocks, source: 'pdf-ocr', warnings: failed.length ? [`Страницы не распознаны: ${failed.join(', ')}`] : [] });
+      updateJob(job.id, { status: 'ready', statusText: undefined, ocrController: undefined, draft });
     } catch (err: any) {
       console.error('OCR не удался:', err);
-      updateJob(job.id, { status: 'ready', statusText: undefined });
+      updateJob(job.id, { status: 'ready', statusText: undefined, ocrController: undefined });
       addToast('OCR не удался: ' + (err?.message || 'неизвестная ошибка'), 'error');
     }
   }, [updateJob, addToast]);
+
+  const cancelOcr = useCallback((job: FileJob) => {
+    job.ocrController?.abort();
+  }, []);
 
   // ── Вставка из буфера обмена ────────────────────────────────────────────────
 
@@ -142,13 +169,10 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
       const id = `job-${++jobSeq}`;
       setJobs(prev => [...prev, { id, fileName: 'Вставка из буфера', status: 'parsing' }]);
       setActiveJobId(prev => prev || id);
-      try {
-        const doc = extractClipboard(html, text);
-        const draft = recognize(doc);
-        setJobs(prev => prev.map(j => j.id === id ? { ...j, status: 'ready', draft } : j));
-      } catch (err: any) {
-        setJobs(prev => prev.map(j => j.id === id ? { ...j, status: 'error', error: err?.message } : j));
-      }
+      const doc = extractClipboard(html, text);
+      recognizeAsync(doc)
+        .then(draft => setJobs(prev => prev.map(j => j.id === id ? { ...j, status: 'ready', draft } : j)))
+        .catch((err: any) => setJobs(prev => prev.map(j => j.id === id ? { ...j, status: 'error', error: err?.message } : j)));
     };
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
@@ -160,6 +184,11 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  // При закрытии мастера освобождаем тяжёлые воркеры OCR (языковые модели в памяти)
+  useEffect(() => {
+    return () => { import('../import/ocr').then(m => m.terminateOcrPool()).catch(() => {}); };
+  }, []);
 
   // ── Правки черновика ────────────────────────────────────────────────────────
 
@@ -202,11 +231,14 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
     }));
   };
 
-  // Выбор колонки матричной таблицы: перечитывать не нужно — просто сообщаем пользователю,
-  // что значения возьмутся после повторного разбора с подсказкой марки
+  // Выбор колонки матричной таблицы: заново извлекаем значения выбранного
+  // типоразмера из сохранённых строк матрицы и подставляем их в позицию.
   const chooseMatrixColumn = (jobId: string, itemId: string, header: string) => {
-    patchItem(jobId, itemId, { brand: header, matrixHeaders: undefined, name: header });
-    addToast(`Марка «${header}» выбрана. Проверьте значения характеристик.`, 'info');
+    setJobs(prev => prev.map(j => {
+      if (j.id !== jobId || !j.draft) return j;
+      return { ...j, draft: { ...j.draft, items: j.draft.items.map(it => it.id === itemId ? applyMatrixColumn(it, header) : it) } };
+    }));
+    addToast(`Типоразмер «${header}» выбран — значения подставлены, проверьте их.`, 'success');
   };
 
   // ── Импорт ──────────────────────────────────────────────────────────────────
@@ -351,6 +383,14 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
               <div className="flex-1 flex flex-col items-center justify-center text-slate-400 gap-2">
                 <Loader2 className="w-7 h-7 animate-spin text-emerald-500" />
                 <p className="text-xs">{activeJob.statusText || 'Разбор документа…'}</p>
+                {activeJob.status === 'ocr' && activeJob.ocrController && (
+                  <button
+                    onClick={() => cancelOcr(activeJob)}
+                    className="mt-1 px-3 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-900 cursor-pointer"
+                  >
+                    Остановить распознавание
+                  </button>
+                )}
               </div>
             ) : activeJob.status === 'error' ? (
               <div className="flex-1 flex flex-col items-center justify-center text-rose-500 gap-2 p-6 text-center">

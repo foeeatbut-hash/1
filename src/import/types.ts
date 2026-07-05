@@ -67,6 +67,8 @@ export interface DraftItem {
   fields: DraftField[];
   /** Для матричных таблиц: варианты колонок-типоразмеров, если выбор не однозначен */
   matrixHeaders?: string[];
+  /** Сырые строки матричной таблицы — чтобы при выборе колонки подставить её значения */
+  matrixRaw?: string[][];
 }
 
 export type DocType =

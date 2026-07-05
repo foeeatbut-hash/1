@@ -4,6 +4,7 @@
 import * as XLSX from 'xlsx';
 import { DocBlock, ExtractedDoc } from './types';
 import { textQuality, sanitizeText } from './dictionary';
+import { openPdf, releasePdf } from './pdfShared';
 
 // ── Excel / CSV ──────────────────────────────────────────────────────────────
 
@@ -245,18 +246,6 @@ export interface PdfExtractOutcome {
   pageCount: number;
 }
 
-async function loadPdfJs(): Promise<any> {
-  if (typeof window !== 'undefined') {
-    const pdfjs: any = await import('pdfjs-dist');
-    const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url' as any)).default;
-    pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-    return pdfjs;
-  }
-  // Node (тесты): legacy-сборка без воркера
-  const pdfjs: any = await import(/* @vite-ignore */ 'pdfjs-dist/legacy/build/pdf.mjs');
-  return pdfjs;
-}
-
 /** Фрагменты страницы → строки и таблицы по координатам */
 export function pageItemsToBlocks(items: { str: string; x: number; y: number; w: number }[], page: number): DocBlock[] {
   if (!items.length) return [];
@@ -326,15 +315,17 @@ export function pageItemsToBlocks(items: { str: string; x: number; y: number; w:
   return blocks;
 }
 
-export async function extractPdf(data: ArrayBuffer): Promise<PdfExtractOutcome> {
-  const pdfjs = await loadPdfJs();
-  const task = pdfjs.getDocument({ data: new Uint8Array(data), useSystemFonts: true });
-  const pdf = await task.promise;
+export async function extractPdf(
+  data: ArrayBuffer,
+  onProgress?: (done: number, total: number) => void,
+): Promise<PdfExtractOutcome> {
+  const pdf = await openPdf(data);
   const blocks: DocBlock[] = [];
   const scanPages: number[] = [];
   const warnings: string[] = [];
 
   for (let p = 1; p <= pdf.numPages; p++) {
+    onProgress?.(p - 1, pdf.numPages);
     const pg = await pdf.getPage(p);
     const tc = await pg.getTextContent();
     const items = (tc.items as any[])
@@ -355,6 +346,7 @@ export async function extractPdf(data: ArrayBuffer): Promise<PdfExtractOutcome> 
     }
     blocks.push(...pageItemsToBlocks(meaningful, p));
   }
+  onProgress?.(pdf.numPages, pdf.numPages);
 
   if (scanPages.length && blocks.length === 0) {
     warnings.push(`Все страницы (${scanPages.length}) — сканы без текстового слоя.`);
@@ -362,10 +354,15 @@ export async function extractPdf(data: ArrayBuffer): Promise<PdfExtractOutcome> 
     warnings.push(`Страницы-сканы без текста: ${scanPages.join(', ')}.`);
   }
 
+  const pageCount = pdf.numPages;
+  // Документ нужен дальше только под OCR сканов. Если сканов нет — освобождаем сразу,
+  // чтобы кэш pdf.js не держал файл в памяти.
+  if (scanPages.length === 0) await releasePdf(data);
+
   return {
     doc: { blocks, source: 'pdf', warnings },
     scanPages,
-    pageCount: pdf.numPages,
+    pageCount,
   };
 }
 
@@ -373,7 +370,11 @@ export async function extractPdf(data: ArrayBuffer): Promise<PdfExtractOutcome> 
 
 export type AnyExtractOutcome = { doc: ExtractedDoc; pdf?: PdfExtractOutcome };
 
-export async function extractByName(fileName: string, data: ArrayBuffer): Promise<AnyExtractOutcome> {
+export async function extractByName(
+  fileName: string,
+  data: ArrayBuffer,
+  onProgress?: (done: number, total: number) => void,
+): Promise<AnyExtractOutcome> {
   const ext = (fileName.split('.').pop() || '').toLowerCase();
   if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') return { doc: extractXlsx(data) };
   if (ext === 'docx') return { doc: await extractDocx(data) };
@@ -385,7 +386,7 @@ export async function extractByName(fileName: string, data: ArrayBuffer): Promis
     return { doc: extractXml(text) };
   }
   if (ext === 'pdf') {
-    const out = await extractPdf(data);
+    const out = await extractPdf(data, onProgress);
     return { doc: out.doc, pdf: out };
   }
   return { doc: { blocks: [], source: 'xlsx', warnings: [`Формат .${ext} не поддерживается. Используйте PDF, Excel (.xlsx), Word (.docx) или XML.`] } };
