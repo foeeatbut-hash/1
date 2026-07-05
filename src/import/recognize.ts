@@ -11,6 +11,7 @@ import {
   ADMIN_LABEL_RE, ADMIN_TAG_RE, ADMIN_VENDOR_RE, textQuality, sanitizeText,
   dedupeRepeatedPhrase, parseFormulaLine, normalizeLabel, fieldByUniqueUnit,
 } from './dictionary';
+import { crossCheckFan, isImplausible } from './valueGrammar';
 
 let idSeq = 0;
 const nextId = () => `draft-${++idSeq}`;
@@ -714,6 +715,23 @@ export function recognize(doc: ExtractedDoc): DraftResult {
   }
   if (isOcr) {
     warnings.push('Документ распознан со скана (OCR) — проверьте жёлтые значения перед импортом.');
+  }
+
+  // Самопроверка (только пометки/предупреждения, значения не меняем):
+  //  • число вне правдоподобного диапазона поля → понижаем уверенность до low;
+  //  • физика вентилятора (P ≈ Q·ΔP/η) — предупреждение при явном расхождении.
+  for (const it of filtered) {
+    for (const fld of it.fields) {
+      if (!fld.fieldId || fld.confidence === 'low') continue;
+      const def = FIELDS.find(ff => ff.id === fld.fieldId);
+      if (def?.kind === 'number' && def.range && isImplausible(fld.value, fld.unit, def.range, def.units?.[0])) {
+        fld.confidence = 'low';
+      }
+    }
+    const w = crossCheckFan(
+      it.fields.filter(f => f.fieldId).map(f => ({ fieldId: f.fieldId!, value: f.value, unit: f.unit }))
+    );
+    if (w && !warnings.includes(w)) warnings.push(w);
   }
 
   // Дедупликация наблюдений по паре «подпись+поле»
