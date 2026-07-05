@@ -30,9 +30,35 @@ interface FileJob {
   error?: string;
   /** Исходные данные PDF — нужны для запуска OCR по кнопке */
   pdfData?: ArrayBuffer;
+  /** Исходные данные изображения (JPG/PNG/…) — OCR запускается сразу */
+  imageData?: ArrayBuffer;
   scanPages?: number[];
+  /** Диапазон страниц для OCR (напр. «1-5,8»); пусто = все сканы */
+  pageRange?: string;
+  /** Пиксельное улучшение скана (grayscale/контраст/бинаризация/deskew) */
+  ocrEnhance?: boolean;
   /** Управление отменой текущего OCR */
   ocrController?: AbortController;
+}
+
+const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tif', 'tiff', 'gif'];
+
+// «1-5, 8» ∩ допустимые страницы; пусто/мусор → все допустимые
+function parsePageSelection(text: string | undefined, allowed: number[]): number[] {
+  const t = (text || '').trim();
+  if (!t) return allowed;
+  const set = new Set<number>();
+  for (const part of t.split(',')) {
+    const m = part.trim().match(/^(\d+)\s*-\s*(\d+)$/);
+    if (m) {
+      const a = +m[1], b = +m[2];
+      for (let n = Math.min(a, b); n <= Math.max(a, b); n++) set.add(n);
+    } else if (/^\d+$/.test(part.trim())) {
+      set.add(+part.trim());
+    }
+  }
+  const picked = allowed.filter(p => set.has(p));
+  return picked.length ? picked : allowed;
 }
 
 const CONF_STYLE: Record<Confidence, string> = {
@@ -68,6 +94,17 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
     try {
       const data = await file.arrayBuffer();
       const ext = (file.name.split('.').pop() || '').toLowerCase();
+
+      // Изображение (фото/скан формы): распознаётся по кнопке OCR ниже
+      if (IMAGE_EXTS.includes(ext)) {
+        updateJob(id, {
+          status: 'ready',
+          imageData: data,
+          scanPages: [1],
+          draft: { docType: 'unknown', items: [], warnings: [], stats: { dataBlocks: 0, totalBlocks: 0 } },
+        });
+        return;
+      }
 
       // «Чистые» форматы: извлечение и распознавание целиком в фоновом воркере
       if (ext === 'xlsx' || ext === 'xls' || ext === 'csv' || ext === 'xml') {
@@ -112,31 +149,41 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
   // ── OCR сканов по кнопке ────────────────────────────────────────────────────
 
   const runOcr = useCallback(async (job: FileJob) => {
-    if (!job.pdfData || !job.scanPages?.length) return;
+    const isImage = !!job.imageData;
+    if (!isImage && (!job.pdfData || !job.scanPages?.length)) return;
     const controller = new AbortController();
     updateJob(job.id, { status: 'ocr', statusText: 'Подготовка OCR…', ocrController: controller });
     try {
-      const { ocrPdfPages, ocrAvailable } = await import('../import/ocr');
+      const { ocrPdfPages, ocrImage, ocrAvailable } = await import('../import/ocr');
       if (!(await ocrAvailable())) {
         updateJob(job.id, { status: 'ready', statusText: undefined, ocrController: undefined });
         addToast('OCR-модуль недоступен в этой сборке. Пересохраните документ с текстовым слоем или используйте Excel/Word.', 'error');
         return;
       }
-      const { blocks, failed, aborted } = await ocrPdfPages(job.pdfData, job.scanPages, {
-        signal: controller.signal,
-        onProgress: p => updateJob(job.id, { statusText: p.status }),
-      });
+      const enhance = job.ocrEnhance ?? false;
+      const onProgress = (p: { status: string }) => updateJob(job.id, { statusText: p.status });
+      const result = isImage
+        ? await ocrImage(job.imageData!, { signal: controller.signal, enhance, onProgress })
+        : await ocrPdfPages(job.pdfData!, parsePageSelection(job.pageRange, job.scanPages!), { signal: controller.signal, enhance, onProgress });
+      const { blocks, failed, aborted, meanConfidence } = result;
       if (aborted) {
         updateJob(job.id, { status: 'ready', statusText: undefined, ocrController: undefined });
-        addToast('Распознавание скана остановлено.', 'info');
+        addToast('Распознавание остановлено.', 'info');
         return;
       }
       if (!blocks.length) {
         updateJob(job.id, { status: 'ready', statusText: undefined, ocrController: undefined });
-        addToast('Не удалось распознать текст на скане. Попробуйте скан лучшего качества (300 dpi).', 'error');
+        addToast('Не удалось распознать текст. Попробуйте вариант лучшего качества (300 dpi) или включите «Улучшить скан».', 'error');
         return;
       }
-      const draft = await recognizeAsync({ blocks, source: 'pdf-ocr', warnings: failed.length ? [`Страницы не распознаны: ${failed.join(', ')}`] : [] });
+      const warns: string[] = [];
+      if (failed.length) warns.push(`Не распознаны: ${failed.join(', ')}.`);
+      if (meanConfidence) {
+        warns.push(meanConfidence < 60
+          ? `Средняя уверенность OCR ${meanConfidence}% — проверьте значения особенно внимательно (жёлтые поля).`
+          : `Средняя уверенность OCR ${meanConfidence}%.`);
+      }
+      const draft = await recognizeAsync({ blocks, source: 'pdf-ocr', warnings: warns });
       updateJob(job.id, { status: 'ready', statusText: undefined, ocrController: undefined, draft });
     } catch (err: any) {
       console.error('OCR не удался:', err);
@@ -316,12 +363,12 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
             >
               <Upload className="w-5 h-5 mx-auto text-slate-400 mb-1.5" />
               <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">Перетащите файлы или кликните</p>
-              <p className="text-[10px] text-slate-400 mt-1">.pdf .xlsx .docx .xml .csv</p>
+              <p className="text-[10px] text-slate-400 mt-1">.pdf .xlsx .docx .xml .csv · фото/скан .jpg .png</p>
               <input
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept=".pdf,.xlsx,.xls,.csv,.docx,.doc,.xml"
+                accept=".pdf,.xlsx,.xls,.csv,.docx,.doc,.xml,.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff,.gif"
                 className="hidden"
                 onChange={e => { if (e.target.files?.length) { handleFiles(e.target.files); e.target.value = ''; } }}
               />
@@ -402,17 +449,41 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                 {/* Предупреждения и OCR-предложение */}
                 <div className="px-4 pt-3 space-y-1.5 shrink-0">
                   {(activeJob.scanPages?.length || 0) > 0 && activeJob.status !== 'imported' && (
-                    <div className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900 text-xs">
-                      <span className="text-sky-800 dark:text-sky-300 flex items-center gap-1.5">
-                        <ScanLine className="w-3.5 h-3.5" />
-                        Страниц-сканов без текста: {activeJob.scanPages!.length}
-                      </span>
-                      <button
-                        onClick={() => runOcr(activeJob)}
-                        className="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white font-semibold cursor-pointer shrink-0"
-                      >
-                        Распознать скан (OCR)
-                      </button>
+                    <div className="p-2.5 rounded-lg bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900 text-xs space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sky-800 dark:text-sky-300 flex items-center gap-1.5">
+                          <ScanLine className="w-3.5 h-3.5" />
+                          {activeJob.imageData ? 'Изображение — готово к распознаванию' : `Страниц-сканов без текста: ${activeJob.scanPages!.length}`}
+                        </span>
+                        <button
+                          onClick={() => runOcr(activeJob)}
+                          className="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white font-semibold cursor-pointer shrink-0"
+                        >
+                          Распознать (OCR)
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-3 flex-wrap">
+                        {!activeJob.imageData && activeJob.scanPages!.length > 1 && (
+                          <label className="flex items-center gap-1.5 text-sky-700 dark:text-sky-300">
+                            Страницы:
+                            <input
+                              value={activeJob.pageRange || ''}
+                              onChange={e => updateJob(activeJob.id, { pageRange: e.target.value })}
+                              placeholder={`все (${activeJob.scanPages![0]}–${activeJob.scanPages![activeJob.scanPages!.length - 1]})`}
+                              className="w-32 px-1.5 py-0.5 rounded border border-sky-300 dark:border-sky-800 bg-white dark:bg-slate-950 outline-none font-mono text-slate-800 dark:text-slate-100"
+                            />
+                          </label>
+                        )}
+                        <label className="flex items-center gap-1.5 text-sky-700 dark:text-sky-300 cursor-pointer" title="Grayscale, контраст, бинаризация, выравнивание перекоса. Помогает на бледных/кривых сканах, но может навредить чистым — включайте при плохом результате.">
+                          <input
+                            type="checkbox"
+                            checked={activeJob.ocrEnhance || false}
+                            onChange={e => updateJob(activeJob.id, { ocrEnhance: e.target.checked })}
+                            className="accent-sky-600"
+                          />
+                          Улучшить скан (бета)
+                        </label>
+                      </div>
                     </div>
                   )}
                   {activeJob.draft?.warnings.map((w, i) => (
