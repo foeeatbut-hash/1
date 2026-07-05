@@ -87,7 +87,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
 
   const handlePickDbFile = async () => {
     if (!isElectronApp) {
-      addToast('Выбор файла базы доступен только в приложении PDM System', 'info');
+      addToast('Выбор файла базы доступен только в приложении Flux', 'info');
       return;
     }
     try {

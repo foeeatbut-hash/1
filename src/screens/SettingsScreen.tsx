@@ -448,7 +448,7 @@ function DatabaseSection({ addToast }: any) {
   const handlePickDbFile = async () => {
     const win = window as any;
     if (!win.electron?.ipcRenderer?.invoke) {
-      alert('Выбор файла доступен только в приложении PDM System (Electron).');
+      alert('Выбор файла доступен только в приложении Flux (Electron).');
       return;
     }
     try {
@@ -558,7 +558,7 @@ function CrashLogsSection({ addLog }: any) {
   const pickDir = async () => {
     const win = window as any;
     if (!win.electron?.ipcRenderer?.invoke) {
-      alert('Выбор папки доступен только в приложении PDM System (Electron).');
+      alert('Выбор папки доступен только в приложении Flux (Electron).');
       return;
     }
     try {

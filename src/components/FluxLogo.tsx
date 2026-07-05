@@ -18,10 +18,10 @@ export default function FluxLogo({ size = 32, radius, className }: FluxLogoProps
         width: size,
         height: size,
         borderRadius: r,
-        background: 'linear-gradient(135deg, #2563eb, #06b6d4)',
+        background: 'linear-gradient(140deg, #0d9488 0%, #10b981 50%, #4ade80 100%)',
         display: 'grid',
         placeItems: 'center',
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,.28), 0 6px 16px -8px rgba(6,110,180,.55)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,.30), 0 6px 16px -8px rgba(5,120,90,.55)',
         flex: 'none',
       }}
     >
