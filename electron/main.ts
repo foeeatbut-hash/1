@@ -453,7 +453,11 @@ app.whenReady().then(() => {
         fs.mkdirSync(dir, { recursive: true });
       }
       // Sanitizing fileName to prevent Path Traversal
-      const sanitizedFileName = path.basename(fileName).replace(/[\/\\]/g, '');
+      let sanitizedFileName = path.basename(String(fileName || '')).replace(/[\/\\]/g, '').trim();
+      // '.', '..' и пустое имя недопустимы — подставляем безопасное имя
+      if (!sanitizedFileName || sanitizedFileName === '.' || sanitizedFileName === '..') {
+        sanitizedFileName = `file_${Date.now()}`;
+      }
       const localPath = path.join(dir, sanitizedFileName);
       const buffer = Buffer.from(base64Data, 'base64');
       fs.writeFileSync(localPath, buffer);
@@ -461,10 +465,17 @@ app.whenReady().then(() => {
     });
 
     handleDb('chat:open-file', async (event, filePath) => {
-      const { shell } = require('electron');
+      const { shell, app } = require('electron');
       const fs = require('fs');
-      if (fs.existsSync(filePath)) {
-        await shell.openPath(filePath);
+      const path = require('path');
+      // Открываем только вложения чата (каталог chat_files), а не произвольный путь
+      const chatDir = path.resolve(path.join(app.getPath('userData'), 'chat_files'));
+      const resolved = path.resolve(String(filePath || ''));
+      if (resolved !== chatDir && !resolved.startsWith(chatDir + path.sep)) {
+        return { success: false, error: 'Недопустимый путь к файлу.' };
+      }
+      if (fs.existsSync(resolved)) {
+        await shell.openPath(resolved);
         return { success: true };
       } else {
         return { success: false, error: 'Файл не найден на системном диске.' };
@@ -474,7 +485,15 @@ app.whenReady().then(() => {
     ipcMain.handle('shell:open-external', async (event, url) => {
       const { shell } = require('electron');
       try {
-        await shell.openExternal(url);
+        let raw = String(url || '').trim();
+        // Ссылка без схемы трактуется как http(s)
+        if (raw && !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw)) raw = 'https://' + raw;
+        const parsed = new URL(raw);
+        // Разрешаем только безопасные протоколы (не file:, не пользовательские схемы)
+        if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) {
+          return { success: false, error: 'Недопустимый протокол ссылки.' };
+        }
+        await shell.openExternal(raw);
         return { success: true };
       } catch (err: any) {
         return { success: false, error: err.message };

@@ -11,6 +11,48 @@ import { Server as SocketIOServer } from 'socket.io';
 import fs from 'fs';
 import { exec, execSync } from 'child_process';
 import os from 'os';
+import crypto from 'crypto';
+
+// ── Пароли: хеширование (scrypt) с обратной совместимостью ────────────────────
+// Формат хранения: "scrypt$<saltHex>$<hashHex>". Любое другое значение считается
+// legacy-паролем в открытом виде — он проверяется как есть и перехешируется при
+// первом успешном входе (см. /api/login), поэтому существующие учётки не ломаются.
+const PW_PREFIX = 'scrypt$';
+
+function hashPassword(plain: string): string {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(String(plain), salt, 64);
+  return `${PW_PREFIX}${salt.toString('hex')}$${hash.toString('hex')}`;
+}
+
+function isLegacyPassword(stored: string | null | undefined): boolean {
+  return !!stored && !stored.startsWith(PW_PREFIX);
+}
+
+function verifyPassword(plain: string, stored: string | null | undefined): boolean {
+  if (!stored) return false;
+  if (stored.startsWith(PW_PREFIX)) {
+    const [, saltHex, hashHex] = stored.split('$');
+    if (!saltHex || !hashHex) return false;
+    try {
+      const salt = Buffer.from(saltHex, 'hex');
+      const expected = Buffer.from(hashHex, 'hex');
+      const actual = crypto.scryptSync(String(plain), salt, expected.length);
+      return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+    } catch {
+      return false;
+    }
+  }
+  // legacy: пароль хранится открытым текстом
+  return stored === String(plain);
+}
+
+// Безопасный разбор пользовательской даты: null для пустых, undefined для мусора
+function parseUserDate(value: unknown): Date | null | undefined {
+  if (value === null || value === '' || value === undefined) return null;
+  const d = new Date(value as any);
+  return isNaN(d.getTime()) ? undefined : d;
+}
 
 function getVentAppDataPath(): string {
   try {
@@ -982,15 +1024,18 @@ app.post('/api/login', async (req: Request, res: Response) => {
       user = allUsers.find((u: any) => String(u.symbol).toLowerCase() === normSymbol.toLowerCase()) || null;
     }
     if (user) {
-      // Check password. We also support both variations of RU-keyboard "gfhjkm" (пароль), "12121212Qw.", and "1122" for RaupovKhKh to prevent lock-outs
-      const isPasswordCorrect = user.password === String(password) ||
-        (user.symbol === 'RaupovKhKh' && (
-          String(password) === 'gfhjkm 12121212Qw.' || 
-          String(password) === '12121212Qw.' || 
-          String(password) === '1122'
-        ));
+      // Проверка пароля: поддерживаются и хешированные, и legacy-пароли в открытом виде
+      const isPasswordCorrect = verifyPassword(String(password), user.password);
 
       if (isPasswordCorrect) {
+        // Миграция: старый открытый пароль перехешируем при первом успешном входе
+        if (isLegacyPassword(user.password)) {
+          try {
+            await prisma.user.update({ where: { id: user.id }, data: { password: hashPassword(String(password)) } });
+          } catch (migErr) {
+            console.warn('[Login] Не удалось перехешировать legacy-пароль:', migErr);
+          }
+        }
         // Контроль доступа: профиль может быть отключен администратором или просрочен
         if (user.isActive === false) {
           return res.status(403).json({ success: false, message: 'Профиль отключен администратором. Обратитесь к администратору системы.' });
@@ -1009,7 +1054,8 @@ app.post('/api/login', async (req: Request, res: Response) => {
           // Обновляем якорь времени и для бессрочных входов
           trustedNowSync();
         }
-        return res.json({ success: true, user });
+        const { password: _pw, ...safeUser } = user as any;
+        return res.json({ success: true, user: safeUser });
       } else {
         return res.status(401).json({ success: false, message: 'Неверный пароль доступа!' });
       }
@@ -1076,7 +1122,7 @@ app.get('/api/assistant/data', async (req: Request, res: Response) => {
       prisma.user.count(),
       prisma.userNote.count(),
       projectId ? prisma.folder.count({ where: { projectId } }) : Promise.resolve(0),
-      prisma.fileNode.count(),
+      projectId ? prisma.fileNode.count({ where: { folder: { projectId } } }) : Promise.resolve(0),
     ]);
 
     // Плоский список компонентов оборудования с привязанными тегами
@@ -1193,7 +1239,8 @@ app.get('/api/users', async (req: Request, res: Response) => {
     const users = await prisma.user.findMany({
       orderBy: { createdAt: 'asc' },
     });
-    res.json(users);
+    // Не отдаём хеши паролей наружу
+    res.json((users as any[]).map(({ password, ...u }) => u));
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -1218,13 +1265,14 @@ app.post('/api/users', async (req: Request, res: Response) => {
         symbol: String(symbol),
         name,
         role: role || 'ENGINEER_VENT',
-        password: password || 'password',
+        password: hashPassword(String(password || 'password')),
         isActive: typeof isActive === 'boolean' ? isActive : true,
         validUntil: validUntil ? new Date(validUntil) : null,
         permissions: permissions ? (typeof permissions === 'string' ? permissions : JSON.stringify(permissions)) : null,
       }
     });
-    res.json(newUser);
+    const { password: _pw, ...safeNewUser } = newUser as any;
+    res.json(safeNewUser);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -1252,8 +1300,19 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
       }
     }
 
+    // Разбор срока действия: null/'' — снять срок, отсутствие поля — не трогать,
+    // мусор — явная ошибка (иначе Invalid Date уронил бы prisma.update)
+    let parsedValidUntil: Date | null = null;
+    if (validUntil !== undefined) {
+      const p = parseUserDate(validUntil);
+      if (p === undefined) {
+        return res.status(400).json({ success: false, message: 'Некорректная дата срока действия профиля.' });
+      }
+      parsedValidUntil = p;
+    }
+
     // Защита от самоблокировки: нельзя отключить/ограничить последнего активного администратора
-    const willDeactivate = isActive === false || (validUntil && new Date(validUntil).getTime() < Date.now());
+    const willDeactivate = isActive === false || (parsedValidUntil !== null && parsedValidUntil.getTime() < Date.now());
     if (target.role === 'ADMIN' && willDeactivate) {
       const activeAdmins = await prisma.user.count({
         where: { role: 'ADMIN', isActive: true, id: { not: id } }
@@ -1267,10 +1326,9 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
     if (typeof name === 'string' && name.trim()) data.name = name.trim();
     if (typeof symbol === 'string' && symbol.trim()) data.symbol = symbol.trim();
     if (typeof role === 'string' && role) data.role = role;
-    if (typeof password === 'string' && password) data.password = password;
+    if (typeof password === 'string' && password) data.password = hashPassword(password);
     if (typeof isActive === 'boolean') data.isActive = isActive;
-    if (validUntil === null || validUntil === '') data.validUntil = null;
-    else if (validUntil) data.validUntil = new Date(validUntil);
+    if (validUntil !== undefined) data.validUntil = parsedValidUntil;
     if (permissions !== undefined) {
       data.permissions = permissions === null ? null
         : (typeof permissions === 'string' ? permissions : JSON.stringify(permissions));
@@ -1282,7 +1340,8 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
     if (permsChanged) {
       await notify(id, 'ДОСТУП', 'Изменены ваши права доступа', 'Администратор обновил доступные вам функции.', '/');
     }
-    res.json({ success: true, user: updated });
+    const { password: _pw, ...safeUpdated } = updated as any;
+    res.json({ success: true, user: safeUpdated });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -1603,6 +1662,23 @@ app.post('/api/files', async (req: Request, res: Response) => {
   res.json({ file });
 });
 
+// true, если candidateId совпадает с rootId или лежит внутри поддерева rootId.
+// Используется, чтобы не дать переместить папку саму в себя/в свою подпапку —
+// иначе в parentId возникнет цикл и applyScopeRecursive уйдёт в бесконечную рекурсию.
+async function isFolderInSubtree(candidateId: string, rootId: string): Promise<boolean> {
+  let cur: string | null = candidateId;
+  const guard = new Set<string>();
+  while (cur) {
+    if (cur === rootId) return true;
+    if (guard.has(cur)) break; // защита от уже существующего цикла в данных
+    guard.add(cur);
+    const f: { parentId: string | null } | null =
+      await prisma.folder.findUnique({ where: { id: cur }, select: { parentId: true } });
+    cur = f?.parentId || null;
+  }
+  return false;
+}
+
 // Рекурсивно проставляет раздел (общий/личный) папке, её файлам и подпапкам
 async function applyScopeRecursive(folderId: string, scope: string, ownerId: string | null) {
   await prisma.folder.update({ where: { id: folderId }, data: { scope, ownerId } as any });
@@ -1641,6 +1717,11 @@ app.post('/api/files/copy', async (req: Request, res: Response) => {
             data: { folderId: targetFolderId, ...(scope ? { scope, ownerId } as any : {}) }
           });
         } else {
+          // Нельзя вложить папку в саму себя или в свою же подпапку — это создаёт
+          // цикл в дереве. Такой id молча пропускаем, остальные перемещаем.
+          if (targetFolderId && await isFolderInSubtree(targetFolderId, id)) {
+            continue;
+          }
           await prisma.folder.update({ where: { id }, data: { parentId: targetFolderId } });
           if (scope) await applyScopeRecursive(id, scope, ownerId);
         }
