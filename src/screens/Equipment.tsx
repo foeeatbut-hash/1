@@ -189,7 +189,17 @@ export default function Equipment() {
   const catIcon = (id: string) => id === 'FAN' ? <Wind className="w-4 h-4" /> : id === 'AHU' ? <Boxes className="w-4 h-4" /> : <Layers className="w-4 h-4" />;
 
   if (!activeProject) {
-    return <div className="h-full flex items-center justify-center text-slate-400 text-sm">Выберите активный проект, чтобы работать с оборудованием.</div>;
+    return (
+      <div className="h-full flex flex-col items-center justify-center text-center gap-3 px-6">
+        <Boxes className="w-10 h-10 text-slate-300 dark:text-slate-700" />
+        <div>
+          <p className="text-sm font-bold text-slate-600 dark:text-slate-300">Проект не выбран</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 max-w-xs">
+            Выберите активный проект во вкладке «Главная», чтобы работать с оборудованием.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (

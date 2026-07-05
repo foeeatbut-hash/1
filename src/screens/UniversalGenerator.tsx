@@ -331,7 +331,7 @@ export default function UniversalGenerator() {
             {/* Removed label as requested */}
             
             <div className="text-4xl md:text-5xl font-mono tracking-tight font-bold break-all text-emerald-400 drop-shadow-md">
-              {generatePreview() || <span className="opacity-20 text-slate-500">FORMAT_EMPTY</span>}
+              {generatePreview() || <span className="text-xl md:text-2xl font-sans font-normal text-slate-500">формула не задана</span>}
             </div>
             
             <p className="text-slate-500 text-xs mt-6 max-w-sm leading-relaxed">
