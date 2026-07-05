@@ -8,6 +8,7 @@ import { useToastStore } from '../store/toastStore';
 import { extractByName, extractClipboard } from '../import/extractors';
 import { draftToUnits, applyMatrixColumn } from '../import/recognize';
 import { recognizeAsync, extractRecognizeAsync } from '../import/importClient';
+import { loadLearnedDict, getLearnedDict, observe } from '../import/learn';
 import { DraftItem, DraftField, DraftResult, Confidence } from '../import/types';
 import CustomSelect from './CustomSelect';
 
@@ -106,9 +107,11 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
         return;
       }
 
-      // «Чистые» форматы: извлечение и распознавание целиком в фоновом воркере
+      // «Чистые» форматы: извлечение и распознавание целиком в фоновом воркере.
+      // Excel/CSV/XML структурированы → надёжный источник обучения: учимся сразу.
       if (ext === 'xlsx' || ext === 'xls' || ext === 'csv' || ext === 'xml') {
-        const draft = await extractRecognizeAsync(ext, data);
+        const draft = await extractRecognizeAsync(ext, data, getLearnedDict());
+        observe(draft.observations);
         updateJob(id, { status: 'ready', draft });
         return;
       }
@@ -134,7 +137,9 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
       }
 
       updateJob(id, { statusText: 'Распознавание…' });
-      const draft = await recognizeAsync(doc);
+      const draft = await recognizeAsync(doc, getLearnedDict());
+      // Word — надёжный источник; PDF-текст учим только при подтверждении импорта
+      if (ext === 'docx') observe(draft.observations);
       updateJob(id, { status: 'ready', draft });
     } catch (err: any) {
       console.error('Ошибка разбора документа:', err);
@@ -183,7 +188,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
           ? `Средняя уверенность OCR ${meanConfidence}% — проверьте значения особенно внимательно (жёлтые поля).`
           : `Средняя уверенность OCR ${meanConfidence}%.`);
       }
-      const draft = await recognizeAsync({ blocks, source: 'pdf-ocr', warnings: warns });
+      const draft = await recognizeAsync({ blocks, source: 'pdf-ocr', warnings: warns }, getLearnedDict());
       updateJob(job.id, { status: 'ready', statusText: undefined, ocrController: undefined, draft });
     } catch (err: any) {
       console.error('OCR не удался:', err);
@@ -217,8 +222,8 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
       setJobs(prev => [...prev, { id, fileName: 'Вставка из буфера', status: 'parsing' }]);
       setActiveJobId(prev => prev || id);
       const doc = extractClipboard(html, text);
-      recognizeAsync(doc)
-        .then(draft => setJobs(prev => prev.map(j => j.id === id ? { ...j, status: 'ready', draft } : j)))
+      recognizeAsync(doc, getLearnedDict())
+        .then(draft => { observe(draft.observations); setJobs(prev => prev.map(j => j.id === id ? { ...j, status: 'ready', draft } : j)); })
         .catch((err: any) => setJobs(prev => prev.map(j => j.id === id ? { ...j, status: 'error', error: err?.message } : j)));
     };
     window.addEventListener('paste', onPaste);
@@ -236,6 +241,9 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
   useEffect(() => {
     return () => { import('../import/ocr').then(m => m.terminateOcrPool()).catch(() => {}); };
   }, []);
+
+  // Загружаем общий выученный словарь синонимов (авто-обучение)
+  useEffect(() => { loadLearnedDict().catch(() => {}); }, []);
 
   // ── Правки черновика ────────────────────────────────────────────────────────
 
@@ -302,6 +310,8 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
       });
       const d = await res.json();
       if (!res.ok || !d.success) throw new Error(d.error || 'Сервер отклонил импорт');
+      // Подтверждённый импорт — надёжная разметка: учим словарь по всем источникам (в т.ч. PDF/OCR)
+      observe(job.draft.observations);
       updateJob(job.id, { status: 'imported' });
       addToast(`«${job.fileName}»: импортировано позиций: ${job.draft.items.length}${d.conflictsCount ? `, конфликтов ревизий: ${d.conflictsCount}` : ''}`, 'success');
       onImported();

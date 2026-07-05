@@ -3,6 +3,9 @@
 // краш) — всё считается синхронно, импорт не ломается.
 
 import type { ExtractedDoc, DraftResult } from './types';
+import type { LearnedEntry } from './dictionary';
+
+type Learned = Record<string, LearnedEntry>;
 
 let worker: Worker | null = null;
 let workerBroken = false;
@@ -55,11 +58,13 @@ function post(msg: Record<string, unknown>): Promise<DraftResult> {
 }
 
 /** recognize(doc) в фоне; при недоступности воркера — синхронно на главном потоке */
-export async function recognizeAsync(doc: ExtractedDoc): Promise<DraftResult> {
+export async function recognizeAsync(doc: ExtractedDoc, learned?: Learned): Promise<DraftResult> {
   try {
-    return await post({ type: 'recognize', doc });
+    return await post({ type: 'recognize', doc, learned });
   } catch {
     const { recognize } = await import('./recognize');
+    const { setLearned } = await import('./dictionary');
+    setLearned(learned);
     return recognize(doc);
   }
 }
@@ -68,12 +73,14 @@ export async function recognizeAsync(doc: ExtractedDoc): Promise<DraftResult> {
  * Извлечение «чистого» формата (xlsx/xls/csv/xml) + распознавание в фоне.
  * Буфер копируется структурным клоном (не передаётся), чтобы исходный остался цел.
  */
-export async function extractRecognizeAsync(ext: string, buffer: ArrayBuffer): Promise<DraftResult> {
+export async function extractRecognizeAsync(ext: string, buffer: ArrayBuffer, learned?: Learned): Promise<DraftResult> {
   try {
-    return await post({ type: 'extractRecognize', ext, buffer });
+    return await post({ type: 'extractRecognize', ext, buffer, learned });
   } catch {
     const { extractXlsx, extractXml } = await import('./extractors');
     const { recognize } = await import('./recognize');
+    const { setLearned } = await import('./dictionary');
+    setLearned(learned);
     const doc = ext === 'xml'
       ? extractXml(new TextDecoder('utf-8').decode(buffer))
       : extractXlsx(buffer);

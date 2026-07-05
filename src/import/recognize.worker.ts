@@ -5,15 +5,18 @@
 
 import { extractXlsx, extractXml } from './extractors';
 import { recognize } from './recognize';
+import { setLearned, LearnedEntry } from './dictionary';
 import type { ExtractedDoc } from './types';
 
+type Learned = Record<string, LearnedEntry>;
 type Req =
-  | { type: 'recognize'; id: number; doc: ExtractedDoc }
-  | { type: 'extractRecognize'; id: number; ext: string; buffer: ArrayBuffer };
+  | { type: 'recognize'; id: number; doc: ExtractedDoc; learned?: Learned }
+  | { type: 'extractRecognize'; id: number; ext: string; buffer: ArrayBuffer; learned?: Learned };
 
 self.onmessage = (e: MessageEvent<Req>) => {
   const msg = e.data;
   try {
+    setLearned(msg.learned);
     let doc: ExtractedDoc;
     if (msg.type === 'recognize') {
       doc = msg.doc;

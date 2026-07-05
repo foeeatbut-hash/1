@@ -3,12 +3,13 @@
 
 import {
   DocBlock, DocTable, ExtractedDoc, DraftResult, DraftItem, DraftField, DocType, Confidence,
+  LearnObservation,
 } from './types';
 import {
   FIELDS, FieldDef, matchLabel, detectEquip, findSystem, normalizeCode, looksLikeCode,
   splitValueUnit, unitFromLabel, validateValue, GARBAGE_MARKERS, PAGE_MARKER_RE,
   ADMIN_LABEL_RE, ADMIN_TAG_RE, ADMIN_VENDOR_RE, textQuality, sanitizeText,
-  dedupeRepeatedPhrase, parseFormulaLine,
+  dedupeRepeatedPhrase, parseFormulaLine, normalizeLabel, fieldByUniqueUnit,
 } from './dictionary';
 
 let idSeq = 0;
@@ -227,7 +228,7 @@ function pairsFromAttributeTable(rows: string[][]): RawPair[] {
 }
 
 /** Сущностная таблица: шапка → позиции по строкам */
-function itemsFromEntityTable(rows: string[][]): DraftItem[] {
+function itemsFromEntityTable(rows: string[][], obs?: LearnObservation[]): DraftItem[] {
   const nonEmpty = rows.filter(r => r.some(c => (c || '').trim()));
   if (nonEmpty.length < 2) return [];
   const header = nonEmpty[0];
@@ -244,7 +245,7 @@ function itemsFromEntityTable(rows: string[][]): DraftItem[] {
       pairs.push({ label: cols[i].raw, value: v, unit: unitFromLabel(cols[i].raw) || splitValueUnit(v).unit, source: 'table' });
     }
     if (pairs.length === 0) continue;
-    const item = buildItem(pairs, '');
+    const item = buildItem(pairs, '', false, obs);
     if (item.name || item.brand || item.title !== 'Позиция') items.push(item);
   }
   return items;
@@ -330,7 +331,7 @@ function expandPairs(pairs: RawPair[]): RawPair[] {
   return out;
 }
 
-function buildItem(rawPairs: RawPair[], contextTitle: string, isOcr = false): DraftItem {
+function buildItem(rawPairs: RawPair[], contextTitle: string, isOcr = false, obs?: LearnObservation[]): DraftItem {
   const item: DraftItem = {
     id: nextId(),
     title: contextTitle || 'Позиция',
@@ -357,6 +358,21 @@ function buildItem(rawPairs: RawPair[], contextTitle: string, isOcr = false): Dr
     // («название документа» → name) тоже отбрасываем.
     if (!p.fieldId && ADMIN_LABEL_RE.test(p.label)) {
       if (!f || (m && m.score < 100)) continue;
+    }
+
+    // Авто-обучение: сырая подпись из документа → поле (только реальные подписи, не формулы/админ).
+    // Учим новые написания сопоставленных полей и подписи, однозначно определяемые единицей.
+    if (obs && !p.fieldId && p.label) {
+      const norm = normalizeLabel(p.label);
+      if (norm.length >= 2 && norm.length <= 60) {
+        if (f && !f.synonyms.includes(norm)) {
+          obs.push({ label: norm, field: f.id, unit: p.unit || undefined });
+        } else if (!f) {
+          const uUnit = p.unit || splitValueUnit(value).unit;
+          const uu = fieldByUniqueUnit(uUnit);
+          if (uu) obs.push({ label: norm, field: uu, unit: uUnit || undefined });
+        }
+      }
     }
 
     if (f) {
@@ -484,6 +500,7 @@ function enrichFromProse(item: DraftItem, proseTexts: string[]) {
 export function recognize(doc: ExtractedDoc): DraftResult {
   const warnings = [...doc.warnings];
   const isOcr = doc.source === 'pdf-ocr';
+  const observations: LearnObservation[] = [];
 
   // 1. Классификация блоков
   const tables: { rows: string[][]; shape: TableShape }[] = [];
@@ -561,7 +578,7 @@ export function recognize(doc: ExtractedDoc): DraftResult {
   if (entityTables.length > 0 && entityTables.some(t => t.rows.length >= 3)) {
     // Ведомость: строки = позиции
     docType = 'list';
-    for (const t of entityTables) items.push(...itemsFromEntityTable(t.rows));
+    for (const t of entityTables) items.push(...itemsFromEntityTable(t.rows, observations));
     // Таблицы рядом с ведомостью — общие свойства (система и т.п.) для всех позиций
     const common: RawPair[] = [
       ...pairsFromAttributeTable(attributeTables.flatMap(t => t.rows)),
@@ -596,7 +613,7 @@ export function recognize(doc: ExtractedDoc): DraftResult {
       }
     }
     headings.forEach((h, i) => {
-      const item = buildItem(sectionPairs[i], h.text, isOcr);
+      const item = buildItem(sectionPairs[i], h.text, isOcr, observations);
       // Данные из преамбулы (система, общие поля) — первому/всем без своих значений
       if (preamblePairs.length) {
         const pre = buildItem(preamblePairs, '', isOcr);
@@ -641,7 +658,7 @@ export function recognize(doc: ExtractedDoc): DraftResult {
       if (fid && !have.has(fid)) { cleaned.push(pp); have.add(fid); }
     }
 
-    const item = buildItem(cleaned, '', isOcr);
+    const item = buildItem(cleaned, '', isOcr, observations);
     if (matrixHeaders) { item.matrixHeaders = matrixHeaders; item.matrixRaw = matrixRaw; }
     items.push(item);
   }
@@ -699,11 +716,21 @@ export function recognize(doc: ExtractedDoc): DraftResult {
     warnings.push('Документ распознан со скана (OCR) — проверьте жёлтые значения перед импортом.');
   }
 
+  // Дедупликация наблюдений по паре «подпись+поле»
+  const obsSeen = new Set<string>();
+  const dedupObs = observations.filter(o => {
+    const k = `${o.label}|${o.field}`;
+    if (obsSeen.has(k)) return false;
+    obsSeen.add(k);
+    return true;
+  });
+
   return {
     docType: filtered.length ? docType : 'unknown',
     items: filtered,
     warnings,
     stats: { dataBlocks, totalBlocks: doc.blocks.length },
+    observations: dedupObs,
   };
 }
 

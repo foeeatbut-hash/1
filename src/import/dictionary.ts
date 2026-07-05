@@ -339,9 +339,13 @@ export function splitValueUnit(raw: string): { value: string; unit: string } {
 /** Единица из подписи: «Расход воздуха, м³/ч» → м³/ч */
 export function unitFromLabel(rawLabel: string): string {
   const m = (rawLabel || '').match(/[,(]\s*([^,()]+?)\s*\)?\s*$/);
-  if (!m) return '';
-  const candidate = m[1].trim().toLowerCase();
-  return UNIT_ALIASES[candidate] || '';
+  if (m) {
+    const candidate = m[1].trim().toLowerCase();
+    if (UNIT_ALIASES[candidate]) return UNIT_ALIASES[candidate];
+  }
+  // выученная единица для этой подписи
+  const learned = LEARNED[normalizeLabel(rawLabel)];
+  return learned?.unit || '';
 }
 
 // ── Сопоставление подписи со словарём ────────────────────────────────────────
@@ -364,10 +368,41 @@ export function lev1(a: string, b: string): boolean {
 
 export interface LabelMatch { field: FieldDef; score: number; }
 
+// ── Выученный словарь (авто-обучение по файлам Excel/Word и подтверждениям) ───
+// Заполняется извне (setLearned) перед распознаванием: нормализованная подпись → поле.
+export interface LearnedEntry { field: string; unit?: string; n?: number }
+let LEARNED: Record<string, LearnedEntry> = {};
+export function setLearned(map: Record<string, LearnedEntry> | undefined | null): void {
+  LEARNED = map || {};
+}
+
+// Обратная карта: единица измерения → поле, если она однозначно указывает на одно поле
+// (напр. «м³/ч» → airflow). Позволяет учить подписи, которых ещё нет в словаре.
+let UNIQUE_UNIT_FIELD: Record<string, string> | null = null;
+export function fieldByUniqueUnit(rawUnit: string): string | null {
+  if (!rawUnit) return null;
+  if (!UNIQUE_UNIT_FIELD) {
+    const counts: Record<string, Set<string>> = {};
+    for (const f of FIELDS) for (const u of (f.units || [])) {
+      const key = u.toLowerCase();
+      (counts[key] = counts[key] || new Set()).add(f.id);
+    }
+    UNIQUE_UNIT_FIELD = {};
+    for (const [u, set] of Object.entries(counts)) if (set.size === 1) UNIQUE_UNIT_FIELD[u] = [...set][0];
+  }
+  return UNIQUE_UNIT_FIELD[rawUnit.toLowerCase()] || null;
+}
+
 /** Ищет поле словаря по подписи; null — подпись не наша */
 export function matchLabel(rawLabel: string): LabelMatch | null {
   const label = normalizeLabel(rawLabel);
   if (!label || label.length < 2) return null;
+  // Выученный синоним: точное совпадение нормализованной подписи — высокий приоритет
+  const learned = LEARNED[label];
+  if (learned) {
+    const lf = FIELDS.find(ff => ff.id === learned.field);
+    if (lf) return { field: lf, score: 95 + label.length };
+  }
   let best: LabelMatch | null = null;
   for (const f of FIELDS) {
     for (const syn of f.synonyms) {

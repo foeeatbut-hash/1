@@ -78,12 +78,22 @@ export type DocType =
   | 'multi'         // многосекционный бланк (установка с секциями)
   | 'unknown';
 
+// Наблюдение для авто-обучения: нормализованная подпись из документа → поле словаря.
+// Распознаватель эмитит их сам; клиент молча отправляет в общий словарь на сервере.
+export interface LearnObservation {
+  label: string;   // уже нормализованная подпись (normalizeLabel)
+  field: string;   // id поля словаря (FieldDef.id)
+  unit?: string;
+}
+
 export interface DraftResult {
   docType: DocType;
   items: DraftItem[];
   warnings: string[];
   /** Сколько блоков документа было отнесено к данным / всего */
   stats: { dataBlocks: number; totalBlocks: number };
+  /** Подписи, распознанные уверенно — для авто-пополнения словаря синонимов */
+  observations?: LearnObservation[];
 }
 
 // ── Payload подтверждённого импорта (совпадает с серверной моделью) ─────────
