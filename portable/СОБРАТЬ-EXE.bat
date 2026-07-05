@@ -1,5 +1,5 @@
 @echo off
 chcp 65001 >nul
-copy /b "PDM-System-0.24.0.exe.00.part"+"PDM-System-0.24.0.exe.01.part" "PDM System 0.24.0.exe" >nul
-echo Готово: PDM System 0.24.0.exe — можно запускать.
+copy /b "Flux-0.24.0.exe.00.part"+"Flux-0.24.0.exe.01.part" "Flux 0.24.0.exe" >nul
+echo Готово: Flux 0.24.0.exe — можно запускать.
 pause
