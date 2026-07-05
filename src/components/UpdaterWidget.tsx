@@ -330,7 +330,7 @@ export default function UpdaterWidget() {
             <div className="bg-slate-50 dark:bg-slate-990 p-4 border-b border-slate-200 dark:border-slate-850 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <ArrowUpCircle className="w-5 h-5 text-emerald-500" />
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white font-sans uppercase tracking-wide">Доступно обновление ПО MAX</h3>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white font-sans uppercase tracking-wide">Доступно обновление Flux</h3>
               </div>
               <span className="bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-400 px-2 py-0.5 rounded text-xs font-bold font-mono">
                 v{version}

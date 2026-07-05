@@ -787,7 +787,7 @@ export default function ChatManagement() {
         <div className="p-4 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 mb-3">
             <MessageSquare className="w-4 h-4 text-emerald-650 dark:text-emerald-400" />
-            Мессенджер MAX
+            Мессенджер Flux
           </h2>
           <div className="relative">
             <input
@@ -1608,7 +1608,7 @@ export default function ChatManagement() {
                     </div>
                     <div className="bg-white dark:bg-slate-950/50 p-2 rounded-lg border border-slate-150 dark:border-slate-850">
                       <p className="text-slate-400 text-xs leading-tight mb-0.5">Окружение</p>
-                      <p className="font-bold text-emerald-700 dark:text-emerald-400 leading-none mt-1 truncate">MAX LOCAL</p>
+                      <p className="font-bold text-emerald-700 dark:text-emerald-400 leading-none mt-1 truncate">Flux LOCAL</p>
                     </div>
                   </div>
                 </div>

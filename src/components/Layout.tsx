@@ -13,6 +13,7 @@ import AssistantPanel from './AssistantPanel';
 import NotificationsPanel from './NotificationsPanel';
 import RightRail from './RightRail';
 import ShareLayer from './ShareLayer';
+import FluxLogo from './FluxLogo';
 import { useNotificationStore } from '../store/notificationStore';
 import { ENV_CONFIG } from '../config/env';
 
@@ -336,8 +337,9 @@ export default function Layout() {
   return (
     <div className="flex h-full w-full overflow-hidden bg-slate-50 dark:bg-dark-bg text-slate-800 dark:text-dark-text-main font-sans relative transition-colors duration-250">
       <aside className={`${sidebarHidden ? 'w-0 opacity-0 -translate-x-full pointer-events-none' : 'w-24 opacity-100 translate-x-0'} bg-white dark:bg-dark-surface text-slate-700 dark:text-dark-text-muted flex flex-col transition-all duration-300 shrink-0 border-r border-slate-200 dark:border-dark-border`}>
-        <div className="px-1.5 pt-3 pb-2 flex flex-col items-center gap-0.5 border-b border-slate-200 dark:border-dark-border">
-          <h1 className="text-lg font-bold font-mono tracking-tight text-slate-900 dark:text-white leading-none">MAX</h1>
+        <div className="px-1.5 pt-3 pb-2 flex flex-col items-center gap-1 border-b border-slate-200 dark:border-dark-border">
+          <FluxLogo size={30} />
+          <h1 className="text-sm font-extrabold tracking-tight text-slate-900 dark:text-white leading-none">Flux</h1>
           <p className="text-[9px] text-slate-500 dark:text-dark-text-muted text-center leading-tight line-clamp-2 px-1" title={activeProject?.name || 'Проект не выбран'}>
             {activeProject?.name || 'Без проекта'}
           </p>

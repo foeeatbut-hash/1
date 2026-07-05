@@ -5,6 +5,7 @@ import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
 import { Lock, User, Eye, EyeOff, Loader2, AlertCircle, Sun, Moon, Database, FolderOpen, RotateCcw } from 'lucide-react';
 import { ENV_CONFIG } from '../config/env';
+import FluxLogo from '../components/FluxLogo';
 
 interface LoginProps {
   onConfigureDatabase?: () => void;
@@ -167,6 +168,12 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
           transition={{ duration: 0.3 }}
           className="w-full max-w-md bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl transition-all"
         >
+          <div className="flex flex-col items-center text-center mb-7">
+            <FluxLogo size={58} radius={16} />
+            <h1 className="mt-3 text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">Flux</h1>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Инженерные данные и документы</p>
+          </div>
+
           <AnimatePresence mode="wait">
             {error && (
               <motion.div
@@ -266,10 +273,13 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
         </motion.div>
       </div>
 
-      {/* Footer: только версия программы */}
-      <div className="w-full flex items-center justify-end px-4 py-4 mt-auto">
+      {/* Footer: авторство слева, версия справа */}
+      <div className="w-full flex items-center justify-between gap-3 px-4 py-4 mt-auto">
+        <div className="text-xs text-slate-400 dark:text-slate-600">
+          Разработка <span className="font-semibold text-slate-500 dark:text-slate-400">Раупова Хусрава</span>
+        </div>
         <div className="text-xs font-mono text-slate-400 dark:text-slate-600 tracking-wider">
-          Версия {__APP_VERSION__}
+          Flux · {__APP_VERSION__}
         </div>
       </div>
     </div>
