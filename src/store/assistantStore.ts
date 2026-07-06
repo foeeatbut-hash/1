@@ -446,6 +446,21 @@ export async function resolveQuery(
     const data = await getData();
     const c = data.counts;
 
+    // Остаточные стемы — то, что осталось после служебных/доменных слов.
+    // Позволяют пересекать фильтры: «критичные ВЕНТИЛЯТОРЫ», «не заказаны КЛАПАНЫ».
+    const filterStems = p.stems.filter(s => ![
+      'тег', 'оборудован', 'компонент', 'покажи', 'список', 'найд', 'сколько', 'выгруз',
+      'критичн', 'внимани', 'проблем', 'конфликт', 'дубл', 'закупк', 'этап', 'поставщик',
+      'заметк', 'запис', 'истори', 'изменени', 'изменил', 'сводк', 'статус',
+      // общие слова и слова-этапы — не считаем их фильтром-термином
+      'позици', 'позиц', 'штук', 'заказан', 'куплен', 'закуплен', 'утвержд', 'добавлен',
+      'осталось', 'просроч', 'требует', 'требуют',
+    ].includes(s));
+    const tagTextMatch = (t: AssistantData['tags'][number], stems: string[]) =>
+      fieldMatchesStems(t.identifier, stems) || fieldMatchesStems(t.brand, stems)
+      || fieldMatchesStems(t.mainName, stems) || fieldMatchesStems(t.department, stems)
+      || fieldMatchesStems(t.fluid, stems);
+
     // G1. Сводка/счётчики
     if (hasIntent(p, ['сводк', 'статус']) || /сколько всего|общая|итого|готовност/.test(lower)
         || (/сколько|количеств/.test(lower) && !hasIntent(p, ['дубл', 'критичн', 'закупк', 'вентилятор', 'клапан', 'установк']))) {
@@ -480,17 +495,19 @@ export async function resolveQuery(
       };
     }
 
-    // G3. Проблемы / актуальность
+    // G3. Проблемы / актуальность (+ пересечение с текстовым фильтром)
     if (hasIntent(p, ['критичн', 'внимани', 'проблем', 'конфликт'])) {
-      const bad = data.tags.filter(t => t.actuality === 'critical' || t.actuality === 'warning');
-      if (bad.length === 0) return msg('Критичных позиций и позиций «на проверку» нет. ✓');
+      let bad = data.tags.filter(t => t.actuality === 'critical' || t.actuality === 'warning');
+      if (filterStems.length) bad = bad.filter(t => tagTextMatch(t, filterStems));
+      const suffix = filterStems.length ? ` по запросу «${filterStems.join(' ')}»` : '';
+      if (bad.length === 0) return msg(`Критичных позиций и позиций «на проверку»${suffix} нет. ✓`);
       const table: AssistantTable = {
-        title: 'Требуют внимания',
+        title: `Требуют внимания${suffix}`,
         columns: ['Тег', 'Наименование', 'Состояние'],
         rows: bad.map(t => [t.identifier || '', t.mainName || '', ACTUALITY_RU[t.actuality || 'draft'] || '']),
       };
       return {
-        message: { id: uid(), role: 'assistant', text: `Требуют внимания: ${bad.length} (критичных ${bad.filter(t => t.actuality === 'critical').length}).`, table, actions: EXPORT_ACTIONS },
+        message: { id: uid(), role: 'assistant', text: `Требуют внимания${suffix}: ${bad.length} (критичных ${bad.filter(t => t.actuality === 'critical').length}).`, table, actions: EXPORT_ACTIONS },
         result: { kind: 'tags', ids: bad.map(t => t.id), label: 'требуют внимания' },
       };
     }
@@ -502,6 +519,8 @@ export async function resolveQuery(
       if (/не заказан|не куплен|осталось|просроч/.test(lower)) { sel = data.tags.filter(t => t.stageId === 'added'); label = 'не заказано'; }
       else if (/куплен|закуплен/.test(lower)) { sel = data.tags.filter(t => t.stageId === 'purchased'); label = 'куплено'; }
       else if (/заказан/.test(lower)) { sel = data.tags.filter(t => t.stageId === 'ordered'); label = 'заказано'; }
+      // Пересечение с текстовым фильтром: «не заказаны ВЕНТИЛЯТОРЫ отдела ОВ»
+      if (filterStems.length) { sel = sel.filter(t => tagTextMatch(t, filterStems)); label += ` · ${filterStems.join(' ')}`; }
       const table: AssistantTable = {
         title: `Закупки: ${label}`,
         columns: ['Тег', 'Наименование', 'Этап', 'Поставщик'],
