@@ -1125,6 +1125,25 @@ app.get('/api/assistant/data', async (req: Request, res: Response) => {
       projectId ? prisma.fileNode.count({ where: { folder: { projectId } } }) : Promise.resolve(0),
     ]);
 
+    // Плоские характеристики компонента из JSON specs (для ответов «какой расход у …»)
+    const flattenSpecs = (raw: string | null): { key: string; value: string; unit: string; group: string }[] => {
+      if (!raw) return [];
+      try {
+        const parsed = JSON.parse(raw);
+        const groups = Array.isArray(parsed?.groups) ? parsed.groups : [];
+        const out: { key: string; value: string; unit: string; group: string }[] = [];
+        for (const g of groups) {
+          for (const p of (g?.params || [])) {
+            if (p?.key && p?.value !== undefined) {
+              out.push({ key: String(p.key), value: String(p.value ?? ''), unit: String(p.unit ?? ''), group: String(g.title || '') });
+            }
+            if (out.length >= 120) return out;
+          }
+        }
+        return out;
+      } catch { return []; }
+    };
+
     // Плоский список компонентов оборудования с привязанными тегами
     const components: any[] = [];
     for (const sys of systems as any[]) {
@@ -1140,6 +1159,7 @@ app.get('/api/assistant/data', async (req: Request, res: Response) => {
             status: comp.status,
             hasConflict: comp.hasConflict,
             tags: (comp.tags || []).map((t: any) => t.identifier),
+            specs: flattenSpecs(comp.specs),
           });
         }
       }

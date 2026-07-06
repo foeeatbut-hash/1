@@ -5,6 +5,7 @@ import { findKnowledge } from '../assistant/knowledge';
 import { TOURS, findTourByText, findBestTour, Tour } from '../assistant/tours';
 import { getSection } from '../assistant/sections';
 import { parse, hasIntent, fieldMatchesStems, Parsed } from '../assistant/nlp';
+import { matchLabel, fieldByUniqueUnit, FIELDS, FieldDef } from '../import/dictionary';
 
 export interface AssistantAction {
   label: string;
@@ -36,7 +37,7 @@ interface AssistantData {
   projectId: string;
   projects: { id: string; name: string; status: string }[];
   tags: { id: string; identifier: string; brand?: string; department?: string; wbs?: string; fluid?: string; mainName?: string; actuality?: string; stageId?: string; stageLabel?: string; supplier?: string; qty?: string }[];
-  components: { id: string; name: string; itemCode: string; systemName: string; category: string; monoblockName: string; status: string; hasConflict: boolean; tags: string[] }[];
+  components: { id: string; name: string; itemCode: string; systemName: string; category: string; monoblockName: string; status: string; hasConflict: boolean; tags: string[]; specs?: { key: string; value: string; unit: string; group: string }[] }[];
   stages: { id: string; label: string }[];
   duplicates: { code: string; count: number; ids: string[] }[];
   notes: { id: string; title: string; updatedAt: string }[];
@@ -347,6 +348,37 @@ const ROUTE_WORDS: { stems: string[]; route: string; name: string }[] = [
   { stems: ['проект'], route: '/projects', name: 'Проекты' },
 ];
 
+// --- Характеристики позиций (для ответов «какой расход у …») ---
+type CompSpec = { key: string; value: string; unit: string; group: string };
+type CompData = AssistantData['components'][number];
+
+// Поле, о котором спрашивает пользователь (по синонимам словаря в тексте запроса)
+function askedField(lower: string): FieldDef | null {
+  let best: FieldDef | null = null, bestLen = 0;
+  for (const f of FIELDS) {
+    for (const syn of f.synonyms) {
+      if (syn.length >= 4 && lower.includes(syn) && syn.length > bestLen) { best = f; bestLen = syn.length; }
+    }
+  }
+  return best;
+}
+// Характеристика компонента, соответствующая полю (по подписи, затем по единице).
+// При дублях (в бланках бывает «0 м³/ч» рядом с реальным) предпочитаем ненулевое.
+function specForField(specs: CompSpec[], field: FieldDef): CompSpec | null {
+  const byLabel = specs.filter(s => { const m = matchLabel(s.key); return !!m && m.field.id === field.id; });
+  const byUnit = specs.filter(s => s.unit && fieldByUniqueUnit(s.unit) === field.id);
+  const cand = byLabel.length ? byLabel : byUnit;
+  return cand.find(s => s.value && !/^0([.,]0+)?$/.test(s.value.trim())) || cand[0] || null;
+}
+// Компонент по коду тега / itemCode / имени
+function findComponentByCode(comps: CompData[], code: string): CompData | null {
+  const lc = code.toLowerCase();
+  return comps.find(c =>
+    (c.tags || []).some(t => (t || '').toLowerCase() === lc)
+    || (c.itemCode || '').toLowerCase() === lc
+    || (c.name || '').toLowerCase().includes(lc)) || null;
+}
+
 // --- Распознавание запроса (полностью локальное) ---
 // injectedData — тестовый шов: подставить данные вместо обращения к серверу.
 export async function resolveQuery(
@@ -401,6 +433,58 @@ export async function resolveQuery(
   if (wantsTour) {
     const tour = findTourByText(lower);
     if (tour) return msg(tour.intro, { actions: [{ label: '▶ Показать демонстрацию', kind: 'tour', tourId: tour.id }] });
+  }
+
+  // E0. Характеристики позиции из «Оборудования»: «какой расход у 3700-…»,
+  // «характеристики 3700-…», «собери расход и мощность у …» (в т.ч. по нескольким тегам)
+  if (p.codes.length > 0) {
+    const field = askedField(lower);
+    const wantsSpecs = !!field || /(характеристик|данные|парам|собери|выпиши|сведени)/.test(lower);
+    if (wantsSpecs) {
+      const data = await getData();
+
+      // Одна позиция + конкретное поле → короткий ответ
+      if (p.codes.length === 1 && field) {
+        const comp = findComponentByCode(data.components, p.codes[0]);
+        if (comp && comp.specs) {
+          const sv = specForField(comp.specs, field);
+          if (sv) {
+            return msg(`${field.label} у ${p.codes[0]}: ${sv.value}${sv.unit ? ' ' + sv.unit : ''}.`,
+              { actions: [{ label: 'Открыть в оборудовании', kind: 'open-section', route: '/equipment' }] });
+          }
+          return msg(`У «${p.codes[0]}» характеристику «${field.label}» не нашёл — показать все характеристики?`,
+            { actions: [{ label: 'Все характеристики', kind: 'ask', query: `характеристики ${p.codes[0]}` }] });
+        }
+        // нет привязанного компонента → провалимся в карточку тега (E)
+      }
+
+      // Одна позиция без конкретного поля → все её характеристики
+      if (p.codes.length === 1 && !field) {
+        const comp = findComponentByCode(data.components, p.codes[0]);
+        if (comp && comp.specs && comp.specs.length) {
+          const table: AssistantTable = {
+            title: `Характеристики ${p.codes[0]}`,
+            columns: ['Характеристика', 'Значение', 'Ед.'],
+            rows: comp.specs.map(s => [s.key, s.value, s.unit]),
+          };
+          return { message: { id: uid(), role: 'assistant', text: `Характеристики «${comp.name || p.codes[0]}»: ${comp.specs.length} параметр(ов).`, table, actions: EXPORT_ACTIONS }, result: null };
+        }
+      }
+
+      // Несколько позиций → сводная таблица (по указанному полю или ключевым)
+      if (p.codes.length > 1) {
+        const cols = field ? [field] : ['airflow', 'pressure', 'power'].map(id => FIELDS.find(f => f.id === id)).filter(Boolean) as FieldDef[];
+        const rows: (string | number)[][] = p.codes.map(code => {
+          const comp = findComponentByCode(data.components, code);
+          return [code, ...cols.map(f => {
+            const sv = comp && comp.specs ? specForField(comp.specs, f) : null;
+            return sv ? `${sv.value}${sv.unit ? ' ' + sv.unit : ''}` : '—';
+          })];
+        });
+        const table: AssistantTable = { title: field ? `${field.label} по позициям` : 'Характеристики позиций', columns: ['Тег', ...cols.map(f => f.label)], rows };
+        return { message: { id: uid(), role: 'assistant', text: `Собрал данные по ${p.codes.length} позиц.`, table, actions: EXPORT_ACTIONS }, result: null };
+      }
+    }
   }
 
   // E. Прямой код тега/марки → карточка позиции

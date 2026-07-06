@@ -433,9 +433,13 @@ function buildItem(rawPairs: RawPair[], contextTitle: string, isOcr = false, obs
         case 'qty':
           item.qty = value;
           break;
-        case 'spec':
-          item.fields.push({ fieldId: f.id, label: f.label, value, unit: unit || (f.units ? '' : ''), group: f.group, confidence: conf, source: p.source });
+        case 'spec': {
+          // Сохраняем ИСХОДНУЮ подпись документа (dpсеть.вс, dpсеть.нг…), чтобы
+          // разные параметры одного поля не схлопывались в общее «Давление».
+          const rawLabel = (!p.fieldId && p.label && p.label.length <= 40) ? p.label : f.label;
+          item.fields.push({ fieldId: f.id, label: rawLabel, value, unit: unit || (f.units ? '' : ''), group: f.group, confidence: conf, source: p.source });
           break;
+        }
       }
       if (f.target !== 'spec') {
         // Свойства позиции показываем в предпросмотре (кроме отклонённого KKS в brand)
