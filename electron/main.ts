@@ -458,6 +458,17 @@ app.whenReady().then(() => {
       if (!sanitizedFileName || sanitizedFileName === '.' || sanitizedFileName === '..') {
         sanitizedFileName = `file_${Date.now()}`;
       }
+      // Уникальность: не затираем существующее вложение с тем же именем
+      {
+        const dot = sanitizedFileName.lastIndexOf('.');
+        const stem = dot > 0 ? sanitizedFileName.slice(0, dot) : sanitizedFileName;
+        const ext = dot > 0 ? sanitizedFileName.slice(dot) : '';
+        let n = 1;
+        while (fs.existsSync(path.join(dir, sanitizedFileName))) {
+          sanitizedFileName = `${stem}-${n}${ext}`;
+          n++;
+        }
+      }
       const localPath = path.join(dir, sanitizedFileName);
       const buffer = Buffer.from(base64Data, 'base64');
       fs.writeFileSync(localPath, buffer);

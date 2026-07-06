@@ -520,8 +520,9 @@ export default function ChatManagement() {
   };
 
   const handlePin = async (msg: ChatMessage) => {
+    if (!user) return;
     try {
-      await pinMessage(msg.id);
+      await pinMessage(user.id, msg.id);
       addToast(msg.pinned ? 'Сообщение откреплено' : 'Сообщение закреплено', 'success');
     } catch (_) { addToast('Не удалось изменить закрепление', 'error'); }
   };

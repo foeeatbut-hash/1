@@ -2605,8 +2605,19 @@ app.post('/api/chat/upload', async (req: Request, res: Response) => {
       fs.mkdirSync(chatFilesDir, { recursive: true });
     }
 
-    // Sanitizing fileName to prevent Path Traversal
-    const sanitizedFileName = path.basename(String(fileName)).replace(/[\/\\]/g, '');
+    // Санитизация имени: только базовое имя, без разделителей и «..»/«.»
+    let base = path.basename(String(fileName || '')).replace(/[\/\\]/g, '').trim();
+    if (!base || base === '.' || base === '..') base = `file_${Date.now()}`;
+    // Уникальность: не затираем существующий файл (иначе теряется вложение)
+    const dot = base.lastIndexOf('.');
+    const stem = dot > 0 ? base.slice(0, dot) : base;
+    const ext = dot > 0 ? base.slice(dot) : '';
+    let sanitizedFileName = base;
+    let n = 1;
+    while (fs.existsSync(path.join(chatFilesDir, sanitizedFileName))) {
+      sanitizedFileName = `${stem}-${n}${ext}`;
+      n++;
+    }
     const filePath = path.join(chatFilesDir, sanitizedFileName);
     const buffer = Buffer.from(base64Data, 'base64');
     fs.writeFileSync(filePath, buffer);
@@ -2879,6 +2890,21 @@ app.delete('/api/chat/groups/:id', async (req: Request, res: Response) => {
 });
 
 // Реакция на сообщение (переключение эмодзи для пользователя)
+// Участник ли пользователь диалога/группы, которой принадлежит сообщение.
+// Личка: отправитель или получатель. Группа: член группы (или владелец).
+async function isChatParticipant(userId: string, msg: { senderId: string; receiverId: string | null; chatGroupId: string | null }): Promise<boolean> {
+  if (!userId) return false;
+  if (msg.senderId === userId || msg.receiverId === userId) return true;
+  if (msg.chatGroupId) {
+    const g = await prisma.chatGroup.findUnique({
+      where: { id: msg.chatGroupId },
+      select: { ownerId: true, members: { where: { id: userId }, select: { id: true } } },
+    });
+    if (g && (g.ownerId === userId || g.members.length > 0)) return true;
+  }
+  return false;
+}
+
 app.post('/api/chat/messages/:id/react', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -2886,6 +2912,9 @@ app.post('/api/chat/messages/:id/react', async (req: Request, res: Response) => 
     if (!userId || !emoji) return res.status(400).json({ error: 'userId и emoji обязательны' });
     const msg = await prisma.chatMessage.findUnique({ where: { id } });
     if (!msg) return res.status(404).json({ error: 'Сообщение не найдено' });
+    if (!(await isChatParticipant(String(userId), msg))) {
+      return res.status(403).json({ error: 'Реагировать можно только в своих диалогах и группах' });
+    }
     let reactions: Record<string, string[]> = {};
     try { reactions = msg.reactions ? JSON.parse(msg.reactions) : {}; } catch (_) { reactions = {}; }
     const list = reactions[emoji] || [];
@@ -2906,13 +2935,18 @@ app.post('/api/chat/messages/:id/react', async (req: Request, res: Response) => 
   }
 });
 
-// Закрепление / открепление сообщения
+// Закрепление / открепление сообщения (только участником диалога/группы)
 app.post('/api/chat/messages/:id/pin', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const userId = String(req.body?.userId || '');
     const msg = await prisma.chatMessage.findUnique({ where: { id } });
     if (!msg) return res.status(404).json({ error: 'Сообщение не найдено' });
+    if (!(await isChatParticipant(userId, msg))) {
+      return res.status(403).json({ error: 'Закреплять можно только в своих диалогах и группах' });
+    }
     const updated = await prisma.chatMessage.update({ where: { id }, data: { pinned: !msg.pinned } });
+    io.emit('chat:message_updated', { id, pinned: updated.pinned });
     res.json({ success: true, pinned: updated.pinned });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -2928,7 +2962,7 @@ app.post('/api/chat/forward', async (req: Request, res: Response) => {
     }
     const src = await prisma.chatMessage.findUnique({
       where: { id: String(messageId) },
-      include: { sender: { select: { name: true } } },
+      include: { sender: { select: { name: true } }, attachments: true },
     });
     if (!src) return res.status(404).json({ error: 'Исходное сообщение не найдено' });
     const created = await prisma.chatMessage.create({
@@ -2940,6 +2974,10 @@ app.post('/api/chat/forward', async (req: Request, res: Response) => {
         linkedElementId: src.linkedElementId,
         linkedProjectId: src.linkedProjectId,
         forwardedFrom: src.forwardedFrom || src.sender?.name || 'Сообщение',
+        // Вложения пересылаются вместе с текстом (файл на диске общий — копируем записи)
+        attachments: src.attachments.length ? {
+          create: src.attachments.map((a: any) => ({ fileName: a.fileName, filePath: a.filePath, fileSize: a.fileSize })),
+        } : undefined,
       },
     });
     const full = await prisma.chatMessage.findUnique({
