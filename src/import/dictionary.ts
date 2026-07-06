@@ -431,6 +431,26 @@ export function matchLabel(rawLabel: string): LabelMatch | null {
       if (score > 0 && (!best || score > best.score)) best = { field: f, score };
     }
   }
+  // Обобщающее обучение: если словарь не дал совпадения, пробуем выученные подписи
+  // по-нечёткому (подстрока или ≤1 опечатка) — ловит варианты написания одного бланка.
+  if (!best) {
+    const firstTok = (s: string) => s.split(' ').find(w => w.length >= 5) || '';
+    const labelTok = firstTok(label);
+    let lBest: { field: FieldDef; score: number } | null = null;
+    for (const key in LEARNED) {
+      if (key.length < 4) continue;
+      let hit = false;
+      if (label.includes(key) || key.includes(label)) hit = true;
+      else if (Math.abs(key.length - label.length) <= 1 && lev1(key, label)) hit = true;
+      else if (labelTok && firstTok(key).slice(0, 5) === labelTok.slice(0, 5)) hit = true; // общий корень первого слова
+      if (hit) {
+        const lf = FIELDS.find(ff => ff.id === LEARNED[key].field);
+        const sc = 50 + Math.min(key.length, 20);
+        if (lf && (!lBest || sc > lBest.score)) lBest = { field: lf, score: sc };
+      }
+    }
+    if (lBest) return lBest;
+  }
   // Отсечка: слишком слабое совпадение на длинной постороннней подписи — не считаем
   if (best && best.score < 45 && label.length > 30) return null;
   return best;

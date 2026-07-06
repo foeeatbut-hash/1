@@ -332,6 +332,28 @@ function expandPairs(pairs: RawPair[]): RawPair[] {
   return out;
 }
 
+// Слияние доказательств: поле определяется не только подписью, но и единицей.
+// Единица, однозначно указывающая на одно поле (fieldByUniqueUnit), спасает
+// нераспознанные подписи и переубеждает слабое (неточное) совпадение подписи.
+function resolveFieldFusion(
+  p: RawPair, value: string, m: { field: FieldDef; score: number } | null,
+): FieldDef | null {
+  const labelField = m?.field || null;
+  const unit = p.unit || splitValueUnit(value).unit;
+  const uid = fieldByUniqueUnit(unit);
+  const unitField = uid ? (FIELDS.find(ff => ff.id === uid) || null) : null;
+  if (!unitField) return labelField;
+  // Единица годится, только если значение под неё правдоподобно
+  if (validateValue(unitField, value, unit) === 'reject') return labelField;
+  if (!labelField) return unitField;
+  // Конфликт: подпись совпала неточно (score < 100), а единица говорит иначе — верим единице
+  if (labelField.id !== unitField.id && m && m.score < 100
+      && labelField.kind === 'number' && unitField.kind === 'number') {
+    return unitField;
+  }
+  return labelField;
+}
+
 function buildItem(rawPairs: RawPair[], contextTitle: string, isOcr = false, obs?: LearnObservation[]): DraftItem {
   const item: DraftItem = {
     id: nextId(),
@@ -348,11 +370,12 @@ function buildItem(rawPairs: RawPair[], contextTitle: string, isOcr = false, obs
     if (!value || value === p.label) continue;
     if (textQuality(value) < 0.5) continue; // бинарный мусор не тащим
 
-    // Поле может быть известно заранее (формулы, админ-извлечения)
+    // Поле может быть известно заранее (формулы, админ-извлечения); иначе —
+    // слияние доказательств (подпись + единица), а не только совпадение подписи
     const m = p.fieldId ? null : matchLabel(p.label);
     let f: FieldDef | null = p.fieldId
       ? (FIELDS.find(ff => ff.id === p.fieldId) || null)
-      : (m?.field || null);
+      : resolveFieldFusion(p, value, m);
 
     // Административные подписи («Заказчик», «Телефон/Факс», «№ документа»…) —
     // реквизиты бланка, не характеристики. Неточное совпадение со словарём
