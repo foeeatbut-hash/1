@@ -3,7 +3,9 @@ import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import {
   RefreshCw, AlertTriangle, History, Check, Pencil, Eye, EyeOff, Settings,
-  ChevronRight, ChevronDown, Trash2, Tag as TagIcon, X, Plus, Boxes, Layers, Wind, Sparkles
+  ChevronRight, ChevronDown, Trash2, Tag as TagIcon, X, Plus, Boxes, Layers, Wind, Sparkles,
+  Fan, Filter, Flame, Snowflake, Droplets, Recycle, Volume2, SlidersHorizontal, Box, Square,
+  ArrowRight, LayoutGrid, List
 } from 'lucide-react';
 import DocImportWizard from '../components/DocImportWizard';
 
@@ -23,6 +25,56 @@ interface Category { id: string; label: string; composite?: boolean; }
 
 const api = (p: string) => `/api${p}`;
 
+// ── Нормализация specs к виду { groups: [...] } для любого сохранённого формата ──
+// (новый сгруппированный, старый плоский {ключ:значение}, или массив групп)
+function normalizeSpecs(raw: any): { groups: SpecGroup[] } {
+  let parsed: any = {};
+  try { parsed = raw ? JSON.parse(raw) : {}; } catch (_) { parsed = {}; }
+  if (parsed && Array.isArray(parsed.groups)) {
+    return { groups: parsed.groups.map((g: any) => ({ title: g?.title || 'Параметры', params: Array.isArray(g?.params) ? g.params : [] })) };
+  }
+  if (Array.isArray(parsed)) {
+    return { groups: parsed.map((g: any) => ({ title: g?.title || 'Параметры', params: Array.isArray(g?.params) ? g.params : [] })) };
+  }
+  if (parsed && typeof parsed === 'object') {
+    const params = Object.entries(parsed).map(([k, v]: [string, any]) => ({
+      key: k,
+      value: v && typeof v === 'object' ? String(v.value ?? '') : String(v ?? ''),
+      unit: v && typeof v === 'object' ? String(v.unit ?? '') : '',
+    }));
+    return { groups: params.length ? [{ title: 'Параметры', params }] : [] };
+  }
+  return { groups: [] };
+}
+
+// ── Схема приточной установки: физический порядок секций по ходу воздуха ──
+const SECTION_ORDER: Record<string, number> = {
+  'ВОЗДУХОПРИЁМНЫЙ': 10, 'КЛАПАН': 20, 'ФИЛЬТР': 30, 'РЕКУПЕРАТОР': 40,
+  'НАГРЕВАТЕЛЬ': 50, 'ОХЛАДИТЕЛЬ': 60, 'УВЛАЖНИТЕЛЬ': 70, 'ВЕНТИЛЯТОР': 80,
+  'ШУМОГЛУШИТЕЛЬ': 90, 'КАМЕРА': 100, 'СЕКЦИЯ': 110, 'ЗАВЕСА': 120, 'ПРОЧЕЕ': 900,
+};
+const SECTION_ICON: Record<string, React.ComponentType<any>> = {
+  'ВОЗДУХОПРИЁМНЫЙ': Wind, 'КЛАПАН': SlidersHorizontal, 'ФИЛЬТР': Filter, 'РЕКУПЕРАТОР': Recycle,
+  'НАГРЕВАТЕЛЬ': Flame, 'ОХЛАДИТЕЛЬ': Snowflake, 'УВЛАЖНИТЕЛЬ': Droplets, 'ВЕНТИЛЯТОР': Fan,
+  'ШУМОГЛУШИТЕЛЬ': Volume2, 'КАМЕРА': Box, 'СЕКЦИЯ': Square, 'ЗАВЕСА': Wind,
+};
+const sectionIcon = (t: string) => SECTION_ICON[t] || Square;
+const SECTION_TINT: Record<string, string> = {
+  'НАГРЕВАТЕЛЬ': 'text-orange-500', 'ОХЛАДИТЕЛЬ': 'text-sky-500', 'ВЕНТИЛЯТОР': 'text-emerald-500',
+  'ФИЛЬТР': 'text-violet-500', 'УВЛАЖНИТЕЛЬ': 'text-cyan-500', 'РЕКУПЕРАТОР': 'text-teal-500',
+};
+const sectionTint = (t: string) => SECTION_TINT[t] || 'text-slate-500';
+
+// Ключевые параметры для превью секции на схеме (первые непустые из specs)
+function topSpecs(specs: string | undefined, n = 2): SpecParam[] {
+  const g = normalizeSpecs(specs).groups;
+  const out: SpecParam[] = [];
+  for (const grp of g) for (const p of (grp.params || [])) {
+    if (p && String(p.value ?? '').trim()) { out.push(p); if (out.length >= n) return out; }
+  }
+  return out;
+}
+
 export default function Equipment() {
   const { activeProject, user } = useStore();
   const { addToast } = useToastStore();
@@ -41,6 +93,7 @@ export default function Equipment() {
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [showAllParams, setShowAllParams] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [historyFor, setHistoryFor] = useState<Component | null>(null);
@@ -129,6 +182,7 @@ export default function Equipment() {
   }, [systems]);
 
   const selected = selectedBlockId ? allBlocks[selectedBlockId] : null;
+  const selectedUnit = useMemo(() => systems.find(s => s.id === selectedUnitId) || null, [systems, selectedUnitId]);
 
   const totalConflicts = useMemo(() =>
     catSystems.reduce((n, s) => n + s.monoblocks.reduce((m, mb) => m + mb.components.filter(c => c.hasConflict).length, 0), 0),
@@ -263,8 +317,11 @@ export default function Equipment() {
           ) : (catSystems || []).map(unit => (
             <div key={unit.id}>
               <div className="flex items-center group">
-                <button onClick={() => toggle(unit.id)} className="flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-left cursor-pointer">
-                  {expanded[unit.id] ? <ChevronDown className="w-3.5 h-3.5 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 shrink-0" />}
+                <button onClick={() => toggle(unit.id)} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 shrink-0 cursor-pointer" title={expanded[unit.id] ? 'Свернуть' : 'Развернуть'}>
+                  {expanded[unit.id] ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                </button>
+                <button onClick={() => { setSelectedUnitId(unit.id); setSelectedBlockId(null); setExpanded(e => ({ ...e, [unit.id]: true })); }}
+                  className={`flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left cursor-pointer ${selectedUnitId === unit.id && !selectedBlockId ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
                   <Boxes className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                   <span className="text-xs font-bold truncate">{unit.name}</span>
                 </button>
@@ -282,7 +339,7 @@ export default function Equipment() {
                       </button>
                     )}
                     {(isUnitMb || expanded[mb.id]) && (mb.components || []).map(c => (
-                      <button key={c.id} onClick={() => { setSelectedBlockId(c.id); setShowAllParams(false); }}
+                      <button key={c.id} onClick={() => { setSelectedBlockId(c.id); setSelectedUnitId(null); setShowAllParams(false); }}
                         className={`w-full flex items-center gap-1.5 pl-7 pr-2 py-1.5 rounded-lg text-left cursor-pointer ${selectedBlockId === c.id ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
                         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${c.hasConflict ? 'bg-rose-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
                         <span className="text-[11px] truncate flex-1">{blockLabel(c)}</span>
@@ -299,9 +356,7 @@ export default function Equipment() {
 
       {/* КАРТОЧКА БЛОКА */}
       <div className="flex-1 min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden flex flex-col">
-        {!selected ? (
-          <div className="h-full flex items-center justify-center text-slate-400 text-sm">Выберите элемент в дереве слева</div>
-        ) : (
+        {selected ? (
           <BlockCard
             comp={selected.block}
             unitName={selected.unit.name}
@@ -315,7 +370,18 @@ export default function Equipment() {
             onPickTag={() => setTagPickerFor(selected.block)}
             onUnlinkTag={(tid: string) => unlinkTag(selected.block, tid)}
             blockLabel={blockLabel}
+            onBackToUnit={selected.unit.category === 'AHU' || (selected.unit.monoblocks || []).some(mb => (mb.components || []).length > 1)
+              ? () => { setSelectedUnitId(selected.unit.id); setSelectedBlockId(null); }
+              : null}
           />
+        ) : selectedUnit ? (
+          <UnitSchematic
+            unit={selectedUnit}
+            blockLabel={blockLabel}
+            onSelectBlock={(id: string) => { setSelectedBlockId(id); setSelectedUnitId(null); setShowAllParams(false); }}
+          />
+        ) : (
+          <div className="h-full flex items-center justify-center text-slate-400 text-sm">Выберите установку или элемент в дереве слева</div>
         )}
       </div>
 
@@ -359,31 +425,163 @@ export default function Equipment() {
   );
 }
 
+// ── Схема установки: кликабельный «чертёж» из секций ──
+function UnitSchematic({ unit, blockLabel, onSelectBlock }: {
+  unit: SystemUnit;
+  blockLabel: (c: Component) => string;
+  onSelectBlock: (id: string) => void;
+}) {
+  // Разбираем компоненты установки: общие параметры vs. секции (составные части)
+  const { generalComp, monoGenerals, monoSections } = useMemo(() => {
+    let generalComp: Component | null = null;
+    const monoGenerals: Component[] = [];
+    const monoSections: { mono: Monoblock; sections: Component[] }[] = [];
+    for (const mb of unit.monoblocks || []) {
+      const sections: Component[] = [];
+      for (const c of mb.components || []) {
+        if (c.itemCode === '__unit__') generalComp = c;
+        else if (c.itemCode.endsWith('_общие')) monoGenerals.push(c);
+        else sections.push(c);
+      }
+      if (sections.length) monoSections.push({ mono: mb, sections });
+    }
+    return { generalComp, monoGenerals, monoSections };
+  }, [unit]);
+
+  // Плоский список секций в порядке движения воздуха (для схемы-чертежа)
+  const flowSections = useMemo(() => {
+    const all: Component[] = [];
+    monoSections.forEach(m => m.sections.forEach(s => all.push(s)));
+    return all
+      .map((c, idx) => ({ c, idx, ord: SECTION_ORDER[c.equipType] ?? 500 }))
+      .sort((a, b) => (a.ord - b.ord) || (a.idx - b.idx))
+      .map(x => x.c);
+  }, [monoSections]);
+
+  const generalSpecs = generalComp ? normalizeSpecs(generalComp.specs).groups : [];
+  const generalParams = generalSpecs.flatMap(g => g.params || []).filter(p => String(p.value ?? '').trim()).slice(0, 12);
+  const totalSections = flowSections.length;
+
+  return (
+    <>
+      <div
+        data-share-route="/equipment"
+        data-share-focus={`unit:${unit.id}`}
+        data-share-label={`Схема установки: ${unit.name}`}
+        className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold uppercase tracking-wider">Установка</span>
+            {unit.fileName && <span className="text-[10px] text-slate-400 font-mono truncate max-w-[220px]" title={unit.fileName}>{unit.fileName}</span>}
+          </div>
+          <h3 className="u-sel text-sm font-bold mt-1 truncate flex items-center gap-1.5"><Boxes className="w-4 h-4 text-emerald-600 shrink-0" />{unit.name}</h3>
+          <p className="text-[11px] text-slate-400 mt-0.5">{totalSections} {totalSections === 1 ? 'секция' : totalSections >= 2 && totalSections <= 4 ? 'секции' : 'секций'} · нажмите на секцию, чтобы открыть её характеристики</p>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-5">
+        {/* Общие характеристики установки */}
+        {generalParams.length > 0 && (
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Общие характеристики установки</div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 rounded-lg border border-slate-150 dark:border-slate-800 p-2.5">
+              {generalParams.map((p, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs py-0.5 min-w-0">
+                  <span className="u-sel text-slate-500 dark:text-slate-400 flex-1 min-w-0 truncate" title={p.key}>{p.key}</span>
+                  <span className="u-sel font-semibold text-slate-800 dark:text-slate-100 shrink-0 text-right">{p.value}{p.unit ? <span className="text-slate-400 font-normal"> {p.unit}</span> : ''}</span>
+                </div>
+              ))}
+            </div>
+            {generalComp && (
+              <button onClick={() => onSelectBlock(generalComp!.id)} className="mt-1.5 text-[11px] text-emerald-600 hover:text-emerald-700 font-semibold cursor-pointer">
+                Все параметры установки →
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Чертёж: секции по ходу воздуха */}
+        {flowSections.length > 0 && (
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5"><LayoutGrid className="w-3 h-3" />Схема установки</div>
+            <div className="flex items-stretch gap-1 overflow-x-auto pb-2 -mx-1 px-1">
+              {flowSections.map((c, i) => {
+                const Icon = sectionIcon(c.equipType);
+                const tint = sectionTint(c.equipType);
+                const preview = topSpecs(c.specs, 2);
+                return (
+                  <React.Fragment key={c.id}>
+                    {i > 0 && <div className="flex items-center shrink-0 text-slate-300 dark:text-slate-600"><ArrowRight className="w-4 h-4" /></div>}
+                    <button
+                      onClick={() => onSelectBlock(c.id)}
+                      title={`${blockLabel(c)} — открыть характеристики`}
+                      className="group shrink-0 w-32 flex flex-col items-center text-center gap-1.5 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 hover:border-emerald-400 hover:bg-emerald-50/60 dark:hover:bg-emerald-950/20 transition-colors cursor-pointer">
+                      <span className={`w-9 h-9 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center ${tint} group-hover:scale-105 transition-transform`}>
+                        <Icon className="w-5 h-5" />
+                      </span>
+                      <span className="text-[11px] font-bold leading-tight line-clamp-2 text-slate-700 dark:text-slate-200">{blockLabel(c)}</span>
+                      {preview.length > 0 && (
+                        <div className="w-full space-y-0.5">
+                          {preview.map((p, k) => (
+                            <div key={k} className="text-[10px] text-slate-400 leading-tight truncate">{p.value}{p.unit ? ` ${p.unit}` : ''}</div>
+                          ))}
+                        </div>
+                      )}
+                      {c.hasConflict && <span className="text-[9px] font-bold text-rose-500">изменилось</span>}
+                    </button>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Список составных частей (сохраняем привычный список) */}
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5 flex items-center gap-1.5"><List className="w-3 h-3" />Составные части</div>
+          {monoSections.length === 0 && monoGenerals.length === 0 ? (
+            <p className="text-xs text-slate-400">У этой установки нет составных частей.</p>
+          ) : (
+            <div className="space-y-3">
+              {monoSections.map(({ mono, sections }) => (
+                <div key={mono.id}>
+                  {mono.name !== '__unit__' && (
+                    <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1.5"><Layers className="w-3 h-3" />{mono.name}</div>
+                  )}
+                  <div className="rounded-lg border border-slate-150 dark:border-slate-800 overflow-hidden divide-y divide-slate-100 dark:divide-slate-850">
+                    {sections.map(c => {
+                      const Icon = sectionIcon(c.equipType);
+                      return (
+                        <button key={c.id} onClick={() => onSelectBlock(c.id)} className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-800/50 text-left cursor-pointer">
+                          <Icon className={`w-3.5 h-3.5 shrink-0 ${sectionTint(c.equipType)}`} />
+                          <span className="flex-1 min-w-0 truncate text-slate-700 dark:text-slate-200">{blockLabel(c)}</span>
+                          {(c.tags?.length || 0) > 0 && <TagIcon className="w-3 h-3 text-emerald-500 shrink-0" />}
+                          {c.hasConflict && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />}
+                          <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              {monoGenerals.map(c => (
+                <button key={c.id} onClick={() => onSelectBlock(c.id)} className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg border border-slate-150 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 text-left cursor-pointer">
+                  <Layers className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                  <span className="flex-1 min-w-0 truncate text-slate-700 dark:text-slate-200">{blockLabel(c)}</span>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── Карточка блока ──
 function BlockCard(props: any) {
-  const { comp, unitName, showAllParams, setShowAllParams, isHidden, toggleHidden, onResolve, onOverride, onHistory, onPickTag, onUnlinkTag, blockLabel } = props;
-  // Нормализуем specs к виду { groups: [...] } для любого сохранённого формата
-  // (новый сгруппированный, старый плоский {ключ:значение}, или массив групп)
-  const normalizeSpecs = (raw: any): { groups: SpecGroup[] } => {
-    let parsed: any = {};
-    try { parsed = raw ? JSON.parse(raw) : {}; } catch (_) { parsed = {}; }
-    if (parsed && Array.isArray(parsed.groups)) {
-      return { groups: parsed.groups.map((g: any) => ({ title: g?.title || 'Параметры', params: Array.isArray(g?.params) ? g.params : [] })) };
-    }
-    if (Array.isArray(parsed)) {
-      return { groups: parsed.map((g: any) => ({ title: g?.title || 'Параметры', params: Array.isArray(g?.params) ? g.params : [] })) };
-    }
-    if (parsed && typeof parsed === 'object') {
-      // старый плоский формат: { "ключ": "значение", ... } или { ключ: {value,unit} }
-      const params = Object.entries(parsed).map(([k, v]: [string, any]) => ({
-        key: k,
-        value: v && typeof v === 'object' ? String(v.value ?? '') : String(v ?? ''),
-        unit: v && typeof v === 'object' ? String(v.unit ?? '') : '',
-      }));
-      return { groups: params.length ? [{ title: 'Параметры', params }] : [] };
-    }
-    return { groups: [] };
-  };
+  const { comp, unitName, showAllParams, setShowAllParams, isHidden, toggleHidden, onResolve, onOverride, onHistory, onPickTag, onUnlinkTag, blockLabel, onBackToUnit } = props;
   const specs = normalizeSpecs(comp?.specs);
   let conflicts: ParamConflict[] = [];
   try { conflicts = comp?.paramConflicts ? JSON.parse(comp.paramConflicts) : []; } catch (_) { conflicts = []; }
@@ -403,6 +601,11 @@ function BlockCard(props: any) {
         className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
+            {onBackToUnit && (
+              <button onClick={onBackToUnit} className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-400 hover:text-emerald-600 cursor-pointer" title="Вернуться к схеме установки">
+                <LayoutGrid className="w-3 h-3" /> схема
+              </button>
+            )}
             <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold uppercase tracking-wider">{comp.equipType}</span>
             <span className="text-[10px] text-slate-400 font-mono">{unitName} · v{comp.version}</span>
           </div>
