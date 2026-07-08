@@ -6,6 +6,7 @@ import { useLogStore } from '../store/logStore';
 import NotificationSettings from '../components/NotificationSettings';
 import UpdaterWidget from '../components/UpdaterWidget';
 import CustomSelect from '../components/CustomSelect';
+import FluxLogo from '../components/FluxLogo';
 import { ENV_CONFIG } from '../config/env';
 import {
   Settings, Sun, Moon, Database, Terminal, Bell, Briefcase, Fan, DownloadCloud,
@@ -144,6 +145,22 @@ function GeneralSection({ theme, toggleTheme }: any) {
             >
               <Moon className="w-4 h-4 text-emerald-400" /> Тёмная
             </button>
+          </div>
+        </div>
+
+        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">О программе</div>
+          <div className="flex items-center gap-3.5">
+            <FluxLogo size={46} radius={13} />
+            <div className="min-w-0">
+              <div className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                Flux
+                <span className="font-mono text-[11px] font-normal text-slate-400 dark:text-slate-500">v{__APP_VERSION__}</span>
+              </div>
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Разработка <span className="font-semibold text-slate-600 dark:text-slate-300">Раупова Хусрава</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -431,7 +448,7 @@ function DatabaseSection({ addToast }: any) {
   const handlePickDbFile = async () => {
     const win = window as any;
     if (!win.electron?.ipcRenderer?.invoke) {
-      alert('Выбор файла доступен только в приложении PDM System (Electron).');
+      alert('Выбор файла доступен только в приложении Flux (Electron).');
       return;
     }
     try {
@@ -541,7 +558,7 @@ function CrashLogsSection({ addLog }: any) {
   const pickDir = async () => {
     const win = window as any;
     if (!win.electron?.ipcRenderer?.invoke) {
-      alert('Выбор папки доступен только в приложении PDM System (Electron).');
+      alert('Выбор папки доступен только в приложении Flux (Electron).');
       return;
     }
     try {

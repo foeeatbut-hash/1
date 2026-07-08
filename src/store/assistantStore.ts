@@ -5,6 +5,7 @@ import { findKnowledge } from '../assistant/knowledge';
 import { TOURS, findTourByText, findBestTour, Tour } from '../assistant/tours';
 import { getSection } from '../assistant/sections';
 import { parse, hasIntent, fieldMatchesStems, Parsed } from '../assistant/nlp';
+import { matchLabel, fieldByUniqueUnit, FIELDS, FieldDef } from '../import/dictionary';
 
 export interface AssistantAction {
   label: string;
@@ -36,7 +37,7 @@ interface AssistantData {
   projectId: string;
   projects: { id: string; name: string; status: string }[];
   tags: { id: string; identifier: string; brand?: string; department?: string; wbs?: string; fluid?: string; mainName?: string; actuality?: string; stageId?: string; stageLabel?: string; supplier?: string; qty?: string }[];
-  components: { id: string; name: string; itemCode: string; systemName: string; category: string; monoblockName: string; status: string; hasConflict: boolean; tags: string[] }[];
+  components: { id: string; name: string; itemCode: string; systemName: string; category: string; monoblockName: string; status: string; hasConflict: boolean; tags: string[]; specs?: { key: string; value: string; unit: string; group: string }[] }[];
   stages: { id: string; label: string }[];
   duplicates: { code: string; count: number; ids: string[] }[];
   notes: { id: string; title: string; updatedAt: string }[];
@@ -183,7 +184,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   messages: [{
     id: uid(),
     role: 'assistant',
-    text: 'Здравствуйте! Я помощник PDM System — работаю локально, понимаю обычную речь и опечатки.\n\nМожно спросить про данные («покажи вентиляторы», «где 3700-K02»), проблемы («покажи дубли», «что требует внимания»), закупки («что не заказано») — а я найду и дам кнопки: открыть на холсте, показать в Менеджменте, выгрузить в Excel. Могу и выполнить: «открой менеджмент», «создай заметку». Ctrl+K — вызвать меня из любого места.',
+    text: 'Здравствуйте! Я помощник Flux — работаю локально, понимаю обычную речь и опечатки.\n\nМожно спросить про данные («покажи вентиляторы», «где 3700-K02»), проблемы («покажи дубли», «что требует внимания»), закупки («что не заказано») — а я найду и дам кнопки: открыть на холсте, показать в Менеджменте, выгрузить в Excel. Могу и выполнить: «открой менеджмент», «создай заметку». Ctrl+K — вызвать меня из любого места.',
     actions: [
       { label: 'Покажи дубли', kind: 'ask', query: 'покажи дубли' },
       { label: 'Что не заказано', kind: 'ask', query: 'что не заказано' },
@@ -347,6 +348,37 @@ const ROUTE_WORDS: { stems: string[]; route: string; name: string }[] = [
   { stems: ['проект'], route: '/projects', name: 'Проекты' },
 ];
 
+// --- Характеристики позиций (для ответов «какой расход у …») ---
+type CompSpec = { key: string; value: string; unit: string; group: string };
+type CompData = AssistantData['components'][number];
+
+// Поле, о котором спрашивает пользователь (по синонимам словаря в тексте запроса)
+function askedField(lower: string): FieldDef | null {
+  let best: FieldDef | null = null, bestLen = 0;
+  for (const f of FIELDS) {
+    for (const syn of f.synonyms) {
+      if (syn.length >= 4 && lower.includes(syn) && syn.length > bestLen) { best = f; bestLen = syn.length; }
+    }
+  }
+  return best;
+}
+// Характеристика компонента, соответствующая полю (по подписи, затем по единице).
+// При дублях (в бланках бывает «0 м³/ч» рядом с реальным) предпочитаем ненулевое.
+function specForField(specs: CompSpec[], field: FieldDef): CompSpec | null {
+  const byLabel = specs.filter(s => { const m = matchLabel(s.key); return !!m && m.field.id === field.id; });
+  const byUnit = specs.filter(s => s.unit && fieldByUniqueUnit(s.unit) === field.id);
+  const cand = byLabel.length ? byLabel : byUnit;
+  return cand.find(s => s.value && !/^0([.,]0+)?$/.test(s.value.trim())) || cand[0] || null;
+}
+// Компонент по коду тега / itemCode / имени
+function findComponentByCode(comps: CompData[], code: string): CompData | null {
+  const lc = code.toLowerCase();
+  return comps.find(c =>
+    (c.tags || []).some(t => (t || '').toLowerCase() === lc)
+    || (c.itemCode || '').toLowerCase() === lc
+    || (c.name || '').toLowerCase().includes(lc)) || null;
+}
+
 // --- Распознавание запроса (полностью локальное) ---
 // injectedData — тестовый шов: подставить данные вместо обращения к серверу.
 export async function resolveQuery(
@@ -403,6 +435,58 @@ export async function resolveQuery(
     if (tour) return msg(tour.intro, { actions: [{ label: '▶ Показать демонстрацию', kind: 'tour', tourId: tour.id }] });
   }
 
+  // E0. Характеристики позиции из «Оборудования»: «какой расход у 3700-…»,
+  // «характеристики 3700-…», «собери расход и мощность у …» (в т.ч. по нескольким тегам)
+  if (p.codes.length > 0) {
+    const field = askedField(lower);
+    const wantsSpecs = !!field || /(характеристик|данные|парам|собери|выпиши|сведени)/.test(lower);
+    if (wantsSpecs) {
+      const data = await getData();
+
+      // Одна позиция + конкретное поле → короткий ответ
+      if (p.codes.length === 1 && field) {
+        const comp = findComponentByCode(data.components, p.codes[0]);
+        if (comp && comp.specs) {
+          const sv = specForField(comp.specs, field);
+          if (sv) {
+            return msg(`${field.label} у ${p.codes[0]}: ${sv.value}${sv.unit ? ' ' + sv.unit : ''}.`,
+              { actions: [{ label: 'Открыть в оборудовании', kind: 'open-section', route: '/equipment' }] });
+          }
+          return msg(`У «${p.codes[0]}» характеристику «${field.label}» не нашёл — показать все характеристики?`,
+            { actions: [{ label: 'Все характеристики', kind: 'ask', query: `характеристики ${p.codes[0]}` }] });
+        }
+        // нет привязанного компонента → провалимся в карточку тега (E)
+      }
+
+      // Одна позиция без конкретного поля → все её характеристики
+      if (p.codes.length === 1 && !field) {
+        const comp = findComponentByCode(data.components, p.codes[0]);
+        if (comp && comp.specs && comp.specs.length) {
+          const table: AssistantTable = {
+            title: `Характеристики ${p.codes[0]}`,
+            columns: ['Характеристика', 'Значение', 'Ед.'],
+            rows: comp.specs.map(s => [s.key, s.value, s.unit]),
+          };
+          return { message: { id: uid(), role: 'assistant', text: `Характеристики «${comp.name || p.codes[0]}»: ${comp.specs.length} параметр(ов).`, table, actions: EXPORT_ACTIONS }, result: null };
+        }
+      }
+
+      // Несколько позиций → сводная таблица (по указанному полю или ключевым)
+      if (p.codes.length > 1) {
+        const cols = field ? [field] : ['airflow', 'pressure', 'power'].map(id => FIELDS.find(f => f.id === id)).filter(Boolean) as FieldDef[];
+        const rows: (string | number)[][] = p.codes.map(code => {
+          const comp = findComponentByCode(data.components, code);
+          return [code, ...cols.map(f => {
+            const sv = comp && comp.specs ? specForField(comp.specs, f) : null;
+            return sv ? `${sv.value}${sv.unit ? ' ' + sv.unit : ''}` : '—';
+          })];
+        });
+        const table: AssistantTable = { title: field ? `${field.label} по позициям` : 'Характеристики позиций', columns: ['Тег', ...cols.map(f => f.label)], rows };
+        return { message: { id: uid(), role: 'assistant', text: `Собрал данные по ${p.codes.length} позиц.`, table, actions: EXPORT_ACTIONS }, result: null };
+      }
+    }
+  }
+
   // E. Прямой код тега/марки → карточка позиции
   if (p.codes.length > 0) {
     const data = await getData();
@@ -446,6 +530,21 @@ export async function resolveQuery(
     const data = await getData();
     const c = data.counts;
 
+    // Остаточные стемы — то, что осталось после служебных/доменных слов.
+    // Позволяют пересекать фильтры: «критичные ВЕНТИЛЯТОРЫ», «не заказаны КЛАПАНЫ».
+    const filterStems = p.stems.filter(s => ![
+      'тег', 'оборудован', 'компонент', 'покажи', 'список', 'найд', 'сколько', 'выгруз',
+      'критичн', 'внимани', 'проблем', 'конфликт', 'дубл', 'закупк', 'этап', 'поставщик',
+      'заметк', 'запис', 'истори', 'изменени', 'изменил', 'сводк', 'статус',
+      // общие слова и слова-этапы — не считаем их фильтром-термином
+      'позици', 'позиц', 'штук', 'заказан', 'куплен', 'закуплен', 'утвержд', 'добавлен',
+      'осталось', 'просроч', 'требует', 'требуют',
+    ].includes(s));
+    const tagTextMatch = (t: AssistantData['tags'][number], stems: string[]) =>
+      fieldMatchesStems(t.identifier, stems) || fieldMatchesStems(t.brand, stems)
+      || fieldMatchesStems(t.mainName, stems) || fieldMatchesStems(t.department, stems)
+      || fieldMatchesStems(t.fluid, stems);
+
     // G1. Сводка/счётчики
     if (hasIntent(p, ['сводк', 'статус']) || /сколько всего|общая|итого|готовност/.test(lower)
         || (/сколько|количеств/.test(lower) && !hasIntent(p, ['дубл', 'критичн', 'закупк', 'вентилятор', 'клапан', 'установк']))) {
@@ -480,17 +579,19 @@ export async function resolveQuery(
       };
     }
 
-    // G3. Проблемы / актуальность
+    // G3. Проблемы / актуальность (+ пересечение с текстовым фильтром)
     if (hasIntent(p, ['критичн', 'внимани', 'проблем', 'конфликт'])) {
-      const bad = data.tags.filter(t => t.actuality === 'critical' || t.actuality === 'warning');
-      if (bad.length === 0) return msg('Критичных позиций и позиций «на проверку» нет. ✓');
+      let bad = data.tags.filter(t => t.actuality === 'critical' || t.actuality === 'warning');
+      if (filterStems.length) bad = bad.filter(t => tagTextMatch(t, filterStems));
+      const suffix = filterStems.length ? ` по запросу «${filterStems.join(' ')}»` : '';
+      if (bad.length === 0) return msg(`Критичных позиций и позиций «на проверку»${suffix} нет. ✓`);
       const table: AssistantTable = {
-        title: 'Требуют внимания',
+        title: `Требуют внимания${suffix}`,
         columns: ['Тег', 'Наименование', 'Состояние'],
         rows: bad.map(t => [t.identifier || '', t.mainName || '', ACTUALITY_RU[t.actuality || 'draft'] || '']),
       };
       return {
-        message: { id: uid(), role: 'assistant', text: `Требуют внимания: ${bad.length} (критичных ${bad.filter(t => t.actuality === 'critical').length}).`, table, actions: EXPORT_ACTIONS },
+        message: { id: uid(), role: 'assistant', text: `Требуют внимания${suffix}: ${bad.length} (критичных ${bad.filter(t => t.actuality === 'critical').length}).`, table, actions: EXPORT_ACTIONS },
         result: { kind: 'tags', ids: bad.map(t => t.id), label: 'требуют внимания' },
       };
     }
@@ -502,6 +603,8 @@ export async function resolveQuery(
       if (/не заказан|не куплен|осталось|просроч/.test(lower)) { sel = data.tags.filter(t => t.stageId === 'added'); label = 'не заказано'; }
       else if (/куплен|закуплен/.test(lower)) { sel = data.tags.filter(t => t.stageId === 'purchased'); label = 'куплено'; }
       else if (/заказан/.test(lower)) { sel = data.tags.filter(t => t.stageId === 'ordered'); label = 'заказано'; }
+      // Пересечение с текстовым фильтром: «не заказаны ВЕНТИЛЯТОРЫ отдела ОВ»
+      if (filterStems.length) { sel = sel.filter(t => tagTextMatch(t, filterStems)); label += ` · ${filterStems.join(' ')}`; }
       const table: AssistantTable = {
         title: `Закупки: ${label}`,
         columns: ['Тег', 'Наименование', 'Этап', 'Поставщик'],

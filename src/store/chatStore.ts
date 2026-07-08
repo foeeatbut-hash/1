@@ -103,7 +103,7 @@ interface ChatState {
   editMessage: (currentUserId: string, messageId: string, content: string) => Promise<void>;
   deleteMessage: (currentUserId: string, messageId: string) => Promise<void>;
   reactToMessage: (currentUserId: string, messageId: string, emoji: string) => Promise<void>;
-  pinMessage: (messageId: string) => Promise<void>;
+  pinMessage: (currentUserId: string, messageId: string) => Promise<void>;
   forwardMessage: (currentUserId: string, messageId: string, target: { groupId?: string; receiverId?: string }) => Promise<void>;
   clearConversation: (currentUserId: string) => Promise<void>;
   createGroup: (data: { name: string; type: 'CUSTOM' | 'CHANNEL'; memberIds: string[]; description?: string; color?: string; ownerId: string }) => Promise<ChatGroup | null>;
@@ -455,8 +455,11 @@ export const useChatStore = create<ChatState>((set, get) => {
       set((state) => ({ messages: state.messages.map(m => m.id === messageId ? { ...m, reactions } : m) }));
     },
 
-    pinMessage: async (messageId) => {
-      const res = await fetch(`/api/chat/messages/${messageId}/pin`, { method: 'POST' }).catch(() => null);
+    pinMessage: async (currentUserId, messageId) => {
+      const res = await fetch(`/api/chat/messages/${messageId}/pin`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUserId }),
+      }).catch(() => null);
       if (res && res.ok) {
         const { pinned } = await res.json();
         set((state) => ({ messages: state.messages.map(m => m.id === messageId ? { ...m, pinned } : m) }));
@@ -591,7 +594,7 @@ export const useChatStore = create<ChatState>((set, get) => {
 
         socketInstance.on('chat:message_received', (msg: ChatMessage) => {
           const { activeReceiverId, activeGroupId, activeType } = get();
-          
+
           if (activeType === 'DIRECT' && activeReceiverId && (msg.senderId === activeReceiverId || msg.receiverId === activeReceiverId)) {
             set((state) => {
               const cleaned = state.messages.filter(m => m.id !== msg.id);
@@ -603,6 +606,20 @@ export const useChatStore = create<ChatState>((set, get) => {
               return { messages: [...cleaned, msg] };
             });
           }
+        });
+
+        // Правки в реальном времени: редактирование/реакции/пин приходят частичным
+        // объектом ({id, ...изменённые поля}) — сливаем в существующее сообщение
+        socketInstance.on('chat:message_updated', (patch: Partial<ChatMessage> & { id: string }) => {
+          if (!patch?.id) return;
+          set((state) => ({
+            messages: state.messages.map(m => m.id === patch.id ? { ...m, ...patch } : m),
+          }));
+        });
+
+        socketInstance.on('chat:message_deleted', (payload: { id: string }) => {
+          if (!payload?.id) return;
+          set((state) => ({ messages: state.messages.filter(m => m.id !== payload.id) }));
         });
       }
     },

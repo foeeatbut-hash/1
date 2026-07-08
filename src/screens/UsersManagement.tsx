@@ -501,7 +501,7 @@ export default function UsersManagement() {
                       value={role}
                       onChange={(e) => setRole(e.target.value)}
                       disabled={isSubmitting}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-850 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-pointer"
+                      className="w-full h-[38px] px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-850 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-pointer"
                     >
                       <option value="ENGINEER_VENT">ENGINEER_VENT (Инженер вентиляции)</option>
                       <option value="ENGINEER_AUTO">ENGINEER_AUTO (Инженер автоматики)</option>
@@ -629,7 +629,7 @@ export default function UsersManagement() {
                         value={editRole}
                         onChange={(e) => setEditRole(e.target.value)}
                         disabled={isEditSubmitting}
-                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-850 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-pointer"
+                        className="w-full h-[38px] px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-850 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-pointer"
                       >
                         <option value="ENGINEER_VENT">Инженер вентиляции</option>
                         <option value="ENGINEER_AUTO">Инженер автоматики</option>

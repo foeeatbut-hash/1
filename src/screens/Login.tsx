@@ -86,7 +86,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
 
   const handlePickDbFile = async () => {
     if (!isElectronApp) {
-      addToast('Выбор файла базы доступен только в приложении PDM System', 'info');
+      addToast('Выбор файла базы доступен только в приложении Flux', 'info');
       return;
     }
     try {
@@ -266,10 +266,13 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
         </motion.div>
       </div>
 
-      {/* Footer: только версия программы */}
-      <div className="w-full flex items-center justify-end px-4 py-4 mt-auto">
+      {/* Footer: авторство слева, версия справа */}
+      <div className="w-full flex items-center justify-between gap-3 px-4 py-4 mt-auto">
+        <div className="text-xs text-slate-400 dark:text-slate-600">
+          Разработка <span className="font-semibold text-slate-500 dark:text-slate-400">Раупова Хусрава</span>
+        </div>
         <div className="text-xs font-mono text-slate-400 dark:text-slate-600 tracking-wider">
-          Версия 0.20.0
+          Flux · {__APP_VERSION__}
         </div>
       </div>
     </div>

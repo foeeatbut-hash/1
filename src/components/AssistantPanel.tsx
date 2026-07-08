@@ -149,7 +149,7 @@ export default function AssistantPanel() {
             <Sparkles className="w-4 h-4 text-white" />
           </div>
           <div>
-            <div className="text-sm font-bold text-slate-900 dark:text-white leading-tight">Помощник PDM</div>
+            <div className="text-sm font-bold text-slate-900 dark:text-white leading-tight">Помощник Flux</div>
             <div className="text-[10px] text-slate-400 dark:text-slate-500">Локальный · работает офлайн</div>
           </div>
         </div>
@@ -184,8 +184,8 @@ export default function AssistantPanel() {
         <div ref={endRef} />
       </div>
 
-      {/* Контекст текущего раздела: подсказки и вопросы */}
-      {section && (
+      {/* Контекст текущего раздела: подсказки и туры — только в режиме «Демонстрация» */}
+      {section && demoMode && (
         <div className="px-3 pt-2 pb-1 border-t border-slate-100 dark:border-slate-850 shrink-0">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1">

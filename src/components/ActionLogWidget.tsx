@@ -35,7 +35,8 @@ export default function ActionLogWidget() {
   const assistantOpen = useAssistantStore((s) => s.isOpen);
   const notifOpen = useNotificationStore((s) => s.panelOpen);
   const { addToast } = useToastStore();
-  
+  const currentUser = useStore((s) => s.user);
+
   const [filter, setFilter] = useState<'ALL' | 'INFO' | 'WARN' | 'ERROR'>('ALL');
   const [search, setSearch] = useState('');
   const [copied, setCopied] = useState(false);
@@ -194,6 +195,9 @@ export default function ActionLogWidget() {
       log.message.toLowerCase().includes(search.toLowerCase());
     return matchesFilter && matchesSearch;
   });
+
+  // Виджет логов — только для авторизованных: на экране входа он перекрывал версию
+  if (!currentUser) return null;
 
   return (
     <div

@@ -8,6 +8,7 @@ on:
     branches:
       - claude/management-section-redesign-bjdxoh
       - claude/notebook-canvas-redesign-rhzsss
+      - claude/program-code-review-ucf95m
 
 permissions:
   contents: write
@@ -49,17 +50,17 @@ jobs:
           EXE=$(ls release/*.exe | head -1)
           echo "Собран: $EXE ($(du -h "$EXE" | cut -f1))"
           rm -f portable/*.part
-          split -b 95m -d -a 2 "$EXE" "portable/PDM-System-$VERSION.exe."
+          split -b 95m -d -a 2 "$EXE" "portable/Flux-$VERSION.exe."
           cd portable
-          for f in PDM-System-$VERSION.exe.??; do mv "$f" "$f.part"; done
-          PARTS=$(ls PDM-System-$VERSION.exe.*.part | sed 's/^/"/;s/$/"/' | paste -sd+ -)
-          printf '@echo off\r\nchcp 65001 >nul\r\ncopy /b %s "PDM System %s.exe" >nul\r\necho Готово: PDM System %s.exe — можно запускать.\r\npause\r\n' "$PARTS" "$VERSION" "$VERSION" > СОБРАТЬ-EXE.bat
+          for f in Flux-$VERSION.exe.??; do mv "$f" "$f.part"; done
+          PARTS=$(ls Flux-$VERSION.exe.*.part | sed 's/^/"/;s/$/"/' | paste -sd+ -)
+          printf '@echo off\r\nchcp 65001 >nul\r\ncopy /b %s "Flux %s.exe" >nul\r\necho Готово: Flux %s.exe — можно запускать.\r\npause\r\n' "$PARTS" "$VERSION" "$VERSION" > СОБРАТЬ-EXE.bat
           ls -la
 
       - name: Целый exe как артефакт
         uses: actions/upload-artifact@v4
         with:
-          name: PDM-System-portable
+          name: Flux-portable
           path: release/*.exe
           retention-days: 30
 

@@ -11,6 +11,48 @@ import { Server as SocketIOServer } from 'socket.io';
 import fs from 'fs';
 import { exec, execSync } from 'child_process';
 import os from 'os';
+import crypto from 'crypto';
+
+// ── Пароли: хеширование (scrypt) с обратной совместимостью ────────────────────
+// Формат хранения: "scrypt$<saltHex>$<hashHex>". Любое другое значение считается
+// legacy-паролем в открытом виде — он проверяется как есть и перехешируется при
+// первом успешном входе (см. /api/login), поэтому существующие учётки не ломаются.
+const PW_PREFIX = 'scrypt$';
+
+function hashPassword(plain: string): string {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(String(plain), salt, 64);
+  return `${PW_PREFIX}${salt.toString('hex')}$${hash.toString('hex')}`;
+}
+
+function isLegacyPassword(stored: string | null | undefined): boolean {
+  return !!stored && !stored.startsWith(PW_PREFIX);
+}
+
+function verifyPassword(plain: string, stored: string | null | undefined): boolean {
+  if (!stored) return false;
+  if (stored.startsWith(PW_PREFIX)) {
+    const [, saltHex, hashHex] = stored.split('$');
+    if (!saltHex || !hashHex) return false;
+    try {
+      const salt = Buffer.from(saltHex, 'hex');
+      const expected = Buffer.from(hashHex, 'hex');
+      const actual = crypto.scryptSync(String(plain), salt, expected.length);
+      return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+    } catch {
+      return false;
+    }
+  }
+  // legacy: пароль хранится открытым текстом
+  return stored === String(plain);
+}
+
+// Безопасный разбор пользовательской даты: null для пустых, undefined для мусора
+function parseUserDate(value: unknown): Date | null | undefined {
+  if (value === null || value === '' || value === undefined) return null;
+  const d = new Date(value as any);
+  return isNaN(d.getTime()) ? undefined : d;
+}
 
 function getVentAppDataPath(): string {
   try {
@@ -628,6 +670,12 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use('/chat_files', express.static(path.join(userDataPath, 'chat_files')));
 
+// Готовность сервера: порт начинает слушать только после инициализации БД,
+// так что успешный ответ = приложение полностью готово (для стартовой заставки)
+app.get('/api/health', (_req: Request, res: Response) => {
+  res.json({ ok: true, uptime: Math.round(process.uptime()) });
+});
+
 // Database Routing
 app.get('/api/db/config', (req: Request, res: Response) => {
   const config = loadAppConfig();
@@ -982,15 +1030,18 @@ app.post('/api/login', async (req: Request, res: Response) => {
       user = allUsers.find((u: any) => String(u.symbol).toLowerCase() === normSymbol.toLowerCase()) || null;
     }
     if (user) {
-      // Check password. We also support both variations of RU-keyboard "gfhjkm" (пароль), "12121212Qw.", and "1122" for RaupovKhKh to prevent lock-outs
-      const isPasswordCorrect = user.password === String(password) ||
-        (user.symbol === 'RaupovKhKh' && (
-          String(password) === 'gfhjkm 12121212Qw.' || 
-          String(password) === '12121212Qw.' || 
-          String(password) === '1122'
-        ));
+      // Проверка пароля: поддерживаются и хешированные, и legacy-пароли в открытом виде
+      const isPasswordCorrect = verifyPassword(String(password), user.password);
 
       if (isPasswordCorrect) {
+        // Миграция: старый открытый пароль перехешируем при первом успешном входе
+        if (isLegacyPassword(user.password)) {
+          try {
+            await prisma.user.update({ where: { id: user.id }, data: { password: hashPassword(String(password)) } });
+          } catch (migErr) {
+            console.warn('[Login] Не удалось перехешировать legacy-пароль:', migErr);
+          }
+        }
         // Контроль доступа: профиль может быть отключен администратором или просрочен
         if (user.isActive === false) {
           return res.status(403).json({ success: false, message: 'Профиль отключен администратором. Обратитесь к администратору системы.' });
@@ -1009,7 +1060,8 @@ app.post('/api/login', async (req: Request, res: Response) => {
           // Обновляем якорь времени и для бессрочных входов
           trustedNowSync();
         }
-        return res.json({ success: true, user });
+        const { password: _pw, ...safeUser } = user as any;
+        return res.json({ success: true, user: safeUser });
       } else {
         return res.status(401).json({ success: false, message: 'Неверный пароль доступа!' });
       }
@@ -1076,8 +1128,27 @@ app.get('/api/assistant/data', async (req: Request, res: Response) => {
       prisma.user.count(),
       prisma.userNote.count(),
       projectId ? prisma.folder.count({ where: { projectId } }) : Promise.resolve(0),
-      prisma.fileNode.count(),
+      projectId ? prisma.fileNode.count({ where: { folder: { projectId } } }) : Promise.resolve(0),
     ]);
+
+    // Плоские характеристики компонента из JSON specs (для ответов «какой расход у …»)
+    const flattenSpecs = (raw: string | null): { key: string; value: string; unit: string; group: string }[] => {
+      if (!raw) return [];
+      try {
+        const parsed = JSON.parse(raw);
+        const groups = Array.isArray(parsed?.groups) ? parsed.groups : [];
+        const out: { key: string; value: string; unit: string; group: string }[] = [];
+        for (const g of groups) {
+          for (const p of (g?.params || [])) {
+            if (p?.key && p?.value !== undefined) {
+              out.push({ key: String(p.key), value: String(p.value ?? ''), unit: String(p.unit ?? ''), group: String(g.title || '') });
+            }
+            if (out.length >= 120) return out;
+          }
+        }
+        return out;
+      } catch { return []; }
+    };
 
     // Плоский список компонентов оборудования с привязанными тегами
     const components: any[] = [];
@@ -1094,6 +1165,7 @@ app.get('/api/assistant/data', async (req: Request, res: Response) => {
             status: comp.status,
             hasConflict: comp.hasConflict,
             tags: (comp.tags || []).map((t: any) => t.identifier),
+            specs: flattenSpecs(comp.specs),
           });
         }
       }
@@ -1188,12 +1260,73 @@ app.get('/api/assistant/data', async (req: Request, res: Response) => {
   }
 });
 
+// ── Авто-обучение словаря импорта ────────────────────────────────────────────
+// Общий (для всей команды) словарь синонимов подписей: нормализованная подпись → поле.
+// Пополняется молча из распознавания Excel/Word и подтверждённых импортов.
+const IMPORT_DICT_KEY = 'import_dictionary';
+
+app.get('/api/import/dictionary', async (_req: Request, res: Response) => {
+  try {
+    const s = await prisma.appSetting.findFirst({ where: { key: IMPORT_DICT_KEY, userId: null } });
+    let dict: any = {};
+    if (s?.value) { try { dict = JSON.parse(s.value); } catch { dict = {}; } }
+    res.json({ dict });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/import/learn', async (req: Request, res: Response) => {
+  try {
+    const observations: any[] = Array.isArray(req.body?.observations) ? req.body.observations : [];
+    const s = await prisma.appSetting.findFirst({ where: { key: IMPORT_DICT_KEY, userId: null } });
+    let dict: Record<string, { field: string; unit?: string; n: number }> = {};
+    if (s?.value) { try { dict = JSON.parse(s.value); } catch { dict = {}; } }
+
+    for (const o of observations) {
+      const label = String(o?.label || '').trim();
+      const field = String(o?.field || '').trim();
+      if (!label || !field || label.length < 2 || label.length > 60) continue;
+      const unit = o?.unit ? String(o.unit).slice(0, 24) : undefined;
+      const prev = dict[label];
+      if (!prev) {
+        dict[label] = { field, unit, n: 1 };
+      } else if (prev.field === field) {
+        prev.n = (prev.n || 1) + 1;
+        if (unit && !prev.unit) prev.unit = unit;
+      } else {
+        // Конфликт: другое поле — голосование, сильнейшее написание побеждает
+        prev.n = (prev.n || 1) - 1;
+        if (prev.n <= 0) dict[label] = { field, unit, n: 1 };
+      }
+    }
+
+    // Ограничение размера: держим до 4000 самых «уверенных» записей
+    const MAX = 4000;
+    const keys = Object.keys(dict);
+    if (keys.length > MAX) {
+      keys.sort((a, b) => (dict[b].n || 0) - (dict[a].n || 0));
+      const kept: typeof dict = {};
+      for (const k of keys.slice(0, MAX)) kept[k] = dict[k];
+      dict = kept;
+    }
+
+    const value = JSON.stringify(dict);
+    if (s) await prisma.appSetting.update({ where: { id: s.id }, data: { value } });
+    else await prisma.appSetting.create({ data: { key: IMPORT_DICT_KEY, userId: null, value } });
+    res.json({ dict });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/users', async (req: Request, res: Response) => {
   try {
     const users = await prisma.user.findMany({
       orderBy: { createdAt: 'asc' },
     });
-    res.json(users);
+    // Не отдаём хеши паролей наружу
+    res.json((users as any[]).map(({ password, ...u }) => u));
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -1218,13 +1351,14 @@ app.post('/api/users', async (req: Request, res: Response) => {
         symbol: String(symbol),
         name,
         role: role || 'ENGINEER_VENT',
-        password: password || 'password',
+        password: hashPassword(String(password || 'password')),
         isActive: typeof isActive === 'boolean' ? isActive : true,
         validUntil: validUntil ? new Date(validUntil) : null,
         permissions: permissions ? (typeof permissions === 'string' ? permissions : JSON.stringify(permissions)) : null,
       }
     });
-    res.json(newUser);
+    const { password: _pw, ...safeNewUser } = newUser as any;
+    res.json(safeNewUser);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -1252,8 +1386,19 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
       }
     }
 
+    // Разбор срока действия: null/'' — снять срок, отсутствие поля — не трогать,
+    // мусор — явная ошибка (иначе Invalid Date уронил бы prisma.update)
+    let parsedValidUntil: Date | null = null;
+    if (validUntil !== undefined) {
+      const p = parseUserDate(validUntil);
+      if (p === undefined) {
+        return res.status(400).json({ success: false, message: 'Некорректная дата срока действия профиля.' });
+      }
+      parsedValidUntil = p;
+    }
+
     // Защита от самоблокировки: нельзя отключить/ограничить последнего активного администратора
-    const willDeactivate = isActive === false || (validUntil && new Date(validUntil).getTime() < Date.now());
+    const willDeactivate = isActive === false || (parsedValidUntil !== null && parsedValidUntil.getTime() < Date.now());
     if (target.role === 'ADMIN' && willDeactivate) {
       const activeAdmins = await prisma.user.count({
         where: { role: 'ADMIN', isActive: true, id: { not: id } }
@@ -1267,10 +1412,9 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
     if (typeof name === 'string' && name.trim()) data.name = name.trim();
     if (typeof symbol === 'string' && symbol.trim()) data.symbol = symbol.trim();
     if (typeof role === 'string' && role) data.role = role;
-    if (typeof password === 'string' && password) data.password = password;
+    if (typeof password === 'string' && password) data.password = hashPassword(password);
     if (typeof isActive === 'boolean') data.isActive = isActive;
-    if (validUntil === null || validUntil === '') data.validUntil = null;
-    else if (validUntil) data.validUntil = new Date(validUntil);
+    if (validUntil !== undefined) data.validUntil = parsedValidUntil;
     if (permissions !== undefined) {
       data.permissions = permissions === null ? null
         : (typeof permissions === 'string' ? permissions : JSON.stringify(permissions));
@@ -1282,7 +1426,8 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
     if (permsChanged) {
       await notify(id, 'ДОСТУП', 'Изменены ваши права доступа', 'Администратор обновил доступные вам функции.', '/');
     }
-    res.json({ success: true, user: updated });
+    const { password: _pw, ...safeUpdated } = updated as any;
+    res.json({ success: true, user: safeUpdated });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -1603,6 +1748,23 @@ app.post('/api/files', async (req: Request, res: Response) => {
   res.json({ file });
 });
 
+// true, если candidateId совпадает с rootId или лежит внутри поддерева rootId.
+// Используется, чтобы не дать переместить папку саму в себя/в свою подпапку —
+// иначе в parentId возникнет цикл и applyScopeRecursive уйдёт в бесконечную рекурсию.
+async function isFolderInSubtree(candidateId: string, rootId: string): Promise<boolean> {
+  let cur: string | null = candidateId;
+  const guard = new Set<string>();
+  while (cur) {
+    if (cur === rootId) return true;
+    if (guard.has(cur)) break; // защита от уже существующего цикла в данных
+    guard.add(cur);
+    const f: { parentId: string | null } | null =
+      await prisma.folder.findUnique({ where: { id: cur }, select: { parentId: true } });
+    cur = f?.parentId || null;
+  }
+  return false;
+}
+
 // Рекурсивно проставляет раздел (общий/личный) папке, её файлам и подпапкам
 async function applyScopeRecursive(folderId: string, scope: string, ownerId: string | null) {
   await prisma.folder.update({ where: { id: folderId }, data: { scope, ownerId } as any });
@@ -1641,6 +1803,11 @@ app.post('/api/files/copy', async (req: Request, res: Response) => {
             data: { folderId: targetFolderId, ...(scope ? { scope, ownerId } as any : {}) }
           });
         } else {
+          // Нельзя вложить папку в саму себя или в свою же подпапку — это создаёт
+          // цикл в дереве. Такой id молча пропускаем, остальные перемещаем.
+          if (targetFolderId && await isFolderInSubtree(targetFolderId, id)) {
+            continue;
+          }
           await prisma.folder.update({ where: { id }, data: { parentId: targetFolderId } });
           if (scope) await applyScopeRecursive(id, scope, ownerId);
         }
@@ -2464,8 +2631,19 @@ app.post('/api/chat/upload', async (req: Request, res: Response) => {
       fs.mkdirSync(chatFilesDir, { recursive: true });
     }
 
-    // Sanitizing fileName to prevent Path Traversal
-    const sanitizedFileName = path.basename(String(fileName)).replace(/[\/\\]/g, '');
+    // Санитизация имени: только базовое имя, без разделителей и «..»/«.»
+    let base = path.basename(String(fileName || '')).replace(/[\/\\]/g, '').trim();
+    if (!base || base === '.' || base === '..') base = `file_${Date.now()}`;
+    // Уникальность: не затираем существующий файл (иначе теряется вложение)
+    const dot = base.lastIndexOf('.');
+    const stem = dot > 0 ? base.slice(0, dot) : base;
+    const ext = dot > 0 ? base.slice(dot) : '';
+    let sanitizedFileName = base;
+    let n = 1;
+    while (fs.existsSync(path.join(chatFilesDir, sanitizedFileName))) {
+      sanitizedFileName = `${stem}-${n}${ext}`;
+      n++;
+    }
     const filePath = path.join(chatFilesDir, sanitizedFileName);
     const buffer = Buffer.from(base64Data, 'base64');
     fs.writeFileSync(filePath, buffer);
@@ -2738,6 +2916,21 @@ app.delete('/api/chat/groups/:id', async (req: Request, res: Response) => {
 });
 
 // Реакция на сообщение (переключение эмодзи для пользователя)
+// Участник ли пользователь диалога/группы, которой принадлежит сообщение.
+// Личка: отправитель или получатель. Группа: член группы (или владелец).
+async function isChatParticipant(userId: string, msg: { senderId: string; receiverId: string | null; chatGroupId: string | null }): Promise<boolean> {
+  if (!userId) return false;
+  if (msg.senderId === userId || msg.receiverId === userId) return true;
+  if (msg.chatGroupId) {
+    const g = await prisma.chatGroup.findUnique({
+      where: { id: msg.chatGroupId },
+      select: { ownerId: true, members: { where: { id: userId }, select: { id: true } } },
+    });
+    if (g && (g.ownerId === userId || g.members.length > 0)) return true;
+  }
+  return false;
+}
+
 app.post('/api/chat/messages/:id/react', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -2745,6 +2938,9 @@ app.post('/api/chat/messages/:id/react', async (req: Request, res: Response) => 
     if (!userId || !emoji) return res.status(400).json({ error: 'userId и emoji обязательны' });
     const msg = await prisma.chatMessage.findUnique({ where: { id } });
     if (!msg) return res.status(404).json({ error: 'Сообщение не найдено' });
+    if (!(await isChatParticipant(String(userId), msg))) {
+      return res.status(403).json({ error: 'Реагировать можно только в своих диалогах и группах' });
+    }
     let reactions: Record<string, string[]> = {};
     try { reactions = msg.reactions ? JSON.parse(msg.reactions) : {}; } catch (_) { reactions = {}; }
     const list = reactions[emoji] || [];
@@ -2765,13 +2961,18 @@ app.post('/api/chat/messages/:id/react', async (req: Request, res: Response) => 
   }
 });
 
-// Закрепление / открепление сообщения
+// Закрепление / открепление сообщения (только участником диалога/группы)
 app.post('/api/chat/messages/:id/pin', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const userId = String(req.body?.userId || '');
     const msg = await prisma.chatMessage.findUnique({ where: { id } });
     if (!msg) return res.status(404).json({ error: 'Сообщение не найдено' });
+    if (!(await isChatParticipant(userId, msg))) {
+      return res.status(403).json({ error: 'Закреплять можно только в своих диалогах и группах' });
+    }
     const updated = await prisma.chatMessage.update({ where: { id }, data: { pinned: !msg.pinned } });
+    io.emit('chat:message_updated', { id, pinned: updated.pinned });
     res.json({ success: true, pinned: updated.pinned });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -2787,7 +2988,7 @@ app.post('/api/chat/forward', async (req: Request, res: Response) => {
     }
     const src = await prisma.chatMessage.findUnique({
       where: { id: String(messageId) },
-      include: { sender: { select: { name: true } } },
+      include: { sender: { select: { name: true } }, attachments: true },
     });
     if (!src) return res.status(404).json({ error: 'Исходное сообщение не найдено' });
     const created = await prisma.chatMessage.create({
@@ -2799,6 +3000,10 @@ app.post('/api/chat/forward', async (req: Request, res: Response) => {
         linkedElementId: src.linkedElementId,
         linkedProjectId: src.linkedProjectId,
         forwardedFrom: src.forwardedFrom || src.sender?.name || 'Сообщение',
+        // Вложения пересылаются вместе с текстом (файл на диске общий — копируем записи)
+        attachments: src.attachments.length ? {
+          create: src.attachments.map((a: any) => ({ fileName: a.fileName, filePath: a.filePath, fileSize: a.fileSize })),
+        } : undefined,
       },
     });
     const full = await prisma.chatMessage.findUnique({

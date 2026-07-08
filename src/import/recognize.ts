@@ -3,13 +3,15 @@
 
 import {
   DocBlock, DocTable, ExtractedDoc, DraftResult, DraftItem, DraftField, DocType, Confidence,
+  LearnObservation,
 } from './types';
 import {
   FIELDS, FieldDef, matchLabel, detectEquip, findSystem, normalizeCode, looksLikeCode,
   splitValueUnit, unitFromLabel, validateValue, GARBAGE_MARKERS, PAGE_MARKER_RE,
   ADMIN_LABEL_RE, ADMIN_TAG_RE, ADMIN_VENDOR_RE, textQuality, sanitizeText,
-  dedupeRepeatedPhrase, parseFormulaLine,
+  dedupeRepeatedPhrase, parseFormulaLine, normalizeLabel, fieldByUniqueUnit,
 } from './dictionary';
+import { crossCheckFan, isImplausible } from './valueGrammar';
 
 let idSeq = 0;
 const nextId = () => `draft-${++idSeq}`;
@@ -227,7 +229,7 @@ function pairsFromAttributeTable(rows: string[][]): RawPair[] {
 }
 
 /** Сущностная таблица: шапка → позиции по строкам */
-function itemsFromEntityTable(rows: string[][]): DraftItem[] {
+function itemsFromEntityTable(rows: string[][], obs?: LearnObservation[]): DraftItem[] {
   const nonEmpty = rows.filter(r => r.some(c => (c || '').trim()));
   if (nonEmpty.length < 2) return [];
   const header = nonEmpty[0];
@@ -244,7 +246,7 @@ function itemsFromEntityTable(rows: string[][]): DraftItem[] {
       pairs.push({ label: cols[i].raw, value: v, unit: unitFromLabel(cols[i].raw) || splitValueUnit(v).unit, source: 'table' });
     }
     if (pairs.length === 0) continue;
-    const item = buildItem(pairs, '');
+    const item = buildItem(pairs, '', false, obs);
     if (item.name || item.brand || item.title !== 'Позиция') items.push(item);
   }
   return items;
@@ -330,7 +332,29 @@ function expandPairs(pairs: RawPair[]): RawPair[] {
   return out;
 }
 
-function buildItem(rawPairs: RawPair[], contextTitle: string, isOcr = false): DraftItem {
+// Слияние доказательств: поле определяется не только подписью, но и единицей.
+// Единица, однозначно указывающая на одно поле (fieldByUniqueUnit), спасает
+// нераспознанные подписи и переубеждает слабое (неточное) совпадение подписи.
+function resolveFieldFusion(
+  p: RawPair, value: string, m: { field: FieldDef; score: number } | null,
+): FieldDef | null {
+  const labelField = m?.field || null;
+  const unit = p.unit || splitValueUnit(value).unit;
+  const uid = fieldByUniqueUnit(unit);
+  const unitField = uid ? (FIELDS.find(ff => ff.id === uid) || null) : null;
+  if (!unitField) return labelField;
+  // Единица годится, только если значение под неё правдоподобно
+  if (validateValue(unitField, value, unit) === 'reject') return labelField;
+  if (!labelField) return unitField;
+  // Конфликт: подпись совпала неточно (score < 100), а единица говорит иначе — верим единице
+  if (labelField.id !== unitField.id && m && m.score < 100
+      && labelField.kind === 'number' && unitField.kind === 'number') {
+    return unitField;
+  }
+  return labelField;
+}
+
+function buildItem(rawPairs: RawPair[], contextTitle: string, isOcr = false, obs?: LearnObservation[]): DraftItem {
   const item: DraftItem = {
     id: nextId(),
     title: contextTitle || 'Позиция',
@@ -346,17 +370,33 @@ function buildItem(rawPairs: RawPair[], contextTitle: string, isOcr = false): Dr
     if (!value || value === p.label) continue;
     if (textQuality(value) < 0.5) continue; // бинарный мусор не тащим
 
-    // Поле может быть известно заранее (формулы, админ-извлечения)
+    // Поле может быть известно заранее (формулы, админ-извлечения); иначе —
+    // слияние доказательств (подпись + единица), а не только совпадение подписи
     const m = p.fieldId ? null : matchLabel(p.label);
     let f: FieldDef | null = p.fieldId
       ? (FIELDS.find(ff => ff.id === p.fieldId) || null)
-      : (m?.field || null);
+      : resolveFieldFusion(p, value, m);
 
     // Административные подписи («Заказчик», «Телефон/Факс», «№ документа»…) —
     // реквизиты бланка, не характеристики. Неточное совпадение со словарём
     // («название документа» → name) тоже отбрасываем.
     if (!p.fieldId && ADMIN_LABEL_RE.test(p.label)) {
       if (!f || (m && m.score < 100)) continue;
+    }
+
+    // Авто-обучение: сырая подпись из документа → поле (только реальные подписи, не формулы/админ).
+    // Учим новые написания сопоставленных полей и подписи, однозначно определяемые единицей.
+    if (obs && !p.fieldId && p.label) {
+      const norm = normalizeLabel(p.label);
+      if (norm.length >= 2 && norm.length <= 60) {
+        if (f && !f.synonyms.includes(norm)) {
+          obs.push({ label: norm, field: f.id, unit: p.unit || undefined });
+        } else if (!f) {
+          const uUnit = p.unit || splitValueUnit(value).unit;
+          const uu = fieldByUniqueUnit(uUnit);
+          if (uu) obs.push({ label: norm, field: uu, unit: uUnit || undefined });
+        }
+      }
     }
 
     if (f) {
@@ -393,9 +433,13 @@ function buildItem(rawPairs: RawPair[], contextTitle: string, isOcr = false): Dr
         case 'qty':
           item.qty = value;
           break;
-        case 'spec':
-          item.fields.push({ fieldId: f.id, label: f.label, value, unit: unit || (f.units ? '' : ''), group: f.group, confidence: conf, source: p.source });
+        case 'spec': {
+          // Сохраняем ИСХОДНУЮ подпись документа (dpсеть.вс, dpсеть.нг…), чтобы
+          // разные параметры одного поля не схлопывались в общее «Давление».
+          const rawLabel = (!p.fieldId && p.label && p.label.length <= 40) ? p.label : f.label;
+          item.fields.push({ fieldId: f.id, label: rawLabel, value, unit: unit || (f.units ? '' : ''), group: f.group, confidence: conf, source: p.source });
           break;
+        }
       }
       if (f.target !== 'spec') {
         // Свойства позиции показываем в предпросмотре (кроме отклонённого KKS в brand)
@@ -484,6 +528,7 @@ function enrichFromProse(item: DraftItem, proseTexts: string[]) {
 export function recognize(doc: ExtractedDoc): DraftResult {
   const warnings = [...doc.warnings];
   const isOcr = doc.source === 'pdf-ocr';
+  const observations: LearnObservation[] = [];
 
   // 1. Классификация блоков
   const tables: { rows: string[][]; shape: TableShape }[] = [];
@@ -561,7 +606,7 @@ export function recognize(doc: ExtractedDoc): DraftResult {
   if (entityTables.length > 0 && entityTables.some(t => t.rows.length >= 3)) {
     // Ведомость: строки = позиции
     docType = 'list';
-    for (const t of entityTables) items.push(...itemsFromEntityTable(t.rows));
+    for (const t of entityTables) items.push(...itemsFromEntityTable(t.rows, observations));
     // Таблицы рядом с ведомостью — общие свойства (система и т.п.) для всех позиций
     const common: RawPair[] = [
       ...pairsFromAttributeTable(attributeTables.flatMap(t => t.rows)),
@@ -596,7 +641,7 @@ export function recognize(doc: ExtractedDoc): DraftResult {
       }
     }
     headings.forEach((h, i) => {
-      const item = buildItem(sectionPairs[i], h.text, isOcr);
+      const item = buildItem(sectionPairs[i], h.text, isOcr, observations);
       // Данные из преамбулы (система, общие поля) — первому/всем без своих значений
       if (preamblePairs.length) {
         const pre = buildItem(preamblePairs, '', isOcr);
@@ -614,6 +659,7 @@ export function recognize(doc: ExtractedDoc): DraftResult {
 
     // Матрица: марка из уже найденных пар помогает выбрать колонку
     let matrixHeaders: string[] | undefined;
+    let matrixRaw: string[][] | undefined;
     if (matrixTables.length) {
       const brandPair = pairs.find(p => matchLabel(p.label)?.field.id === 'brand');
       for (const t of matrixTables) {
@@ -621,6 +667,7 @@ export function recognize(doc: ExtractedDoc): DraftResult {
         if (mx.chosen >= 0) pairs.push(...mx.pairs);
         else if (mx.headers.length) {
           matrixHeaders = mx.headers;
+          matrixRaw = t.rows; // сохраняем строки, чтобы подставить значения после выбора колонки
           warnings.push('В таблице несколько типоразмеров — выберите нужную колонку.');
         }
       }
@@ -639,8 +686,8 @@ export function recognize(doc: ExtractedDoc): DraftResult {
       if (fid && !have.has(fid)) { cleaned.push(pp); have.add(fid); }
     }
 
-    const item = buildItem(cleaned, '', isOcr);
-    if (matrixHeaders) item.matrixHeaders = matrixHeaders;
+    const item = buildItem(cleaned, '', isOcr, observations);
+    if (matrixHeaders) { item.matrixHeaders = matrixHeaders; item.matrixRaw = matrixRaw; }
     items.push(item);
   }
 
@@ -697,12 +744,65 @@ export function recognize(doc: ExtractedDoc): DraftResult {
     warnings.push('Документ распознан со скана (OCR) — проверьте жёлтые значения перед импортом.');
   }
 
+  // Самопроверка (только пометки/предупреждения, значения не меняем):
+  //  • число вне правдоподобного диапазона поля → понижаем уверенность до low;
+  //  • физика вентилятора (P ≈ Q·ΔP/η) — предупреждение при явном расхождении.
+  for (const it of filtered) {
+    for (const fld of it.fields) {
+      if (!fld.fieldId || fld.confidence === 'low') continue;
+      const def = FIELDS.find(ff => ff.id === fld.fieldId);
+      if (def?.kind === 'number' && def.range && isImplausible(fld.value, fld.unit, def.range, def.units?.[0])) {
+        fld.confidence = 'low';
+      }
+    }
+    const w = crossCheckFan(
+      it.fields.filter(f => f.fieldId).map(f => ({ fieldId: f.fieldId!, value: f.value, unit: f.unit }))
+    );
+    if (w && !warnings.includes(w)) warnings.push(w);
+  }
+
+  // Дедупликация наблюдений по паре «подпись+поле»
+  const obsSeen = new Set<string>();
+  const dedupObs = observations.filter(o => {
+    const k = `${o.label}|${o.field}`;
+    if (obsSeen.has(k)) return false;
+    obsSeen.add(k);
+    return true;
+  });
+
   return {
     docType: filtered.length ? docType : 'unknown',
     items: filtered,
     warnings,
     stats: { dataBlocks, totalBlocks: doc.blocks.length },
+    observations: dedupObs,
   };
+}
+
+// ── Выбор колонки матричной таблицы ──────────────────────────────────────────
+// Когда в бланке несколько типоразмеров, пользователь выбирает нужный. Тогда
+// заново извлекаем значения именно этой колонки из сохранённых строк матрицы и
+// доклеиваем их к позиции (не дублируя уже имеющиеся подписи).
+export function applyMatrixColumn(item: DraftItem, header: string): DraftItem {
+  const base: DraftItem = {
+    ...item,
+    brand: header,
+    name: item.name || header,
+    matrixHeaders: undefined,
+    matrixRaw: undefined,
+  };
+  if (!item.matrixRaw) return base;
+  const { pairs } = pairsFromMatrixTable(item.matrixRaw, header);
+  if (!pairs.length) return base;
+  const built = buildItem(pairs, item.title);
+  const haveLabels = new Set(item.fields.map(f => f.label.toLowerCase().trim()));
+  const added = built.fields.filter(f => {
+    const key = f.label.toLowerCase().trim();
+    if (haveLabels.has(key)) return false;
+    haveLabels.add(key);
+    return true;
+  });
+  return { ...base, fields: [...item.fields, ...added] };
 }
 
 // ── Черновик → payload для сервера ───────────────────────────────────────────

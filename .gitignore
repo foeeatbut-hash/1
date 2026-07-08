@@ -1,5 +1,6 @@
 node_modules/
-build/
+build/*
+!build/icon.png
 database/
 dist-electron/
 release/

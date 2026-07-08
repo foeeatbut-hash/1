@@ -331,19 +331,19 @@ export default function Dashboard() {
                         </p>
                       </div>
 
-                      <div className="mt-4 pt-2.5 border-t border-black/5 dark:border-white/5 flex items-center justify-between gap-1">
+                      <div className="mt-4 pt-2.5 border-t border-black/5 dark:border-white/5 flex items-center justify-between gap-2">
                         <button
                           onClick={() => navigate('/notes')}
-                          className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                          className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer whitespace-nowrap"
                         >
-                          Перейти в Блокнот
+                          Открыть
                         </button>
                         <button
                           onClick={(e) => handleOpenSticker(e, note.id)}
-                          className="p-1.5 bg-black/5 dark:bg-dark-panel hover:bg-black/10 dark:hover:bg-dark-panel rounded-lg text-slate-600 dark:text-dark-text-muted hover:text-slate-900 dark:hover:text-dark-text-main cursor-pointer flex items-center gap-1 text-xs transition-all"
+                          className="p-1.5 bg-black/5 dark:bg-dark-panel hover:bg-black/10 dark:hover:bg-dark-panel rounded-lg text-slate-600 dark:text-dark-text-muted hover:text-slate-900 dark:hover:text-dark-text-main cursor-pointer flex items-center gap-1 text-xs transition-all whitespace-nowrap shrink-0"
                           title="Открепить стикер (поверх других приложений ОС)"
                         >
-                          <ExternalLink className="w-3 h-3" />
+                          <ExternalLink className="w-3 h-3 shrink-0" />
                           <span>На экран</span>
                         </button>
                       </div>
