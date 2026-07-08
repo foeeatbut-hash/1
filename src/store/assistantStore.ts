@@ -208,8 +208,9 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   setRoute: (route) => {
     const prev = get().currentRoute;
     set({ currentRoute: route });
-    // Встречаем пользователя при заходе в новый раздел (один раз за сессию), если чат открыт
-    if (route !== prev && get().isOpen) {
+    // Встречаем пользователя при заходе в новый раздел (один раз за сессию),
+    // только в режиме «Демонстрация» и при открытом чате
+    if (route !== prev && get().isOpen && get().demoMode) {
       const sec = getSection(route);
       if (sec && !get().greetedRoutes[route]) {
         set(s => ({

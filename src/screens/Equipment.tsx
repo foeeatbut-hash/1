@@ -65,12 +65,19 @@ const SECTION_TINT: Record<string, string> = {
 };
 const sectionTint = (t: string) => SECTION_TINT[t] || 'text-slate-500';
 
-// Ключевые параметры для превью секции на схеме (первые непустые из specs)
+// Ключевые параметры для превью секции на схеме (первые непустые из specs,
+// без повторов одного ключа — иначе две «Массы» подряд ничего не говорят)
 function topSpecs(specs: string | undefined, n = 2): SpecParam[] {
   const g = normalizeSpecs(specs).groups;
   const out: SpecParam[] = [];
+  const seen = new Set<string>();
   for (const grp of g) for (const p of (grp.params || [])) {
-    if (p && String(p.value ?? '').trim()) { out.push(p); if (out.length >= n) return out; }
+    const key = String(p?.key ?? '').trim().toLowerCase();
+    if (p && String(p.value ?? '').trim() && !seen.has(key)) {
+      seen.add(key);
+      out.push(p);
+      if (out.length >= n) return out;
+    }
   }
   return out;
 }
@@ -459,7 +466,26 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock }: {
   }, [monoSections]);
 
   const generalSpecs = generalComp ? normalizeSpecs(generalComp.specs).groups : [];
-  const generalParams = generalSpecs.flatMap(g => g.params || []).filter(p => String(p.value ?? '').trim()).slice(0, 12);
+  // Повторяющиеся ключи («Масса» в трёх группах) уточняем названием группы,
+  // чтобы значения не выглядели противоречащими друг другу
+  const generalParams = useMemo(() => {
+    const flat = generalSpecs.flatMap(g =>
+      (g.params || [])
+        .filter(p => String(p.value ?? '').trim())
+        .map(p => ({ ...p, groupTitle: g.title }))
+    );
+    const keyCount: Record<string, number> = {};
+    for (const p of flat) {
+      const k = String(p.key).trim().toLowerCase();
+      keyCount[k] = (keyCount[k] || 0) + 1;
+    }
+    return flat.slice(0, 12).map(p => ({
+      ...p,
+      key: keyCount[String(p.key).trim().toLowerCase()] > 1 && p.groupTitle && p.groupTitle !== 'Параметры'
+        ? `${p.key} · ${p.groupTitle}`
+        : p.key,
+    }));
+  }, [generalComp?.specs]);
   const totalSections = flowSections.length;
 
   return (

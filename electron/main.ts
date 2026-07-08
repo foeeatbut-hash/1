@@ -92,7 +92,15 @@ app.whenReady().then(() => {
   createWindow();
 
   if (app.isPackaged) {
-    setImmediate(() => {
+    // Инициализация сервера (require server.cjs) на секунды блокирует главный
+    // процесс — если запустить её сразу, рендерер не успевает отрисовать
+    // стартовую заставку и пользователь видит пустой синий экран.
+    // Поэтому ждём первой отрисовки страницы и только потом поднимаем сервер;
+    // CSS-анимации заставки живут в рендерере и продолжают идти.
+    let serverStarted = false;
+    const startEmbeddedServer = () => {
+      if (serverStarted) return;
+      serverStarted = true;
       const startupLogPath = path.join(ventAppDataPath, 'server-startup.log');
       try {
         fs.writeFileSync(startupLogPath, `[${new Date().toISOString()}] Инициализация встроенного Express-сервера...\n`, 'utf-8');
@@ -104,7 +112,14 @@ app.whenReady().then(() => {
           fs.appendFileSync(startupLogPath, `[${new Date().toISOString()}] СБОЙ ЗАПУСКА: ${err.message}\nStack:\n${err.stack}\n`, 'utf-8');
         } catch (writeErr) {}
       }
+    };
+    mainWindow?.webContents.once('did-finish-load', () => {
+      // Небольшая пауза, чтобы заставка гарантированно успела отрисоваться
+      setTimeout(startEmbeddedServer, 250);
     });
+    // Страховка: если событие загрузки не пришло (например, страница упала) —
+    // всё равно поднимаем сервер
+    setTimeout(startEmbeddedServer, 5000);
   }
 
   const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');
