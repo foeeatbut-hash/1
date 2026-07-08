@@ -357,6 +357,8 @@ export default function Registry() {
 
   // Board cards expanded states
   const [expandedCardIds, setExpandedCardIds] = useState<{ [tagId: string]: boolean }>({});
+  // Быстрое добавление связи из карточки: поиск тега без перетаскивания линий
+  const [linkPicker, setLinkPicker] = useState<{ tagId: string; search: string } | null>(null);
 
   // Sub-description inline editing state
   const [editingDescId, setEditingDescId] = useState<string | null>(null);
@@ -1389,7 +1391,10 @@ export default function Registry() {
         const sourceTag = tagsById[sourceId];
         const destTag = tagsById[destId];
 
-        if (sourceTag && destTag) {
+        if (sourceTag && destTag && collectDescendants(destId).has(sourceId)) {
+          // Цикл: целевой тег — предок источника. Такая связь ломает дерево.
+          addToast('Нельзя соединить: получится цикл (тег — предок источника)', 'error');
+        } else if (sourceTag && destTag) {
           const sourceMeta = { ...parseTagMetadata(sourceTag) };
           const destMeta = { ...parseTagMetadata(destTag) };
 
@@ -1416,26 +1421,8 @@ export default function Registry() {
           await saveTagMetadata(destId, destMeta);
         }
       } else {
-        // Empty space release
-        if (reconnectTargetId) {
-          if (window.confirm("Удалить связь или возвратить её в исходное положение? Нажмите ОК для УДАЛЕНИЯ, Отмена для ВОЗВРАТА.")) {
-            const sourceTag = tagsById[sourceId];
-            if (sourceTag) {
-              const sourceMeta = { ...parseTagMetadata(sourceTag) };
-              sourceMeta.connections = sourceMeta.connections.filter(id => id !== reconnectTargetId);
-              await saveTagMetadata(sourceId, sourceMeta);
-            }
-
-            const oldTargetTag = tagsById[reconnectTargetId];
-            if (oldTargetTag) {
-              const oldTargetMeta = { ...parseTagMetadata(oldTargetTag) };
-              if (oldTargetMeta.parentId === sourceId) {
-                oldTargetMeta.parentId = undefined;
-                await saveTagMetadata(reconnectTargetId, oldTargetMeta);
-              }
-            }
-          }
-        }
+        // Отпустили в пустоту: связь возвращается на место (без вопросов).
+        // Удалить связь легко и явно: крестик на линии или крестик у связи в карточке.
       }
 
       // Hide active dragging path
@@ -1464,6 +1451,37 @@ export default function Registry() {
     }
 
     await saveTagMetadata(sourceId, meta);
+
+    // parentId дочернего тега тоже чистим — иначе дерево «помнит» разорванную связь
+    const child = tagsById[targetId];
+    if (child) {
+      const childMeta = { ...parseTagMetadata(child) };
+      if (childMeta.parentId === sourceId) {
+        childMeta.parentId = undefined;
+        await saveTagMetadata(targetId, childMeta);
+      }
+    }
+  };
+
+  // Создание связи «родитель → дочерний» из карточки (без перетаскивания линии).
+  // Защита от циклов: нельзя подключить собственного предка как дочерний тег.
+  const handleAddConnection = async (parentId: string, childId: string) => {
+    if (parentId === childId) return;
+    const parentTag = tagsById[parentId];
+    const childTag = tagsById[childId];
+    if (!parentTag || !childTag) return;
+    if (collectDescendants(childId).has(parentId)) {
+      addToast('Нельзя создать цикл: этот тег — предок текущего', 'error');
+      return;
+    }
+    const parentMeta = { ...parseTagMetadata(parentTag) };
+    if ((parentMeta.connections || []).includes(childId)) return;
+    parentMeta.connections = [...(parentMeta.connections || []), childId];
+    const childMeta = { ...parseTagMetadata(childTag) };
+    childMeta.parentId = parentId;
+    await saveTagMetadata(parentId, parentMeta);
+    await saveTagMetadata(childId, childMeta);
+    addToast('Связь создана', 'success');
   };
 
   // Следим за размером холста (для центрирования и отсечения невидимого)
@@ -3023,10 +3041,9 @@ export default function Registry() {
                                   title="Удалить связь"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    if (window.confirm(`Разорвать связь между ${tag.identifier} и ${targetTag.identifier}?`)) {
-                                      handleRemoveConnection(tag.id, targetId);
-                                      if (isSelected) setSelectedConnection(null);
-                                    }
+                                    handleRemoveConnection(tag.id, targetId);
+                                    if (isSelected) setSelectedConnection(null);
+                                    addToast(`Связь ${tag.identifier} → ${targetTag.identifier} удалена`, 'success');
                                   }}
                                 >
                                   ×
@@ -3165,19 +3182,19 @@ export default function Registry() {
                             </div>
                           </div>
                           
-                          {/* Main Name / Title always visible */}
-                          <div className="text-xs font-semibold text-slate-600 dark:text-slate-350 truncate mt-0.5 pl-5" title={meta.mainName || 'Наименование отсутствует'}>
-                            {meta.mainName || <span className="italic opacity-60">Наименование отсутствует</span>}
-                          </div>
+                          {/* Наименование — только если есть (пустые строки не занимают место) */}
+                          {meta.mainName && (
+                            <div className="text-xs font-semibold text-slate-600 dark:text-slate-350 truncate mt-0.5 pl-5" title={meta.mainName}>
+                              {meta.mainName}
+                            </div>
+                          )}
 
-                          {/* Марка и актуальность — всегда видны в компактной карточке */}
+                          {/* Марка и актуальность */}
                           <div className="flex items-center gap-1.5 pl-5 mt-0.5 min-w-0">
-                            {tag.brand ? (
+                            {tag.brand && (
                               <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 truncate max-w-[140px]" title={`Марка: ${tag.brand}`}>
                                 {tag.brand}
                               </span>
-                            ) : (
-                              <span className="text-[10px] italic text-slate-400 dark:text-slate-600">без марки</span>
                             )}
                             <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${statusVal.bg} ${statusVal.text} ${statusVal.border}`} title={`Актуальность: ${statusVal.label}`}>
                               {statusVal.label}
@@ -3199,19 +3216,70 @@ export default function Registry() {
                               </span>
                             </div>
 
-                            {/* TAG CREATOR / UPDATER TIMESTAMPS BAR */}
-                            <div className="px-4 py-1.5 bg-sky-50/10 dark:bg-slate-900/10 text-xs text-slate-400 dark:text-slate-500 font-mono flex flex-wrap justify-between border-b border-slate-100 dark:border-slate-850">
-                              <span>Создан: <strong>{meta.createdBy || 'Система'}</strong> ({formatDateStr(meta.createdAt || tag.createdAt)})</span>
-                              {meta.updatedBy && (
-                                <span className="text-right">Ред: <strong>{meta.updatedBy}</strong> ({formatDateStr(meta.updatedAt)})</span>
+                            {/* СВЯЗИ: родители и дочерние теги — добавить/снять в один клик */}
+                            <div className="px-3.5 py-2.5 border-b border-slate-100 dark:border-slate-900 no-drag space-y-1.5 text-left">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Связи</span>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setLinkPicker(prev => prev?.tagId === tag.id ? null : { tagId: tag.id, search: '' }); }}
+                                  className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer"
+                                >
+                                  + дочерний тег
+                                </button>
+                              </div>
+                              <div className="flex flex-wrap gap-1">
+                                {(incomingByTagId[tag.id] || []).map(pid => tagsById[pid] && (
+                                  <span key={`p-${pid}`} className="inline-flex items-center gap-1 pl-1.5 pr-0.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/50 text-[10px] font-bold text-indigo-700 dark:text-indigo-300" title={`Родитель: ${tagsById[pid].identifier}`}>
+                                    ↑ <span className="font-mono truncate max-w-[110px]">{tagsById[pid].identifier}</span>
+                                    <button onClick={(e) => { e.stopPropagation(); handleRemoveConnection(pid, tag.id); }} className="p-0.5 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900 hover:text-rose-500 cursor-pointer" title="Разорвать связь с родителем">
+                                      <X className="w-2.5 h-2.5" />
+                                    </button>
+                                  </span>
+                                ))}
+                                {(meta.connections || []).map(cid => tagsById[cid] && (
+                                  <span key={`c-${cid}`} className="inline-flex items-center gap-1 pl-1.5 pr-0.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-[10px] font-bold text-emerald-700 dark:text-emerald-300" title={`Дочерний: ${tagsById[cid].identifier}`}>
+                                    ↓ <span className="font-mono truncate max-w-[110px]">{tagsById[cid].identifier}</span>
+                                    <button onClick={(e) => { e.stopPropagation(); handleRemoveConnection(tag.id, cid); }} className="p-0.5 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900 hover:text-rose-500 cursor-pointer" title="Разорвать связь">
+                                      <X className="w-2.5 h-2.5" />
+                                    </button>
+                                  </span>
+                                ))}
+                                {(incomingByTagId[tag.id] || []).length === 0 && (meta.connections || []).length === 0 && (
+                                  <span className="text-[10px] text-slate-400">Нет связей</span>
+                                )}
+                              </div>
+                              {linkPicker?.tagId === tag.id && (
+                                <div className="pt-1 space-y-1">
+                                  <input
+                                    autoFocus
+                                    value={linkPicker.search}
+                                    onChange={(e) => setLinkPicker({ tagId: tag.id, search: e.target.value })}
+                                    onKeyDown={(e) => { if (e.key === 'Escape') setLinkPicker(null); }}
+                                    placeholder="Найти тег для связи…"
+                                    className="w-full px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-emerald-400"
+                                  />
+                                  <div className="max-h-32 overflow-y-auto space-y-0.5">
+                                    {tags
+                                      .filter(t => t.id !== tag.id
+                                        && !(meta.connections || []).includes(t.id)
+                                        && (t.identifier || '').toLowerCase().includes(linkPicker.search.toLowerCase()))
+                                      .slice(0, 8)
+                                      .map(t => (
+                                        <button key={t.id}
+                                          onClick={async (e) => { e.stopPropagation(); await handleAddConnection(tag.id, t.id); setLinkPicker(null); }}
+                                          className="w-full flex items-center gap-1.5 px-2 py-1 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-left text-xs font-mono font-bold text-slate-700 dark:text-slate-200 cursor-pointer">
+                                          {t.identifier}
+                                        </button>
+                                      ))}
+                                  </div>
+                                </div>
                               )}
                             </div>
 
                             {/* SUB-DESCRIPTIONS LIST (With full tracking timestamps and inline editing capability!) */}
                             <div className="p-3.5 space-y-2 max-h-[220px] overflow-y-auto no-drag">
-                              <div className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase flex items-center justify-between">
-                                <span>Подописания ({meta.descriptions.length})</span>
-                                <span className="text-xs lowercase italic font-normal">клик на карандаш для ред.</span>
+                              <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                                Подописания ({meta.descriptions.length})
                               </div>
 
                               {meta.descriptions.map((desc) => {
@@ -3282,7 +3350,10 @@ export default function Registry() {
                                         <div className="flex items-start justify-between gap-1.5">
                                           <div className="flex items-center gap-1.5 min-w-0">
                                             <div className={`w-1.5 h-1.5 rounded-full ${config.text} bg-current shrink-0`} />
-                                            <span className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">{desc.text}</span>
+                                            <span
+                                              className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate"
+                                              title={`${desc.text}${desc.createdBy ? `\nСоздал: ${desc.createdBy}${desc.createdAt ? ` (${formatDateStr(desc.createdAt)})` : ''}` : ''}${desc.updatedBy ? `\nИзменил: ${desc.updatedBy}${desc.updatedAt ? ` (${formatDateStr(desc.updatedAt)})` : ''}` : ''}`}
+                                            >{desc.text}</span>
                                           </div>
                                           <div className="flex items-center gap-1 shrink-0">
                                             <span className={`inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-xs font-semibold border ${config.bg} ${config.text} ${config.border}`}>
@@ -3321,16 +3392,6 @@ export default function Registry() {
                                           </p>
                                         )}
 
-                                        {/* Creator / Updater Tracker Row */}
-                                        <div className="flex flex-wrap items-center gap-x-1 gap-y-0.2 text-xs text-slate-400 dark:text-slate-500 font-mono mt-1 border-t border-slate-100 dark:border-slate-850/40 pt-1 leading-none">
-                                          <span>Ср: <strong>{desc.createdBy || 'Система'}</strong> {desc.createdAt && `(${formatDateStr(desc.createdAt)})`}</span>
-                                          {desc.updatedBy && (
-                                            <>
-                                              <span className="text-slate-300 dark:text-slate-755">|</span>
-                                              <span>Из: <strong>{desc.updatedBy}</strong> {desc.updatedAt && `(${formatDateStr(desc.updatedAt)})`}</span>
-                                            </>
-                                          )}
-                                        </div>
                                       </>
                                     )}
                                   </div>
@@ -3344,12 +3405,8 @@ export default function Registry() {
                               )}
                             </div>
 
-                            {/* QUICK INLINE COMMENT WORK FORM */}
+                            {/* Быстрое добавление подописания */}
                             <div className="p-3 bg-slate-50 dark:bg-slate-900 border-t border-slate-105 dark:border-slate-850 space-y-2 no-drag text-left text-xs">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs text-slate-400 uppercase font-bold tracking-wider">Добавить датчик/компонент:</span>
-                              </div>
-
                               <div className="flex gap-1.5">
                                 <input
                                   type="text"
@@ -3387,9 +3444,8 @@ export default function Registry() {
                               </div>
                             </div>
 
-                            {/* BOTTOM CONTROL ACTIONS UTILITIES */}
-                            <div className="p-2.5 bg-slate-100/40 dark:bg-slate-950/40 border-t border-slate-200 dark:border-slate-850 flex items-center justify-between text-xs rounded-b-2xl no-drag">
-                              <span className="text-xs text-slate-400 uppercase tracking-widest font-mono">ID: {tag.id.slice(0, 8)}</span>
+                            {/* Действия карточки */}
+                            <div className="p-2 bg-slate-100/40 dark:bg-slate-950/40 border-t border-slate-200 dark:border-slate-850 flex items-center justify-end text-xs rounded-b-2xl no-drag">
                               <div className="flex items-center gap-1.5">
                                 <button
                                   title="Настроить связи / свойства в модали"

@@ -6,6 +6,7 @@ import { useChatStore, ChatMessage } from '../store/chatStore';
 import { useShareStore } from '../store/shareStore';
 import { useNotificationStore } from '../store/notificationStore';
 import { decodeShare } from '../lib/shareLink';
+import RichChatInput, { RichChatInputHandle } from '../components/RichChatInput';
 import { Link2 } from 'lucide-react';
 import {
   MessageSquare, 
@@ -160,11 +161,14 @@ export default function ChatManagement() {
     }
   }, [pendingGroupName, groups]);
 
-  // Приём «поделиться-ссылки»: открыть ЛС с пользователем и вставить токен в поле
+  // Приём «поделиться-ссылки»: открыть ЛС с пользователем и вставить токен в поле.
+  // Значение читаем из стора на момент выполнения — иначе StrictMode/повторный
+  // запуск эффекта вставляет токен дважды.
   useEffect(() => {
     if (!pendingReceiverId) return;
     setActiveReceiverId(pendingReceiverId);
-    if (pendingInsert) setMessageText(prev => (prev ? prev + ' ' : '') + pendingInsert);
+    const ins = useChatStore.getState().pendingInsert;
+    if (ins) setMessageText(prev => (prev ? prev + ' ' : '') + ins);
     clearPendingShare();
   }, [pendingReceiverId]);
 
@@ -184,51 +188,22 @@ export default function ChatManagement() {
   const [selectedElementName, setSelectedElementName] = useState<string | null>(null);
 
   // Autocomplete suggestions state
-  const messageInputRef = useRef<HTMLInputElement>(null);
+  const messageInputRef = useRef<RichChatInputHandle>(null);
   const [autocompleteSuggestions, setAutocompleteSuggestions] = useState<Array<{ text: string; description: string; elementId?: string }>>([]);
   const [isAutocompleteLoading, setIsAutocompleteLoading] = useState(false);
   const [activeTagQuery, setActiveTagQuery] = useState<string | null>(null);
   const [autocompleteIndex, setAutocompleteIndex] = useState(0);
 
-  // Helper to find the KKS/BIM tag query being typed at cursor position
-  const getActiveTagQuery = (text: string, selectionStart: number | null) => {
-    if (selectionStart === null) return null;
-    const leftText = text.slice(0, selectionStart);
-    const lastSpaceIdx = leftText.lastIndexOf(' ');
-    const wordStartIdx = lastSpaceIdx === -1 ? 0 : lastSpaceIdx + 1;
-    const word = leftText.slice(wordStartIdx);
-    if (word.startsWith('#')) {
-      return word.slice(1);
-    }
-    return null;
+  // Слово перед курсором приходит из rich-инпута; «#вен» → запрос автодополнения
+  const handleCaretWord = (word: string | null) => {
+    setActiveTagQuery(word && word.startsWith('#') ? word.slice(1) : null);
   };
 
-  // Replace matched tag substring with actual clicked KKS/BIM tag identifier
+  // Заменяем набираемое «#вен» на выбранный тег
   const insertTagAtCursor = (tagText: string) => {
-    if (!messageInputRef.current) return;
-    const input = messageInputRef.current;
-    const selectionStart = input.selectionStart;
-    if (selectionStart === null) return;
-
-    const text = messageText;
-    const leftText = text.slice(0, selectionStart);
-    const rightText = text.slice(selectionStart);
-
-    const lastSpaceIdx = leftText.lastIndexOf(' ');
-    const wordStartIdx = lastSpaceIdx === -1 ? 0 : lastSpaceIdx + 1;
-    
-    const updatedLeft = leftText.slice(0, wordStartIdx) + `#${tagText} `;
-    const newText = updatedLeft + rightText;
-    
-    setMessageText(newText);
+    messageInputRef.current?.replaceWordBeforeCaret(`#${tagText} `);
     setAutocompleteSuggestions([]);
     setActiveTagQuery(null);
-    
-    setTimeout(() => {
-      input.focus();
-      const newCursorPos = updatedLeft.length;
-      input.setSelectionRange(newCursorPos, newCursorPos);
-    }, 0);
   };
 
   // UI state
@@ -430,8 +405,8 @@ export default function ChatManagement() {
     }
   };
 
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSend = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!user) return;
     if (isSendingMessage) return;
     if (!messageText.trim() && stagedAttachments.length === 0 && !selectedElementId) {
@@ -566,16 +541,8 @@ export default function ChatManagement() {
   const EMOJIS = ['👍','✅','❌','🔥','⚠️','📐','🔧','⚙️','📊','📁','💡','🚀','👌','🙏','😀','😄','😅','🤔','😐','😢','💪','🤝','📌','⏰','❗','❓','🟢','🔴'];
 
   const insertEmoji = (emoji: string) => {
-    const el = messageInputRef.current;
-    if (el) {
-      const start = el.selectionStart ?? messageText.length;
-      const end = el.selectionEnd ?? messageText.length;
-      const next = messageText.slice(0, start) + emoji + messageText.slice(end);
-      setMessageText(next);
-      requestAnimationFrame(() => {
-        el.focus();
-        el.setSelectionRange(start + emoji.length, start + emoji.length);
-      });
+    if (messageInputRef.current) {
+      messageInputRef.current.insertText(emoji);
     } else {
       setMessageText(prev => prev + emoji);
     }
@@ -1413,13 +1380,14 @@ export default function ChatManagement() {
                   )}
                 </div>
 
-                {/* Main Text Area Input */}
-                <input
-                  type="text"
+                {/* Rich-поле ввода: ссылки-теги отображаются чипами ещё до отправки */}
+                <RichChatInput
                   ref={messageInputRef}
-                  data-tour="chat-input"
-                  placeholder="Напишите сообщение... (например, введите # и выберите тег)"
                   value={messageText}
+                  onChange={setMessageText}
+                  onCaretWord={handleCaretWord}
+                  onSend={() => handleSend()}
+                  placeholder="Напишите сообщение... (# — вставить тег, Shift+Enter — новая строка)"
                   onKeyDown={(e) => {
                     if (autocompleteSuggestions.length > 0) {
                       if (e.key === 'ArrowDown') {
@@ -1444,23 +1412,6 @@ export default function ChatManagement() {
                       handleCancelComposeMode();
                     }
                   }}
-                  onKeyUp={(e) => {
-                    const el = e.currentTarget;
-                    const q = getActiveTagQuery(el.value, el.selectionStart);
-                    setActiveTagQuery(q);
-                  }}
-                  onClick={(e) => {
-                    const el = e.currentTarget;
-                    const q = getActiveTagQuery(el.value, el.selectionStart);
-                    setActiveTagQuery(q);
-                  }}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setMessageText(val);
-                    const q = getActiveTagQuery(val, e.target.selectionStart);
-                    setActiveTagQuery(q);
-                  }}
-                  className="flex-1 text-xs px-3 py-2 bg-slate-50 hover:bg-slate-100/50 dark:bg-slate-950 dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 focus:bg-white dark:focus:bg-slate-950 transition-all font-sans font-medium"
                 />
 
                 <button

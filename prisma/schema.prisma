@@ -203,6 +203,7 @@ model UserNote {
   content     String   // Хранение HTML-строки или JSON-дерева Rich-text редактора
   color       String   @default("bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200") // Предустанови slate, red, green, yellow
   equipmentId String?  // Опциональная привязка к тегу/оборудованию
+  groupName   String?  // Пользовательская группа заметок в блокноте
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }

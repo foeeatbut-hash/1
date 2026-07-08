@@ -2400,13 +2400,14 @@ app.get('/api/notes/:id', async (req: Request, res: Response) => {
 // 3. Create note
 app.post('/api/notes', async (req: Request, res: Response) => {
   try {
-    const { title, content, color, equipmentId } = req.body;
+    const { title, content, color, equipmentId, groupName } = req.body;
     const note = await prisma.userNote.create({
       data: {
         title: title || 'Новая заметка',
         content: content || '',
         color: color || 'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200',
-        equipmentId
+        equipmentId,
+        groupName: groupName || null
       }
     });
     res.json({ note });
@@ -2418,14 +2419,16 @@ app.post('/api/notes', async (req: Request, res: Response) => {
 // 4. Update note
 app.patch('/api/notes/:id', async (req: Request, res: Response) => {
   try {
-    const { title, content, color, equipmentId } = req.body;
+    const { title, content, color, equipmentId, groupName } = req.body;
     const note = await prisma.userNote.update({
       where: { id: req.params.id },
       data: {
         title,
         content,
         color,
-        equipmentId
+        equipmentId,
+        // undefined — поле не меняем; пустая строка/null — убираем из группы
+        groupName: groupName === undefined ? undefined : (groupName || null)
       }
     });
     res.json({ note });
