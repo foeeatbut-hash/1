@@ -29,6 +29,57 @@ function createDbClient(dbType: string, dbUrl: string) {
   return new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: dbUrl.split('?')[0], timeout: 15000 }) });
 }
 
+// ── Мгновенное окно-заставка ──
+// Главное окно с большим JS-бандлом рисуется не сразу — раньше это выглядело
+// как «пустой синий экран» на несколько секунд. Теперь пока оно готовится,
+// показывается лёгкое окно-заставка (inline data:URL, грузится мгновенно).
+let splashWindow: BrowserWindow | null = null;
+
+const SPLASH_HTML = `<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;height:100%;overflow:hidden;background:#0f172a;font-family:'Segoe UI',system-ui,sans-serif;
+display:flex;flex-direction:column;align-items:center;justify-content:center;color:#94a3b8;-webkit-app-region:drag;user-select:none}
+.tile{width:84px;height:84px;border-radius:20px;background:linear-gradient(140deg,#0d9488,#10b981,#4ade80);
+display:flex;align-items:center;justify-content:center;animation:pop .6s cubic-bezier(.34,1.56,.64,1) both,glow 3s ease-in-out .6s infinite}
+.c{fill:none;stroke:#fff;stroke-width:9;stroke-linecap:round}.b{opacity:.32}
+.m{stroke-dasharray:30 70;animation:flow 2.4s linear infinite}.m.r{animation:flowr 2.4s linear -1.2s infinite}
+.w{margin-top:18px;font-size:23px;font-weight:800;color:#e2e8f0;letter-spacing:2px;animation:fade .8s ease .2s both}
+.s{margin-top:5px;font-size:11px;color:#64748b;animation:fade .8s ease .5s both}
+.bar{margin-top:20px;width:150px;height:3px;border-radius:99px;background:#1e293b;overflow:hidden;position:relative;animation:fade .8s ease .7s both}
+.bar::after{content:'';position:absolute;top:0;left:0;width:40%;height:100%;border-radius:99px;
+background:linear-gradient(90deg,transparent,#10b981,#4ade80);animation:sh 1.4s ease-in-out infinite}
+.cr{position:absolute;bottom:14px;font-size:10px;color:#475569;animation:fade 1s ease 1s both}
+@keyframes pop{from{transform:scale(.55);opacity:0}to{transform:scale(1);opacity:1}}
+@keyframes glow{0%,100%{box-shadow:0 8px 30px rgba(16,185,129,.28)}50%{box-shadow:0 8px 48px rgba(16,185,129,.5)}}
+@keyframes flow{to{stroke-dashoffset:-100}}@keyframes flowr{to{stroke-dashoffset:100}}
+@keyframes fade{from{opacity:0}to{opacity:1}}@keyframes sh{0%{left:-40%}100%{left:100%}}
+</style></head><body>
+<div class="tile"><svg width="52" height="52" viewBox="0 0 100 100">
+<path class="c b" d="M16 62 C36 28 64 28 84 62"/><path class="c b" d="M16 40 C36 74 64 74 84 40"/>
+<path class="c m" pathLength="100" d="M16 62 C36 28 64 28 84 62"/><path class="c m r" pathLength="100" d="M16 40 C36 74 64 74 84 40"/>
+</svg></div>
+<div class="w">Flux</div><div class="s">Запуск приложения…</div><div class="bar"></div>
+<div class="cr">Разработка Раупова Хусрава</div>
+</body></html>`;
+
+function createSplashWindow() {
+  splashWindow = new BrowserWindow({
+    width: 420,
+    height: 380,
+    frame: false,
+    resizable: false,
+    maximizable: false,
+    backgroundColor: '#0f172a',
+    webPreferences: { nodeIntegration: false, contextIsolation: true },
+  });
+  splashWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(SPLASH_HTML));
+  splashWindow.on('closed', () => { splashWindow = null; });
+}
+
+function closeSplashWindow() {
+  try { splashWindow?.destroy(); } catch (_) {}
+  splashWindow = null;
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -39,6 +90,7 @@ function createWindow() {
     autoHideMenuBar: true,
     frame: false,
     titleBarStyle: 'hidden',
+    show: false, // показываем только когда страница готова к отрисовке — вместо пустого синего экрана видна заставка
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -51,6 +103,17 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  let shown = false;
+  const revealMainWindow = () => {
+    if (shown || !mainWindow) return;
+    shown = true;
+    mainWindow.show();
+    closeSplashWindow();
+  };
+  mainWindow.once('ready-to-show', revealMainWindow);
+  // Страховка: если ready-to-show не пришёл (страница зависла/упала) — всё равно показываем
+  setTimeout(revealMainWindow, 10000);
 
   // Сообщаем рендереру об изменении состояния разворота окна
   mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximized-changed', true));
@@ -87,8 +150,10 @@ app.whenReady().then(() => {
     }
   } catch (e) {}
 
-  // Сначала показываем окно (быстрый отклик для пользователя),
-  // встроенный Express-сервер поднимаем сразу после — не блокируя создание окна
+  // Сначала мгновенная заставка, затем главное окно (покажется, когда будет
+  // готово к отрисовке); встроенный Express-сервер поднимаем после первой
+  // отрисовки страницы — не блокируя интерфейс
+  createSplashWindow();
   createWindow();
 
   if (app.isPackaged) {

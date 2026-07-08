@@ -10,13 +10,16 @@ import { matchLabel, fieldByUniqueUnit, FIELDS, FieldDef } from '../import/dicti
 export interface AssistantAction {
   label: string;
   kind: 'tour' | 'export-excel' | 'export-word' | 'navigate' | 'ask'
-      | 'focus-tag' | 'find-duplicates' | 'create-note' | 'open-section';
+      | 'focus-tag' | 'find-duplicates' | 'create-note' | 'open-section'
+      | 'focus-equipment';
   tourId?: string;
   route?: string;
   query?: string;
   tagId?: string;   // для focus-tag
   code?: string;    // для find-duplicates
   noteTitle?: string; // для create-note
+  componentId?: string; // для focus-equipment: какой элемент открыть
+  specKey?: string;     // для focus-equipment: какую характеристику подсветить
 }
 
 export interface AssistantTable {
@@ -179,6 +182,81 @@ function toAction(s: { label: string; kind: 'ask' | 'tour'; query?: string; tour
     : { label: s.label, kind: 'ask', query: s.query };
 }
 
+// ── Исправление перепутанной раскладки клавиатуры ────────────────────────────
+// «gjrf;b ntub» → «покажи теги», «покажи ntub» → «покажи теги», «щзут» → «open».
+// Конвертируем только те слова, которые после конвертации становятся знакомыми,
+// или явно выглядят как «мусор» в текущей раскладке (латиница без гласных).
+const EN2RU: Record<string, string> = {
+  q: 'й', w: 'ц', e: 'у', r: 'к', t: 'е', y: 'н', u: 'г', i: 'ш', o: 'щ', p: 'з',
+  '[': 'х', ']': 'ъ', a: 'ф', s: 'ы', d: 'в', f: 'а', g: 'п', h: 'р', j: 'о',
+  k: 'л', l: 'д', ';': 'ж', "'": 'э', z: 'я', x: 'ч', c: 'с', v: 'м', b: 'и',
+  n: 'т', m: 'ь', ',': 'б', '.': 'ю', '`': 'ё',
+};
+const RU2EN: Record<string, string> = {};
+for (const [en, ru] of Object.entries(EN2RU)) RU2EN[ru] = en;
+
+function convertLayout(word: string, map: Record<string, string>): string {
+  let out = '';
+  for (const ch of word) {
+    const lower = ch.toLowerCase();
+    const rep = map[lower];
+    out += rep === undefined ? ch : (ch === lower ? rep : rep.toUpperCase());
+  }
+  return out;
+}
+
+// Знакомые русские слова: команды помощника + синонимы полей словаря
+let VOCAB_RU: string[] | null = null;
+function vocabRu(): string[] {
+  if (!VOCAB_RU) {
+    const words = new Set<string>([
+      'покажи', 'показать', 'найди', 'найти', 'сколько', 'выгрузи', 'выведи', 'открой',
+      'характеристики', 'данные', 'параметры', 'оборудование', 'теги', 'тег', 'дубли',
+      'дубликаты', 'проект', 'проекты', 'файл', 'файлы', 'папка', 'заметка', 'заметки',
+      'чат', 'сотрудники', 'критичные', 'позиции', 'позиция', 'этап', 'заказан', 'куплен',
+      'закупки', 'менеджмент', 'проводник', 'блокнот', 'справочник', 'помощь', 'привет',
+      'умеешь', 'создай', 'создать', 'вентилятор', 'вентиляторы', 'клапан', 'клапаны',
+      'фильтр', 'нагреватель', 'охладитель', 'установка', 'кондиционер', 'сводка', 'демонстрация',
+    ]);
+    for (const f of FIELDS) {
+      for (const w of f.label.toLowerCase().split(/\s+/)) if (w.length >= 3) words.add(w);
+      for (const syn of f.synonyms) for (const w of syn.split(/\s+/)) if (w.length >= 3) words.add(w);
+    }
+    VOCAB_RU = [...words];
+  }
+  return VOCAB_RU;
+}
+function isKnownRu(token: string): boolean {
+  if (token.length < 3) return false;
+  const p = Math.min(5, token.length);
+  const head = token.slice(0, p);
+  return vocabRu().some(w => w.slice(0, p) === head);
+}
+const VOCAB_EN = ['show', 'open', 'find', 'help', 'tags', 'tag', 'files', 'file', 'create',
+  'equipment', 'project', 'projects', 'chat', 'notes', 'note', 'export', 'excel', 'word', 'demo'];
+
+export function fixKeyboardLayout(text: string): string {
+  return text.split(/(\s+)/).map(tok => {
+    const t = tok.trim();
+    // Коды/теги (3700-B02…), короткие слова и числа не трогаем
+    if (!t || t.length < 3 || /\d/.test(t) || /-/.test(t)) return tok;
+    if (/^[a-z\[\];',.`]+$/i.test(t)) {
+      // Латиница: возможно, русское слово в английской раскладке
+      const conv = convertLayout(t, EN2RU);
+      if (/^[а-яё]+$/i.test(conv)) {
+        if (isKnownRu(conv.toLowerCase())) return conv;
+        // без гласных в латинице, но с гласными после конвертации — почти наверняка раскладка
+        if (!/[aeiouy]/i.test(t) && /[аеёиоуыэюя]/i.test(conv)) return conv;
+      }
+    } else if (/^[а-яё]+$/i.test(t)) {
+      // Кириллица: возможно, английское слово в русской раскладке
+      const conv = convertLayout(t, RU2EN).toLowerCase();
+      if (/^[a-z]+$/.test(conv) && VOCAB_EN.includes(conv) && !isKnownRu(t.toLowerCase())) return conv;
+    }
+    return tok;
+  }).join('');
+}
+
 export const useAssistantStore = create<AssistantState>((set, get) => ({
   isOpen: false,
   messages: [{
@@ -254,7 +332,12 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
     set(s => ({ messages: [...s.messages, userMsg], loading: true }));
 
     try {
-      const { message, result } = await resolveQuery(clean, get().demoMode, get().lastResult);
+      // Понимаем запросы с перепутанной раскладкой («gjrf;b ntub» → «покажи теги»)
+      const fixed = fixKeyboardLayout(clean);
+      const { message, result } = await resolveQuery(fixed, get().demoMode, get().lastResult);
+      if (fixed !== clean) {
+        message.text = `🌐 Понял как: «${fixed}»\n\n${message.text}`;
+      }
       set(s => ({
         messages: [...s.messages, message],
         loading: false,
@@ -288,6 +371,16 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
     } else if (action.kind === 'focus-tag' && action.tagId && navigateFn) {
       // Глубокая ссылка: раздел прочитает ?focus= и центрирует/подсветит позицию
       navigateFn(`/registry?focus=${encodeURIComponent(action.tagId)}`);
+    } else if (action.kind === 'focus-equipment' && action.componentId && navigateFn) {
+      // Переход к конкретному элементу оборудования с подсветкой характеристики
+      try {
+        sessionStorage.setItem('flux_equip_focus', JSON.stringify({
+          componentId: action.componentId,
+          specKey: action.specKey || '',
+          ts: Date.now(),
+        }));
+      } catch (_) {}
+      navigateFn('/equipment');
     } else if (action.kind === 'find-duplicates' && action.code && navigateFn) {
       navigateFn(`/registry?dup=${encodeURIComponent(action.code)}`);
     } else if (action.kind === 'create-note' && navigateFn) {
@@ -451,7 +544,7 @@ export async function resolveQuery(
           const sv = specForField(comp.specs, field);
           if (sv) {
             return msg(`${field.label} у ${p.codes[0]}: ${sv.value}${sv.unit ? ' ' + sv.unit : ''}.`,
-              { actions: [{ label: 'Открыть в оборудовании', kind: 'open-section', route: '/equipment' }] });
+              { actions: [{ label: 'Показать в оборудовании', kind: 'focus-equipment', componentId: comp.id, specKey: sv.key }] });
           }
           return msg(`У «${p.codes[0]}» характеристику «${field.label}» не нашёл — показать все характеристики?`,
             { actions: [{ label: 'Все характеристики', kind: 'ask', query: `характеристики ${p.codes[0]}` }] });
@@ -468,7 +561,8 @@ export async function resolveQuery(
             columns: ['Характеристика', 'Значение', 'Ед.'],
             rows: comp.specs.map(s => [s.key, s.value, s.unit]),
           };
-          return { message: { id: uid(), role: 'assistant', text: `Характеристики «${comp.name || p.codes[0]}»: ${comp.specs.length} параметр(ов).`, table, actions: EXPORT_ACTIONS }, result: null };
+          return { message: { id: uid(), role: 'assistant', text: `Характеристики «${comp.name || p.codes[0]}»: ${comp.specs.length} параметр(ов).`, table,
+            actions: [{ label: 'Показать в оборудовании', kind: 'focus-equipment', componentId: comp.id }, ...EXPORT_ACTIONS] }, result: null };
         }
       }
 

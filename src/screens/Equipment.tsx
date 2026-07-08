@@ -191,6 +191,30 @@ export default function Equipment() {
   const selected = selectedBlockId ? allBlocks[selectedBlockId] : null;
   const selectedUnit = useMemo(() => systems.find(s => s.id === selectedUnitId) || null, [systems, selectedUnitId]);
 
+  // ── Фокус из ИИ-чата: открыть конкретный элемент и подсветить характеристику ──
+  const [highlightKey, setHighlightKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!Object.keys(allBlocks).length) return;
+    let payload: { componentId?: string; specKey?: string; ts?: number } | null = null;
+    try { payload = JSON.parse(sessionStorage.getItem('flux_equip_focus') || 'null'); } catch (_) {}
+    if (!payload?.componentId) return;
+    // Просроченный фокус (старше минуты) не применяем
+    if (!payload.ts || Date.now() - payload.ts > 60_000) { sessionStorage.removeItem('flux_equip_focus'); return; }
+    const entry = allBlocks[payload.componentId];
+    if (!entry) return; // элемент ещё не загружен или из другого проекта
+    sessionStorage.removeItem('flux_equip_focus');
+    setActiveCat(entry.unit.category);
+    setExpanded(e => ({ ...e, [entry.unit.id]: true, [entry.mono.id]: true }));
+    setSelectedUnitId(null);
+    setSelectedBlockId(entry.block.id);
+    setShowAllParams(false);
+    if (payload.specKey) {
+      setHighlightKey(payload.specKey);
+      const t = setTimeout(() => setHighlightKey(null), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [allBlocks]);
+
   const totalConflicts = useMemo(() =>
     catSystems.reduce((n, s) => n + s.monoblocks.reduce((m, mb) => m + mb.components.filter(c => c.hasConflict).length, 0), 0),
     [catSystems]);
@@ -380,6 +404,7 @@ export default function Equipment() {
             onBackToUnit={selected.unit.category === 'AHU' || (selected.unit.monoblocks || []).some(mb => (mb.components || []).length > 1)
               ? () => { setSelectedUnitId(selected.unit.id); setSelectedBlockId(null); }
               : null}
+            highlightKey={highlightKey}
           />
         ) : selectedUnit ? (
           <UnitSchematic
@@ -607,8 +632,17 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock }: {
 
 // ── Карточка блока ──
 function BlockCard(props: any) {
-  const { comp, unitName, showAllParams, setShowAllParams, isHidden, toggleHidden, onResolve, onOverride, onHistory, onPickTag, onUnlinkTag, blockLabel, onBackToUnit } = props;
+  const { comp, unitName, showAllParams, setShowAllParams, isHidden, toggleHidden, onResolve, onOverride, onHistory, onPickTag, onUnlinkTag, blockLabel, onBackToUnit, highlightKey } = props;
   const specs = normalizeSpecs(comp?.specs);
+  // Подсветка характеристики, к которой привёл ИИ-чат: скроллим к строке
+  const hlNorm = (highlightKey || '').trim().toLowerCase();
+  useEffect(() => {
+    if (!hlNorm) return;
+    const t = setTimeout(() => {
+      document.querySelector('[data-hl-param="1"]')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 150);
+    return () => clearTimeout(t);
+  }, [hlNorm, comp?.id]);
   let conflicts: ParamConflict[] = [];
   try { conflicts = comp?.paramConflicts ? JSON.parse(comp.paramConflicts) : []; } catch (_) { conflicts = []; }
   if (!Array.isArray(conflicts)) conflicts = [];
@@ -686,8 +720,10 @@ function BlockCard(props: any) {
                   const conf = conflictOf(g.title, p.key);
                   const overridden = overrides[`${g.title}||${p.key}`] !== undefined;
                   const isEditing = editKey === token;
+                  const isHl = !!hlNorm && String(p.key || '').trim().toLowerCase() === hlNorm;
                   return (
-                    <div key={p.key} className={`flex items-center gap-2 px-2.5 py-1.5 text-xs ${pHidden && showAllParams ? 'opacity-40' : ''} ${conf ? 'bg-rose-50/60 dark:bg-rose-950/15' : ''}`}>
+                    <div key={p.key} {...(isHl ? { 'data-hl-param': '1' } : {})}
+                      className={`flex items-center gap-2 px-2.5 py-1.5 text-xs transition-colors duration-500 ${pHidden && showAllParams ? 'opacity-40' : ''} ${conf ? 'bg-rose-50/60 dark:bg-rose-950/15' : ''} ${isHl ? 'bg-emerald-100 dark:bg-emerald-900/40 ring-2 ring-inset ring-emerald-400 animate-pulse rounded-md' : ''}`}>
                       <span className="u-sel text-slate-500 dark:text-slate-400 flex-1 min-w-0 truncate">{p.key}</span>
                       {isEditing ? (
                         <>
