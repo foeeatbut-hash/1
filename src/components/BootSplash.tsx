@@ -16,28 +16,41 @@ const STAGES: { after: number; text: string }[] = [
 ];
 
 export default function BootSplash({ done = false }: { done?: boolean }) {
-  const [elapsed, setElapsed] = useState(0);
+  // Считаем от метки монтирования, а не накоплением тиков интервала:
+  // так время не ускоряется от лишних перерисовок (StrictMode и т.п.)
+  const [startAt] = useState(() => Date.now());
+  const [, forceTick] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setElapsed(e => e + 1), 1000);
+    const t = setInterval(() => forceTick(n => n + 1), 400);
     return () => clearInterval(t);
   }, []);
+  const elapsed = (Date.now() - startAt) / 1000;
   const status = [...STAGES].reverse().find(s => elapsed >= s.after)?.text || STAGES[0].text;
+  // Процент — плавная асимптота: быстро в начале, медленнее к концу, 100% при готовности
+  const pct = done ? 100 : Math.min(96, Math.round(100 * (1 - Math.exp(-elapsed / 15))));
 
   return (
     <div id="boot-splash" className={`in-app${done ? ' done' : ''}`}>
       <div className="orb o1" /><div className="orb o2" /><div className="orb o3" />
+      <div className="stream s1" /><div className="stream s2" /><div className="stream s3" />
       <div className="glow" />
-      <div className="tile">
-        <svg width="58" height="58" viewBox="0 0 100 100">
-          <path className="flux-curve flux-base" d="M16 62 C36 28 64 28 84 62" />
-          <path className="flux-curve flux-base" d="M16 40 C36 74 64 74 84 40" />
-          <path className="flux-curve flux-comet" pathLength={100} d="M16 62 C36 28 64 28 84 62" />
-          <path className="flux-curve flux-comet rev" pathLength={100} d="M16 40 C36 74 64 74 84 40" />
-        </svg>
+      <div className="tile-wrap">
+        <div className="halo" />
+        <div className="tile">
+          <svg width="58" height="58" viewBox="0 0 100 100">
+            <path className="flux-curve flux-base" pathLength={100} d="M16 62 C36 28 64 28 84 62" />
+            <path className="flux-curve flux-base" pathLength={100} d="M16 40 C36 74 64 74 84 40" />
+            <path className="flux-curve flux-comet" pathLength={100} d="M16 62 C36 28 64 28 84 62" />
+            <path className="flux-curve flux-comet rev" pathLength={100} d="M16 40 C36 74 64 74 84 40" />
+          </svg>
+        </div>
       </div>
       <div className="wordmark">Flux</div>
       <div className="subtitle">Инженерный документооборот</div>
-      <div className="bar" />
+      <div className="bar-row">
+        <div className="bar"><span className="fill" style={{ width: `${Math.max(10, pct)}%` }} /></div>
+        <span className="pct">{pct}%</span>
+      </div>
       <div className="status">{status}</div>
       <div className="credit">Разработка Раупова Хусрава</div>
     </div>
