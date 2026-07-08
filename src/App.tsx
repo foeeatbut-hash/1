@@ -27,6 +27,7 @@ const ProcurementManagement = lazy(() => import('./screens/ProcurementManagement
 const SettingsScreen = lazy(() => import('./screens/SettingsScreen'));
 
 import { SocketProvider } from './components/SocketProvider';
+import { ServerGate } from './components/BootSplash';
 import ActionLogWidget from './components/ActionLogWidget';
 import AssistantSpotlight from './components/AssistantSpotlight';
 import { setAssistantNavigator, setAssistantProjectGetter, useAssistantStore } from './store/assistantStore';
@@ -175,8 +176,11 @@ export default function App() {
       <SocketProvider>
         <div className="w-full h-screen flex flex-col overflow-hidden">
           <ElectronTitleBar />
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <AnimatedRoutes />
+          <div className="flex-1 min-h-0 overflow-hidden relative">
+            {/* Пока встроенный сервер поднимается — анимированная заставка вместо пустого экрана */}
+            <ServerGate>
+              <AnimatedRoutes />
+            </ServerGate>
           </div>
         </div>
         <ActionLogWidget />

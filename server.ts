@@ -670,6 +670,12 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use('/chat_files', express.static(path.join(userDataPath, 'chat_files')));
 
+// Готовность сервера: порт начинает слушать только после инициализации БД,
+// так что успешный ответ = приложение полностью готово (для стартовой заставки)
+app.get('/api/health', (_req: Request, res: Response) => {
+  res.json({ ok: true, uptime: Math.round(process.uptime()) });
+});
+
 // Database Routing
 app.get('/api/db/config', (req: Request, res: Response) => {
   const config = loadAppConfig();
