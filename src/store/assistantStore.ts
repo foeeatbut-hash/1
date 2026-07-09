@@ -10,13 +10,17 @@ import { matchLabel, fieldByUniqueUnit, FIELDS, FieldDef } from '../import/dicti
 export interface AssistantAction {
   label: string;
   kind: 'tour' | 'export-excel' | 'export-word' | 'navigate' | 'ask'
-      | 'focus-tag' | 'find-duplicates' | 'create-note' | 'open-section';
+      | 'focus-tag' | 'find-duplicates' | 'create-note' | 'open-section'
+      | 'focus-equipment' | 'prompt-rename-tag' | 'cancel-input';
   tourId?: string;
   route?: string;
   query?: string;
-  tagId?: string;   // для focus-tag
-  code?: string;    // для find-duplicates
+  tagId?: string;   // для focus-tag / prompt-rename-tag
+  code?: string;    // для find-duplicates / prompt-rename-tag (текущий код)
   noteTitle?: string; // для create-note
+  componentId?: string; // для focus-equipment: какой элемент открыть
+  specKey?: string;     // для focus-equipment: какую характеристику подсветить
+  danger?: boolean;     // акцент опасного действия
 }
 
 export interface AssistantTable {
@@ -25,13 +29,29 @@ export interface AssistantTable {
   title: string;
 }
 
+// Интерактивный элемент списка (например, тег-дубликат с кнопками действий)
+export interface AssistantListItem {
+  id: string;
+  title: string;
+  subtitle?: string;
+  badge?: string;
+  actions: AssistantAction[];
+}
+
 export interface AssistantMessage {
   id: string;
   role: 'user' | 'assistant';
   text: string;
   actions?: AssistantAction[];
   table?: AssistantTable;
+  list?: AssistantListItem[];
 }
+
+// Ожидание ввода в диалоге: следующая реплика пользователя — не запрос,
+// а значение для начатого действия (например, новый код переименовываемого тега)
+type PendingInput =
+  | { kind: 'rename-tag'; tagId: string; oldCode: string }
+  | null;
 
 interface AssistantData {
   projectId: string;
@@ -69,6 +89,8 @@ interface AssistantState {
   lastTable: AssistantTable | null;
   // Контекст диалога — последний найденный список (для «а сколько их / выгрузи / первый»)
   lastResult: LastResult | null;
+  // Ожидание ввода (диалоговое действие, например переименование тега)
+  pendingInput: PendingInput;
 
   toggleOpen: () => void;
   setOpen: (open: boolean) => void;
@@ -138,6 +160,35 @@ async function fetchAssistantData(): Promise<AssistantData> {
   return data;
 }
 
+function invalidateDataCache() { dataCache = null; }
+
+// Переименование тега = смена identifier. Связи хранятся по id тега в metadata,
+// поэтому при переименовании они сохраняются автоматически.
+async function renameTagApi(tagId: string, newCode: string): Promise<void> {
+  const res = await fetch(`${ENV_CONFIG.apiUrl}/tags/${tagId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifier: newCode }),
+  });
+  if (!res.ok) {
+    let m = 'Не удалось переименовать тег';
+    try { const d = await res.json(); if (d?.error) m = d.error; } catch (_) {}
+    throw new Error(m);
+  }
+  invalidateDataCache();
+  // Разделы, показывающие теги (холст/дерево), перечитают данные
+  try { window.dispatchEvent(new CustomEvent('flux:tags-changed')); } catch (_) {}
+}
+
+// Проверка кода тега: непустой, разумной длины, без пробелов внутри
+function validateTagCode(raw: string): { ok: boolean; code: string; error?: string } {
+  const code = raw.trim();
+  if (!code) return { ok: false, code, error: 'Код пустой' };
+  if (code.length > 80) return { ok: false, code, error: 'Слишком длинный код (макс. 80 символов)' };
+  if (/\s/.test(code)) return { ok: false, code, error: 'В коде тега не должно быть пробелов' };
+  return { ok: true, code };
+}
+
 function triggerDownload(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -179,6 +230,81 @@ function toAction(s: { label: string; kind: 'ask' | 'tour'; query?: string; tour
     : { label: s.label, kind: 'ask', query: s.query };
 }
 
+// ── Исправление перепутанной раскладки клавиатуры ────────────────────────────
+// «gjrf;b ntub» → «покажи теги», «покажи ntub» → «покажи теги», «щзут» → «open».
+// Конвертируем только те слова, которые после конвертации становятся знакомыми,
+// или явно выглядят как «мусор» в текущей раскладке (латиница без гласных).
+const EN2RU: Record<string, string> = {
+  q: 'й', w: 'ц', e: 'у', r: 'к', t: 'е', y: 'н', u: 'г', i: 'ш', o: 'щ', p: 'з',
+  '[': 'х', ']': 'ъ', a: 'ф', s: 'ы', d: 'в', f: 'а', g: 'п', h: 'р', j: 'о',
+  k: 'л', l: 'д', ';': 'ж', "'": 'э', z: 'я', x: 'ч', c: 'с', v: 'м', b: 'и',
+  n: 'т', m: 'ь', ',': 'б', '.': 'ю', '`': 'ё',
+};
+const RU2EN: Record<string, string> = {};
+for (const [en, ru] of Object.entries(EN2RU)) RU2EN[ru] = en;
+
+function convertLayout(word: string, map: Record<string, string>): string {
+  let out = '';
+  for (const ch of word) {
+    const lower = ch.toLowerCase();
+    const rep = map[lower];
+    out += rep === undefined ? ch : (ch === lower ? rep : rep.toUpperCase());
+  }
+  return out;
+}
+
+// Знакомые русские слова: команды помощника + синонимы полей словаря
+let VOCAB_RU: string[] | null = null;
+function vocabRu(): string[] {
+  if (!VOCAB_RU) {
+    const words = new Set<string>([
+      'покажи', 'показать', 'найди', 'найти', 'сколько', 'выгрузи', 'выведи', 'открой',
+      'характеристики', 'данные', 'параметры', 'оборудование', 'теги', 'тег', 'дубли',
+      'дубликаты', 'проект', 'проекты', 'файл', 'файлы', 'папка', 'заметка', 'заметки',
+      'чат', 'сотрудники', 'критичные', 'позиции', 'позиция', 'этап', 'заказан', 'куплен',
+      'закупки', 'менеджмент', 'проводник', 'блокнот', 'справочник', 'помощь', 'привет',
+      'умеешь', 'создай', 'создать', 'вентилятор', 'вентиляторы', 'клапан', 'клапаны',
+      'фильтр', 'нагреватель', 'охладитель', 'установка', 'кондиционер', 'сводка', 'демонстрация',
+    ]);
+    for (const f of FIELDS) {
+      for (const w of f.label.toLowerCase().split(/\s+/)) if (w.length >= 3) words.add(w);
+      for (const syn of f.synonyms) for (const w of syn.split(/\s+/)) if (w.length >= 3) words.add(w);
+    }
+    VOCAB_RU = [...words];
+  }
+  return VOCAB_RU;
+}
+function isKnownRu(token: string): boolean {
+  if (token.length < 3) return false;
+  const p = Math.min(5, token.length);
+  const head = token.slice(0, p);
+  return vocabRu().some(w => w.slice(0, p) === head);
+}
+const VOCAB_EN = ['show', 'open', 'find', 'help', 'tags', 'tag', 'files', 'file', 'create',
+  'equipment', 'project', 'projects', 'chat', 'notes', 'note', 'export', 'excel', 'word', 'demo'];
+
+export function fixKeyboardLayout(text: string): string {
+  return text.split(/(\s+)/).map(tok => {
+    const t = tok.trim();
+    // Коды/теги (3700-B02…), короткие слова и числа не трогаем
+    if (!t || t.length < 3 || /\d/.test(t) || /-/.test(t)) return tok;
+    if (/^[a-z\[\];',.`]+$/i.test(t)) {
+      // Латиница: возможно, русское слово в английской раскладке
+      const conv = convertLayout(t, EN2RU);
+      if (/^[а-яё]+$/i.test(conv)) {
+        if (isKnownRu(conv.toLowerCase())) return conv;
+        // без гласных в латинице, но с гласными после конвертации — почти наверняка раскладка
+        if (!/[aeiouy]/i.test(t) && /[аеёиоуыэюя]/i.test(conv)) return conv;
+      }
+    } else if (/^[а-яё]+$/i.test(t)) {
+      // Кириллица: возможно, английское слово в русской раскладке
+      const conv = convertLayout(t, RU2EN).toLowerCase();
+      if (/^[a-z]+$/.test(conv) && VOCAB_EN.includes(conv) && !isKnownRu(t.toLowerCase())) return conv;
+    }
+    return tok;
+  }).join('');
+}
+
 export const useAssistantStore = create<AssistantState>((set, get) => ({
   isOpen: false,
   messages: [{
@@ -200,6 +326,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   highlightSelector: null,
   lastTable: null,
   lastResult: null,
+  pendingInput: null,
 
   toggleOpen: () => set(s => ({ isOpen: !s.isOpen })),
   setOpen: (open) => set({ isOpen: open }),
@@ -208,8 +335,9 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   setRoute: (route) => {
     const prev = get().currentRoute;
     set({ currentRoute: route });
-    // Встречаем пользователя при заходе в новый раздел (один раз за сессию), если чат открыт
-    if (route !== prev && get().isOpen) {
+    // Встречаем пользователя при заходе в новый раздел (один раз за сессию),
+    // только в режиме «Демонстрация» и при открытом чате
+    if (route !== prev && get().isOpen && get().demoMode) {
       const sec = getSection(route);
       if (sec && !get().greetedRoutes[route]) {
         set(s => ({
@@ -250,15 +378,72 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
     const clean = text.trim();
     if (!clean) return;
     const userMsg: AssistantMessage = { id: uid(), role: 'user', text: clean };
+
+    // Диалоговый режим: ждём значение для начатого действия (переименование)
+    const pending = get().pendingInput;
+    if (pending) {
+      set(s => ({ messages: [...s.messages, userMsg], loading: true }));
+      const post = (m: AssistantMessage) => set(s => ({ messages: [...s.messages, m], loading: false }));
+      // Отмена по ключевым словам
+      if (/^(отмена|отмени|отменить|стоп|cancel|назад|не надо|нет)$/i.test(clean)) {
+        set({ pendingInput: null });
+        post({ id: uid(), role: 'assistant', text: 'Хорошо, отменил. Чем ещё помочь?' });
+        return;
+      }
+      if (pending.kind === 'rename-tag') {
+        const v = validateTagCode(clean);
+        if (!v.ok) {
+          // остаёмся в режиме ожидания — просим корректный код
+          post({ id: uid(), role: 'assistant', text: `${v.error}. Введите новый код для тега «${pending.oldCode}» ещё раз или напишите «отмена».` });
+          return;
+        }
+        if (v.code === pending.oldCode) {
+          set({ pendingInput: null });
+          post({ id: uid(), role: 'assistant', text: 'Новый код совпадает со старым — оставил без изменений.' });
+          return;
+        }
+        try {
+          // Предупреждение о новом дубле (не блокируем — иногда так и нужно)
+          let collision = 0;
+          try {
+            const data = await fetchAssistantData();
+            collision = data.tags.filter(t => t.id !== pending.tagId && (t.identifier || '').trim().toLowerCase() === v.code.toLowerCase()).length;
+            invalidateDataCache();
+          } catch (_) {}
+          await renameTagApi(pending.tagId, v.code);
+          set({ pendingInput: null });
+          const warn = collision > 0 ? `\n⚠ Такой код уже есть у ${collision} тег(ов) — теперь это новый дубль. Можно переименовать и его.` : '';
+          post({
+            id: uid(), role: 'assistant',
+            text: `✅ Переименовал: «${pending.oldCode}» → «${v.code}». Связи и подописания сохранены.${warn}`,
+            actions: [
+              { label: 'Показать на холсте', kind: 'focus-tag', tagId: pending.tagId },
+              { label: 'Показать дубли', kind: 'ask', query: 'покажи дубли' },
+            ],
+          });
+        } catch (err: any) {
+          set({ pendingInput: null });
+          post({ id: uid(), role: 'assistant', text: `Не удалось переименовать: ${err.message}` });
+        }
+        return;
+      }
+    }
+
     set(s => ({ messages: [...s.messages, userMsg], loading: true }));
 
     try {
-      const { message, result } = await resolveQuery(clean, get().demoMode, get().lastResult);
+      // Понимаем запросы с перепутанной раскладкой («gjrf;b ntub» → «покажи теги»)
+      const fixed = fixKeyboardLayout(clean);
+      const { message, result, pending } = await resolveQuery(fixed, get().demoMode, get().lastResult);
+      if (fixed !== clean) {
+        message.text = `🌐 Понял как: «${fixed}»\n\n${message.text}`;
+      }
       set(s => ({
         messages: [...s.messages, message],
         loading: false,
         lastTable: message.table || s.lastTable,
         lastResult: result !== undefined ? result : s.lastResult,
+        pendingInput: pending !== undefined ? pending : s.pendingInput,
       }));
     } catch (err: any) {
       set(s => ({
@@ -284,9 +469,33 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
       } else if (action.route && navigateFn) {
         navigateFn(action.route);
       }
+    } else if (action.kind === 'prompt-rename-tag' && action.tagId) {
+      // Начинаем диалог переименования: следующая реплика — новый код
+      set(s => ({
+        pendingInput: { kind: 'rename-tag', tagId: action.tagId!, oldCode: action.code || '' },
+        messages: [...s.messages, {
+          id: uid(), role: 'assistant',
+          text: `Введите новый код для тега «${action.code || ''}». Связи и подописания сохранятся.\n(или напишите «отмена»)`,
+          actions: [{ label: 'Отмена', kind: 'cancel-input' }],
+        }],
+      }));
+    } else if (action.kind === 'cancel-input') {
+      if (get().pendingInput) {
+        set(s => ({ pendingInput: null, messages: [...s.messages, { id: uid(), role: 'assistant', text: 'Отменил. Чем ещё помочь?' }] }));
+      }
     } else if (action.kind === 'focus-tag' && action.tagId && navigateFn) {
       // Глубокая ссылка: раздел прочитает ?focus= и центрирует/подсветит позицию
       navigateFn(`/registry?focus=${encodeURIComponent(action.tagId)}`);
+    } else if (action.kind === 'focus-equipment' && action.componentId && navigateFn) {
+      // Переход к конкретному элементу оборудования с подсветкой характеристики
+      try {
+        sessionStorage.setItem('flux_equip_focus', JSON.stringify({
+          componentId: action.componentId,
+          specKey: action.specKey || '',
+          ts: Date.now(),
+        }));
+      } catch (_) {}
+      navigateFn('/equipment');
     } else if (action.kind === 'find-duplicates' && action.code && navigateFn) {
       navigateFn(`/registry?dup=${encodeURIComponent(action.code)}`);
     } else if (action.kind === 'create-note' && navigateFn) {
@@ -327,7 +536,8 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
 }));
 
 // Результат распознавания: сообщение + (опционально) контекст последнего списка
-interface Resolved { message: AssistantMessage; result?: LastResult | null; }
+// + (опционально) переход в режим ожидания ввода (диалоговое действие)
+interface Resolved { message: AssistantMessage; result?: LastResult | null; pending?: PendingInput; }
 const msg = (text: string, extra: Partial<AssistantMessage> = {}): Resolved =>
   ({ message: { id: uid(), role: 'assistant', text, ...extra } });
 
@@ -435,6 +645,68 @@ export async function resolveQuery(
     if (tour) return msg(tour.intro, { actions: [{ label: '▶ Показать демонстрацию', kind: 'tour', tourId: tour.id }] });
   }
 
+  // D2. Переименование тега: «переименуй 3700-A», «смени код 3700-A на 3700-B»,
+  // «поменяй тег 3700-A → 3700-B». Связи сохраняются (хранятся по id тега).
+  const renameIntent = /(переимен|renam)/.test(lower)
+    || (/(смен|помен|замен|исправ|переправ)\w*/.test(lower) && /(тег|код|назван|номер|марк)/.test(lower));
+  if (renameIntent && p.codes.length > 0) {
+    const data = await getData();
+    const oldCode = p.codes[0];
+    const matches = data.tags.filter(t => (t.identifier || '').trim().toLowerCase() === oldCode.toLowerCase());
+    if (matches.length === 0) {
+      return msg(`Не нашёл тег «${oldCode}» в проекте. Проверьте код или скажите «покажи теги».`);
+    }
+    // Код-дубликат: нужно выбрать конкретный экземпляр
+    if (matches.length > 1) {
+      return {
+        message: {
+          id: uid(), role: 'assistant',
+          text: `Код «${oldCode}» встречается ${matches.length} раз — выберите, какой тег переименовать:`,
+          list: matches.map(t => ({
+            id: t.id, title: t.identifier || oldCode, subtitle: t.mainName || t.department || '', badge: 'дубль',
+            actions: [
+              { label: 'Переименовать', kind: 'prompt-rename-tag', tagId: t.id, code: t.identifier || oldCode },
+              { label: 'На холсте', kind: 'focus-tag', tagId: t.id },
+            ],
+          })),
+        },
+      };
+    }
+    const tag = matches[0];
+    // Явно указан новый код → переименовываем сразу
+    if (p.codes.length >= 2) {
+      const v = validateTagCode(p.codes[1]);
+      if (!v.ok) return msg(`Не могу применить код «${p.codes[1]}»: ${v.error}.`);
+      if (v.code.toLowerCase() === oldCode.toLowerCase()) return msg('Новый код совпадает со старым — менять нечего.');
+      try {
+        const collision = data.tags.filter(t => t.id !== tag.id && (t.identifier || '').trim().toLowerCase() === v.code.toLowerCase()).length;
+        await renameTagApi(tag.id, v.code);
+        const warn = collision > 0 ? `\n⚠ Такой код уже есть у ${collision} тег(ов) — образовался новый дубль.` : '';
+        return {
+          message: {
+            id: uid(), role: 'assistant',
+            text: `✅ Переименовал: «${oldCode}» → «${v.code}». Связи и подописания сохранены.${warn}`,
+            actions: [
+              { label: 'Показать на холсте', kind: 'focus-tag', tagId: tag.id },
+              { label: 'Показать дубли', kind: 'ask', query: 'покажи дубли' },
+            ],
+          },
+        };
+      } catch (err: any) {
+        return msg(`Не удалось переименовать: ${err.message}`);
+      }
+    }
+    // Новый код не указан → входим в диалог: следующая реплика станет новым кодом
+    return {
+      message: {
+        id: uid(), role: 'assistant',
+        text: `Введите новый код для тега «${tag.identifier || oldCode}». Связи и подописания сохранятся.\n(или напишите «отмена»)`,
+        actions: [{ label: 'Отмена', kind: 'cancel-input' }],
+      },
+      pending: { kind: 'rename-tag', tagId: tag.id, oldCode: tag.identifier || oldCode },
+    };
+  }
+
   // E0. Характеристики позиции из «Оборудования»: «какой расход у 3700-…»,
   // «характеристики 3700-…», «собери расход и мощность у …» (в т.ч. по нескольким тегам)
   if (p.codes.length > 0) {
@@ -450,7 +722,7 @@ export async function resolveQuery(
           const sv = specForField(comp.specs, field);
           if (sv) {
             return msg(`${field.label} у ${p.codes[0]}: ${sv.value}${sv.unit ? ' ' + sv.unit : ''}.`,
-              { actions: [{ label: 'Открыть в оборудовании', kind: 'open-section', route: '/equipment' }] });
+              { actions: [{ label: 'Показать в оборудовании', kind: 'focus-equipment', componentId: comp.id, specKey: sv.key }] });
           }
           return msg(`У «${p.codes[0]}» характеристику «${field.label}» не нашёл — показать все характеристики?`,
             { actions: [{ label: 'Все характеристики', kind: 'ask', query: `характеристики ${p.codes[0]}` }] });
@@ -467,7 +739,8 @@ export async function resolveQuery(
             columns: ['Характеристика', 'Значение', 'Ед.'],
             rows: comp.specs.map(s => [s.key, s.value, s.unit]),
           };
-          return { message: { id: uid(), role: 'assistant', text: `Характеристики «${comp.name || p.codes[0]}»: ${comp.specs.length} параметр(ов).`, table, actions: EXPORT_ACTIONS }, result: null };
+          return { message: { id: uid(), role: 'assistant', text: `Характеристики «${comp.name || p.codes[0]}»: ${comp.specs.length} параметр(ов).`, table,
+            actions: [{ label: 'Показать в оборудовании', kind: 'focus-equipment', componentId: comp.id }, ...EXPORT_ACTIONS] }, result: null };
         }
       }
 
@@ -559,21 +832,38 @@ export async function resolveQuery(
     // G2. Дубли
     if (hasIntent(p, ['дубл'])) {
       if (data.duplicates.length === 0) return msg('Дубликатов кодов тегов в проекте нет — все коды уникальны. 👍');
+      const tagById: Record<string, AssistantData['tags'][number]> = {};
+      for (const t of data.tags) tagById[t.id] = t;
+      // Раскрываем группы дублей в отдельные экземпляры с кнопками действий
+      const list: AssistantListItem[] = [];
+      for (const d of data.duplicates) {
+        d.ids.forEach((id, i) => {
+          const t = tagById[id];
+          list.push({
+            id,
+            title: t?.identifier || d.code,
+            subtitle: `${t?.mainName || t?.department || 'без наименования'} · экземпляр ${i + 1} из ${d.count}`,
+            badge: 'дубль',
+            actions: [
+              { label: 'Переименовать', kind: 'prompt-rename-tag', tagId: id, code: t?.identifier || d.code },
+              { label: 'На холсте', kind: 'focus-tag', tagId: id },
+            ],
+          });
+        });
+      }
+      // Таблица — для выгрузки/контекста (не отображается, когда есть список)
       const table: AssistantTable = {
         title: 'Дубликаты кодов тегов',
         columns: ['Код тега', 'Повторов'],
         rows: data.duplicates.map(d => [d.code, d.count]),
       };
-      const first = data.duplicates[0];
       return {
         message: {
           id: uid(), role: 'assistant',
-          text: `Нашёл дублей: ${data.duplicates.length}. Всего повторяющихся позиций: ${data.duplicates.reduce((s, d) => s + d.count, 0)}.`,
+          text: `Нашёл дублей: ${data.duplicates.length} (всего ${data.duplicates.reduce((s, d) => s + d.count, 0)} позиций).\nНажмите «Переименовать» у любого — я спрошу новый код, а связи сохранятся.`,
+          list,
           table,
-          actions: [
-            { label: `Найти на холсте: ${first.code}`, kind: 'find-duplicates', code: first.code },
-            ...EXPORT_ACTIONS,
-          ],
+          actions: EXPORT_ACTIONS,
         },
         result: { kind: 'duplicates', ids: data.duplicates.flatMap(d => d.ids), label: 'дубли' },
       };

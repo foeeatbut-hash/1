@@ -22,6 +22,7 @@ export interface UserNote {
   content: string;
   color: string;
   equipmentId?: string | null;
+  groupName?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -720,7 +721,7 @@ export const dataService = {
     return res.note;
   },
 
-  async createNote(noteData: { title: string; content: string; color?: string; equipmentId?: string }): Promise<UserNote> {
+  async createNote(noteData: { title: string; content: string; color?: string; equipmentId?: string; groupName?: string | null }): Promise<UserNote> {
     const res = await request<{ note: UserNote }>('/notes', {
       method: 'POST',
       body: JSON.stringify(noteData),
@@ -728,7 +729,7 @@ export const dataService = {
     return res.note;
   },
 
-  async updateNote(id: string, noteData: { title?: string; content?: string; color?: string; equipmentId?: string }): Promise<UserNote> {
+  async updateNote(id: string, noteData: { title?: string; content?: string; color?: string; equipmentId?: string; groupName?: string | null }): Promise<UserNote> {
     const res = await request<{ note: UserNote }>(`/notes/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(noteData),

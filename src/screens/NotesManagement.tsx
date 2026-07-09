@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { dataService, UserNote } from '../services/dataService';
@@ -6,7 +7,8 @@ import RichTextEditor from '../components/RichTextEditor';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Plus, Search, BookOpen, Calendar, Trash2, ExternalLink,
-  Save, FileText, CheckCircle2, RefreshCw, Pin, PinOff, Copy, Download, FileType2, Printer
+  Save, FileText, CheckCircle2, RefreshCw, Pin, PinOff, Copy, Download, FileType2, Printer,
+  FolderPlus, Folder, ChevronDown, ChevronRight, X
 } from 'lucide-react';
 
 const COLORS = [
@@ -17,13 +19,52 @@ const COLORS = [
 ];
 
 export default function NotesManagement() {
-  const { user } = useStore();
+  const { user, activeProject } = useStore();
   const { addToast } = useToastStore();
-  
+  const navigate = useNavigate();
+
   const [notes, setNotes] = useState<UserNote[]>([]);
   const [selectedNote, setSelectedNote] = useState<UserNote | null>(null);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+
+  // Теги активного проекта — для вставки внутренних ссылок в заметку
+  const [projectTags, setProjectTags] = useState<{ id: string; identifier: string }[]>([]);
+  useEffect(() => {
+    if (!activeProject?.id) { setProjectTags([]); return; }
+    fetch(`/api/projects/${activeProject.id}/tags`)
+      .then(r => r.json())
+      .then(d => {
+        const list = Array.isArray(d) ? d : (d.tags || []);
+        setProjectTags(list.map((t: any) => ({ id: t.id, identifier: t.identifier })));
+      })
+      .catch(() => setProjectTags([]));
+  }, [activeProject?.id]);
+
+  // Свёрнутость групп заметок (хранится локально)
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
+    try { return JSON.parse(localStorage.getItem(`pdm_note_groups_collapsed_${user?.id || 'anon'}`) || '{}'); }
+    catch (_) { return {}; }
+  });
+  const toggleGroup = (name: string) => {
+    setCollapsedGroups(prev => {
+      const next = { ...prev, [name]: !prev[name] };
+      try { localStorage.setItem(`pdm_note_groups_collapsed_${user?.id || 'anon'}`, JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+  };
+  // Выбор группы в редакторе
+  const [groupMenuOpen, setGroupMenuOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const groupMenuRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!groupMenuOpen) return;
+    const close = (e: MouseEvent) => {
+      if (!groupMenuRef.current?.contains(e.target as Node)) setGroupMenuOpen(false);
+    };
+    window.addEventListener('mousedown', close);
+    return () => window.removeEventListener('mousedown', close);
+  }, [groupMenuOpen]);
 
   // Auto-save states
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -401,12 +442,12 @@ export default function NotesManagement() {
               <p className="text-xs font-semibold">Заметок не найдено</p>
               <p className="text-xs mt-0.5 opacity-80">Нажмите «+ Создать», чтобы добавить новую</p>
             </div>
-          ) : (
-            filteredNotes.map((note) => {
+          ) : (() => {
+            const renderNote = (note: UserNote) => {
               const isSelected = selectedNote?.id === note.id;
               // strip HTML for text previews
-              const cleanContent = note.content ? note.content.replace(/<[^>]*>/g, '') : '';
-              
+              const cleanContent = note.content ? note.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ') : '';
+
               return (
                 <div
                   key={note.id}
@@ -499,8 +540,41 @@ export default function NotesManagement() {
                   </div>
                 </div>
               );
-            })
-          )}
+            };
+
+            // Группировка: заметки без группы сверху, затем группы по алфавиту
+            const ungrouped = filteredNotes.filter(n => !n.groupName);
+            const grouped: Record<string, UserNote[]> = {};
+            for (const n of filteredNotes) {
+              if (n.groupName) (grouped[n.groupName] = grouped[n.groupName] || []).push(n);
+            }
+            const groupNames = Object.keys(grouped).sort((a, b) => a.localeCompare(b, 'ru'));
+
+            return (
+              <>
+                {ungrouped.map(renderNote)}
+                {groupNames.map(g => {
+                  // при поиске группы всегда раскрыты, чтобы совпадения были видны
+                  const open = search.trim() ? true : !collapsedGroups[g];
+                  return (
+                    <div key={g} className="space-y-1.5">
+                      <button
+                        onClick={() => toggleGroup(g)}
+                        className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-left cursor-pointer"
+                        title={open ? 'Свернуть группу' : 'Развернуть группу'}
+                      >
+                        {open ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+                        <Folder className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate flex-1">{g}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{grouped[g].length}</span>
+                      </button>
+                      {open && <div className="pl-2 space-y-1.5">{grouped[g].map(renderNote)}</div>}
+                    </div>
+                  );
+                })}
+              </>
+            );
+          })()}
         </div>
       </div>
 
@@ -536,6 +610,60 @@ export default function NotesManagement() {
                   <span className="text-xs font-mono text-slate-400 dark:text-slate-500 select-none" title="Слов / символов (Ctrl+S — сохранить сейчас)">
                     {noteStats.words} слов · {noteStats.chars} симв.
                   </span>
+                )}
+              </div>
+
+              {/* Группа заметки */}
+              <div className="relative" ref={groupMenuRef}>
+                <button
+                  onClick={() => { setGroupMenuOpen(v => !v); setNewGroupName(''); }}
+                  className="px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-700 dark:text-slate-300 font-semibold cursor-pointer flex items-center gap-1.5 transition-all"
+                  title="Группа заметки: объединяйте заметки по темам"
+                >
+                  <Folder className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="max-w-[140px] truncate">{selectedNote.groupName || 'Без группы'}</span>
+                  <ChevronDown className="w-3 h-3 text-slate-400" />
+                </button>
+                {groupMenuOpen && (
+                  <div className="absolute top-full left-0 mt-1.5 w-60 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 space-y-1">
+                    {/* Существующие группы */}
+                    {[...new Set(notes.map(n => n.groupName).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'ru')).map(g => (
+                      <button key={g}
+                        onClick={() => { handleNoteChange({ groupName: g }); setGroupMenuOpen(false); }}
+                        className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left text-xs cursor-pointer ${selectedNote.groupName === g ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 font-bold' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'}`}>
+                        <Folder className="w-3 h-3 text-emerald-500 shrink-0" />
+                        <span className="truncate">{g}</span>
+                      </button>
+                    ))}
+                    {selectedNote.groupName && (
+                      <button
+                        onClick={() => { handleNoteChange({ groupName: null }); setGroupMenuOpen(false); }}
+                        className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left text-xs text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 cursor-pointer">
+                        <X className="w-3 h-3 shrink-0" /> Убрать из группы
+                      </button>
+                    )}
+                    {/* Новая группа */}
+                    <div className="flex items-center gap-1.5 pt-1 border-t border-slate-100 dark:border-slate-800">
+                      <input
+                        value={newGroupName}
+                        onChange={e => setNewGroupName(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && newGroupName.trim()) {
+                            handleNoteChange({ groupName: newGroupName.trim() });
+                            setGroupMenuOpen(false);
+                          }
+                          if (e.key === 'Escape') setGroupMenuOpen(false);
+                        }}
+                        placeholder="Новая группа…"
+                        className="flex-1 h-7 px-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 outline-none focus:border-emerald-400"
+                      />
+                      <button
+                        onClick={() => { if (newGroupName.trim()) { handleNoteChange({ groupName: newGroupName.trim() }); setGroupMenuOpen(false); } }}
+                        className="p-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg cursor-pointer" title="Создать группу и добавить заметку">
+                        <FolderPlus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
 
@@ -585,6 +713,8 @@ export default function NotesManagement() {
                 value={selectedNote.content}
                 onChange={(html) => handleNoteChange({ content: html })}
                 className="h-full border-none shadow-none bg-transparent"
+                projectTags={projectTags}
+                onTagNavigate={(tagId) => { if (tagId) navigate(`/registry?focus=${encodeURIComponent(tagId)}`); }}
               />
             </div>
           </div>

@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Bold, Italic, Underline, Strikethrough, List, ListOrdered, Table, Check, AlignLeft, AlignCenter, AlignRight, AlignJustify, Undo2, Redo2, Eraser, Baseline, Highlighter, Indent, Outdent, Link2, CheckSquare, SeparatorHorizontal, CalendarClock, Search, ExternalLink, Pencil, Unlink, Rows3, Columns3, Trash2 } from 'lucide-react';
+import { Bold, Italic, Underline, Strikethrough, List, ListOrdered, Table, Check, AlignLeft, AlignCenter, AlignRight, AlignJustify, Undo2, Redo2, Eraser, Baseline, Highlighter, Indent, Outdent, Link2, CheckSquare, SeparatorHorizontal, CalendarClock, Search, ExternalLink, Pencil, Unlink, Rows3, Columns3, Trash2, Tag as TagIcon } from 'lucide-react';
 
 interface RichTextEditorProps {
   value: string;
@@ -8,6 +8,10 @@ interface RichTextEditorProps {
   placeholder?: string;
   className?: string;
   disabled?: boolean;
+  /** Теги проекта для вставки внутренних ссылок («#3700-…») */
+  projectTags?: { id: string; identifier: string }[];
+  /** Клик по вставленной ссылке на тег */
+  onTagNavigate?: (tagId: string, identifier: string) => void;
 }
 
 // Открытие внешней ссылки: в Electron — через системный браузер, в вебе — новая вкладка
@@ -36,7 +40,7 @@ function makeChecklistItemHTML(text = '') {
     `<span style="flex:1;min-width:0;">${text || '<br>'}</span></li>`;
 }
 
-export default function RichTextEditor({ value, onChange, placeholder = 'Введите текст заметки...', className = '', disabled = false }: RichTextEditorProps) {
+export default function RichTextEditor({ value, onChange, placeholder = 'Введите текст заметки...', className = '', disabled = false, projectTags, onTagNavigate }: RichTextEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const [activeFormats, setActiveFormats] = useState({
     bold: false, italic: false, underline: false, strikeThrough: false, bulletList: false, orderedList: false,
@@ -67,6 +71,10 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
 
   // Плашка действий по клику на ссылку: Открыть / Изменить / Убрать
   const [linkBubble, setLinkBubble] = useState<{ x: number; y: number; href: string } | null>(null);
+
+  // Вставка ссылки на тег проекта («#3700-…» внутри заметки)
+  const [tagPopover, setTagPopover] = useState<{ x: number; y: number } | null>(null);
+  const [tagSearch, setTagSearch] = useState('');
 
   useEffect(() => {
     try { document.execCommand('styleWithCSS', false, 'true'); } catch (e) {}
@@ -306,6 +314,14 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
       return;
     }
 
+    // Ссылка на тег проекта — переход в раздел «Теги» с фокусом на позиции
+    const tagAnchor = target.closest?.('a[data-tag-id]') as HTMLAnchorElement | null;
+    if (tagAnchor && editorRef.current?.contains(tagAnchor)) {
+      e.preventDefault();
+      onTagNavigate?.(tagAnchor.dataset.tagId || '', tagAnchor.dataset.tagName || '');
+      return;
+    }
+
     // Ссылки: Ctrl+клик — открыть сразу; обычный клик — плашка действий
     const anchor = target.closest?.('a') as HTMLAnchorElement | null;
     if (anchor && editorRef.current?.contains(anchor)) {
@@ -423,6 +439,29 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
     executeCommand('insertHTML', `<strong>${str}</strong>&nbsp;`);
   };
 
+  // ── Ссылка на тег проекта ─────────────────────────────────────────────────
+  const openTagInsert = (e: React.MouseEvent) => {
+    const sel = window.getSelection();
+    savedRangeRef.current = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
+    setTagSearch('');
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setTagPopover({ x: rect.left, y: rect.bottom + 6 });
+  };
+
+  const insertTagLink = (tag: { id: string; identifier: string }) => {
+    editorRef.current?.focus();
+    const sel = window.getSelection();
+    if (savedRangeRef.current && sel) {
+      sel.removeAllRanges();
+      sel.addRange(savedRangeRef.current);
+    }
+    // Инлайновые стили — чтобы чип выглядел одинаково в заметке, стикере и экспорте
+    const style = 'display:inline-block;padding:1px 6px;margin:0 2px;border-radius:6px;border:1px solid #a7f3d0;background:#ecfdf5;color:#047857;font-weight:700;font-size:12px;text-decoration:none;cursor:pointer;user-select:none;';
+    executeCommand('insertHTML',
+      `<a data-tag-id="${tag.id}" data-tag-name="${tag.identifier}" contenteditable="false" style="${style}" title="Открыть тег в разделе «Теги»">#${tag.identifier}</a>&nbsp;`);
+    setTagPopover(null);
+  };
+
   // Поиск по заметке (подсветка встроенным поиском Chromium)
   const runFind = () => {
     if (!findText.trim()) return;
@@ -431,8 +470,8 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
 
   // Закрытие всплывающих панелей по клику мимо и Esc
   useEffect(() => {
-    if (!tableMenu && !linkBubble && !showTableGrid && !linkPopover) return;
-    const close = () => { setTableMenu(null); setLinkBubble(null); setShowTableGrid(false); };
+    if (!tableMenu && !linkBubble && !showTableGrid && !linkPopover && !tagPopover) return;
+    const close = () => { setTableMenu(null); setLinkBubble(null); setShowTableGrid(false); setTagPopover(null); };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { close(); setLinkPopover(null); }
     };
@@ -447,7 +486,7 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
       window.removeEventListener('mousedown', closeOnOutside);
       window.removeEventListener('keydown', onKey);
     };
-  }, [tableMenu, linkBubble, showTableGrid, linkPopover]);
+  }, [tableMenu, linkBubble, showTableGrid, linkPopover, tagPopover]);
 
   const toolBtn = 'p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 cursor-pointer';
   const toolBtnActive = 'p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 font-bold cursor-pointer';
@@ -569,6 +608,11 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
         <button type="button" onClick={openLinkInsert} className={toolBtn} title="Вставить ссылку (клик по ссылке в тексте — открыть/изменить)">
           <Link2 className="w-4 h-4 text-sky-600" />
         </button>
+        {projectTags && projectTags.length > 0 && (
+          <button type="button" onClick={openTagInsert} className={toolBtn} title="Вставить ссылку на тег проекта (клик по тегу в тексте — открыть его в «Тегах»)">
+            <TagIcon className="w-4 h-4 text-emerald-600" />
+          </button>
+        )}
 
         {/* Горизонтальная линия и дата */}
         <button type="button" onClick={() => executeCommand('insertHorizontalRule')} className={toolBtn} title="Горизонтальная линия"><SeparatorHorizontal className="w-4 h-4" /></button>
@@ -684,6 +728,51 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
               Отмена
             </button>
           </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Всплывающий выбор тега проекта для вставки */}
+      {tagPopover && createPortal(
+        <div
+          data-rte-popup
+          className="fixed z-[140] p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl w-72"
+          style={{ left: Math.min(tagPopover.x, window.innerWidth - 300), top: Math.min(tagPopover.y, window.innerHeight - 300) }}
+        >
+          <input
+            autoFocus
+            type="text"
+            value={tagSearch}
+            onChange={e => setTagSearch(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Escape') { e.preventDefault(); setTagPopover(null); }
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                const list = (projectTags || []).filter(t => t.identifier.toLowerCase().includes(tagSearch.toLowerCase()));
+                if (list[0]) insertTagLink(list[0]);
+              }
+            }}
+            placeholder="Поиск тега…"
+            className="w-full h-7 px-2 mb-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 outline-none focus:border-emerald-400"
+          />
+          <div className="max-h-56 overflow-y-auto space-y-0.5">
+            {(projectTags || [])
+              .filter(t => t.identifier.toLowerCase().includes(tagSearch.toLowerCase()))
+              .slice(0, 50)
+              .map(t => (
+                <button key={t.id} type="button" onMouseDown={(e) => { e.preventDefault(); insertTagLink(t); }}
+                  className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-left text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer">
+                  <TagIcon className="w-3 h-3 text-emerald-500 shrink-0" />
+                  <span className="truncate">{t.identifier}</span>
+                </button>
+              ))}
+            {(projectTags || []).filter(t => t.identifier.toLowerCase().includes(tagSearch.toLowerCase())).length === 0 && (
+              <p className="px-2 py-2 text-xs text-slate-400">Ничего не найдено.</p>
+            )}
+          </div>
+          <button type="button" onClick={() => setTagPopover(null)} className="mt-1.5 h-6 px-2 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs cursor-pointer">
+            Отмена
+          </button>
         </div>,
         document.body
       )}

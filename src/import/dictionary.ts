@@ -346,10 +346,29 @@ const UNIT_ALIASES: Record<string, string> = {
 /** Отделяет единицу измерения от значения: «5000 м3/ч» → { num: '5000', unit: 'м³/ч' } */
 export function splitValueUnit(raw: string): { value: string; unit: string } {
   const s = (raw || '').trim();
-  const m = s.match(/^(-?[\d\s .,]+(?:тыс\.?)?)\s*([^\d\s].*)?$/i);
+  // Составные значения: пары «приток/вытяжка» (23150/14240 м³/ч) и габариты
+  // (1000x500, 70х50х1,75) — не дробим на «первое число + мусорная единица»
+  const comp = s.match(/^(-?\d[\d\s\u00A0.,]*(?:\s*[/xх×*]\s*\d[\d\s\u00A0.,]*)+)(.*)$/i);
+  if (comp) {
+    const value = comp[1].replace(/[\s\u00A0]+/g, '');
+    const tail = (comp[2] || '').trim().replace(/^[,;]\s*/, '');
+    if (!tail) return { value, unit: '' };
+    const tailKey = tail.toLowerCase().replace(/\.$/, '');
+    if (UNIT_ALIASES[tailKey]) return { value, unit: UNIT_ALIASES[tailKey] };
+    // Короткий безцифровой хвост («°C», «Па») — тоже единица
+    if (tail.length <= 8 && !/\d/.test(tail) && tail.split(/\s+/).length <= 2) return { value, unit: tail };
+    // Хвост — не единица (материал, покрытие и т.п.): вся строка — значение
+    return { value: s, unit: '' };
+  }
+  const m = s.match(/^(-?[\d\s\u00A0.,]+(?:тыс\.?)?)\s*([^\d\s].*)?$/i);
   if (!m) return { value: s, unit: '' };
   const unitRaw = (m[2] || '').trim().toLowerCase().replace(/\.$/, '');
   const unit = UNIT_ALIASES[unitRaw] || (m[2] || '').trim();
+  // Хвост явно не единица измерения — многословный текст или текст с цифрами
+  // («ОЦ с покрытием», «х50х1,75 ОЦ…»): оставляем всю строку как значение
+  if (unit && !UNIT_ALIASES[unitRaw] && (/\d/.test(unit) || unit.length > 12 || unit.split(/\s+/).length > 2)) {
+    return { value: s, unit: '' };
+  }
   return { value: m[1].trim(), unit };
 }
 
