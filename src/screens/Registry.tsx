@@ -381,6 +381,23 @@ export default function Registry() {
   const [linkingFrom, setLinkingFrom] = useState<string | null>(null);
   const linkingFromRef = useRef<string | null>(null);
   useEffect(() => { linkingFromRef.current = linkingFrom; }, [linkingFrom]);
+
+  // Способ создания связей: 'click' (кнопка→клик) или 'drag' (порты). Настройка
+  // из раздела «Настройки → Теги → Холст»; меняется вживую по событию.
+  const [linkMode, setLinkMode] = useState<'click' | 'drag'>('click');
+  useEffect(() => {
+    fetch('/api/settings/registry_link_mode').then(r => r.json()).then(d => {
+      if (d.global === 'drag' || d.global === 'click') setLinkMode(d.global);
+    }).catch(() => {});
+    const onSettings = (e: any) => {
+      if (e?.detail?.key === 'registry_link_mode' && (e.detail.value === 'click' || e.detail.value === 'drag')) {
+        setLinkMode(e.detail.value);
+        setLinkingFrom(null);
+      }
+    };
+    window.addEventListener('flux:settings-changed', onSettings);
+    return () => window.removeEventListener('flux:settings-changed', onSettings);
+  }, []);
   const lastMousePosRef = useRef({ x: 0, y: 0 });
   
   // Real-time Dynamo Revit Connection Wires
@@ -2934,7 +2951,9 @@ export default function Registry() {
 
               {/* Подсказка по управлению холстом (левый низ) */}
               <div className="absolute bottom-3 left-3 z-30 text-[10px] text-slate-400 dark:text-slate-500 bg-white/70 dark:bg-slate-950/70 backdrop-blur px-2 py-1 rounded-lg border border-slate-200/60 dark:border-slate-800/60 pointer-events-none select-none">
-                ПКМ — двигать холст · колесо — масштаб · <Link2 className="w-2.5 h-2.5 inline -mt-0.5" /> на карточке — связать
+                ПКМ — двигать холст · колесо — масштаб · {linkMode === 'click'
+                  ? <><Link2 className="w-2.5 h-2.5 inline -mt-0.5" /> на карточке — связать</>
+                  : <>тяни от точек-портов — связать</>}
               </div>
 
               {/* Overlaid Zoom and Canvas Controls on the top-right */}
@@ -3226,11 +3245,12 @@ export default function Registry() {
                           setCardMenu({ x: e.clientX, y: e.clientY, tagId: tag.id });
                         }}
                       >
-                        {/* PORT SENSOR DOTS (Permanently placed at top center vertical line of card regardless of expansion height) */}
-                        <div 
+                        {/* Порты для связи перетаскиванием — только в режиме «Перетаскиванием» */}
+                        {linkMode === 'drag' && (<>
+                        <div
                           className={`absolute connection-port left-0 top-[22px] -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border border-slate-300 dark:border-slate-800 transition-all hover:scale-130 cursor-crosshair z-40 ${
-                            hoveredLeft 
-                              ? 'bg-emerald-500 border-white scale-125 shadow-lg' 
+                            hoveredLeft
+                              ? 'bg-emerald-500 border-white scale-125 shadow-lg'
                               : 'bg-slate-200 dark:bg-slate-800'
                           }`}
                           onMouseDown={(e) => handlePortMouseDown(e, tag.id, 'left')}
@@ -3241,10 +3261,10 @@ export default function Registry() {
                           <div className="w-1.5 h-1.5 rounded-full bg-slate-700 dark:bg-slate-200 m-auto mt-[4px]" />
                         </div>
 
-                        <div 
+                        <div
                           className={`absolute connection-port right-0 top-[22px] translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border border-slate-300 dark:border-slate-800 transition-all hover:scale-130 cursor-crosshair z-40 ${
-                            hoveredRight 
-                              ? 'bg-emerald-500 border-white scale-125 shadow-lg' 
+                            hoveredRight
+                              ? 'bg-emerald-500 border-white scale-125 shadow-lg'
                               : 'bg-slate-200 dark:bg-slate-800'
                           }`}
                           onMouseDown={(e) => handlePortMouseDown(e, tag.id, 'right')}
@@ -3254,6 +3274,7 @@ export default function Registry() {
                         >
                           <div className="w-1.5 h-1.5 rounded-full bg-slate-700 dark:bg-slate-200 m-auto mt-[4px]" />
                         </div>
+                        </>)}
 
                         {/* CARD COMPACT HEADER ROW (Always visible) */}
                         <div className="px-4 py-3 cursor-move flex flex-col gap-1 w-full">
@@ -3276,21 +3297,23 @@ export default function Registry() {
                             </div>
 
                             <div className="flex items-center gap-1 shrink-0 no-drag select-none">
-                              {/* Связать: клик → затем клик по целевому тегу */}
-                              <button
-                                title={linkingFrom === tag.id ? 'Отменить связывание' : 'Связать: затем кликните целевой тег'}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setLinkingFrom(prev => prev === tag.id ? null : tag.id);
-                                }}
-                                className={`p-1.5 rounded transition-colors cursor-pointer flex items-center justify-center ${
-                                  linkingFrom === tag.id
-                                    ? 'bg-sky-500 text-white'
-                                    : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-450 dark:hover:text-slate-200'
-                                }`}
-                              >
-                                <Link2 className="w-4 h-4" />
-                              </button>
+                              {/* Связать: клик → затем клик по целевому тегу (режим «Кликом») */}
+                              {linkMode === 'click' && (
+                                <button
+                                  title={linkingFrom === tag.id ? 'Отменить связывание' : 'Связать: затем кликните целевой тег'}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setLinkingFrom(prev => prev === tag.id ? null : tag.id);
+                                  }}
+                                  className={`p-1.5 rounded transition-colors cursor-pointer flex items-center justify-center ${
+                                    linkingFrom === tag.id
+                                      ? 'bg-sky-500 text-white'
+                                      : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-450 dark:hover:text-slate-200'
+                                  }`}
+                                >
+                                  <Link2 className="w-4 h-4" />
+                                </button>
+                              )}
                               {/* Toggle Info / Expand Detailed View */}
                               <button
                                 title={isExpanded ? "Свернуть подописания" : "Открыть подописания тега"}
