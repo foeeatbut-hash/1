@@ -374,6 +374,13 @@ export default function Registry() {
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 80, y: 50 });
   const [isPanning, setIsPanning] = useState(false);
   const [draggedTagId, setDraggedTagId] = useState<string | null>(null);
+  // Мир (фон+связи+карточки) — двигаем напрямую во время панорамы (без ре-рендера)
+  const worldRef = useRef<HTMLDivElement>(null);
+  const panMovedRef = useRef(false);
+  // Режим «связать»: клик по «+» на карточке → клик по цели создаёт связь
+  const [linkingFrom, setLinkingFrom] = useState<string | null>(null);
+  const linkingFromRef = useRef<string | null>(null);
+  useEffect(() => { linkingFromRef.current = linkingFrom; }, [linkingFrom]);
   const lastMousePosRef = useRef({ x: 0, y: 0 });
   
   // Real-time Dynamo Revit Connection Wires
@@ -458,8 +465,9 @@ export default function Registry() {
         }
       }
 
-      // Esc: сначала закрываем панели и режим мультивыбора, затем снимаем выделение
+      // Esc: сначала выходим из режима связывания, затем закрываем панели и снимаем выделение
       if (e.key === 'Escape') {
+        if (linkingFromRef.current) { setLinkingFrom(null); return; }
         setCardPanel(null);
         setDupPanel(null);
         setMultiSelectMode(false);
@@ -1364,10 +1372,16 @@ export default function Registry() {
     } else if (isPanning) {
       const dx = e.clientX - lastMousePosRef.current.x;
       const dy = e.clientY - lastMousePosRef.current.y;
-      
+      if (Math.abs(dx) + Math.abs(dy) > 2) panMovedRef.current = true;
+
       lastMousePosRef.current = { x: e.clientX, y: e.clientY };
 
-      setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+      // Двигаем мир напрямую (без setState) — панорама не лагает на больших графах.
+      // Итоговое значение фиксируем в state на mouseup.
+      panRef.current = { x: panRef.current.x + dx, y: panRef.current.y + dy };
+      if (worldRef.current) {
+        worldRef.current.style.transform = `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${zoomRef.current})`;
+      }
     }
   };
 
@@ -1379,6 +1393,14 @@ export default function Registry() {
     pendingDragRef.current = null;
     if (pending && !draggedTagId && e?.type === 'mouseup') {
       const tagId = pending.tagId;
+      // Режим «связать»: кликнули по цели → создаём связь; по источнику → отмена
+      if (linkingFromRef.current) {
+        const from = linkingFromRef.current;
+        setLinkingFrom(null);
+        setIsPanning(false);
+        if (from !== tagId) await handleAddConnection(from, tagId);
+        return;
+      }
       if (multiSelectMode) {
         setSelectedTagIds(prev => {
           const next = new Set(prev);
@@ -1468,6 +1490,8 @@ export default function Registry() {
       activeConnectionDragRef.current = null;
     }
 
+    // Панораму двигали напрямую через worldRef — фиксируем итог в state
+    if (isPanning) setPan({ ...panRef.current });
     setIsPanning(false);
   };
 
@@ -2871,16 +2895,48 @@ export default function Registry() {
               <div 
                 ref={boardRef}
                 className="w-full flex-1 min-h-0 overflow-hidden bg-slate-50 dark:bg-slate-900 border-2 border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-lg relative select-none transition-colors"
-              style={{ cursor: isPanning ? 'grabbing' : 'grab' }}
+              style={{ cursor: isPanning ? 'grabbing' : (linkingFrom ? 'crosshair' : 'default') }}
               onMouseDown={(e) => {
-                if (e.button !== 0) return;
-                setIsPanning(true);
-                lastMousePosRef.current = { x: e.clientX, y: e.clientY };
+                // Правая (или средняя) кнопка — панорама холста
+                if (e.button === 2 || e.button === 1) {
+                  e.preventDefault();
+                  setIsPanning(true);
+                  panMovedRef.current = false;
+                  lastMousePosRef.current = { x: e.clientX, y: e.clientY };
+                  return;
+                }
+                // Левая по пустому месту — снять выделение и закрыть панели/режим связи
+                if (e.button === 0 && e.target === e.currentTarget) {
+                  setSelectedTagIds(new Set());
+                  setCardPanel(null);
+                  setCardMenu(null);
+                  setSelectedConnection(null);
+                  if (linkingFromRef.current) setLinkingFrom(null);
+                }
               }}
               onMouseMove={handleCanvasMouseMove}
               onMouseUp={handleCanvasMouseUp}
               onMouseLeave={handleCanvasMouseUp}
+              onContextMenu={(e) => {
+                // Правый клик используем для панорамы: своё меню не нужно,
+                // и после перетаскивания подавляем системное меню
+                e.preventDefault();
+              }}
             >
+              {/* Режим связывания: подсказка сверху по центру */}
+              {linkingFrom && (
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-sky-600 text-white px-3 py-2 rounded-xl shadow-lg text-xs font-semibold animate-in fade-in slide-in-from-top-2">
+                  <Link2 className="w-4 h-4" />
+                  Кликните тег-получатель связи
+                  <button onClick={() => setLinkingFrom(null)} className="ml-1 px-1.5 py-0.5 rounded bg-white/20 hover:bg-white/30 cursor-pointer">Esc — отмена</button>
+                </div>
+              )}
+
+              {/* Подсказка по управлению холстом (левый низ) */}
+              <div className="absolute bottom-3 left-3 z-30 text-[10px] text-slate-400 dark:text-slate-500 bg-white/70 dark:bg-slate-950/70 backdrop-blur px-2 py-1 rounded-lg border border-slate-200/60 dark:border-slate-800/60 pointer-events-none select-none">
+                ПКМ — двигать холст · колесо — масштаб · <Link2 className="w-2.5 h-2.5 inline -mt-0.5" /> на карточке — связать
+              </div>
+
               {/* Overlaid Zoom and Canvas Controls on the top-right */}
               <div className="absolute top-4 right-4 z-40 flex items-center gap-2 bg-white/90 dark:bg-slate-950/90 backdrop-blur-md p-1.5 rounded-xl border border-slate-200 dark:border-slate-800/80 shadow-md">
                 <div className="flex bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200/50 dark:border-slate-800">
@@ -2953,7 +3009,8 @@ export default function Registry() {
                 </button>
               </div>
 
-              <div 
+              <div
+                ref={worldRef}
                 className="absolute inset-0 origin-top-left pointer-events-none"
                 style={{
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
@@ -3138,7 +3195,11 @@ export default function Registry() {
                         id={`tag-card-${tag.id}`}
                         data-share-focus={`tag:${tag.id}`}
                         className={`absolute pointer-events-auto w-[310px] rounded-2xl border text-left transition-shadow duration-200 select-none ${
-                          isSourceOfDrag
+                          linkingFrom === tag.id
+                            ? 'ring-2 ring-sky-500 border-sky-500 shadow-xl z-40'
+                            : linkingFrom
+                              ? 'bg-white dark:bg-slate-950 border-sky-300/60 dark:border-sky-800/50 shadow-xs hover:ring-2 hover:ring-sky-400 cursor-crosshair z-10'
+                            : isSourceOfDrag
                             ? 'ring-2 ring-emerald-500 border-emerald-500 shadow-xl z-30'
                             : isSelected
                               ? `bg-white dark:bg-slate-950 ring-2 ring-indigo-500 border-indigo-400 dark:border-indigo-600 shadow-lg text-slate-900 dark:text-slate-100 ${isExpanded ? 'z-40' : 'z-20'}`
@@ -3158,6 +3219,8 @@ export default function Registry() {
                         onContextMenu={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
+                          // После правого перетаскивания (панорама) меню не показываем
+                          if (panMovedRef.current) { panMovedRef.current = false; return; }
                           // ПКМ по невыделенной карточке — выделяем только её (как в проводнике)
                           if (!selectedTagIds.has(tag.id)) setSelectedTagIds(new Set([tag.id]));
                           setCardMenu({ x: e.clientX, y: e.clientY, tagId: tag.id });
@@ -3213,6 +3276,21 @@ export default function Registry() {
                             </div>
 
                             <div className="flex items-center gap-1 shrink-0 no-drag select-none">
+                              {/* Связать: клик → затем клик по целевому тегу */}
+                              <button
+                                title={linkingFrom === tag.id ? 'Отменить связывание' : 'Связать: затем кликните целевой тег'}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setLinkingFrom(prev => prev === tag.id ? null : tag.id);
+                                }}
+                                className={`p-1.5 rounded transition-colors cursor-pointer flex items-center justify-center ${
+                                  linkingFrom === tag.id
+                                    ? 'bg-sky-500 text-white'
+                                    : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-450 dark:hover:text-slate-200'
+                                }`}
+                              >
+                                <Link2 className="w-4 h-4" />
+                              </button>
                               {/* Toggle Info / Expand Detailed View */}
                               <button
                                 title={isExpanded ? "Свернуть подописания" : "Открыть подописания тега"}
@@ -3221,8 +3299,8 @@ export default function Registry() {
                                   setExpandedCardIds(prev => ({ ...prev, [tag.id]: !prev[tag.id] }));
                                 }}
                                 className={`p-1.5 rounded transition-colors cursor-pointer flex items-center justify-center ${
-                                  isExpanded 
-                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' 
+                                  isExpanded
+                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
                                     : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-450 dark:hover:text-slate-200'
                                 }`}
                               >
