@@ -852,6 +852,13 @@ export default function Registry() {
     loadSystems();
   }, [activeProject]);
 
+  // ИИ-чат мог переименовать тег — перечитываем список, чтобы холст обновился
+  useEffect(() => {
+    const onTagsChanged = () => loadTags();
+    window.addEventListener('flux:tags-changed', onTagsChanged);
+    return () => window.removeEventListener('flux:tags-changed', onTagsChanged);
+  }, []);
+
   useEffect(() => {
     if (activeTab === 'equipment') {
       loadSystems();

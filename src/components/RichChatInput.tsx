@@ -109,16 +109,22 @@ const RichChatInput = forwardRef<RichChatInputHandle, Props>(function RichChatIn
     const el = rootRef.current;
     if (!el) return;
     if (value === lastEmitted.current) return;
+    const wasFocused = document.activeElement === el;
     renderValue(el, value);
     lastEmitted.current = value;
-    // курсор в конец
-    const sel = window.getSelection();
-    if (sel && document.activeElement === el) {
-      const r = document.createRange();
-      r.selectNodeContents(el);
-      r.collapse(false);
-      sel.removeAllRanges();
-      sel.addRange(r);
+    // Перерисовка innerHTML сбрасывает фокус (текущий узел удалён). Если поле
+    // было активно — возвращаем фокус и курсор в конец, иначе после вставки
+    // ссылки/эмодзи пользователь не может продолжить печатать.
+    if (wasFocused) {
+      el.focus();
+      const sel = window.getSelection();
+      if (sel) {
+        const r = document.createRange();
+        r.selectNodeContents(el);
+        r.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(r);
+      }
     }
   }, [value]);
 
@@ -193,8 +199,27 @@ const RichChatInput = forwardRef<RichChatInputHandle, Props>(function RichChatIn
     },
   }), []);
 
+  // Клик в любом месте поля (пустая область, отступы, подсказка) — фокус в
+  // редактируемую зону. Без этого клик мимо текстового узла иногда не
+  // активировал поле, и напечатать было нельзя.
+  const focusEditor = (e: React.MouseEvent) => {
+    const el = rootRef.current;
+    if (!el) return;
+    if (e.target === el || el.contains(e.target as Node)) return; // клик по самому редактору — стандартное поведение
+    e.preventDefault();
+    el.focus();
+    const sel = window.getSelection();
+    if (sel) {
+      const r = document.createRange();
+      r.selectNodeContents(el);
+      r.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(r);
+    }
+  };
+
   return (
-    <div className="relative flex-1 min-w-0">
+    <div className="relative flex-1 min-w-0" onMouseDown={focusEditor}>
       {!value && (
         <div className="absolute inset-0 px-3 py-2 text-xs text-slate-400 pointer-events-none select-none truncate">
           {placeholder}
@@ -205,6 +230,7 @@ const RichChatInput = forwardRef<RichChatInputHandle, Props>(function RichChatIn
         contentEditable
         role="textbox"
         aria-multiline="true"
+        tabIndex={0}
         data-tour="chat-input"
         suppressContentEditableWarning
         onInput={emit}
@@ -227,7 +253,7 @@ const RichChatInput = forwardRef<RichChatInputHandle, Props>(function RichChatIn
           document.execCommand('insertText', false, text);
           emit();
         }}
-        className="w-full max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-xs px-3 py-2 bg-slate-50 hover:bg-slate-100/50 dark:bg-slate-950 dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 focus:bg-white dark:focus:bg-slate-950 transition-all font-sans font-medium"
+        className="w-full min-h-[36px] max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-xs px-3 py-2 bg-slate-50 hover:bg-slate-100/50 dark:bg-slate-950 dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 focus:bg-white dark:focus:bg-slate-950 transition-all font-sans font-medium cursor-text"
       />
     </div>
   );

@@ -1,30 +1,70 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useAssistantStore, AssistantMessage } from '../store/assistantStore';
+import { useAssistantStore, AssistantMessage, AssistantAction } from '../store/assistantStore';
 import { getSection } from '../assistant/sections';
-import { Sparkles, Send, X, FileSpreadsheet, FileText, Play, HelpCircle, Loader2, GraduationCap, MessageCircleQuestion, Info } from 'lucide-react';
+import { Sparkles, Send, X, FileSpreadsheet, FileText, Play, HelpCircle, Loader2, GraduationCap, MessageCircleQuestion, Info, Pencil, MapPin, Tag as TagIcon } from 'lucide-react';
+
+function actionIcon(kind: AssistantAction['kind']) {
+  switch (kind) {
+    case 'export-excel': return <FileSpreadsheet className="w-3.5 h-3.5" />;
+    case 'export-word': return <FileText className="w-3.5 h-3.5" />;
+    case 'tour': return <Play className="w-3.5 h-3.5" />;
+    case 'ask': return <MessageCircleQuestion className="w-3.5 h-3.5" />;
+    case 'prompt-rename-tag': return <Pencil className="w-3.5 h-3.5" />;
+    case 'focus-tag': case 'find-duplicates': return <MapPin className="w-3.5 h-3.5" />;
+    case 'cancel-input': return <X className="w-3.5 h-3.5" />;
+    default: return <HelpCircle className="w-3.5 h-3.5" />;
+  }
+}
+
+function ActionChip({ a }: { a: AssistantAction }) {
+  const runAction = useAssistantStore(s => s.runAction);
+  const danger = a.danger || a.kind === 'cancel-input';
+  return (
+    <button
+      onClick={() => runAction(a)}
+      className={`flex items-center gap-1.5 px-2.5 py-1.5 border rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
+        danger
+          ? 'bg-slate-500/10 hover:bg-slate-500/20 text-slate-500 dark:text-slate-400 border-slate-400/30'
+          : 'bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-700 dark:text-emerald-300 border-emerald-600/30'
+      }`}
+    >
+      {actionIcon(a.kind)}
+      <span>{a.label}</span>
+    </button>
+  );
+}
 
 function ActionButton({ msg }: { msg: AssistantMessage }) {
-  const runAction = useAssistantStore(s => s.runAction);
   if (!msg.actions || msg.actions.length === 0) return null;
   return (
     <div className="flex flex-wrap gap-1.5 mt-2">
-      {msg.actions.map((a, i) => {
-        const icon = a.kind === 'export-excel' ? <FileSpreadsheet className="w-3.5 h-3.5" />
-          : a.kind === 'export-word' ? <FileText className="w-3.5 h-3.5" />
-          : a.kind === 'tour' ? <Play className="w-3.5 h-3.5" />
-          : a.kind === 'ask' ? <MessageCircleQuestion className="w-3.5 h-3.5" />
-          : <HelpCircle className="w-3.5 h-3.5" />;
-        return (
-          <button
-            key={i}
-            onClick={() => runAction(a)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-700 dark:text-emerald-300 border border-emerald-600/30 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
-          >
-            {icon}
-            <span>{a.label}</span>
-          </button>
-        );
-      })}
+      {msg.actions.map((a, i) => <ActionChip key={i} a={a} />)}
+    </div>
+  );
+}
+
+// Интерактивный список: карточки с действиями у каждого элемента
+// (например, теги-дубликаты с кнопкой «Переименовать»)
+function InteractiveList({ items }: { items: NonNullable<AssistantMessage['list']> }) {
+  const shown = items.slice(0, 60);
+  return (
+    <div className="mt-2 space-y-1.5">
+      {shown.map((it) => (
+        <div key={it.id} className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <TagIcon className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+            <span className="font-mono font-bold text-xs text-slate-800 dark:text-slate-100 truncate">{it.title}</span>
+            {it.badge && <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 uppercase tracking-wide">{it.badge}</span>}
+          </div>
+          {it.subtitle && <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 pl-5 truncate">{it.subtitle}</div>}
+          <div className="flex flex-wrap gap-1.5 mt-1.5 pl-5">
+            {it.actions.map((a, i) => <ActionChip key={i} a={a} />)}
+          </div>
+        </div>
+      ))}
+      {items.length > shown.length && (
+        <div className="text-[10px] text-slate-400 px-1">Показано {shown.length} из {items.length}.</div>
+      )}
     </div>
   );
 }
@@ -73,6 +113,7 @@ export default function AssistantPanel() {
   const currentRoute = useAssistantStore(s => s.currentRoute);
   const runSuggestion = useAssistantStore(s => s.runSuggestion);
   const describeCurrentSection = useAssistantStore(s => s.describeCurrentSection);
+  const pendingInput = useAssistantStore(s => s.pendingInput);
 
   const section = getSection(currentRoute);
 
@@ -108,6 +149,11 @@ export default function AssistantPanel() {
   useEffect(() => {
     if (isOpen) setTimeout(() => inputRef.current?.focus(), 60);
   }, [isOpen]);
+
+  // Начался диалог ввода (например, переименование) — ставим фокус в поле
+  useEffect(() => {
+    if (pendingInput) setTimeout(() => inputRef.current?.focus(), 60);
+  }, [pendingInput]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -170,7 +216,7 @@ export default function AssistantPanel() {
               }`}>
                 {m.text}
               </div>
-              {m.table && <DataTable table={m.table} />}
+              {m.list ? <InteractiveList items={m.list} /> : m.table && <DataTable table={m.table} />}
               {m.role === 'assistant' && <ActionButton msg={m} />}
             </div>
           </div>
@@ -242,9 +288,10 @@ export default function AssistantPanel() {
           value={input}
           onChange={(e) => { setInput(e.target.value); setHistIdx(-1); }}
           onKeyDown={onInputKeyDown}
-          placeholder={demoMode ? 'Что показать? Напишите вопрос…' : 'Спросите (Ctrl+K) — данные, действия, справка…'}
+          placeholder={pendingInput?.kind === 'rename-tag' ? `Новый код для «${pendingInput.oldCode}»…` : demoMode ? 'Что показать? Напишите вопрос…' : 'Спросите (Ctrl+K) — данные, действия, справка…'}
           className={`flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border rounded-lg text-xs text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 transition-all ${
-            demoMode ? 'border-emerald-500/50 focus:ring-emerald-500/30 focus:border-emerald-500' : 'border-slate-200 dark:border-slate-800 focus:ring-emerald-500/30 focus:border-emerald-500'
+            pendingInput ? 'border-amber-400/60 focus:ring-amber-400/30 focus:border-amber-400'
+            : demoMode ? 'border-emerald-500/50 focus:ring-emerald-500/30 focus:border-emerald-500' : 'border-slate-200 dark:border-slate-800 focus:ring-emerald-500/30 focus:border-emerald-500'
           }`}
         />
         <button

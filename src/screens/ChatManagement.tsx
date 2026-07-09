@@ -434,6 +434,8 @@ export default function ChatManagement() {
       setStagedAttachments([]);
       setSelectedElementId(null);
       setSelectedElementName(null);
+      // Возвращаем фокус в поле — чтобы можно было сразу печатать дальше
+      requestAnimationFrame(() => messageInputRef.current?.focus());
     } catch (err: any) {
       addToast('Ошибка отправки сообщения: ' + err.message, 'error');
     } finally {
