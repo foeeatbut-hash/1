@@ -151,18 +151,18 @@ export default function UsersManagement() {
   // Бейдж статуса доступа: активен / отключен / истекает / истек
   const getAccessBadge = (emp: User) => {
     if (emp.isActive === false) {
-      return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50">Отключен</span>;
+      return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50">Отключен</span>;
     }
     if (emp.validUntil) {
       const until = new Date(emp.validUntil);
       const expired = until.getTime() < Date.now();
       const dateStr = until.toLocaleDateString('ru-RU');
       if (expired) {
-        return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50">Истек {dateStr}</span>;
+        return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50">Истек {dateStr}</span>;
       }
-      return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/40"><Clock className="w-3 h-3" />до {dateStr}</span>;
+      return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/40"><Clock className="w-3 h-3 shrink-0" />до {dateStr}</span>;
     }
-    return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40">Активен</span>;
+    return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40">Активен</span>;
   };
 
   // 1. Load users list from database
@@ -347,12 +347,12 @@ export default function UsersManagement() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-405 dark:text-slate-500 text-xs font-bold uppercase font-mono tracking-wider bg-slate-50/30 dark:bg-slate-950/10">
-                  <th className="px-6 py-3.5">ФИО сотрудника</th>
-                  <th className="px-6 py-3.5">Табельный номер (Логин)</th>
-                  <th className="px-6 py-3.5">Роль в системе</th>
-                  <th className="px-6 py-3.5">Доступ</th>
-                  <th className="px-6 py-3.5">Дата регистрации</th>
-                  <th className="px-6 py-3.5 text-right">Управление</th>
+                  <th className="px-6 py-3.5 text-left whitespace-nowrap">ФИО сотрудника</th>
+                  <th className="px-6 py-3.5 text-left whitespace-nowrap">Табельный номер (Логин)</th>
+                  <th className="px-6 py-3.5 text-left whitespace-nowrap">Роль в системе</th>
+                  <th className="px-6 py-3.5 text-left whitespace-nowrap">Доступ</th>
+                  <th className="px-6 py-3.5 text-left whitespace-nowrap">Дата регистрации</th>
+                  <th className="px-6 py-3.5 text-right whitespace-nowrap">Управление</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-150 dark:divide-slate-850">
@@ -375,9 +375,9 @@ export default function UsersManagement() {
                     <td className="px-6 py-4">
                       {getAccessBadge(emp)}
                     </td>
-                    <td className="px-6 py-4 text-xs text-slate-400 font-mono">
+                    <td className="px-6 py-4 text-xs text-slate-400 font-mono whitespace-nowrap">
                       <span className="inline-flex items-center gap-1.5">
-                        <Calendar className="w-3.5 h-3.5" />
+                        <Calendar className="w-3.5 h-3.5 shrink-0" />
                         {new Date(emp.createdAt || Date.now()).toLocaleDateString('ru-RU', {
                           year: 'numeric',
                           month: 'long',
