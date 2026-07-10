@@ -374,6 +374,41 @@ export default function Registry() {
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 80, y: 50 });
   const [isPanning, setIsPanning] = useState(false);
   const [draggedTagId, setDraggedTagId] = useState<string | null>(null);
+  // Мир (фон+связи+карточки) — двигаем напрямую во время панорамы (без ре-рендера)
+  const worldRef = useRef<HTMLDivElement>(null);
+  const panMovedRef = useRef(false);
+  // Режим «связать»: клик по «+» на карточке → клик по цели создаёт связь
+  const [linkingFrom, setLinkingFrom] = useState<string | null>(null);
+  const linkingFromRef = useRef<string | null>(null);
+  useEffect(() => { linkingFromRef.current = linkingFrom; }, [linkingFrom]);
+
+  // Способ создания связей на ХОЛСТЕ и в ДЕРЕВЕ: 'click' или 'drag'. Настройки
+  // из «Настройки → Теги»; меняются вживую по событию.
+  const [linkMode, setLinkMode] = useState<'click' | 'drag'>('click');
+  const [treeLinkMode, setTreeLinkMode] = useState<'click' | 'drag'>('click');
+  // Режим «связать» в дереве (клик по «+» у строки → клик по строке-получателю)
+  const [treeLinkingFrom, setTreeLinkingFrom] = useState<string | null>(null);
+  const treeLinkingFromRef = useRef<string | null>(null);
+  useEffect(() => { treeLinkingFromRef.current = treeLinkingFrom; }, [treeLinkingFrom]);
+  // Перетаскивание строки дерева на другую (drag-режим)
+  const [treeDragOverId, setTreeDragOverId] = useState<string | null>(null);
+  const treeDraggedIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    fetch('/api/settings/registry_link_mode').then(r => r.json()).then(d => {
+      if (d.global === 'drag' || d.global === 'click') setLinkMode(d.global);
+    }).catch(() => {});
+    fetch('/api/settings/tree_link_mode').then(r => r.json()).then(d => {
+      if (d.global === 'drag' || d.global === 'click') setTreeLinkMode(d.global);
+    }).catch(() => {});
+    const onSettings = (e: any) => {
+      const v = e?.detail?.value;
+      if (v !== 'click' && v !== 'drag') return;
+      if (e.detail.key === 'registry_link_mode') { setLinkMode(v); setLinkingFrom(null); }
+      if (e.detail.key === 'tree_link_mode') { setTreeLinkMode(v); setTreeLinkingFrom(null); }
+    };
+    window.addEventListener('flux:settings-changed', onSettings);
+    return () => window.removeEventListener('flux:settings-changed', onSettings);
+  }, []);
   const lastMousePosRef = useRef({ x: 0, y: 0 });
   
   // Real-time Dynamo Revit Connection Wires
@@ -458,8 +493,10 @@ export default function Registry() {
         }
       }
 
-      // Esc: сначала закрываем панели и режим мультивыбора, затем снимаем выделение
+      // Esc: сначала выходим из режима связывания, затем закрываем панели и снимаем выделение
       if (e.key === 'Escape') {
+        if (linkingFromRef.current) { setLinkingFrom(null); return; }
+        if (treeLinkingFromRef.current) { setTreeLinkingFrom(null); return; }
         setCardPanel(null);
         setDupPanel(null);
         setMultiSelectMode(false);
@@ -612,11 +649,35 @@ export default function Registry() {
   const [editTagMarkingSelections, setEditTagMarkingSelections] = useState<Record<string, string>>({});
   const [editTagMarkingSeparator, setEditTagMarkingSeparator] = useState('-');
 
+  // Форма карточки: контролируемые поля + автосохранение (без кнопок «Применить»)
+  const [modalMainName, setModalMainName] = useState('');
+  const [modalCode, setModalCode] = useState('');
+  const [modalDescText, setModalDescText] = useState('');
+  const [modalDescComment, setModalDescComment] = useState('');
+  const [savedFlash, setSavedFlash] = useState(false);
+  const savedFlashTimer = useRef<any>(null);
+  const flashSaved = () => {
+    setSavedFlash(true);
+    if (savedFlashTimer.current) clearTimeout(savedFlashTimer.current);
+    savedFlashTimer.current = setTimeout(() => setSavedFlash(false), 1400);
+  };
+  // Инициализируем поля формы только при ОТКРЫТИИ карточки (по смене id),
+  // чтобы автосохранение и обновления editingTag не сбрасывали ввод.
+  const modalInitRef = useRef<string | null>(null);
   useEffect(() => {
-    if (editingTag) {
+    if (editingTag && modalInitRef.current !== editingTag.id) {
+      modalInitRef.current = editingTag.id;
+      const m = parseTagMetadata(editingTag);
       setEditTagBrand(editingTag.brand || '');
       setEditTagMarkingSelections({});
       setEditTagMarkingSeparator('-');
+      setModalMainName(m.mainName || '');
+      setModalCode(editingTag.identifier || '');
+      setModalDescText('');
+      setModalDescComment('');
+      setModalStatusInput('actual');
+    } else if (!editingTag) {
+      modalInitRef.current = null;
     }
   }, [editingTag]);
 
@@ -1340,10 +1401,16 @@ export default function Registry() {
     } else if (isPanning) {
       const dx = e.clientX - lastMousePosRef.current.x;
       const dy = e.clientY - lastMousePosRef.current.y;
-      
+      if (Math.abs(dx) + Math.abs(dy) > 2) panMovedRef.current = true;
+
       lastMousePosRef.current = { x: e.clientX, y: e.clientY };
 
-      setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+      // Двигаем мир напрямую (без setState) — панорама не лагает на больших графах.
+      // Итоговое значение фиксируем в state на mouseup.
+      panRef.current = { x: panRef.current.x + dx, y: panRef.current.y + dy };
+      if (worldRef.current) {
+        worldRef.current.style.transform = `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${zoomRef.current})`;
+      }
     }
   };
 
@@ -1355,6 +1422,14 @@ export default function Registry() {
     pendingDragRef.current = null;
     if (pending && !draggedTagId && e?.type === 'mouseup') {
       const tagId = pending.tagId;
+      // Режим «связать»: кликнули по цели → создаём связь; по источнику → отмена
+      if (linkingFromRef.current) {
+        const from = linkingFromRef.current;
+        setLinkingFrom(null);
+        setIsPanning(false);
+        if (from !== tagId) await handleAddConnection(from, tagId);
+        return;
+      }
       if (multiSelectMode) {
         setSelectedTagIds(prev => {
           const next = new Set(prev);
@@ -1444,6 +1519,8 @@ export default function Registry() {
       activeConnectionDragRef.current = null;
     }
 
+    // Панораму двигали напрямую через worldRef — фиксируем итог в state
+    if (isPanning) setPan({ ...panRef.current });
     setIsPanning(false);
   };
 
@@ -1907,6 +1984,24 @@ export default function Registry() {
     if (editingTag && editingTag.id === tagId) {
       setEditingTag({ ...tag, metadata: JSON.stringify(meta) });
     }
+  };
+
+  // Переименование кода тега (identifier). Связи хранятся по id — сохраняются.
+  const handleRenameTag = async (tagId: string, rawCode: string) => {
+    const code = rawCode.trim();
+    const tag = tags.find(t => t.id === tagId);
+    if (!tag || !code || code === tag.identifier) return;
+    if (/[а-яё]/i.test(code)) { addToast('Код тега только на латинице', 'error'); setModalCode(tag.identifier); return; }
+    try {
+      const res = await fetch(`/api/tags/${tagId}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: code }),
+      });
+      if (!res.ok) throw new Error();
+      setTags(prev => prev.map(t => t.id === tagId ? { ...t, identifier: code } : t));
+      if (editingTag && editingTag.id === tagId) setEditingTag((prev: any) => prev ? { ...prev, identifier: code } : null);
+      flashSaved();
+    } catch { addToast('Не удалось изменить код тега', 'error'); setModalCode(tag.identifier); }
   };
 
   const handleUpdateDynamicFields = async (tagId: string, updatedFields: Record<string, string>) => {
@@ -2829,16 +2924,50 @@ export default function Registry() {
               <div 
                 ref={boardRef}
                 className="w-full flex-1 min-h-0 overflow-hidden bg-slate-50 dark:bg-slate-900 border-2 border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-lg relative select-none transition-colors"
-              style={{ cursor: isPanning ? 'grabbing' : 'grab' }}
+              style={{ cursor: isPanning ? 'grabbing' : (linkingFrom ? 'crosshair' : 'default') }}
               onMouseDown={(e) => {
-                if (e.button !== 0) return;
-                setIsPanning(true);
-                lastMousePosRef.current = { x: e.clientX, y: e.clientY };
+                // Правая (или средняя) кнопка — панорама холста
+                if (e.button === 2 || e.button === 1) {
+                  e.preventDefault();
+                  setIsPanning(true);
+                  panMovedRef.current = false;
+                  lastMousePosRef.current = { x: e.clientX, y: e.clientY };
+                  return;
+                }
+                // Левая по пустому месту — снять выделение и закрыть панели/режим связи
+                if (e.button === 0 && e.target === e.currentTarget) {
+                  setSelectedTagIds(new Set());
+                  setCardPanel(null);
+                  setCardMenu(null);
+                  setSelectedConnection(null);
+                  if (linkingFromRef.current) setLinkingFrom(null);
+                }
               }}
               onMouseMove={handleCanvasMouseMove}
               onMouseUp={handleCanvasMouseUp}
               onMouseLeave={handleCanvasMouseUp}
+              onContextMenu={(e) => {
+                // Правый клик используем для панорамы: своё меню не нужно,
+                // и после перетаскивания подавляем системное меню
+                e.preventDefault();
+              }}
             >
+              {/* Режим связывания: подсказка сверху по центру */}
+              {linkingFrom && (
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-sky-600 text-white px-3 py-2 rounded-xl shadow-lg text-xs font-semibold animate-in fade-in slide-in-from-top-2">
+                  <Link2 className="w-4 h-4" />
+                  Кликните тег-получатель связи
+                  <button onClick={() => setLinkingFrom(null)} className="ml-1 px-1.5 py-0.5 rounded bg-white/20 hover:bg-white/30 cursor-pointer">Esc — отмена</button>
+                </div>
+              )}
+
+              {/* Подсказка по управлению холстом (левый низ) */}
+              <div className="absolute bottom-3 left-3 z-30 text-[10px] text-slate-400 dark:text-slate-500 bg-white/70 dark:bg-slate-950/70 backdrop-blur px-2 py-1 rounded-lg border border-slate-200/60 dark:border-slate-800/60 pointer-events-none select-none">
+                ПКМ — двигать холст · колесо — масштаб · {linkMode === 'click'
+                  ? <><Link2 className="w-2.5 h-2.5 inline -mt-0.5" /> на карточке — связать</>
+                  : <>тяни от точек-портов — связать</>}
+              </div>
+
               {/* Overlaid Zoom and Canvas Controls on the top-right */}
               <div className="absolute top-4 right-4 z-40 flex items-center gap-2 bg-white/90 dark:bg-slate-950/90 backdrop-blur-md p-1.5 rounded-xl border border-slate-200 dark:border-slate-800/80 shadow-md">
                 <div className="flex bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200/50 dark:border-slate-800">
@@ -2911,7 +3040,8 @@ export default function Registry() {
                 </button>
               </div>
 
-              <div 
+              <div
+                ref={worldRef}
                 className="absolute inset-0 origin-top-left pointer-events-none"
                 style={{
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
@@ -3096,7 +3226,11 @@ export default function Registry() {
                         id={`tag-card-${tag.id}`}
                         data-share-focus={`tag:${tag.id}`}
                         className={`absolute pointer-events-auto w-[310px] rounded-2xl border text-left transition-shadow duration-200 select-none ${
-                          isSourceOfDrag
+                          linkingFrom === tag.id
+                            ? 'ring-2 ring-sky-500 border-sky-500 shadow-xl z-40'
+                            : linkingFrom
+                              ? 'bg-white dark:bg-slate-950 border-sky-300/60 dark:border-sky-800/50 shadow-xs hover:ring-2 hover:ring-sky-400 cursor-crosshair z-10'
+                            : isSourceOfDrag
                             ? 'ring-2 ring-emerald-500 border-emerald-500 shadow-xl z-30'
                             : isSelected
                               ? `bg-white dark:bg-slate-950 ring-2 ring-indigo-500 border-indigo-400 dark:border-indigo-600 shadow-lg text-slate-900 dark:text-slate-100 ${isExpanded ? 'z-40' : 'z-20'}`
@@ -3116,16 +3250,19 @@ export default function Registry() {
                         onContextMenu={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
+                          // После правого перетаскивания (панорама) меню не показываем
+                          if (panMovedRef.current) { panMovedRef.current = false; return; }
                           // ПКМ по невыделенной карточке — выделяем только её (как в проводнике)
                           if (!selectedTagIds.has(tag.id)) setSelectedTagIds(new Set([tag.id]));
                           setCardMenu({ x: e.clientX, y: e.clientY, tagId: tag.id });
                         }}
                       >
-                        {/* PORT SENSOR DOTS (Permanently placed at top center vertical line of card regardless of expansion height) */}
-                        <div 
+                        {/* Порты для связи перетаскиванием — только в режиме «Перетаскиванием» */}
+                        {linkMode === 'drag' && (<>
+                        <div
                           className={`absolute connection-port left-0 top-[22px] -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border border-slate-300 dark:border-slate-800 transition-all hover:scale-130 cursor-crosshair z-40 ${
-                            hoveredLeft 
-                              ? 'bg-emerald-500 border-white scale-125 shadow-lg' 
+                            hoveredLeft
+                              ? 'bg-emerald-500 border-white scale-125 shadow-lg'
                               : 'bg-slate-200 dark:bg-slate-800'
                           }`}
                           onMouseDown={(e) => handlePortMouseDown(e, tag.id, 'left')}
@@ -3136,10 +3273,10 @@ export default function Registry() {
                           <div className="w-1.5 h-1.5 rounded-full bg-slate-700 dark:bg-slate-200 m-auto mt-[4px]" />
                         </div>
 
-                        <div 
+                        <div
                           className={`absolute connection-port right-0 top-[22px] translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border border-slate-300 dark:border-slate-800 transition-all hover:scale-130 cursor-crosshair z-40 ${
-                            hoveredRight 
-                              ? 'bg-emerald-500 border-white scale-125 shadow-lg' 
+                            hoveredRight
+                              ? 'bg-emerald-500 border-white scale-125 shadow-lg'
                               : 'bg-slate-200 dark:bg-slate-800'
                           }`}
                           onMouseDown={(e) => handlePortMouseDown(e, tag.id, 'right')}
@@ -3149,6 +3286,7 @@ export default function Registry() {
                         >
                           <div className="w-1.5 h-1.5 rounded-full bg-slate-700 dark:bg-slate-200 m-auto mt-[4px]" />
                         </div>
+                        </>)}
 
                         {/* CARD COMPACT HEADER ROW (Always visible) */}
                         <div className="px-4 py-3 cursor-move flex flex-col gap-1 w-full">
@@ -3171,6 +3309,23 @@ export default function Registry() {
                             </div>
 
                             <div className="flex items-center gap-1 shrink-0 no-drag select-none">
+                              {/* Связать: клик → затем клик по целевому тегу (режим «Кликом») */}
+                              {linkMode === 'click' && (
+                                <button
+                                  title={linkingFrom === tag.id ? 'Отменить связывание' : 'Связать: затем кликните целевой тег'}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setLinkingFrom(prev => prev === tag.id ? null : tag.id);
+                                  }}
+                                  className={`p-1.5 rounded transition-colors cursor-pointer flex items-center justify-center ${
+                                    linkingFrom === tag.id
+                                      ? 'bg-sky-500 text-white'
+                                      : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-450 dark:hover:text-slate-200'
+                                  }`}
+                                >
+                                  <Link2 className="w-4 h-4" />
+                                </button>
+                              )}
                               {/* Toggle Info / Expand Detailed View */}
                               <button
                                 title={isExpanded ? "Свернуть подописания" : "Открыть подописания тега"}
@@ -3179,8 +3334,8 @@ export default function Registry() {
                                   setExpandedCardIds(prev => ({ ...prev, [tag.id]: !prev[tag.id] }));
                                 }}
                                 className={`p-1.5 rounded transition-colors cursor-pointer flex items-center justify-center ${
-                                  isExpanded 
-                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' 
+                                  isExpanded
+                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
                                     : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-450 dark:hover:text-slate-200'
                                 }`}
                               >
@@ -3751,6 +3906,18 @@ export default function Registry() {
             transition={{ duration: 0.15 }}
             className="h-full w-full overflow-y-auto space-y-4 text-left pr-1"
           >
+            {/* Подсказка по способу связывания в дереве */}
+            <div className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-500 dark:text-slate-400">
+              <span className="flex items-center gap-1.5">
+                <Link2 className="w-3.5 h-3.5 text-sky-500" />
+                {treeLinkMode === 'click'
+                  ? <>Связи: <b>кликом</b> — кнопка <Link2 className="w-3 h-3 inline -mt-0.5" /> у строки, затем клик по дочерней. Способ меняется в «Настройки → Теги → Дерево».</>
+                  : <>Связи: <b>перетаскиванием</b> — тяните строку тега на другую (перетащенный станет дочерним). Способ меняется в «Настройки → Теги → Дерево».</>}
+              </span>
+              {treeLinkingFrom && (
+                <button onClick={() => setTreeLinkingFrom(null)} className="shrink-0 px-2 py-1 rounded-lg bg-sky-500 text-white font-semibold cursor-pointer">Отмена связи (Esc)</button>
+              )}
+            </div>
             <div className="p-5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs">
               {buildTree().length === 0 ? (
                 <div className="text-center py-16 text-slate-400">
@@ -4885,59 +5052,62 @@ export default function Registry() {
               exit={{ scale: 0.96, opacity: 0 }}
               className="bg-white dark:bg-slate-950 rounded-2xl shadow-2xl border border-slate-205 dark:border-slate-850 w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]"
             >
-              <div className="p-5 bg-slate-900 dark:bg-slate-900 text-white flex items-center justify-between border-b dark:border-slate-800">
-                <div className="flex items-center gap-2.5">
-                  <Database className="w-5 h-5 text-emerald-400 font-bold" />
-                  <div className="text-left">
-                    <h3 className="text-base font-bold font-mono tracking-tight">{editingTag.identifier}</h3>
-                    <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Свойства и структура подописаний</p>
+              <div className="p-4 bg-slate-900 dark:bg-slate-900 text-white flex items-center justify-between border-b dark:border-slate-800 gap-3">
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <Database className="w-5 h-5 text-emerald-400 shrink-0" />
+                  <div className="text-left min-w-0 flex-1">
+                    {/* Код тега редактируется прямо здесь — автосохранение на blur/Enter */}
+                    <input
+                      value={modalCode}
+                      onChange={(e) => setModalCode(e.target.value)}
+                      onBlur={() => handleRenameTag(editingTag.id, modalCode)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                      spellCheck={false}
+                      className="w-full bg-transparent text-base font-bold font-mono tracking-tight text-white outline-none border-b border-transparent hover:border-slate-700 focus:border-emerald-500 transition-colors"
+                      title="Код тега — изменение сохранит связи"
+                    />
+                    <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mt-0.5">Свойства тега · изменения сохраняются сами</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => {
-                    setEditingTag(null);
-                    loadTags();
-                  }}
-                  className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer animate-none"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className={`flex items-center gap-1 text-[11px] font-semibold text-emerald-400 transition-opacity duration-300 ${savedFlash ? 'opacity-100' : 'opacity-0'}`}>
+                    <Check className="w-3.5 h-3.5" /> Сохранено
+                  </span>
+                  <button
+                    onClick={() => { setEditingTag(null); loadTags(); }}
+                    className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
 
               <div className="p-5 overflow-y-auto space-y-5 text-left">
                 
-                {/* UPDATE MAIN NAME FORM */}
+                {/* Главное наименование — автосохранение на blur */}
                 <div className="space-y-1.5 text-left">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Главное наименование тега</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="Напр., Приточная вентиляционная установка"
-                      defaultValue={parseTagMetadata(editingTag).mainName || ''}
-                      id="modal-main-name-input"
-                      className="flex-1 px-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded-xl text-sm text-slate-850 dark:text-slate-100 focus:outline-none"
-                    />
-                    <button
-                      onClick={async () => {
-                        const inputEl = document.getElementById('modal-main-name-input') as HTMLInputElement;
-                        if (inputEl) {
-                          await handleUpdateMainName(editingTag.id, inputEl.value);
-                          alert('Главное наименование успешно записано!');
-                        }
-                      }}
-                      className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl transition-colors shrink-0 cursor-pointer border-none"
-                    >
-                      Применить
-                    </button>
-                  </div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Главное наименование</label>
+                  <input
+                    type="text"
+                    placeholder="Напр., Приточная вентиляционная установка"
+                    value={modalMainName}
+                    onChange={(e) => setModalMainName(e.target.value)}
+                    onBlur={async () => {
+                      if (modalMainName !== (parseTagMetadata(editingTag).mainName || '')) {
+                        await handleUpdateMainName(editingTag.id, modalMainName);
+                        flashSaved();
+                      }
+                    }}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded-xl text-sm text-slate-850 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
+                  />
                 </div>
 
-                {/* RE-ASSIGN PARENT TAG FORM */}
+                {/* Родительский тег (связь вверх) — автосохранение на выбор */}
                 <div className="space-y-1.5 text-left">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Родительский тег (Мастер)</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Родительский тег (связь вверх)</label>
                   <CustomSelect
                     value={parseTagMetadata(editingTag).parentId || 'none'}
-                    onChange={(val) => handleUpdateParent(editingTag.id, val)}
+                    onChange={(val) => { handleUpdateParent(editingTag.id, val); flashSaved(); }}
                     placeholder="-- Нет родительского тега --"
                     options={[
                       { value: "none", label: "-- Нет родительского тега --" },
@@ -4978,7 +5148,7 @@ export default function Registry() {
                                 <span className="text-xs font-bold text-slate-400 dark:text-slate-500">{cat.nameRu}</span>
                                 <CustomSelect
                                   value={tagDFields[cat.nameRu] || ''}
-                                  onChange={(val) => handleUpdateDynamicFields(editingTag.id, { [cat.nameRu]: val })}
+                                  onChange={(val) => { handleUpdateDynamicFields(editingTag.id, { [cat.nameRu]: val }); flashSaved(); }}
                                   placeholder="-- Выберите --"
                                   options={options.map((opt: any) => ({
                                     value: opt.nameRu,
@@ -5071,44 +5241,42 @@ export default function Registry() {
                     return null;
                   })()}
 
-                  <div className="flex gap-2 pt-1">
-                    <input
-                      type="text"
-                      placeholder="Задайте марку (напр: Датчик-К1)"
-                      value={editTagBrand}
-                      onChange={(e) => setEditTagBrand(e.target.value)}
-                      className="flex-1 px-3 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none font-medium"
-                    />
-                    <button
-                      onClick={async () => {
+                  {/* Марка — автосохранение на blur (или при выборе в конструкторе) */}
+                  <input
+                    type="text"
+                    placeholder="Задайте марку (напр: Датчик-К1)"
+                    value={editTagBrand}
+                    onChange={(e) => setEditTagBrand(e.target.value)}
+                    onBlur={async () => {
+                      if (editTagBrand !== (editingTag.brand || '')) {
                         await handleUpdateBrand(editingTag.id, editTagBrand);
-                        alert('Марка оборудования успешно сохранена!');
-                      }}
-                      className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl transition-colors shrink-0 cursor-pointer border-none"
-                    >
-                      Применить
-                    </button>
-                  </div>
+                        flashSaved();
+                      }
+                    }}
+                    className="w-full px-3 py-2 mt-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 font-medium"
+                  />
                 </div>
 
-                {/* ADD DESCRIPTION FORM */}
+                {/* Добавить подписание */}
                 <div className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl space-y-3">
                   <h4 className="text-xs font-bold text-slate-750 dark:text-slate-200 uppercase tracking-widest flex items-center gap-1">
                     <Plus className="w-4 h-4 text-emerald-600" />
-                    Зафиксировать подописание с комментарием
+                    Новое подписание
                   </h4>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <span className="text-xs font-bold text-slate-500">Заголовок описания</span>
+                      <span className="text-xs font-bold text-slate-500">Заголовок</span>
                       <input
                         type="text"
                         placeholder="Напр., Датчик TE-101"
-                        id="modal-desc-input"
-                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
+                        value={modalDescText}
+                        onChange={(e) => setModalDescText(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && modalDescText.trim()) (document.getElementById('modal-add-desc-btn') as HTMLButtonElement)?.click(); }}
+                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
                       />
                     </div>
                     <div className="space-y-1">
-                      <span className="text-xs font-bold text-slate-500">Статус актуальности</span>
+                      <span className="text-xs font-bold text-slate-500">Актуальность</span>
                       <CustomSelect
                         value={modalStatusInput}
                         onChange={(val) => setModalStatusInput(val)}
@@ -5118,29 +5286,31 @@ export default function Registry() {
                   </div>
 
                   <div className="space-y-1">
-                    <span className="text-xs font-bold text-slate-500">Комментарии / Замечания</span>
+                    <span className="text-xs font-bold text-slate-500">Комментарий</span>
                     <input
                       type="text"
-                      placeholder="Введите замечания или лог проверки..."
-                      id="modal-comment-input"
-                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
+                      placeholder="Замечания или лог проверки…"
+                      value={modalDescComment}
+                      onChange={(e) => setModalDescComment(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && modalDescText.trim()) (document.getElementById('modal-add-desc-btn') as HTMLButtonElement)?.click(); }}
+                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
                     />
                   </div>
 
                   <button
-                    onClick={() => {
-                      const textEl = document.getElementById('modal-desc-input') as HTMLInputElement;
-                      const commentEl = document.getElementById('modal-comment-input') as HTMLInputElement;
-                      if (textEl && textEl.value) {
-                        handleAddDescription(editingTag.id, textEl.value, commentEl.value, modalStatusInput as any);
-                        textEl.value = '';
-                        commentEl.value = '';
-                        setModalStatusInput('actual');
-                      }
+                    id="modal-add-desc-btn"
+                    disabled={!modalDescText.trim()}
+                    onClick={async () => {
+                      if (!modalDescText.trim()) return;
+                      await handleAddDescription(editingTag.id, modalDescText.trim(), modalDescComment.trim(), modalStatusInput as any);
+                      setModalDescText('');
+                      setModalDescComment('');
+                      setModalStatusInput('actual');
+                      flashSaved();
                     }}
-                    className="w-full py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-semibold cursor-pointer transition-colors border-none"
+                    className="w-full py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-xs font-semibold cursor-pointer transition-colors border-none"
                   >
-                    Добавить описание в реестр
+                    Добавить подписание
                   </button>
                 </div>
 
@@ -5270,16 +5440,23 @@ export default function Registry() {
 
               </div>
 
-              <div className="p-4 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+              <div className="p-3 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
                 <button
-                  onClick={() => {
-                    setEditingTag(null);
-                    loadTags();
-                  }}
-                  className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-semibold cursor-pointer border-none"
+                  onClick={async () => { const id = editingTag.id; setEditingTag(null); await handleDeleteTag(id); }}
+                  className="px-3 py-2 rounded-lg text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer flex items-center gap-1.5 transition-colors"
+                  title="Удалить тег со всеми связями"
                 >
-                  Готово
+                  <Trash2 className="w-3.5 h-3.5" /> Удалить тег
                 </button>
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] text-slate-400">Изменения сохраняются автоматически</span>
+                  <button
+                    onClick={() => { setEditingTag(null); loadTags(); }}
+                    className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-semibold cursor-pointer border-none"
+                  >
+                    Готово
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>
@@ -5440,6 +5617,28 @@ export default function Registry() {
       <div key={node.id} className="space-y-1">
         <div
           id={`tree-node-${node.id}`}
+          draggable={treeLinkMode === 'drag'}
+          onDragStart={(e) => {
+            if (treeLinkMode !== 'drag') return;
+            treeDraggedIdRef.current = node.id;
+            e.dataTransfer.effectAllowed = 'move';
+            try { e.dataTransfer.setData('text/plain', node.id); } catch (_) {}
+          }}
+          onDragOver={(e) => {
+            if (treeLinkMode !== 'drag') return;
+            const from = treeDraggedIdRef.current;
+            if (from && from !== node.id) { e.preventDefault(); if (treeDragOverId !== node.id) setTreeDragOverId(node.id); }
+          }}
+          onDragLeave={() => { if (treeDragOverId === node.id) setTreeDragOverId(null); }}
+          onDrop={async (e) => {
+            if (treeLinkMode !== 'drag') return;
+            e.preventDefault();
+            const from = treeDraggedIdRef.current;
+            treeDraggedIdRef.current = null;
+            setTreeDragOverId(null);
+            if (from && from !== node.id) await handleAddConnection(node.id, from); // перетащенный (from) → дочерний узла node
+          }}
+          onDragEnd={() => { treeDraggedIdRef.current = null; setTreeDragOverId(null); }}
           onClick={(e) => {
             // Ctrl+клик — мультивыбор для «Поделиться в чате»
             if (e.ctrlKey || e.metaKey) {
@@ -5450,6 +5649,13 @@ export default function Registry() {
                 else next.add(node.id);
                 return next;
               });
+              return;
+            }
+            // Режим «связать» кликом: выбираем строку-получателя (станет дочерней)
+            if (treeLinkingFrom) {
+              const from = treeLinkingFrom;
+              setTreeLinkingFrom(null);
+              if (from !== node.id) handleAddConnection(from, node.id);
             }
           }}
           onContextMenu={(e) => {
@@ -5458,12 +5664,18 @@ export default function Registry() {
             if (!selectedTagIds.has(node.id)) setSelectedTagIds(new Set([node.id]));
             setCardMenu({ x: e.clientX, y: e.clientY, tagId: node.id });
           }}
-          className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${
-            selectedTagIds.has(node.id)
-              ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/30 ring-1 ring-indigo-300 dark:ring-indigo-800'
-              : duplicateCodes.has((node.identifier || '').trim())
-                ? 'border-rose-300 dark:border-rose-700/60 bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-50 dark:hover:bg-rose-950/30'
-                : 'border-slate-100 dark:border-slate-850 hover:bg-slate-50 dark:hover:bg-slate-900/60'
+          className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${treeLinkMode === 'drag' ? 'cursor-move' : ''} ${
+            treeLinkingFrom === node.id
+              ? 'border-sky-400 dark:border-sky-600 bg-sky-50 dark:bg-sky-950/30 ring-2 ring-sky-400'
+              : treeDragOverId === node.id
+                ? 'border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 ring-2 ring-emerald-400'
+                : treeLinkingFrom
+                  ? 'border-sky-200/60 dark:border-sky-900/40 hover:ring-2 hover:ring-sky-300 cursor-pointer'
+                  : selectedTagIds.has(node.id)
+                    ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/30 ring-1 ring-indigo-300 dark:ring-indigo-800'
+                    : duplicateCodes.has((node.identifier || '').trim())
+                      ? 'border-rose-300 dark:border-rose-700/60 bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-50 dark:hover:bg-rose-950/30'
+                      : 'border-slate-100 dark:border-slate-850 hover:bg-slate-50 dark:hover:bg-slate-900/60'
           }`}
           style={{ marginLeft: `${level * 24}px` }}
         >
@@ -5524,6 +5736,15 @@ export default function Registry() {
             )}
 
             <div className="flex bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg p-0.5 border border-slate-200 dark:border-slate-800">
+              {treeLinkMode === 'click' && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setTreeLinkingFrom(prev => prev === node.id ? null : node.id); }}
+                  title={treeLinkingFrom === node.id ? 'Отменить связывание' : 'Связать: затем кликните дочернюю строку'}
+                  className={`p-1 rounded transition-colors cursor-pointer ${treeLinkingFrom === node.id ? 'bg-sky-500 text-white' : 'hover:text-sky-600 text-slate-500'}`}
+                >
+                  <Link2 className="w-3.5 h-3.5" />
+                </button>
+              )}
               <button
                 onClick={() => setEditingTag(node)}
                 title="Редактировать описания и комментарии тега"

@@ -10,7 +10,8 @@ import FluxLogo from '../components/FluxLogo';
 import { ENV_CONFIG } from '../config/env';
 import {
   Settings, Sun, Moon, Database, Terminal, Bell, Briefcase, Fan, DownloadCloud,
-  Plus, Trash2, ChevronUp, ChevronDown, RotateCcw, Loader2, Check
+  Plus, Trash2, ChevronUp, ChevronDown, RotateCcw, Loader2, Check,
+  Tag, MousePointerClick, Link2
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import {
@@ -23,12 +24,13 @@ import {
 // Windows/iOS), содержимое выбранной категории справа. Сюда перенесены
 // настройки из профиля и из отдельных разделов.
 
-type SectionId = 'general' | 'management' | 'equipment' | 'notifications' | 'database' | 'logs' | 'updates';
+type SectionId = 'general' | 'management' | 'equipment' | 'tags' | 'notifications' | 'database' | 'logs' | 'updates';
 
 const SECTIONS: Array<{ id: SectionId; label: string; icon: any; desc: string }> = [
   { id: 'general', label: 'Общие', icon: Settings, desc: 'Тема интерфейса' },
   { id: 'management', label: 'Менеджмент', icon: Briefcase, desc: 'Этапы закупки: названия, значки, цвета' },
   { id: 'equipment', label: 'Оборудование', icon: Fan, desc: 'Категории и поведение при новой ревизии' },
+  { id: 'tags', label: 'Теги', icon: Tag, desc: 'Холст связей: способ создания связей' },
   { id: 'notifications', label: 'Уведомления', icon: Bell, desc: 'Какие события показывать' },
   { id: 'database', label: 'База данных', icon: Database, desc: 'Локальная SQLite или сетевой PostgreSQL' },
   { id: 'logs', label: 'Crash-логи', icon: Terminal, desc: 'Папка аварийных журналов' },
@@ -94,6 +96,7 @@ export default function SettingsScreen() {
         {section === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} />}
         {section === 'management' && <ManagementSection isAdmin={isAdmin} addToast={addToast} />}
         {section === 'equipment' && <EquipmentSection isAdmin={isAdmin} addToast={addToast} />}
+        {section === 'tags' && <TagsSection addToast={addToast} />}
         {section === 'notifications' && (
           <SectionShell title="Уведомления" desc="Какие события показывать в панели уведомлений и как оповещать.">
             <NotificationSettings />
@@ -385,6 +388,88 @@ function EquipmentSection({ isAdmin, addToast }: any) {
               </button>
             </div>
           )}
+        </div>
+      </div>
+    </SectionShell>
+  );
+}
+
+// Переиспользуемый выбор способа связи «Кликом / Перетаскиванием»
+function LinkModeChooser({ value, onChange, clickDesc, dragDesc }: {
+  value: 'click' | 'drag'; onChange: (m: 'click' | 'drag') => void; clickDesc: string; dragDesc: string;
+}) {
+  const opt = (mode: 'click' | 'drag', icon: React.ReactNode, title: string, desc: string) => (
+    <button
+      onClick={() => onChange(mode)}
+      className={`flex-1 p-4 rounded-xl border text-left cursor-pointer transition-colors ${
+        value === mode
+          ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-400 dark:border-emerald-700 ring-2 ring-emerald-500/30'
+          : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+      }`}
+    >
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className={`w-8 h-8 rounded-lg flex items-center justify-center ${value === mode ? 'bg-emerald-600 text-white' : 'bg-slate-100 dark:bg-slate-900 text-slate-500'}`}>{icon}</span>
+        <span className="text-sm font-bold text-slate-800 dark:text-slate-100">{title}</span>
+        {value === mode && <Check className="w-4 h-4 text-emerald-600 ml-auto" />}
+      </div>
+      <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">{desc}</p>
+    </button>
+  );
+  return (
+    <div className="flex gap-3 max-w-xl flex-col sm:flex-row">
+      {opt('click', <MousePointerClick className="w-4 h-4" />, 'Кликом', clickDesc)}
+      {opt('drag', <Link2 className="w-4 h-4" />, 'Перетаскиванием', dragDesc)}
+    </div>
+  );
+}
+
+// ── Раздел «Теги»: подразделы «Холст» и «Дерево» ────────────────────────────
+function TagsSection({ addToast }: any) {
+  const [canvasMode, setCanvasMode] = useState<'click' | 'drag'>('click');
+  const [treeMode, setTreeMode] = useState<'click' | 'drag'>('click');
+
+  useEffect(() => {
+    fetch('/api/settings/registry_link_mode').then(r => r.json()).then(d => {
+      if (d.global === 'drag' || d.global === 'click') setCanvasMode(d.global);
+    }).catch(() => {});
+    fetch('/api/settings/tree_link_mode').then(r => r.json()).then(d => {
+      if (d.global === 'drag' || d.global === 'click') setTreeMode(d.global);
+    }).catch(() => {});
+  }, []);
+
+  const save = async (key: 'registry_link_mode' | 'tree_link_mode', m: 'click' | 'drag') => {
+    if (key === 'registry_link_mode') setCanvasMode(m); else setTreeMode(m);
+    await fetch(`/api/settings/${key}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: null, value: m }),
+    }).catch(() => {});
+    try { window.dispatchEvent(new CustomEvent('flux:settings-changed', { detail: { key, value: m } })); } catch (_) {}
+    addToast?.('Способ создания связей сохранён', 'success');
+  };
+
+  return (
+    <SectionShell title="Теги" desc="Настройки раздела «Теги»: способ создания связей на холсте и в дереве.">
+      <div className="space-y-5">
+        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Холст · подключение связей</div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Как соединять теги на интерактивном графе (вкладка «Интерактивный граф»).</p>
+          <LinkModeChooser
+            value={canvasMode}
+            onChange={(m) => save('registry_link_mode', m)}
+            clickDesc="Кнопка «связать» на карточке → клик по целевому тегу. Минимум точности, удобно мышью."
+            dragDesc="Точки-порты по краям карточки: тянешь линию от одного тега к другому."
+          />
+        </div>
+
+        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Дерево · подключение связей</div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Как соединять теги во вкладке «Дерево связей».</p>
+          <LinkModeChooser
+            value={treeMode}
+            onChange={(m) => save('tree_link_mode', m)}
+            clickDesc="Кнопка «связать» у строки → клик по строке-получателю. Она станет дочерней."
+            dragDesc="Перетаскиваешь строку тега на другую — перетащенный становится дочерним."
+          />
         </div>
       </div>
     </SectionShell>

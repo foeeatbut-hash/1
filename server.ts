@@ -12,6 +12,10 @@ import fs from 'fs';
 import { exec, execSync } from 'child_process';
 import os from 'os';
 import crypto from 'crypto';
+import { setPrisma, upsertSetting } from './server/context.js';
+import { registerNoteRoutes } from './server/routes/notes.js';
+import { registerLogRoutes } from './server/routes/logs.js';
+import { registerSettingsRoutes } from './server/routes/settings.js';
 
 // ── Пароли: хеширование (scrypt) с обратной совместимостью ────────────────────
 // Формат хранения: "scrypt$<saltHex>$<hashHex>". Любое другое значение считается
@@ -547,6 +551,7 @@ let isPrismaAvailable = false;
 try {
   logInit(`[Prisma Client Init] Creating PrismaClient instance for mode: ${appConfig.current_db_type}`);
   prisma = createPrismaClient(appConfig.current_db_type, startupDbUrl);
+  setPrisma(prisma);
   isPrismaAvailable = true;
   logInit(`[Prisma Client Init] PrismaClient instance constructed successfully.`);
 } catch (initErr: any) {
@@ -563,11 +568,13 @@ try {
   try {
     logInit('[Prisma Client Init Recovery] Attempting to construct fallback Local PrismaClient...');
     prisma = createPrismaClient('LOCAL', `file:${path.join(ventAppDataPath, 'database.sqlite')}`);
+    setPrisma(prisma);
     isPrismaAvailable = true;
     logInit('[Prisma Client Init Recovery] Fallback PrismaClient constructed.');
   } catch (fallbackErr: any) {
     logInit(`[Prisma Client Init Recovery Exception] Failed to construct fallback PrismaClient: ${fallbackErr.message}\nStack: ${fallbackErr.stack}`);
     prisma = null;
+    setPrisma(prisma);
     isPrismaAvailable = false;
   }
 }
@@ -794,6 +801,7 @@ app.post('/api/db/switch', async (req: Request, res: Response) => {
 
     process.env.DATABASE_URL = targetDbUrl;
     prisma = createPrismaClient(current_db_type, targetDbUrl);
+    setPrisma(prisma);
 
     if (current_db_type === 'LOCAL') {
       try {
@@ -850,6 +858,7 @@ app.post('/api/db/switch', async (req: Request, res: Response) => {
     console.error('[DB Switch] switchover failure:', err);
     // Restore original state
     prisma = oldPrisma;
+    setPrisma(prisma);
     return res.status(500).json({
       success: false,
       message: `Не удалось изменить подключение: ${err.message}`
@@ -878,7 +887,8 @@ app.post('/api/db/save', async (req: Request, res: Response) => {
 
       process.env.DATABASE_URL = targetDbUrl;
       prisma = createPrismaClient('LOCAL', targetDbUrl);
-      
+      setPrisma(prisma);
+
       try {
         await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL;');
         await prisma.$queryRawUnsafe('PRAGMA synchronous=NORMAL;');
@@ -2371,114 +2381,9 @@ app.post('/api/tags/generate', async (req: Request, res: Response) => {
 // --- USER NOTES & CHANGES LOGS API ---
 
 // 1. Get all notes
-app.get('/api/notes', async (req: Request, res: Response) => {
-  try {
-    const notes = await prisma.userNote.findMany({
-      orderBy: { updatedAt: 'desc' }
-    });
-    res.json({ notes });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// 2. Get single note
-app.get('/api/notes/:id', async (req: Request, res: Response) => {
-  try {
-    const note = await prisma.userNote.findUnique({
-      where: { id: req.params.id }
-    });
-    if (!note) {
-      return res.status(404).json({ error: 'Заметка не найдена' });
-    }
-    res.json({ note });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// 3. Create note
-app.post('/api/notes', async (req: Request, res: Response) => {
-  try {
-    const { title, content, color, equipmentId, groupName } = req.body;
-    const note = await prisma.userNote.create({
-      data: {
-        title: title || 'Новая заметка',
-        content: content || '',
-        color: color || 'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200',
-        equipmentId,
-        groupName: groupName || null
-      }
-    });
-    res.json({ note });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// 4. Update note
-app.patch('/api/notes/:id', async (req: Request, res: Response) => {
-  try {
-    const { title, content, color, equipmentId, groupName } = req.body;
-    const note = await prisma.userNote.update({
-      where: { id: req.params.id },
-      data: {
-        title,
-        content,
-        color,
-        equipmentId,
-        // undefined — поле не меняем; пустая строка/null — убираем из группы
-        groupName: groupName === undefined ? undefined : (groupName || null)
-      }
-    });
-    res.json({ note });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// 5. Delete note
-app.delete('/api/notes/:id', async (req: Request, res: Response) => {
-  try {
-    await prisma.userNote.delete({
-      where: { id: req.params.id }
-    });
-    res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// 6. Get logs
-app.get('/api/logs', async (req: Request, res: Response) => {
-  try {
-    const logs = await prisma.systemChangeLog.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 200
-    });
-    res.json({ logs });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// 7. Write log
-app.post('/api/logs', async (req: Request, res: Response) => {
-  try {
-    const { userName, userSymbol, description, targetRoute } = req.body;
-    const log = await prisma.systemChangeLog.create({
-      data: {
-        userName: userName || 'Сотрудник',
-        userSymbol: userSymbol || 'ENGINEER',
-        description,
-        targetRoute: targetRoute || ''
-      }
-    });
-    res.json({ log });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// Заметки (/api/notes) и журнал (/api/logs) — вынесены в модули-роуты
+registerNoteRoutes(app);
+registerLogRoutes(app);
 
 
 // --- CORPORATE MESSENGER CHAT API ---
@@ -3263,32 +3168,9 @@ app.post('/api/equipment/import-draft', async (req: Request, res: Response) => {
 });
 
 // ── Настройки (глобальные/админ и персональные) ──
-async function upsertSetting(key: string, userId: string | null, value: string) {
-  const existing = await prisma.appSetting.findFirst({ where: { key, userId: userId || null } });
-  if (existing) {
-    return prisma.appSetting.update({ where: { id: existing.id }, data: { value } });
-  }
-  return prisma.appSetting.create({ data: { key, userId: userId || null, value } });
-}
-
-app.get('/api/settings/:key', async (req: Request, res: Response) => {
-  try {
-    const { key } = req.params;
-    const userId = String(req.query.userId || '');
-    const global = await prisma.appSetting.findFirst({ where: { key, userId: null } });
-    const user = userId ? await prisma.appSetting.findFirst({ where: { key, userId } }) : null;
-    res.json({ global: global ? global.value : null, user: user ? user.value : null });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/settings/:key', async (req: Request, res: Response) => {
-  try {
-    const { key } = req.params;
-    const { userId, value } = req.body;
-    const setting = await upsertSetting(key, userId || null, typeof value === 'string' ? value : JSON.stringify(value));
-    res.json({ success: true, setting });
-  } catch (err: any) { res.status(500).json({ success: false, message: err.message }); }
-});
+// Настройки приложения (/api/settings) — вынесены в server/routes/settings.ts;
+// upsertSetting импортируется из server/context.ts (используется и здесь ниже).
+registerSettingsRoutes(app);
 
 // Категории оборудования (список с возможностью добавления)
 const DEFAULT_CATEGORIES = [
@@ -3509,11 +3391,13 @@ async function startServer() {
         process.env.DATABASE_URL = `file:${dbPath}?connection_limit=1&busy_timeout=15000`;
         try {
           prisma = createPrismaClient('LOCAL', process.env.DATABASE_URL);
+          setPrisma(prisma);
           isPrismaAvailable = true;
           logInit('[SQLite Recovery] Constructed fresh PrismaClient successfully.');
         } catch (recreationErr: any) {
           logInit(`[SQLite Recovery Failure] Critical error reconstructing client: ${recreationErr.message}`);
           prisma = null;
+          setPrisma(prisma);
           isPrismaAvailable = false;
         }
       } else {
