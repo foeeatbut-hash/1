@@ -62,7 +62,9 @@ function ElectronTitleBar() {
 
   return (
     <div
-      className="h-9 shrink-0 flex items-center justify-between bg-slate-900 border-b border-slate-800 select-none"
+      // z-[60] — выше стартовой заставки (#boot-splash, z-50): кнопки окна
+      // доступны во время запуска сервера; фон у них одинаковый (#0f172a)
+      className="relative z-[60] h-9 shrink-0 flex items-center justify-between bg-slate-900 border-b border-slate-800 select-none"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       onDoubleClick={() => wc?.maximize?.()}
     >

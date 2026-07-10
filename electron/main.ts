@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, utilityProcess } from 'electron';
 import path from 'path';
 
 const additionalData = { myKey: 'pdm-system' };
@@ -101,41 +101,10 @@ app.whenReady().then(() => {
     }
   } catch (e) {}
 
-  // Главное окно покажется, когда будет готово к отрисовке (сразу со стартовой
-  // заставкой). Встроенный Express-сервер поднимаем после первой отрисовки
-  // страницы — не блокируя интерфейс.
+  // Главное окно покажется, когда будет готово к отрисовке — сразу со стартовой
+  // заставкой из index.html. Встроенный Express-сервер поднимается ниже,
+  // как только будет вычислен DATABASE_URL.
   createWindow();
-
-  if (app.isPackaged) {
-    // Инициализация сервера (require server.cjs) на секунды блокирует главный
-    // процесс — если запустить её сразу, рендерер не успевает отрисовать
-    // стартовую заставку и пользователь видит пустой синий экран.
-    // Поэтому ждём первой отрисовки страницы и только потом поднимаем сервер;
-    // CSS-анимации заставки живут в рендерере и продолжают идти.
-    let serverStarted = false;
-    const startEmbeddedServer = () => {
-      if (serverStarted) return;
-      serverStarted = true;
-      const startupLogPath = path.join(ventAppDataPath, 'server-startup.log');
-      try {
-        fs.writeFileSync(startupLogPath, `[${new Date().toISOString()}] Инициализация встроенного Express-сервера...\n`, 'utf-8');
-        require(path.join(__dirname, '../dist/server.cjs'));
-        fs.appendFileSync(startupLogPath, `[${new Date().toISOString()}] Модуль сервера успешно подключен через require().\n`, 'utf-8');
-      } catch (err: any) {
-        console.error('[Electron Main] Сбой при автоматическом запуске встроенного Express-сервера:', err);
-        try {
-          fs.appendFileSync(startupLogPath, `[${new Date().toISOString()}] СБОЙ ЗАПУСКА: ${err.message}\nStack:\n${err.stack}\n`, 'utf-8');
-        } catch (writeErr) {}
-      }
-    };
-    mainWindow?.webContents.once('did-finish-load', () => {
-      // Небольшая пауза, чтобы заставка гарантированно успела отрисоваться
-      setTimeout(startEmbeddedServer, 250);
-    });
-    // Страховка: если событие загрузки не пришло (например, страница упала) —
-    // всё равно поднимаем сервер
-    setTimeout(startEmbeddedServer, 5000);
-  }
 
   const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');
 
@@ -174,6 +143,61 @@ app.whenReady().then(() => {
   }
 
   process.env.DATABASE_URL = finalDbUrl;
+
+  if (app.isPackaged) {
+    // Встроенный Express поднимаем СРАЗУ и в ОТДЕЛЬНОМ процессе (utilityProcess):
+    // - сервер грузится параллельно с отрисовкой окна — интро короче;
+    // - главный процесс не блокируется на секунды (раньше синхронный require
+    //   подвешивал окно: его нельзя было двигать, показ мог задержаться и
+    //   пользователь видел пустой синий фон вместо заставки).
+    const startupLogPath = path.join(ventAppDataPath, 'server-startup.log');
+    const logStartup = (line: string) => {
+      try { fs.appendFileSync(startupLogPath, `[${new Date().toISOString()}] ${line}\n`, 'utf-8'); } catch (e) {}
+    };
+    try {
+      fs.writeFileSync(startupLogPath, `[${new Date().toISOString()}] Инициализация встроенного Express-сервера...\n`, 'utf-8');
+    } catch (e) {}
+
+    const serverPath = path.join(__dirname, '../dist/server.cjs');
+    const serverStartedAt = Date.now();
+
+    // Аварийный фоллбэк: если отдельный процесс не запустился/сразу упал —
+    // поднимаем сервер в главном процессе, как раньше (пусть медленно, но работает)
+    let fallbackDone = false;
+    const requireServerInMain = (reason: string) => {
+      if (fallbackDone) return;
+      fallbackDone = true;
+      logStartup(`Фоллбэк на запуск в главном процессе: ${reason}`);
+      try {
+        require(serverPath);
+        logStartup('Модуль сервера успешно подключен через require() (fallback).');
+      } catch (err: any) {
+        console.error('[Electron Main] Сбой при автоматическом запуске встроенного Express-сервера:', err);
+        logStartup(`СБОЙ ЗАПУСКА: ${err.message}\nStack:\n${err.stack}`);
+      }
+    };
+
+    try {
+      const serverProc = utilityProcess.fork(serverPath, [], {
+        env: { ...process.env },
+        stdio: 'pipe',
+        serviceName: 'flux-embedded-server',
+      });
+      serverProc.stdout?.on('data', (d: any) => logStartup(`[server] ${String(d).trimEnd()}`));
+      serverProc.stderr?.on('data', (d: any) => logStartup(`[server:err] ${String(d).trimEnd()}`));
+      serverProc.on('spawn', () => logStartup('Серверный процесс запущен (utilityProcess).'));
+      serverProc.once('exit', (code: number) => {
+        logStartup(`Серверный процесс завершился с кодом ${code}.`);
+        // Ненулевой выход в первые секунды = сервер не поднялся — пробуем по-старому
+        if (code !== 0 && Date.now() - serverStartedAt < 20000) {
+          requireServerInMain(`utilityProcess завершился с кодом ${code}`);
+        }
+      });
+      app.on('will-quit', () => { try { serverProc.kill(); } catch (e) {} });
+    } catch (err: any) {
+      requireServerInMain(`utilityProcess.fork недоступен: ${err?.message || err}`);
+    }
+  }
 
   try {
     const localPrisma = createDbClient(currentDbType, finalDbUrl);
