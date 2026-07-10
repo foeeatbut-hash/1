@@ -750,9 +750,28 @@ io.use((socket, next) => {
   next();
 });
 
+// ── Совместное редактирование Конструктора (часть IV дизайна, MVP) ──
+// Комната на документ: presence (кто в файле + выделенные ячейки, как в
+// онлайн-Excel) и репликация мутаций движка остальным участникам.
+// Состояние presence живёт в памяти и исчезает с дисконнектом.
+const PRESENCE_COLORS = ['#0ea5e9', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16'];
+const presenceColor = (userId: string) => {
+  let h = 0;
+  for (const ch of String(userId)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return PRESENCE_COLORS[h % PRESENCE_COLORS.length];
+};
+// docId → (socketId → участник)
+const docPresence = new Map<string, Map<string, { userId: string; name: string; color: string; selection: any }>>();
+
+const emitRoster = (docId: string) => {
+  const room = docPresence.get(docId);
+  const roster = room ? Array.from(room.entries()).map(([sid, p]) => ({ socketId: sid, ...p })) : [];
+  io.to(`constructor:${docId}`).emit('constructor:presence', { docId, peers: roster });
+};
+
 io.on('connection', (socket) => {
   console.log(`[Socket] client connected: ${socket.id}`);
-  
+
   socket.on('tag:linked', (data) => {
     socket.broadcast.emit('tag:linked', data);
   });
@@ -765,8 +784,48 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('equipment:conflict', data);
   });
 
+  const joinedDocs = new Set<string>();
+
+  socket.on('constructor:join', async ({ docId }: { docId: string }) => {
+    if (!docId) return;
+    const userId = String((socket as any).userId || '');
+    let name = 'Сотрудник';
+    try { name = (await getAuthUser(userId))?.name || name; } catch (e) {}
+    socket.join(`constructor:${docId}`);
+    joinedDocs.add(docId);
+    if (!docPresence.has(docId)) docPresence.set(docId, new Map());
+    docPresence.get(docId)!.set(socket.id, { userId, name, color: presenceColor(userId), selection: null });
+    emitRoster(docId);
+  });
+
+  socket.on('constructor:leave', ({ docId }: { docId: string }) => {
+    if (!docId) return;
+    socket.leave(`constructor:${docId}`);
+    joinedDocs.delete(docId);
+    docPresence.get(docId)?.delete(socket.id);
+    emitRoster(docId);
+  });
+
+  // Выделение участника (троттлится на клиенте) — остальным в комнате
+  socket.on('constructor:selection', ({ docId, selection }: { docId: string; selection: any }) => {
+    const p = docPresence.get(docId)?.get(socket.id);
+    if (!p) return;
+    p.selection = selection;
+    socket.to(`constructor:${docId}`).emit('constructor:selection', { socketId: socket.id, selection });
+  });
+
+  // Мутация движка от одного участника — всем остальным в комнате
+  socket.on('constructor:op', ({ docId, op }: { docId: string; op: any }) => {
+    if (!docId || !op) return;
+    socket.to(`constructor:${docId}`).emit('constructor:op', { socketId: socket.id, op });
+  });
+
   socket.on('disconnect', () => {
     console.log(`[Socket] client disconnected: ${socket.id}`);
+    for (const docId of joinedDocs) {
+      docPresence.get(docId)?.delete(socket.id);
+      emitRoster(docId);
+    }
   });
 });
 

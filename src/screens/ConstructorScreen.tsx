@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { io, Socket } from 'socket.io-client';
+import { ENV_CONFIG, getAuthToken } from '../config/env';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import * as XLSX from 'xlsx';
@@ -306,6 +308,16 @@ function DocEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
   const [nameDialog, setNameDialog] = useState<null | { suggestion: string }>(null);
   const suggestionRef = useRef<string>('');
 
+  // ── Совместное редактирование (часть IV, MVP): комната документа ──
+  // presence (кто в файле + их выделения, как в онлайн-Excel) и репликация
+  // мутаций движка. Эхо гасится флагом fromCollab (родной механизм Univer).
+  interface Peer { socketId: string; userId: string; name: string; color: string; selection: any }
+  const collabSocketRef = useRef<Socket | null>(null);
+  const applyingRemoteRef = useRef(false);
+  const lastSelSentRef = useRef('');
+  const [peers, setPeers] = useState<Peer[]>([]);
+  const [peerRects, setPeerRects] = useState<{ key: string; name: string; color: string; left: number; top: number; width: number; height: number }[]>([]);
+
   // ── Умные блоки ──
   const bindingsRef = useRef<{ schemaVersion: number; blocks: SmartBlock[] }>({ schemaVersion: 1, blocks: [] });
   const bindingsDirtyRef = useRef(false);
@@ -410,8 +422,44 @@ function DocEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
 
         let snapshot: any = null;
         try { snapshot = loaded.workbook ? JSON.parse(loaded.workbook) : null; } catch (_) {}
-        univerAPI.createWorkbook(snapshot || { name: loaded.name });
+        univerAPI.createWorkbook(snapshot || { id: loaded.id, name: loaded.name });
         lastSavedRef.current = loaded.workbook || '';
+
+        // ── Коллаборация: комната документа ──
+        const sock = io(ENV_CONFIG.socketUrl, {
+          auth: { token: getAuthToken() },
+          transports: ['websocket', 'polling'],
+          reconnectionDelay: 800,
+          reconnectionDelayMax: 4000,
+        });
+        collabSocketRef.current = sock;
+        sock.on('connect', () => sock.emit('constructor:join', { docId }));
+        sock.on('constructor:presence', ({ peers: roster }: any) => {
+          setPeers((roster || []).filter((pp: any) => pp.socketId !== sock.id));
+        });
+        sock.on('constructor:selection', ({ socketId, selection }: any) => {
+          setPeers(prev => prev.map(pp => pp.socketId === socketId ? { ...pp, selection } : pp));
+        });
+        sock.on('constructor:op', ({ op }: any) => {
+          if (!op?.id) return;
+          applyingRemoteRef.current = true;
+          try {
+            // fromCollab: движок не рассылает эхо и не кладёт чужое в мой undo
+            univerAPI.executeCommand(op.id, op.params, { fromCollab: true } as any);
+          } catch (e) { console.warn('[Constructor] Не применилась чужая операция:', op.id); }
+          finally { setTimeout(() => { applyingRemoteRef.current = false; }, 0); }
+        });
+
+        // Мои мутации → остальным участникам (операции вроде выделения не шлём)
+        const cmdDisposer = univerAPI.onCommandExecuted((command: any, options: any) => {
+          if (applyingRemoteRef.current || options?.fromCollab || options?.fromChangeset) return;
+          if (command?.type !== 2) return; // 2 = CommandType.MUTATION
+          const cmdId = String(command.id || '');
+          if (!cmdId.startsWith('sheet.mutation.')) return;
+          collabSocketRef.current?.emit('constructor:op', { docId, op: { id: cmdId, params: command.params } });
+        });
+        (univerRef.current as any).cmdDisposer = cmdDisposer;
+
         setLoading(false);
       } catch (err: any) {
         console.error('[Constructor] Ошибка инициализации движка:', err);
@@ -423,13 +471,78 @@ function DocEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
     // Автосейв: раз в 2.5 с, только если снапшот реально изменился
     const timer = setInterval(() => { saveNow(); }, 2500);
 
+    // Presence-тикер: шлём своё выделение (если сменилось) и пересчитываем
+    // пиксельные рамки выделений коллег (учитывает прокрутку с шагом тика)
+    const presenceTimer = setInterval(() => {
+      try {
+        const api = univerRef.current?.univerAPI;
+        const wb = api?.getActiveWorkbook?.();
+        const ws = wb?.getActiveSheet?.();
+        if (!ws) return;
+        const rng = ws.getSelection?.()?.getActiveRange?.();
+        const sel = rng ? { sheetId: ws.getSheetId(), row: rng.getRow(), col: rng.getColumn() } : null;
+        const selStr = JSON.stringify(sel);
+        if (selStr !== lastSelSentRef.current) {
+          lastSelSentRef.current = selStr;
+          collabSocketRef.current?.emit('constructor:selection', { docId, selection: sel });
+        }
+      } catch (_) {}
+    }, 350);
+
     return () => {
+      clearInterval(presenceTimer);
       disposed = true;
       clearInterval(timer);
+      try { (univerRef.current as any)?.cmdDisposer?.dispose?.(); } catch (_) {}
+      try {
+        collabSocketRef.current?.emit('constructor:leave', { docId });
+        collabSocketRef.current?.disconnect();
+      } catch (_) {}
+      collabSocketRef.current = null;
       try { univerRef.current?.univer?.dispose?.(); } catch (_) {}
       univerRef.current = null;
     };
   }, [docId]);
+
+  // Рамки выделений коллег: пересчёт по peers и позиции ячеек на экране
+  useEffect(() => {
+    const calc = () => {
+      try {
+        const api = univerRef.current?.univerAPI;
+        const wb = api?.getActiveWorkbook?.();
+        const ws = wb?.getActiveSheet?.();
+        const cont = containerRef.current;
+        if (!ws || !cont) { setPeerRects([]); return; }
+        const contRect = cont.getBoundingClientRect();
+        // getCellRect движка отсчитывается от канваса листа — переводим в
+        // координаты нашего контейнера через положение самого канваса
+        const canvasEl = cont.querySelector('canvas[id^="univer-sheet-main-canvas"]');
+        const baseRect = canvasEl ? canvasEl.getBoundingClientRect() : contRect;
+        const offX = baseRect.x - contRect.x;
+        const offY = baseRect.y - contRect.y;
+        const mySheet = ws.getSheetId();
+        const rects: typeof peerRects = [];
+        for (const pp of peers) {
+          const sel = pp.selection;
+          if (!sel || sel.sheetId !== mySheet) continue;
+          try {
+            const cellRect = ws.getRange(sel.row, sel.col).getCellRect();
+            if (!cellRect || cellRect.width <= 0 || cellRect.x < 0 || cellRect.y < 0) continue;
+            rects.push({
+              key: pp.socketId, name: pp.name, color: pp.color,
+              left: offX + cellRect.x,
+              top: offY + cellRect.y,
+              width: cellRect.width, height: cellRect.height,
+            });
+          } catch (_) {}
+        }
+        setPeerRects(rects);
+      } catch (_) { setPeerRects([]); }
+    };
+    calc();
+    const t = setInterval(calc, 400);
+    return () => clearInterval(t);
+  }, [peers]);
 
   // Вставка собранной таблицы от активной ячейки (или A1) — создаёт УМНЫЙ БЛОК:
   // область помнит свой запрос и умеет обновляться из данных проекта
@@ -771,6 +884,23 @@ function DocEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
           </select>
         )}
         <div className="flex-1" />
+        {peers.length > 0 && (
+          <div className="flex items-center mr-1" title={`В документе: ${peers.map(pp => pp.name).join(', ')}`}>
+            <div className="flex -space-x-1.5">
+              {peers.slice(0, 5).map(pp => (
+                <div key={pp.socketId}
+                  className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black text-white ring-2 ring-white dark:ring-slate-900"
+                  style={{ background: pp.color }} title={pp.name}>
+                  {pp.name.trim().charAt(0).toUpperCase()}
+                </div>
+              ))}
+              {peers.length > 5 && (
+                <div className="w-6 h-6 rounded-full bg-slate-400 text-white text-[10px] font-black flex items-center justify-center ring-2 ring-white dark:ring-slate-900">+{peers.length - 5}</div>
+              )}
+            </div>
+            <span className="ml-2 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">✏️ {peers.length + 1} в документе</span>
+          </div>
+        )}
         <button onClick={() => setWizardOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer">
           <Database className="w-3.5 h-3.5" /> Собрать данные
         </button>
@@ -803,6 +933,14 @@ function DocEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
       {/* Полотно движка */}
       <div className="flex-1 min-h-0 relative bg-white">
         <div ref={containerRef} className="absolute inset-0" />
+        {/* Выделения коллег (как в онлайн-Excel): цветная рамка + имя */}
+        {peerRects.map(r => (
+          <div key={r.key} className="absolute pointer-events-none z-20"
+            style={{ left: r.left, top: r.top, width: r.width, height: r.height, border: `2px solid ${r.color}` }}>
+            <span className="absolute -top-5 left-0 px-1.5 py-0.5 rounded text-[10px] font-bold text-white whitespace-nowrap shadow-sm"
+              style={{ background: r.color }}>{r.name}</span>
+          </div>
+        ))}
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-slate-950">
             <div className="flex items-center gap-3 text-slate-500"><Loader2 className="w-5 h-5 animate-spin" /> Загрузка редактора…</div>
