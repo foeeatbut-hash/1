@@ -39,7 +39,8 @@ import {
   MoreVertical,
   Trash,
   UserPlus,
-  Check
+  Check,
+  ChevronDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -237,6 +238,9 @@ export default function ChatManagement() {
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  // Кнопка «вниз к новым сообщениям» — показываем, когда прокручено вверх
+  const [showScrollDown, setShowScrollDown] = useState(false);
+  const scrollToBottom = () => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   const lastMessageIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -987,8 +991,22 @@ export default function ChatManagement() {
             )}
 
             {/* Conversation Messages Lists */}
-            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50 dark:bg-slate-900/20">
-              {visibleMessages.length === 0 ? (
+            <div
+              ref={messagesContainerRef}
+              onScroll={(e) => {
+                const el = e.currentTarget;
+                const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
+                setShowScrollDown(!nearBottom);
+              }}
+              className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50 dark:bg-slate-900/20 relative">
+              {conversationSearch.trim() && (
+                <div className="sticky top-0 z-10 -mt-1 mb-1 flex items-center justify-center">
+                  <span className="px-3 py-1 rounded-full bg-emerald-600/90 text-white text-[11px] font-semibold shadow">
+                    {visibleMessages.length === 0 ? 'Ничего не найдено' : `Найдено сообщений: ${visibleMessages.length}`}
+                  </span>
+                </div>
+              )}
+              {visibleMessages.length === 0 && !conversationSearch.trim() ? (
                 <div className="h-full flex flex-col items-center justify-center p-6 text-center select-none">
                   <MessageSquare className="w-8 h-8 text-slate-300 dark:text-slate-700 mb-2 animate-bounce" />
                   <p className="text-xs text-slate-400 mt-1 max-w-xs">
@@ -1208,6 +1226,18 @@ export default function ChatManagement() {
                     </React.Fragment>
                   );
                 })
+              )}
+              {/* Кнопка быстрого возврата к последним сообщениям */}
+              {showScrollDown && (
+                <div className="sticky bottom-1 z-10 flex justify-end pointer-events-none">
+                  <button
+                    onClick={scrollToBottom}
+                    className="pointer-events-auto w-9 h-9 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-lg flex items-center justify-center text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 cursor-pointer transition-colors"
+                    title="К последним сообщениям"
+                  >
+                    <ChevronDown className="w-5 h-5" />
+                  </button>
+                </div>
               )}
               <div ref={chatEndRef} />
             </div>
