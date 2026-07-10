@@ -15,7 +15,6 @@ import RightRail from './RightRail';
 import ShareLayer from './ShareLayer';
 import FluxLogo from './FluxLogo';
 import { useNotificationStore } from '../store/notificationStore';
-import { ENV_CONFIG } from '../config/env';
 
 export default function Layout() {
   const { user, setUser, activeProject, theme, toggleTheme, syncStatus } = useStore();

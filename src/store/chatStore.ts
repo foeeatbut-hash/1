@@ -1,5 +1,10 @@
+// Весь чат ходит ТОЛЬКО через сервер (HTTP + socket.io). Раньше в Electron
+// сообщения и вложения шли по IPC напрямую в БД мимо сервера: события
+// io.emit не рассылались, а вложения писались на диск отправителя и у
+// собеседника не открывались. Теперь путь один — работает и локально,
+// и с сервером компании (адрес подставляет fetch-прокси из config/env).
 import { create } from 'zustand';
-import { ENV } from '../config/env';
+import { ENV_CONFIG, SERVER_BASE_URL } from '../config/env';
 import { io, Socket } from 'socket.io-client';
 
 export interface ChatAttachment {
@@ -165,54 +170,23 @@ export const useChatStore = create<ChatState>((set, get) => {
 
     fetchUsers: async () => {
       try {
-        const url = ENV.isProduction ? `${ENV.serverUrl}/api/users` : '/api/users';
-        const response = await fetch(url);
+        const response = await fetch('/api/users');
         if (!response.ok) throw new Error('Failed to fetch users');
         const data = await response.json();
         set({ users: data });
       } catch (err) {
-        console.error('[ChatStore] Error fetching users, fallback mode activated:', err);
-        const mockUsers = [
-          { id: 'fallback-admin', name: 'Главный Администратор (KhKh)', symbol: 'KhKh', role: 'ADMIN' },
-          { id: 'fallback-user', name: 'Инженер (qwerty)', symbol: 'qwerty', role: 'USER' }
-        ];
-        set({ users: mockUsers });
+        console.error('[ChatStore] Error fetching users:', err);
       }
     },
 
     fetchGroups: async () => {
       try {
-        if (ENV.isProduction) {
-          const url = `${ENV.serverUrl}/api/chat/groups`;
-          const response = await fetch(url);
-          if (response.ok) {
-            const data = await response.json();
-            set({ groups: data });
-          } else {
-            throw new Error('Failed response');
-          }
-        } else {
-          const win = window as any;
-          if (win.electron && win.electron.ipcRenderer) {
-            const data = await win.electron.ipcRenderer.invoke('chat:get-groups');
-            set({ groups: data });
-          } else {
-            const response = await fetch('/api/chat/groups');
-            if (response.ok) {
-              const data = await response.json();
-              set({ groups: data });
-            } else {
-              throw new Error('Failed response');
-            }
-          }
-        }
+        const response = await fetch('/api/chat/groups');
+        if (!response.ok) throw new Error('Failed response');
+        const data = await response.json();
+        set({ groups: data });
       } catch (err) {
-        console.error('[ChatStore] Error fetching groups, fallback mode activated:', err);
-        const mockGroups = [
-          { id: 'group-1', name: 'Рабочий чат проекта Альфа', type: 'PROJECT', projectId: 'proj-alpha' },
-          { id: 'group-2', name: 'Группа вентиляции Блок Б', type: 'PROJECT', projectId: 'proj-beta' }
-        ];
-        set({ groups: mockGroups });
+        console.error('[ChatStore] Error fetching groups:', err);
       }
     },
 
@@ -222,87 +196,18 @@ export const useChatStore = create<ChatState>((set, get) => {
       try {
         if (activeType === 'DIRECT') {
           if (!activeReceiverId) return;
-          if (ENV.isProduction) {
-            const url = `${ENV.serverUrl}/api/chat/messages?senderId=${currentUserId}&receiverId=${activeReceiverId}`;
-            const res = await fetch(url);
-            if (res.ok) {
-              const data = await res.json();
-              setMessagesIfChanged(set, get, data);
-            } else {
-              throw new Error('Failed response');
-            }
-          } else {
-            const win = window as any;
-            if (win.electron && win.electron.ipcRenderer) {
-              const data = await win.electron.ipcRenderer.invoke('chat:get-messages', {
-                senderId: currentUserId,
-                receiverId: activeReceiverId
-              });
-              setMessagesIfChanged(set, get, data);
-            } else {
-              const res = await fetch(`/api/chat/messages?senderId=${currentUserId}&receiverId=${activeReceiverId}`);
-              if (res.ok) {
-                const data = await res.json();
-                setMessagesIfChanged(set, get, data);
-              } else {
-                throw new Error('Failed response');
-              }
-            }
-          }
+          const res = await fetch(`/api/chat/messages?senderId=${currentUserId}&receiverId=${activeReceiverId}`);
+          if (!res.ok) throw new Error('Failed response');
+          setMessagesIfChanged(set, get, await res.json());
         } else {
           // PROJECT Group
           if (!activeGroupId) return;
-          if (ENV.isProduction) {
-            const url = `${ENV.serverUrl}/api/chat/group-messages?groupId=${activeGroupId}`;
-            const res = await fetch(url);
-            if (res.ok) {
-              const data = await res.json();
-              setMessagesIfChanged(set, get, data);
-            } else {
-              throw new Error('Failed response');
-            }
-          } else {
-            const win = window as any;
-            if (win.electron && win.electron.ipcRenderer) {
-              const data = await win.electron.ipcRenderer.invoke('chat:get-group-messages', {
-                groupId: activeGroupId
-              });
-              setMessagesIfChanged(set, get, data);
-            } else {
-              const res = await fetch(`/api/chat/group-messages?groupId=${activeGroupId}`);
-              if (res.ok) {
-                const data = await res.json();
-                setMessagesIfChanged(set, get, data);
-              } else {
-                throw new Error('Failed response');
-              }
-            }
-          }
+          const res = await fetch(`/api/chat/group-messages?groupId=${activeGroupId}`);
+          if (!res.ok) throw new Error('Failed response');
+          setMessagesIfChanged(set, get, await res.json());
         }
       } catch (err) {
-        console.error('[ChatStore] Error fetching messages, fallback simulation loaded:', err);
-        // Pre-seed mock conversation to keep the area populated in case of database offline
-        const key = `max_chat_backup_${activeType === 'DIRECT' ? activeReceiverId : activeGroupId}`;
-        const defaultMsgs = [
-          {
-            id: 'mock-msg-1',
-            content: 'Привет! Добро пожаловать в рабочую область обсуждения. Это резервная копия чата.',
-            createdAt: new Date(Date.now() - 3600000).toISOString(),
-            senderId: 'fallback-admin',
-            sender: { id: 'fallback-admin', name: 'Главный Администратор', symbol: 'KhKh', role: 'ADMIN' }
-          }
-        ];
-        try {
-          const saved = localStorage.getItem(key);
-          if (saved) {
-            set({ messages: JSON.parse(saved) });
-          } else {
-            localStorage.setItem(key, JSON.stringify(defaultMsgs));
-            set({ messages: defaultMsgs });
-          }
-        } catch (e) {
-          set({ messages: defaultMsgs });
-        }
+        console.error('[ChatStore] Error fetching messages:', err);
       }
     },
 
@@ -321,36 +226,15 @@ export const useChatStore = create<ChatState>((set, get) => {
             attachments,
             replyToId
           };
-          if (ENV.isProduction) {
-            const url = `${ENV.serverUrl}/api/chat/messages`;
-            const res = await fetch(url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload)
-            });
-            if (res.ok) {
-              const data = await res.json();
-              set((state) => ({ messages: [...state.messages.filter(m => m.id !== data.id), data] }));
-              if (socketInstance) {
-                socketInstance.emit('chat:message_sent', data);
-              }
-            }
-          } else {
-            const win = window as any;
-            if (win.electron && win.electron.ipcRenderer) {
-              const data = await win.electron.ipcRenderer.invoke('chat:send-message', payload);
-              set((state) => ({ messages: [...state.messages.filter(m => m.id !== data.id), data] }));
-            } else {
-              const res = await fetch(`/api/chat/messages`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-              });
-              if (res.ok) {
-                const data = await res.json();
-                set((state) => ({ messages: [...state.messages.filter(m => m.id !== data.id), data] }));
-              }
-            }
+          const res = await fetch(`/api/chat/messages`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (res.ok) {
+            const data = await res.json();
+            // Сервер сам рассылает chat:message_received через socket.io
+            set((state) => ({ messages: [...state.messages.filter(m => m.id !== data.id), data] }));
           }
         } else {
           // PROJECT Group
@@ -364,36 +248,14 @@ export const useChatStore = create<ChatState>((set, get) => {
             attachments,
             replyToId
           };
-          if (ENV.isProduction) {
-            const url = `${ENV.serverUrl}/api/chat/group-messages`;
-            const res = await fetch(url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload)
-            });
-            if (res.ok) {
-              const data = await res.json();
-              set((state) => ({ messages: [...state.messages.filter(m => m.id !== data.id), data] }));
-              if (socketInstance) {
-                socketInstance.emit('chat:message_sent', data);
-              }
-            }
-          } else {
-            const win = window as any;
-            if (win.electron && win.electron.ipcRenderer) {
-              const data = await win.electron.ipcRenderer.invoke('chat:send-group-message', payload);
-              set((state) => ({ messages: [...state.messages.filter(m => m.id !== data.id), data] }));
-            } else {
-              const res = await fetch(`/api/chat/group-messages`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-              });
-              if (res.ok) {
-                const data = await res.json();
-                set((state) => ({ messages: [...state.messages.filter(m => m.id !== data.id), data] }));
-              }
-            }
+          const res = await fetch(`/api/chat/group-messages`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (res.ok) {
+            const data = await res.json();
+            set((state) => ({ messages: [...state.messages.filter(m => m.id !== data.id), data] }));
           }
         }
       } catch (err) {
@@ -404,42 +266,24 @@ export const useChatStore = create<ChatState>((set, get) => {
 
     // Редактирование своего сообщения
     editMessage: async (currentUserId, messageId, content) => {
-      const win = window as any;
-      let updated: ChatMessage | null = null;
-      if (win.electron && win.electron.ipcRenderer) {
-        updated = await win.electron.ipcRenderer.invoke('chat:edit-message', {
-          messageId, userId: currentUserId, content
-        });
-      } else {
-        const res = await fetch(`/api/chat/messages/${messageId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: currentUserId, content })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Не удалось изменить сообщение');
-        updated = data;
-      }
-      if (updated) {
-        set((state) => ({ messages: state.messages.map(m => m.id === messageId ? updated! : m) }));
-      }
+      const res = await fetch(`/api/chat/messages/${messageId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUserId, content })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Не удалось изменить сообщение');
+      set((state) => ({ messages: state.messages.map(m => m.id === messageId ? data : m) }));
     },
 
     // Удаление своего сообщения
     deleteMessage: async (currentUserId, messageId) => {
-      const win = window as any;
-      if (win.electron && win.electron.ipcRenderer) {
-        await win.electron.ipcRenderer.invoke('chat:delete-message', {
-          messageId, userId: currentUserId
-        });
-      } else {
-        const res = await fetch(`/api/chat/messages/${messageId}?userId=${encodeURIComponent(currentUserId)}`, {
-          method: 'DELETE'
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || 'Не удалось удалить сообщение');
-        }
+      const res = await fetch(`/api/chat/messages/${messageId}?userId=${encodeURIComponent(currentUserId)}`, {
+        method: 'DELETE'
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Не удалось удалить сообщение');
       }
       set((state) => ({ messages: state.messages.filter(m => m.id !== messageId) }));
     },
@@ -519,31 +363,17 @@ export const useChatStore = create<ChatState>((set, get) => {
       await get().fetchGroups();
     },
 
+    // Вложение всегда уезжает на СЕРВЕР (диск сервера + раздача /chat_files/…) —
+    // так файл открывается у всех участников, а не только у отправителя
     uploadFile: async (fileName, base64Data) => {
       try {
-        if (ENV.isProduction) {
-          const url = `${ENV.serverUrl}/api/chat/upload`;
-          const res = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fileName, base64Data })
-          });
-          if (!res.ok) throw new Error('File upload failure');
-          return await res.json();
-        } else {
-          const win = window as any;
-          if (win.electron && win.electron.ipcRenderer) {
-            return await win.electron.ipcRenderer.invoke('chat:upload-file', { fileName, base64Data });
-          } else {
-            const res = await fetch('/api/chat/upload', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ fileName, base64Data })
-            });
-            if (!res.ok) throw new Error('Local simulation upload failed');
-            return await res.json();
-          }
-        }
+        const res = await fetch('/api/chat/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileName, base64Data })
+        });
+        if (!res.ok) throw new Error('File upload failure');
+        return await res.json();
       } catch (err: any) {
         console.error('[ChatStore] Error uploading file:', err);
         throw err;
@@ -553,13 +383,22 @@ export const useChatStore = create<ChatState>((set, get) => {
     openFile: async (filePath) => {
       try {
         const win = window as any;
-        if (win.electron && win.electron.ipcRenderer) {
-          const result = await win.electron.ipcRenderer.invoke('chat:open-file', filePath);
-          if (!result.success) {
-            alert(result.error || 'Cannot open file.');
+        const p = String(filePath || '');
+        if (p.startsWith('/chat_files/') || p.startsWith('http')) {
+          // Файл на сервере: открываем по URL (в Electron — системным браузером)
+          const url = p.startsWith('http') ? p : `${SERVER_BASE_URL}${p}`;
+          if (win.electron?.openExternal) {
+            const result = await win.electron.openExternal(url);
+            if (result && result.success === false) alert(result.error || 'Не удалось открыть файл.');
+          } else {
+            window.open(url, '_blank');
           }
+        } else if (win.electron?.ipcRenderer) {
+          // Легаси: старые сообщения с абсолютным путём на диске этой машины
+          const result = await win.electron.ipcRenderer.invoke('chat:open-file', p);
+          if (!result.success) alert(result.error || 'Не удалось открыть файл.');
         } else {
-          window.open(filePath, '_blank');
+          alert('Файл хранится на компьютере отправителя и недоступен по сети.');
         }
       } catch (err) {
         console.error('[ChatStore] Error opening file:', err);
@@ -582,12 +421,16 @@ export const useChatStore = create<ChatState>((set, get) => {
     },
 
     setupSocket: (currentUserId) => {
-      if (ENV.isProduction) {
+      {
         get().disconnectSocket();
-        
-        console.log('[ChatStore] Connecting Socket.io client to OFFICE server:', ENV.serverUrl);
-        socketInstance = io(ENV.serverUrl);
-        
+
+        console.log('[ChatStore] Connecting chat socket.io to:', ENV_CONFIG.socketUrl);
+        socketInstance = io(ENV_CONFIG.socketUrl, {
+          transports: ['websocket', 'polling'],
+          reconnectionDelay: 800,
+          reconnectionDelayMax: 4000,
+        });
+
         socketInstance.on('connect', () => {
           console.log('[ChatStore] Socket.io connected. Handshaking user:', currentUserId);
         });

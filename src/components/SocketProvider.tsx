@@ -4,48 +4,14 @@ import { ENV_CONFIG } from '../config/env';
 import { useToastStore } from '../store/toastStore';
 import { useNavigate } from 'react-router-dom';
 
-/**
- * Lightweight mock socket implementation for the isolated local env.
- */
-class LocalMockSocket {
-  private listeners: Record<string, ((...args: any[]) => void)[]> = {};
-
-  on(event: string, callback: (...args: any[]) => void) {
-    if (!this.listeners[event]) {
-      this.listeners[event] = [];
-    }
-    this.listeners[event].push(callback);
-    return this;
-  }
-
-  off(event: string, callback: (...args: any[]) => void) {
-    if (!this.listeners[event]) return this;
-    this.listeners[event] = this.listeners[event].filter(cb => cb !== callback);
-    return this;
-  }
-
-  emit(event: string, ...args: any[]) {
-    // Local loopback dispatch inside simulated space
-    const eventListeners = this.listeners[event];
-    if (eventListeners) {
-      eventListeners.forEach(cb => cb(...args));
-    }
-    return this;
-  }
-
-  disconnect() {
-    console.log('[MockSocket] Disconnected safely.');
-    return this;
-  }
-
-  connect() {
-    console.log('[MockSocket] Connected safely.');
-    return this;
-  }
-}
+// ── Реальное соединение socket.io — всегда ──
+// Раньше в «локальном режиме» подключалась мок-заглушка с локальным эхом,
+// из-за чего события между пользователями не ходили вовсе. Теперь клиент
+// всегда соединяется с сервером (встроенным localhost или сервером компании) —
+// сервер ретранслирует события остальным (socket.broadcast/io.emit).
 
 interface SocketContextType {
-  socket: Socket | LocalMockSocket | null;
+  socket: Socket | null;
   isConnected: boolean;
   emitTagChange: (type: 'linked' | 'updated', tagId: string, details?: any) => void;
   emitEquipmentConflict: (componentId: string, systemId: string, message: string, changeDetails: string) => void;
@@ -65,66 +31,51 @@ interface SocketProviderProps {
 }
 
 export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
-  const [socket, setSocket] = useState<Socket | LocalMockSocket | null>(null);
+  const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const { addToast } = useToastStore();
   const navigate = useNavigate();
 
   useEffect(() => {
-    let activeSocket: any = null;
+    console.log('[RealTimeSync] Подключение socket.io к серверу:', ENV_CONFIG.socketUrl);
+    const activeSocket = io(ENV_CONFIG.socketUrl, {
+      // websocket в приоритете, polling — запасной транспорт (строгие прокси)
+      transports: ['websocket', 'polling'],
+      autoConnect: true,
+      // Встроенный сервер стартует параллельно с окном — соединение
+      // молча переподключается, пока порт не откроется
+      reconnectionDelay: 800,
+      reconnectionDelayMax: 4000,
+    });
 
-    if (ENV_CONFIG.isLocalMode) {
-      console.log('[RealTimeSync] Running in Local Isolated Environment. Initializing secure mock socket provider.');
-      const mock = new LocalMockSocket();
-      activeSocket = mock;
-      setSocket(mock);
-      setIsConnected(true);
-    } else {
-      console.log('[RealTimeSync] Production Mode. Opening physics connection to:', ENV_CONFIG.socketUrl);
-      const realSocket = io(ENV_CONFIG.socketUrl, {
-        transports: ['websocket'],
-        autoConnect: true
-      });
+    activeSocket.on('connect', () => setIsConnected(true));
+    activeSocket.on('disconnect', () => setIsConnected(false));
 
-      realSocket.on('connect', () => {
-        setIsConnected(true);
-      });
+    setSocket(activeSocket);
 
-      realSocket.on('disconnect', () => {
-        setIsConnected(false);
-      });
-
-      activeSocket = realSocket;
-      setSocket(realSocket);
-    }
-
-    // Set up standard subscribers
+    // Стандартные подписчики: транслируем события в window, чтобы экраны
+    // могли динамически перезагружать данные
     const handleTagLinked = (data: { tagId: string; timestamp: string; details?: any }) => {
-      console.log('[RealTimeSync] Event received tag:linked', data);
-      // Dispatch custom window event so screens can reload data dynamically
       window.dispatchEvent(new CustomEvent('socket:tag:linked', { detail: data }));
     };
 
     const handleTagUpdated = (data: { tagId: string; timestamp: string; details?: any }) => {
-      console.log('[RealTimeSync] Event received tag:updated', data);
       window.dispatchEvent(new CustomEvent('socket:tag:updated', { detail: data }));
     };
 
-    const handleEquipmentConflict = (data: { 
-      componentId: string; 
-      systemId: string; 
-      message: string; 
-      changeDetails: string; 
+    const handleEquipmentConflict = (data: {
+      componentId: string;
+      systemId: string;
+      message: string;
+      changeDetails: string;
     }) => {
-      console.log('[RealTimeSync] Event received equipment:conflict', data);
       window.dispatchEvent(new CustomEvent('socket:equipment:conflict', { detail: data }));
 
-      // Display system message using top-tier dynamic clickable toast
+      // Кликабельный тост: переход к урегулированию конфликта
       addToast(
         `🚨 ${data.message || 'Обнаружен конфликт оборудования! Нажмите для перехода к урегулированию.'}`,
         'error',
         () => {
-          // Action when clicking the toast: store coordinates and navigate!
           localStorage.setItem('focusedConflictId', data.componentId);
           localStorage.setItem('focusedConflictSystemId', data.systemId);
           navigate('/equipment');
@@ -137,33 +88,24 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     activeSocket.on('equipment:conflict', handleEquipmentConflict);
 
     return () => {
-      if (activeSocket) {
-        activeSocket.off('tag:linked', handleTagLinked);
-        activeSocket.off('tag:updated', handleTagUpdated);
-        activeSocket.off('equipment:conflict', handleEquipmentConflict);
-        activeSocket.disconnect();
-      }
+      activeSocket.off('tag:linked', handleTagLinked);
+      activeSocket.off('tag:updated', handleTagUpdated);
+      activeSocket.off('equipment:conflict', handleEquipmentConflict);
+      activeSocket.disconnect();
     };
   }, [addToast, navigate]);
 
   const emitTagChange = (type: 'linked' | 'updated', tagId: string, details?: any) => {
     if (!socket) return;
     const eventName = type === 'linked' ? 'tag:linked' : 'tag:updated';
+    // Сервер ретранслирует остальным (socket.broadcast.emit); свой экран
+    // обновляется локально по факту действия
     socket.emit(eventName, { tagId, timestamp: new Date().toISOString(), details });
-    
-    // In local isolated mode, manually run loopbacks so the dispatcher acts internally
-    if (ENV_CONFIG.isLocalMode) {
-      socket.emit(eventName, { tagId, timestamp: new Date().toISOString(), details });
-    }
   };
 
   const emitEquipmentConflict = (componentId: string, systemId: string, message: string, changeDetails: string) => {
     if (!socket) return;
     socket.emit('equipment:conflict', { componentId, systemId, message, changeDetails });
-
-    if (ENV_CONFIG.isLocalMode) {
-      socket.emit('equipment:conflict', { componentId, systemId, message, changeDetails });
-    }
   };
 
   return (
