@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import * as XLSX from 'xlsx';
 import {
   Table2, Plus, ArrowLeft, Loader2, Download, FolderOpen, Copy, Trash2,
   RotateCcw, Lock, Users2, Search, ChevronRight, Database, X, CheckCircle2,
-  Boxes, RefreshCw, Unlink, AlertTriangle
+  Boxes, RefreshCw, Unlink, AlertTriangle, Printer
 } from 'lucide-react';
 
 // ── Конструктор: сборка своих таблиц из данных проекта ──
@@ -639,6 +640,75 @@ function DocEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
     return wb;
   };
 
+  // Печатный HTML активного листа: значения + жирность из стилей книги.
+  // Полная пагинация с колонтитулами — следующая фаза (часть II §8 дизайна).
+  const buildPrintHtml = (): string => {
+    const snap = JSON.parse(takeSnapshot() || '{}');
+    const activeId = univerRef.current?.univerAPI?.getActiveWorkbook?.()?.getActiveSheet?.()?.getSheetId?.();
+    const sh = snap.sheets?.[activeId] || Object.values(snap.sheets || {})[0] as any;
+    const styles = snap.styles || {};
+    let maxR = 0, maxC = 0;
+    const cellData = sh?.cellData || {};
+    for (const rk of Object.keys(cellData)) {
+      const r = Number(rk);
+      for (const ck of Object.keys(cellData[rk] || {})) {
+        const v = cellData[rk][ck]?.v;
+        if (v !== undefined && v !== null && v !== '') { maxR = Math.max(maxR, r); maxC = Math.max(maxC, Number(ck)); }
+      }
+    }
+    const esc = (x: any) => String(x ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    let rowsHtml = '';
+    for (let r = 0; r <= maxR; r++) {
+      let tds = '';
+      for (let c = 0; c <= maxC; c++) {
+        const cell = cellData[r]?.[c];
+        const st = cell?.s ? (typeof cell.s === 'string' ? styles[cell.s] : cell.s) : null;
+        const bold = st?.bl === 1 ? 'font-weight:bold;background:#f1f5f9;' : '';
+        tds += `<td style="${bold}">${esc(cell?.v)}</td>`;
+      }
+      rowsHtml += `<tr>${tds}</tr>`;
+    }
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(doc?.name || 'Документ')}</title>
+      <style>
+        body { font-family: Calibri, Arial, sans-serif; margin: 16mm 12mm; color: #0f172a; }
+        h1 { font-size: 15px; margin: 0 0 2px; }
+        .sub { font-size: 10px; color: #64748b; margin-bottom: 10px; }
+        table { border-collapse: collapse; width: 100%; font-size: 10px; }
+        td { border: 0.5pt solid #94a3b8; padding: 2px 5px; vertical-align: top; }
+        tr { page-break-inside: avoid; }
+        @page { margin: 10mm; }
+      </style></head><body>
+      <h1>${esc(doc?.name || 'Документ')}</h1>
+      <div class="sub">${esc(activeProject?.name || '')} · ${new Date().toLocaleDateString('ru-RU')} · Flux Конструктор</div>
+      <table>${rowsHtml}</table></body></html>`;
+  };
+
+  const handlePrint = () => {
+    try {
+      const html = buildPrintHtml();
+      const w = window.open('', '_blank');
+      if (!w) { addToast('Всплывающее окно заблокировано', 'error'); return; }
+      w.document.write(html);
+      w.document.close();
+      setTimeout(() => { try { w.print(); } catch (_) {} }, 400);
+    } catch (err) { addToast('Ошибка подготовки печати', 'error'); }
+  };
+
+  const handlePdf = async () => {
+    try {
+      const html = buildPrintHtml();
+      const win = window as any;
+      if (win.electron?.ipcRenderer?.invoke) {
+        const r = await win.electron.ipcRenderer.invoke('print:to-pdf', { html, title: doc?.name || 'Документ' });
+        if (r?.success) addToast('PDF сохранён', 'success');
+        else if (!r?.canceled) addToast(r?.error || 'Не удалось сохранить PDF', 'error');
+      } else {
+        // Браузер: диалог печати — там есть «Сохранить как PDF»
+        handlePrint();
+      }
+    } catch (err) { addToast('Ошибка экспорта PDF', 'error'); }
+  };
+
   const exportDownload = () => {
     try {
       XLSX.writeFile(buildXlsx(), `${doc?.name || 'Документ'}.xlsx`);
@@ -713,6 +783,12 @@ function DocEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
             )}
           </button>
         )}
+        <button onClick={handlePrint} title="Печать активного листа" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
+          <Printer className="w-3.5 h-3.5" /> Печать
+        </button>
+        <button onClick={handlePdf} title="Сохранить активный лист в PDF" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
+          PDF
+        </button>
         <button onClick={exportDownload} title="Скачать XLSX" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
           <Download className="w-3.5 h-3.5" /> XLSX
         </button>
@@ -858,7 +934,13 @@ export default function ConstructorScreen() {
   const activeProject = useStore(s => s.activeProject);
   const { addToast } = useToastStore();
   const [docs, setDocs] = useState<DocMeta[]>([]);
-  const [activeDocId, setActiveDocId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeDocId, setActiveDocIdRaw] = useState<string | null>(() => searchParams.get('doc'));
+  // id документа живёт и в URL — ссылки из Проводника/уведомлений открывают документ сразу
+  const setActiveDocId = (id: string | null) => {
+    setActiveDocIdRaw(id);
+    setSearchParams(id ? { doc: id } : {}, { replace: true });
+  };
   const [trashOpen, setTrashOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 

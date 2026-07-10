@@ -293,6 +293,18 @@ function ensureSchemaColumns(dbPath: string) {
         logInit('[DB Migrate] Добавлена колонка Tag.updatedAt');
       }
 
+      // Зеркала документов Конструктора в Проводнике
+      const sysFolderCols = db.prepare('PRAGMA table_info("Folder")').all() as Array<{ name: string }>;
+      if (sysFolderCols.length > 0 && !sysFolderCols.find(c => c.name === 'system')) {
+        db.exec('ALTER TABLE "Folder" ADD COLUMN "system" BOOLEAN NOT NULL DEFAULT false');
+        logInit('[DB Migrate] Добавлена колонка Folder.system');
+      }
+      const fileNodeCols = db.prepare('PRAGMA table_info("FileNode")').all() as Array<{ name: string }>;
+      if (fileNodeCols.length > 0 && !fileNodeCols.find(c => c.name === 'refId')) {
+        db.exec('ALTER TABLE "FileNode" ADD COLUMN "refId" TEXT');
+        logInit('[DB Migrate] Добавлена колонка FileNode.refId');
+      }
+
       const cols = db.prepare('PRAGMA table_info("User")').all() as Array<{ name: string }>;
       if (cols.length > 0) {
         if (!cols.find(c => c.name === 'isActive')) {
@@ -1872,6 +1884,11 @@ app.post('/api/folders', async (req: Request, res: Response) => {
 });
 
 app.patch('/api/folders/:id', async (req: Request, res: Response) => {
+  // Системные папки (напр. «Конструктор») переименовывать/переносить нельзя
+  const target = await prisma.folder.findUnique({ where: { id: req.params.id } });
+  if ((target as any)?.system && ('name' in req.body || 'parentId' in req.body)) {
+    return res.status(403).json({ error: 'Это системная папка — её нельзя переименовать или переместить.' });
+  }
   const folder = await prisma.folder.update({
     where: { id: req.params.id },
     data: req.body,
@@ -1881,6 +1898,10 @@ app.patch('/api/folders/:id', async (req: Request, res: Response) => {
 });
 
 app.delete('/api/folders/:id', async (req: Request, res: Response) => {
+  const target = await prisma.folder.findUnique({ where: { id: req.params.id } });
+  if ((target as any)?.system) {
+    return res.status(403).json({ error: 'Это системная папка — её нельзя удалить.' });
+  }
   await prisma.folder.delete({ where: { id: req.params.id } });
   res.json({ success: true });
 });
@@ -2009,6 +2030,12 @@ app.patch('/api/files/:id', async (req: Request, res: Response) => {
 });
 
 app.delete('/api/files/:id', async (req: Request, res: Response) => {
+  // Зеркало документа Конструктора — не самостоятельный файл: удаление
+  // выполняется в самом Конструкторе (там корзина с восстановлением)
+  const target = await prisma.fileNode.findUnique({ where: { id: req.params.id } });
+  if ((target as any)?.type === 'CONSTRUCTOR') {
+    return res.status(403).json({ error: 'Это документ Конструктора — удалите его в разделе «Конструктор» (там есть корзина).' });
+  }
   await prisma.fileNode.delete({ where: { id: req.params.id } });
   res.json({ success: true });
 });

@@ -439,6 +439,29 @@ app.whenReady().then(() => {
     }
   });
 
+  // PDF из готового HTML (печатный вид Конструктора): скрытое окно →
+  // printToPDF → диалог сохранения. Векторный PDF без внешних зависимостей.
+  ipcMain.handle('print:to-pdf', async (_event, { html, title, landscape }: { html: string; title?: string; landscape?: boolean }) => {
+    const { dialog } = require('electron');
+    const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+    try {
+      await pdfWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(String(html || '')));
+      const pdf = await pdfWin.webContents.printToPDF({ landscape: !!landscape, printBackground: true });
+      const result = await dialog.showSaveDialog({
+        title: 'Сохранить PDF',
+        defaultPath: `${String(title || 'Документ').replace(/[\\/:*?"<>|]/g, '_')}.pdf`,
+        filters: [{ name: 'PDF (*.pdf)', extensions: ['pdf'] }],
+      });
+      if (result.canceled || !result.filePath) return { success: false, canceled: true };
+      fs.writeFileSync(result.filePath, pdf);
+      return { success: true, filePath: result.filePath };
+    } catch (err: any) {
+      return { success: false, error: err?.message || String(err) };
+    } finally {
+      try { pdfWin.destroy(); } catch (e) {}
+    }
+  });
+
   // Захват экрана (вставка скриншота в чат)
   ipcMain.handle('desktop:capture', async () => {
     const { desktopCapturer } = require('electron');

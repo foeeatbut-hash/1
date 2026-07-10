@@ -185,6 +185,56 @@ async function ensureTableExists(): Promise<void> {
   }
 }
 
+// ── Зеркало документа в Проводнике (часть III §5 дизайна) ──
+// Именованный документ живёт в Проводнике как файл type="CONSTRUCTOR"
+// (refId → ConstructorDoc.id) внутри системной папки «Конструктор» своего
+// раздела (общий/личный). Черновики и корзина зеркала не имеют.
+async function ensureConstructorFolder(projectId: string, scope: string, ownerId: string | null) {
+  const prisma = getPrisma();
+  const where = {
+    projectId, name: 'Конструктор', system: true,
+    scope: scope === 'PERSONAL' ? 'PERSONAL' : 'SHARED',
+    ownerId: scope === 'PERSONAL' ? ownerId : null,
+    parentId: null,
+  };
+  const found = await prisma.folder.findFirst({ where });
+  if (found) return found;
+  return prisma.folder.create({ data: where });
+}
+
+async function syncMirror(doc: any): Promise<void> {
+  const prisma = getPrisma();
+  try {
+    const existing = await prisma.fileNode.findFirst({ where: { type: 'CONSTRUCTOR', refId: doc.id } });
+    const shouldExist = doc.named && !doc.deletedAt && doc.kind === 'DOC';
+    if (!shouldExist) {
+      if (existing) await prisma.fileNode.delete({ where: { id: existing.id } });
+      return;
+    }
+    const folder = await ensureConstructorFolder(doc.projectId, doc.scope, doc.ownerId || doc.createdById || null);
+    const data = {
+      name: doc.name,
+      filePath: `/constructor/${doc.id}`,
+      type: 'CONSTRUCTOR',
+      refId: doc.id,
+      folderId: folder.id,
+      scope: folder.scope,
+      ownerId: folder.ownerId,
+      createdById: doc.createdById || null,
+      updatedById: doc.updatedById || null,
+    };
+    if (existing) {
+      // Пользовательскую подпапку не трогаем, если раздел не менялся
+      const keepFolder = existing.scope === folder.scope ? existing.folderId : folder.id;
+      await prisma.fileNode.update({ where: { id: existing.id }, data: { ...data, folderId: keepFolder } });
+    } else {
+      await prisma.fileNode.create({ data });
+    }
+  } catch (e: any) {
+    console.warn('[Constructor] Не удалось синхронизировать зеркало в Проводнике:', e?.message);
+  }
+}
+
 export function registerConstructorRoutes(app: Express): void {
   const authUserOf = (req: Request): any => (req as any).authUser || null;
 
@@ -240,6 +290,7 @@ export function registerConstructorRoutes(app: Express): void {
           workbook: String(req.body?.workbook || ''),
         },
       });
+      if (doc.named) syncMirror(doc);
       res.json({ doc });
     } catch (err: any) { sendError(res, err); }
   });
@@ -288,6 +339,8 @@ export function registerConstructorRoutes(app: Express): void {
       if (req.body?.deleted === false) data.deletedAt = null;        // восстановить
 
       const updated = await prisma.constructorDoc.update({ where: { id: doc.id }, data });
+      // Зеркало в Проводнике догоняет имя/раздел/корзину (не блокируем ответ)
+      if ('name' in data || 'scope' in data || 'deletedAt' in data) syncMirror(updated);
       res.json({ doc: updated });
     } catch (err: any) { sendError(res, err); }
   });
@@ -304,6 +357,11 @@ export function registerConstructorRoutes(app: Express): void {
         return res.status(403).json({ error: 'Удалять может автор или руководитель' });
       }
       await prisma.constructorDoc.delete({ where: { id: doc.id } });
+      // Подчистить зеркало, если документ удалили окончательно минуя корзину
+      try {
+        const mirror = await prisma.fileNode.findFirst({ where: { type: 'CONSTRUCTOR', refId: doc.id } });
+        if (mirror) await prisma.fileNode.delete({ where: { id: mirror.id } });
+      } catch (_) {}
       res.json({ success: true });
     } catch (err: any) { sendError(res, err); }
   });
@@ -333,6 +391,7 @@ export function registerConstructorRoutes(app: Express): void {
           settings: doc.settings,
         },
       });
+      if (copy.named) syncMirror(copy);
       res.json({ doc: copy });
     } catch (err: any) { sendError(res, err); }
   });

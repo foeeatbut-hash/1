@@ -109,6 +109,7 @@ model Folder {
   project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   scope       String   @default("SHARED") // "SHARED" — общий раздел, "PERSONAL" — личный раздел пользователя
   ownerId     String?  // Владелец личной папки (User.id); null для общих
+  system      Boolean  @default(false) // Системная папка: нельзя удалить/переименовать
 
   parentId    String?
   parent      Folder?  @relation("FolderToFolder", fields: [parentId], references: [id], onDelete: Cascade)
@@ -136,6 +137,7 @@ model FileNode {
   updatedBy   User?    @relation("FileUpdater", fields: [updatedById], references: [id])
   updatedAt   DateTime @default(now()) @updatedAt
   content     String?
+  refId       String?  // Ссылка на сущность программы (type="CONSTRUCTOR" → ConstructorDoc.id)
 
   folderId    String?
   folder      Folder?   @relation(fields: [folderId], references: [id], onDelete: Cascade)

@@ -29,7 +29,9 @@ const getFileIcon = (item: any, classNameStr: string) => {
       ? <Folder className={`${classNameStr} text-emerald-600 fill-emerald-200`} />
       : <Folder className={`${classNameStr} text-sky-600 fill-sky-200`} />;
   }
+  if (item.isFolder && item.system) return <Folder className={`${classNameStr} text-emerald-600 fill-emerald-100`} />;
   if (item.isFolder) return <Folder className={`${classNameStr} text-yellow-500 fill-yellow-200`} />;
+  if (item.type === 'CONSTRUCTOR') return <FileSpreadsheet className={`${classNameStr} text-emerald-600`} />;
   if (item.type === 'IMAGE' || item.name?.match(/\.(jpe?g|png|gif|webp)$/i)) return <ImageIcon className={`${classNameStr} text-emerald-500`} />;
   if (item.type === 'PDF' || item.name?.match(/\.pdf$/i)) return <FileText className={`${classNameStr} text-red-500`} />;
   if (item.type === 'DOCX' || item.name?.match(/\.(doc|docx)$/i)) return <FileText className={`${classNameStr} text-emerald-600`} />;
@@ -107,6 +109,7 @@ export default function Explorer() {
   const handleDeleteRef = useRef<any>(null);
   const handlePasteRef = useRef<any>(null);
   const navigateToRef = useRef<any>(null);
+  const filesRef = useRef<any[]>([]);
 
   useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
   useEffect(() => { lastSelectedIdRef.current = lastSelectedId; }, [lastSelectedId]);
@@ -590,6 +593,7 @@ export default function Explorer() {
     : isSectionId(currentFolderId)
       ? rootFiles.filter((f: any) => itemSection(f) === currentFolderId)
       : (currentFolder?.files || []);
+  filesRef.current = files; // для колбэков (двойной клик по зеркалу Конструктора)
 
   const allCurrentItems = useMemo(() => {
     const searchLower = searchQuery.toLowerCase();
@@ -747,8 +751,11 @@ export default function Explorer() {
   }, []);
 
   const handleItemDoubleClick = useCallback((id: string, isFolder: boolean) => {
-    if (isFolder) navigateToRef.current(id);
-  }, []);
+    if (isFolder) { navigateToRef.current(id); return; }
+    // Зеркало документа Конструктора: открываем сам документ
+    const f = filesRef.current?.find((x: any) => x.id === id);
+    if (f?.type === 'CONSTRUCTOR' && f?.refId) navigate(`/constructor?doc=${f.refId}`);
+  }, [navigate]);
 
   const handleItemContextMenu = useCallback((e: React.MouseEvent, id: string, isFile: boolean) => {
     e.preventDefault();
