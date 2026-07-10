@@ -161,6 +161,7 @@ model Tag {
   equipmentId  String?
   metadata     String?
   createdAt    DateTime    @default(now())
+  updatedAt    DateTime?   @updatedAt // для индикатора «данные изменились» в Конструкторе
   
   project      Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   equipment    Equipment?  @relation(fields: [equipmentId], references: [id], onDelete: SetNull)

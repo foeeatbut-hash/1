@@ -400,6 +400,27 @@ export function registerConstructorRoutes(app: Express): void {
     } catch (err: any) { sendError(res, err); }
   });
 
+  // ── Свежесть данных: «отпечаток» состояния проекта по типам сущностей ──
+  // Дёшево (без исполнения фильтров): блок сравнивает отпечаток на момент
+  // своего обновления с текущим — расхождение = значок «данные изменились».
+  // Ложноположительные срабатывания допустимы, ложноотрицательных нет.
+  app.get('/api/constructor/fingerprint', async (req: Request, res: Response) => {
+    try {
+      const projectId = await resolveProjectId(String(req.query.projectId || ''));
+      const prisma = getPrisma();
+      const [tagCount, tagMax, elCount, elMax] = await Promise.all([
+        prisma.tag.count({ where: { projectId } }),
+        prisma.tag.aggregate({ where: { projectId }, _max: { createdAt: true, updatedAt: true } }),
+        prisma.componentElement.count({ where: { monoblock: { system: { projectId } } } }),
+        prisma.componentElement.aggregate({ where: { monoblock: { system: { projectId } } }, _max: { updatedAt: true } }),
+      ]);
+      res.json({
+        tag: `${tagCount}:${tagMax._max.createdAt?.toISOString?.() || ''}:${tagMax._max.updatedAt?.toISOString?.() || ''}`,
+        element: `${elCount}:${elMax._max.updatedAt?.toISOString?.() || ''}`,
+      });
+    } catch (err: any) { sendError(res, err); }
+  });
+
   // ── Исполнитель запросов: сущность + колонки + фильтры → строки ──
   app.post('/api/constructor/query', async (req: Request, res: Response) => {
     try {

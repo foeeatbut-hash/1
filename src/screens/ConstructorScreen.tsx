@@ -4,7 +4,8 @@ import { useToastStore } from '../store/toastStore';
 import * as XLSX from 'xlsx';
 import {
   Table2, Plus, ArrowLeft, Loader2, Download, FolderOpen, Copy, Trash2,
-  RotateCcw, Lock, Users2, Search, ChevronRight, Database, X, CheckCircle2, FileSpreadsheet
+  RotateCcw, Lock, Users2, Search, ChevronRight, Database, X, CheckCircle2,
+  Boxes, RefreshCw, Unlink, AlertTriangle
 } from 'lucide-react';
 
 // ── Конструктор: сборка своих таблиц из данных проекта ──
@@ -49,8 +50,35 @@ interface CatalogData {
 interface WizardResult {
   headers: string[];
   rows: any[][];
+  keys: string[];   // entityKey каждой строки — реестр умного блока
+  query: { entity: 'tag' | 'element'; columns: { path: string; title: string }[]; filters: any[] };
   suggestedName: string;
 }
+
+// ── Умный блок: вставленная таблица помнит свой запрос ──
+// Упрощение MVP относительно части II дизайна: ручные правки внутри блока
+// обнаруживаются при обновлении сравнением с последними записанными
+// значениями (а не перехватом команд движка) и сохраняются как overrides;
+// строки сверяются по entityKey, конфликты решаются поштучно.
+interface SmartBlock {
+  id: string;
+  name: string;
+  sheetId: string;
+  anchor: { row: number; col: number };
+  headerRows: number;
+  query: { entity: 'tag' | 'element'; columns: { path: string; title: string }[]; filters: any[] };
+  rows: string[];                                        // entityKeys по порядку строк данных
+  lastValues: any[][];                                   // что записали при последнем обновлении
+  overrides: Record<string, { value: any; base: any }>;  // "entityKey|colIdx"
+  state: { lastRefreshAt: string; fingerprint?: string };
+}
+
+interface ConflictItem {
+  key: string; row: number; col: number;
+  colTitle: string; userValue: any; liveValue: any;
+}
+
+const sameCell = (a: any, b: any) => String(a ?? '') === String(b ?? '');
 
 function DataWizard({ projectId, onInsert, onClose }: {
   projectId: string;
@@ -110,6 +138,8 @@ function DataWizard({ projectId, onInsert, onClose }: {
       onInsert({
         headers: selected.map(s => s.title),
         rows: data.rows.map((r: any) => r.cells),
+        keys: data.rows.map((r: any) => r.key),
+        query: { entity, columns: selected, filters: buildFilters() },
         suggestedName: filterValue ? `${entityName}: ${filterValue}` : `${entityName} проекта`,
       });
     } catch (_) { addToast('Ошибка запроса данных', 'error'); }
@@ -275,6 +305,23 @@ function DocEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
   const [nameDialog, setNameDialog] = useState<null | { suggestion: string }>(null);
   const suggestionRef = useRef<string>('');
 
+  // ── Умные блоки ──
+  const bindingsRef = useRef<{ schemaVersion: number; blocks: SmartBlock[] }>({ schemaVersion: 1, blocks: [] });
+  const bindingsDirtyRef = useRef(false);
+  const [blocksTick, setBlocksTick] = useState(0);          // форс-перерисовка панели блоков
+  const [blocksOpen, setBlocksOpen] = useState(false);
+  const [staleMap, setStaleMap] = useState<Record<string, boolean>>({});
+  const [refreshingIds, setRefreshingIds] = useState<string[]>([]);
+  const [conflicts, setConflicts] = useState<null | { blockId: string; items: ConflictItem[] }>(null);
+  const projectIdForData = activeProject?.id || 'default';
+
+  const fetchFingerprint = async (): Promise<Record<string, string> | null> => {
+    try {
+      const r = await fetch(`/api/constructor/fingerprint?projectId=${projectIdForData}`);
+      return r.ok ? await r.json() : null;
+    } catch (_) { return null; }
+  };
+
   // Снапшот текущей книги (JSON-строка) — для автосейва и экспорта
   const takeSnapshot = (): string => {
     try {
@@ -286,16 +333,22 @@ function DocEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
 
   const saveNow = async (extra?: Record<string, any>) => {
     const snapshot = takeSnapshot();
-    if (!snapshot && !extra) return;
-    if (snapshot === lastSavedRef.current && !extra) return;
+    const bindingsChanged = bindingsDirtyRef.current;
+    if (!snapshot && !extra && !bindingsChanged) return;
+    if (snapshot === lastSavedRef.current && !extra && !bindingsChanged) return;
     setSaveState('saving');
     try {
       const res = await fetch(`/api/constructor/docs/${docId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...(snapshot ? { workbook: snapshot } : {}), ...(extra || {}) }),
+        body: JSON.stringify({
+          ...(snapshot ? { workbook: snapshot } : {}),
+          ...(bindingsChanged ? { bindings: JSON.stringify(bindingsRef.current) } : {}),
+          ...(extra || {}),
+        }),
       });
       if (res.ok) {
         if (snapshot) lastSavedRef.current = snapshot;
+        if (bindingsChanged) bindingsDirtyRef.current = false;
         const d = await res.json();
         setDoc(d.doc);
         setSaveState('saved');
@@ -323,6 +376,19 @@ function DocEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
         if (disposed) return;
         setDoc(loaded);
         if (user) pushRecent(user.id, docId);
+        try {
+          const parsedB = loaded.bindings ? JSON.parse(loaded.bindings) : null;
+          if (parsedB && Array.isArray(parsedB.blocks)) bindingsRef.current = parsedB;
+        } catch (_) {}
+        // Значок «данные проекта изменились» на блоках — сравнение отпечатков
+        fetchFingerprint().then(fp => {
+          if (!fp || disposed) return;
+          const st: Record<string, boolean> = {};
+          for (const b of bindingsRef.current.blocks) {
+            if (b.state?.fingerprint && fp[b.query.entity] && b.state.fingerprint !== fp[b.query.entity]) st[b.id] = true;
+          }
+          setStaleMap(st);
+        });
 
         // Движок подгружается лениво — тяжёлый бандл не попадает в общий чанк
         const [{ createUniver, LocaleType, mergeLocales, defaultTheme }, corePreset, ruRU] = await Promise.all([
@@ -364,8 +430,9 @@ function DocEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
     };
   }, [docId]);
 
-  // Вставка собранной таблицы от активной ячейки (или A1)
-  const handleInsert = (r: WizardResult) => {
+  // Вставка собранной таблицы от активной ячейки (или A1) — создаёт УМНЫЙ БЛОК:
+  // область помнит свой запрос и умеет обновляться из данных проекта
+  const handleInsert = async (r: WizardResult) => {
     setWizardOpen(false);
     suggestionRef.current = r.suggestedName;
     try {
@@ -378,12 +445,174 @@ function DocEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
       const matrix = [r.headers, ...r.rows];
       ws.getRange(r0, c0, matrix.length, r.headers.length).setValues(matrix);
       try { ws.getRange(r0, c0, 1, r.headers.length).setFontWeight('bold'); } catch (_) {}
-      addToast(`Вставлено строк: ${r.rows.length}`, 'success');
+
+      const fp = await fetchFingerprint();
+      bindingsRef.current.blocks.push({
+        id: `blk_${Math.random().toString(36).slice(2, 8)}`,
+        name: r.suggestedName,
+        sheetId: ws.getSheetId(),
+        anchor: { row: r0, col: c0 },
+        headerRows: 1,
+        query: r.query,
+        rows: r.keys,
+        lastValues: r.rows,
+        overrides: {},
+        state: { lastRefreshAt: new Date().toISOString(), fingerprint: fp?.[r.query.entity] },
+      });
+      bindingsDirtyRef.current = true;
+      setBlocksTick(t => t + 1);
+      addToast(`Вставлен блок «${r.suggestedName}»: ${r.rows.length} строк`, 'success');
       saveNow();
     } catch (err) {
       console.error('[Constructor] Ошибка вставки:', err);
       addToast('Не удалось вставить данные', 'error');
     }
+  };
+
+  const sheetOfBlock = (b: SmartBlock) => {
+    const wb = univerRef.current?.univerAPI?.getActiveWorkbook?.();
+    try { const ws = wb?.getSheetBySheetId?.(b.sheetId); if (ws) return ws; } catch (_) {}
+    return null;
+  };
+
+  // ── Обновление блока: сверка по entityKey (часть II §2, MVP) ──
+  const refreshBlock = async (blockId: string) => {
+    const b = bindingsRef.current.blocks.find(x => x.id === blockId);
+    if (!b || refreshingIds.includes(blockId)) return;
+    setRefreshingIds(prev => [...prev, blockId]);
+    try {
+      const ws = sheetOfBlock(b);
+      if (!ws) { addToast('Лист блока не найден — блок отвязан', 'error'); unlinkBlock(blockId); return; }
+      const ncols = b.query.columns.length;
+      const dataTop = b.anchor.row + b.headerRows;
+      const oldN = b.rows.length;
+
+      // 1. Ручные правки с прошлого обновления: текущее ≠ записанное → override
+      let cur: any[][] = [];
+      try { cur = oldN > 0 ? (ws.getRange(dataTop, b.anchor.col, oldN, ncols).getValues() || []) : []; } catch (_) {}
+      for (let i = 0; i < oldN; i++) {
+        for (let j = 0; j < ncols; j++) {
+          const was = b.lastValues?.[i]?.[j];
+          const now = cur?.[i]?.[j];
+          if (cur[i] !== undefined && !sameCell(was, now)) {
+            b.overrides[`${b.rows[i]}|${j}`] = { value: now, base: was };
+          }
+        }
+      }
+
+      // 2. Свежие данные тем же запросом
+      const res = await fetch('/api/constructor/query', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: projectIdForData, entity: b.query.entity,
+          columns: b.query.columns.map(c => c.path), filters: b.query.filters, limit: 50000,
+        }),
+      });
+      if (!res.ok) throw new Error('query failed');
+      const fresh: { key: string; cells: any[] }[] = (await res.json()).rows;
+
+      // 3. Сводка изменений
+      const oldSet = new Set(b.rows);
+      const freshKeys = fresh.map(r => r.key);
+      const freshSet = new Set(freshKeys);
+      const added = freshKeys.filter(k => !oldSet.has(k)).length;
+      const removed = b.rows.filter(k => !freshSet.has(k)).length;
+
+      // 4. Высота области: вставляем/удаляем строки, чтобы не съесть содержимое ниже
+      const newN = fresh.length;
+      if (newN > oldN) ws.insertRowsAfter(dataTop + Math.max(oldN, 1) - 1, newN - oldN);
+      else if (newN < oldN) ws.deleteRows(dataTop + newN, oldN - newN);
+
+      // 5. Матрица: свежие значения, поверх — ручные правки; расхождение = конфликт
+      const conflictItems: ConflictItem[] = [];
+      let changed = 0;
+      const matrix = fresh.map((row, i) => row.cells.map((v, j) => {
+        const ovKey = `${row.key}|${j}`;
+        const ov = b.overrides[ovKey];
+        if (ov) {
+          if (!sameCell(ov.base, v)) {
+            conflictItems.push({
+              key: row.key, row: dataTop + i, col: b.anchor.col + j,
+              colTitle: b.query.columns[j].title, userValue: ov.value, liveValue: v,
+            });
+          }
+          return ov.value; // ручная правка сохраняется, конфликт решается отдельно
+        }
+        const oldIdx = b.rows.indexOf(row.key);
+        if (oldIdx >= 0 && !sameCell(b.lastValues?.[oldIdx]?.[j], v)) changed++;
+        return v;
+      }));
+      if (newN > 0) ws.getRange(dataTop, b.anchor.col, newN, ncols).setValues(matrix);
+
+      // 6. Чистим overrides исчезнувших строк, фиксируем новое состояние
+      for (const k of Object.keys(b.overrides)) {
+        if (!freshSet.has(k.slice(0, k.lastIndexOf('|')))) delete b.overrides[k];
+      }
+      b.rows = freshKeys;
+      b.lastValues = matrix;
+      const fp = await fetchFingerprint();
+      b.state = { lastRefreshAt: new Date().toISOString(), fingerprint: fp?.[b.query.entity] };
+      bindingsDirtyRef.current = true;
+      setBlocksTick(t => t + 1);
+      setStaleMap(m => ({ ...m, [b.id]: false }));
+
+      const parts = [`+${added} новых`, `−${removed} выпало`, `${changed} изменений`];
+      if (conflictItems.length) parts.push(`конфликтов: ${conflictItems.length}`);
+      addToast(`«${b.name}»: ${parts.join(', ')}`, conflictItems.length ? 'info' : 'success');
+      if (conflictItems.length) setConflicts({ blockId: b.id, items: conflictItems });
+      await saveNow();
+    } catch (err) {
+      console.error('[Constructor] Ошибка обновления блока:', err);
+      addToast('Не удалось обновить блок', 'error');
+    } finally {
+      setRefreshingIds(prev => prev.filter(x => x !== blockId));
+    }
+  };
+
+  const refreshAll = async () => {
+    for (const b of [...bindingsRef.current.blocks]) await refreshBlock(b.id);
+  };
+
+  // Отвязать: данные остаются обычными ячейками, привязка удаляется
+  const unlinkBlock = (blockId: string) => {
+    bindingsRef.current.blocks = bindingsRef.current.blocks.filter(b => b.id !== blockId);
+    bindingsDirtyRef.current = true;
+    setBlocksTick(t => t + 1);
+    saveNow();
+  };
+
+  // Применение решения по конфликту: «Моё» — правка остаётся поверх нового
+  // значения; «Из проекта» — в ячейку пишется живое значение, override снимается
+  const applyResolution = (blockId: string, item: ConflictItem, take: 'mine' | 'live') => {
+    const b = bindingsRef.current.blocks.find(x => x.id === blockId);
+    if (!b) return;
+    const j = item.col - b.anchor.col;
+    const ovKey = `${item.key}|${j}`;
+    if (take === 'live') {
+      const ws = sheetOfBlock(b);
+      try { ws?.getRange(item.row, item.col, 1, 1).setValues([[item.liveValue]]); } catch (_) {}
+      delete b.overrides[ovKey];
+      const rowIdx = item.row - (b.anchor.row + b.headerRows);
+      if (b.lastValues[rowIdx]) b.lastValues[rowIdx][j] = item.liveValue;
+    } else if (b.overrides[ovKey]) {
+      b.overrides[ovKey].base = item.liveValue; // решено: моя правка поверх нового живого
+    }
+    bindingsDirtyRef.current = true;
+  };
+
+  const resolveConflict = (item: ConflictItem, take: 'mine' | 'live') => {
+    if (!conflicts) return;
+    applyResolution(conflicts.blockId, item, take);
+    const rest = conflicts.items.filter(x => x !== item);
+    setConflicts(rest.length ? { ...conflicts, items: rest } : null);
+    if (!rest.length) saveNow();
+  };
+
+  const resolveAllConflicts = (take: 'mine' | 'live') => {
+    if (!conflicts) return;
+    for (const item of conflicts.items) applyResolution(conflicts.blockId, item, take);
+    setConflicts(null);
+    saveNow();
   };
 
   // Снапшот книги → книга SheetJS (все листы, значения)
@@ -475,6 +704,15 @@ function DocEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
         <button onClick={() => setWizardOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer">
           <Database className="w-3.5 h-3.5" /> Собрать данные
         </button>
+        {bindingsRef.current.blocks.length > 0 && (
+          <button onClick={() => setBlocksOpen(v => !v)}
+            className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
+            <Boxes className="w-3.5 h-3.5" /> Блоки ({bindingsRef.current.blocks.length})
+            {Object.values(staleMap).some(Boolean) && (
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 ring-2 ring-white dark:ring-slate-900" title="Данные проекта изменились" />
+            )}
+          </button>
+        )}
         <button onClick={exportDownload} title="Скачать XLSX" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
           <Download className="w-3.5 h-3.5" /> XLSX
         </button>
@@ -498,6 +736,79 @@ function DocEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
 
       {wizardOpen && (
         <DataWizard projectId={activeProject?.id || 'default'} onInsert={handleInsert} onClose={() => setWizardOpen(false)} />
+      )}
+
+      {/* Панель умных блоков: обновление, отвязка, индикатор устаревания */}
+      {blocksOpen && (
+        <div className="absolute right-4 top-14 z-40 w-96 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden" data-tick={blocksTick}>
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-800">
+            <span className="text-sm font-bold text-slate-800 dark:text-white">Умные блоки</span>
+            <div className="flex items-center gap-2">
+              <button onClick={refreshAll} disabled={refreshingIds.length > 0}
+                className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white cursor-pointer flex items-center gap-1">
+                <RefreshCw className={`w-3 h-3 ${refreshingIds.length ? 'animate-spin' : ''}`} /> Обновить все
+              </button>
+              <button onClick={() => setBlocksOpen(false)} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
+            </div>
+          </div>
+          <div className="max-h-80 overflow-auto divide-y divide-slate-100 dark:divide-slate-850">
+            {bindingsRef.current.blocks.map(b => (
+              <div key={b.id} className="px-4 py-3 flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-slate-800 dark:text-white truncate flex items-center gap-1.5">
+                    {b.name}
+                    {staleMap[b.id] && <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" title="Данные проекта изменились" />}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">
+                    {b.rows.length} строк · обновлено {fmtDate(b.state.lastRefreshAt)}
+                    {Object.keys(b.overrides).length > 0 && ` · правок: ${Object.keys(b.overrides).length}`}
+                  </div>
+                </div>
+                <button onClick={() => refreshBlock(b.id)} disabled={refreshingIds.includes(b.id)} title="Обновить данные блока"
+                  className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 disabled:opacity-50 cursor-pointer">
+                  <RefreshCw className={`w-4 h-4 ${refreshingIds.includes(b.id) ? 'animate-spin' : ''}`} />
+                </button>
+                <button onClick={() => unlinkBlock(b.id)} title="Отвязать: оставить как обычные ячейки"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer">
+                  <Unlink className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Конфликты: ручная правка против изменившегося значения в проекте */}
+      {conflicts && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6">
+          <div className="w-full max-w-xl max-h-[75vh] bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col">
+            <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2">
+              <AlertTriangle className="w-4.5 h-4.5 text-amber-500" />
+              <h3 className="font-bold text-slate-800 dark:text-white">Конфликты: ваши правки против данных проекта</h3>
+            </div>
+            <div className="flex-1 overflow-auto divide-y divide-slate-100 dark:divide-slate-850">
+              {conflicts.items.map((item, i) => (
+                <div key={i} className="px-5 py-3">
+                  <div className="text-xs font-bold text-slate-500 dark:text-slate-400">{item.colTitle}</div>
+                  <div className="mt-1.5 flex items-center gap-2 text-sm">
+                    <span className="px-2 py-1 rounded bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 font-mono text-xs">моё: {String(item.userValue)}</span>
+                    <span className="text-slate-400">против</span>
+                    <span className="px-2 py-1 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 font-mono text-xs">из проекта: {String(item.liveValue)}</span>
+                    <div className="flex-1" />
+                    <button onClick={() => resolveConflict(item, 'mine')} className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Моё</button>
+                    <button onClick={() => resolveConflict(item, 'live')} className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer">Из проекта</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="px-5 py-3 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2">
+              <button onClick={() => resolveAllConflicts('mine')}
+                className="text-xs font-bold px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Все мои</button>
+              <button onClick={() => resolveAllConflicts('live')}
+                className="text-xs font-bold px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer">Все из проекта</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Диалог именования при закрытии (часть III §3.3) */}

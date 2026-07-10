@@ -287,6 +287,12 @@ function ensureSchemaColumns(dbPath: string) {
       )`);
       db.exec('CREATE INDEX IF NOT EXISTS "ConstructorDoc_projectId_kind_idx" ON "ConstructorDoc"("projectId", "kind")');
 
+      const tagCols = db.prepare('PRAGMA table_info("Tag")').all() as Array<{ name: string }>;
+      if (tagCols.length > 0 && !tagCols.find(c => c.name === 'updatedAt')) {
+        db.exec('ALTER TABLE "Tag" ADD COLUMN "updatedAt" DATETIME');
+        logInit('[DB Migrate] Добавлена колонка Tag.updatedAt');
+      }
+
       const cols = db.prepare('PRAGMA table_info("User")').all() as Array<{ name: string }>;
       if (cols.length > 0) {
         if (!cols.find(c => c.name === 'isActive')) {
