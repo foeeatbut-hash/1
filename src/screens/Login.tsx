@@ -41,10 +41,12 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
     const isRemembered = localStorage.getItem('login_remember') === 'true';
     return isRemembered ? localStorage.getItem('login_saved_username') || '' : '';
   });
-  const [password, setPassword] = useState(() => {
-    const isRemembered = localStorage.getItem('login_remember') === 'true';
-    return isRemembered ? localStorage.getItem('login_saved_password') || '' : '';
-  });
+  // Пароль в localStorage больше не храним (небезопасно): «запомнить» = логин,
+  // а сессия и так живёт по токену без повторного входа. Старое значение подчищаем.
+  const [password, setPassword] = useState('');
+  useEffect(() => {
+    try { localStorage.removeItem('login_saved_password'); } catch (_) {}
+  }, []);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -150,11 +152,9 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
         if (remember) {
           localStorage.setItem('login_remember', 'true');
           localStorage.setItem('login_saved_username', login.trim());
-          localStorage.setItem('login_saved_password', password);
         } else {
           localStorage.removeItem('login_remember');
           localStorage.removeItem('login_saved_username');
-          localStorage.removeItem('login_saved_password');
         }
         setTimeout(() => {
           setUser(data.user);

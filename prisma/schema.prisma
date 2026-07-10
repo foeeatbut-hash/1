@@ -45,6 +45,32 @@ model Project {
   equipmentSystems EquipmentSystem[]
   chatMessages     ChatMessage[]     @relation("LinkedProject")
   chatGroups       ChatGroup[]       @relation("ProjectGroups")
+  constructorDocs  ConstructorDoc[]
+}
+
+// Документ Конструктора: книга-таблица, собираемая из данных проекта
+// (см. docs/constructor-design-v0.25*.md). workbook — JSON-снапшот движка,
+// bindings — привязки умных блоков (наша бизнес-логика, отдельно от движка).
+model ConstructorDoc {
+  id          String    @id @default(uuid())
+  projectId   String
+  name        String    @default("Без названия")
+  kind        String    @default("DOC")    // "DOC" | "TEMPLATE"
+  scope       String    @default("SHARED") // "SHARED" | "PERSONAL"
+  ownerId     String?   // владелец личного документа (= createdById)
+  named       Boolean   @default(false)    // имя дано человеком (гасит диалог при закрытии)
+  description String    @default("")
+  workbook    String    @default("")       // JSON-снапшот книги
+  bindings    String    @default("[]")     // JSON: умные блоки
+  settings    String    @default("{}")     // JSON: печать/ориентация и т.п.
+  createdById String?
+  updatedById String?
+  deletedAt   DateTime? // корзина (мягкое удаление)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  @@index([projectId, kind])
 }
 
 model Dictionary {

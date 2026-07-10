@@ -408,9 +408,11 @@ export const useChatStore = create<ChatState>((set, get) => {
     startPolling: (currentUserId) => {
       get().stopPolling();
       get().fetchMessages(currentUserId);
+      // Основной канал теперь socket.io (chat:message_received и т.д.);
+      // опрос — только страховка пропущенного события, поэтому редкий
       pollTimer = setInterval(() => {
         get().fetchMessages(currentUserId);
-      }, 3000);
+      }, 12000);
     },
 
     stopPolling: () => {

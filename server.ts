@@ -14,6 +14,7 @@ import os from 'os';
 import crypto from 'crypto';
 import { setPrisma, upsertSetting } from './server/context.js';
 import { registerNoteRoutes } from './server/routes/notes.js';
+import { registerConstructorRoutes } from './server/routes/constructor.js';
 import { registerLogRoutes } from './server/routes/logs.js';
 import { registerSettingsRoutes } from './server/routes/settings.js';
 
@@ -264,6 +265,28 @@ function ensureSchemaColumns(dbPath: string) {
     const Database = require('better-sqlite3');
     const db = new Database(dbPath);
     try {
+      // Новая таблица раздела «Конструктор» (документы-таблицы из данных проекта)
+      db.exec(`CREATE TABLE IF NOT EXISTS "ConstructorDoc" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "projectId" TEXT NOT NULL,
+        "name" TEXT NOT NULL DEFAULT 'Без названия',
+        "kind" TEXT NOT NULL DEFAULT 'DOC',
+        "scope" TEXT NOT NULL DEFAULT 'SHARED',
+        "ownerId" TEXT,
+        "named" BOOLEAN NOT NULL DEFAULT false,
+        "description" TEXT NOT NULL DEFAULT '',
+        "workbook" TEXT NOT NULL DEFAULT '',
+        "bindings" TEXT NOT NULL DEFAULT '[]',
+        "settings" TEXT NOT NULL DEFAULT '{}',
+        "createdById" TEXT,
+        "updatedById" TEXT,
+        "deletedAt" DATETIME,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "ConstructorDoc_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS "ConstructorDoc_projectId_kind_idx" ON "ConstructorDoc"("projectId", "kind")');
+
       const cols = db.prepare('PRAGMA table_info("User")').all() as Array<{ name: string }>;
       if (cols.length > 0) {
         if (!cols.find(c => c.name === 'isActive')) {
@@ -2504,6 +2527,7 @@ app.post('/api/tags/generate', async (req: Request, res: Response) => {
 // Заметки (/api/notes) и журнал (/api/logs) — вынесены в модули-роуты
 registerNoteRoutes(app);
 registerLogRoutes(app);
+registerConstructorRoutes(app);
 
 
 // --- CORPORATE MESSENGER CHAT API ---

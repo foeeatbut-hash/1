@@ -25,6 +25,7 @@ const ChatManagement = lazy(() => import('./screens/ChatManagement'));
 const LogsManagement = lazy(() => import('./screens/LogsManagement'));
 const ProcurementManagement = lazy(() => import('./screens/ProcurementManagement'));
 const SettingsScreen = lazy(() => import('./screens/SettingsScreen'));
+const ConstructorScreen = lazy(() => import('./screens/ConstructorScreen'));
 
 import { SocketProvider } from './components/SocketProvider';
 import { ServerGate } from './components/BootSplash';
@@ -172,6 +173,7 @@ function AnimatedRoutes() {
             <Route path="/settings" element={<SettingsScreen />} />
             <Route path="/equipment" element={<Equipment />} />
             <Route path="/generator" element={<UniversalGenerator />} />
+            <Route path="/constructor" element={<ConstructorScreen />} />
             <Route path="/directory" element={<DictionaryEditor />} />
             <Route path="/logs" element={<LogsManagement />} />
             <Route path="/users" element={user && user.role === 'ADMIN' ? <UsersManagement /> : <Navigate to="/" replace />} />
