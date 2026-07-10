@@ -632,6 +632,63 @@ try {
   }
 })();
 
+// ── Авторизация API: подписанные токены сессии ─────────────────────────────
+// Без токена API доступно любому в сети — для сервера компании это недопустимо.
+// Токен выдаётся при входе (POST /api/login), подписывается секретом сервера
+// (HMAC-SHA256) и проверяется на каждом запросе. Секрет генерируется при первом
+// запуске и хранится в папке данных — токены переживают перезапуск сервера,
+// таблиц в БД не требуется.
+const AUTH_SECRET_FILE = path.join(userDataPath, 'auth-secret');
+let authSecret = '';
+try {
+  if (fs.existsSync(AUTH_SECRET_FILE)) authSecret = fs.readFileSync(AUTH_SECRET_FILE, 'utf-8').trim();
+  if (!authSecret) {
+    authSecret = crypto.randomBytes(48).toString('hex');
+    fs.writeFileSync(AUTH_SECRET_FILE, authSecret, 'utf-8');
+  }
+} catch (e) {
+  // Файл недоступен (readonly-диск): секрет на время процесса — токены
+  // перестанут действовать после перезапуска, но авторизация работает
+  authSecret = crypto.randomBytes(48).toString('hex');
+}
+
+const AUTH_TOKEN_TTL_MS = 30 * 24 * 3600 * 1000; // 30 дней
+
+const signAuthPayload = (payload: string) =>
+  crypto.createHmac('sha256', authSecret).update(payload).digest('base64url');
+
+const issueAuthToken = (userId: string) => {
+  const payload = Buffer.from(JSON.stringify({ uid: userId, exp: Date.now() + AUTH_TOKEN_TTL_MS })).toString('base64url');
+  return `${payload}.${signAuthPayload(payload)}`;
+};
+
+const verifyAuthToken = (token: string): string | null => {
+  try {
+    const [payload, sig] = String(token || '').split('.');
+    if (!payload || !sig) return null;
+    const expected = signAuthPayload(payload);
+    const a = Buffer.from(sig);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8'));
+    if (!data?.uid || typeof data.exp !== 'number' || data.exp < Date.now()) return null;
+    return String(data.uid);
+  } catch (e) {
+    return null;
+  }
+};
+
+// Кэш пользователей на 30 с — проверка токена не ходит в БД на каждый запрос,
+// но отключение профиля администратором срабатывает в течение полуминуты
+const authUserCache = new Map<string, { user: any; at: number }>();
+const getAuthUser = async (userId: string) => {
+  const hit = authUserCache.get(userId);
+  if (hit && Date.now() - hit.at < 30000) return hit.user;
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  authUserCache.set(userId, { user, at: Date.now() });
+  return user;
+};
+
 const app = express();
 const PORT = 3000;
 
@@ -641,6 +698,15 @@ const io = new SocketIOServer(httpServer, {
     origin: "*",
     methods: ["GET", "POST", "DELETE"]
   }
+});
+
+// Socket.io пускает только вошедших: клиент передаёт токен в handshake.auth —
+// иначе любой в сети слушал бы трансляцию сообщений чата
+io.use((socket, next) => {
+  const userId = verifyAuthToken(String((socket.handshake as any)?.auth?.token || ''));
+  if (!userId) return next(new Error('unauthorized'));
+  (socket as any).userId = userId;
+  next();
 });
 
 io.on('connection', (socket) => {
@@ -676,6 +742,59 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use('/chat_files', express.static(path.join(userDataPath, 'chat_files')));
+
+// ── Проверка входа на каждом запросе к API ──────────────────────────────────
+// Открыты только вход, проверка готовности и конфиг БД для экрана входа.
+// Настройка БД (/api/db/*) до входа разрешена только с самой машины сервера —
+// это функция встроенного режима, по сети её дергать нельзя.
+const AUTH_EXEMPT = new Set(['/api/health', '/api/login', '/api/db/config']);
+const isLoopbackRequest = (req: Request) => {
+  const ip = String(req.ip || req.socket?.remoteAddress || '');
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+};
+
+app.use(async (req: Request, res: Response, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+  if (AUTH_EXEMPT.has(req.path)) return next();
+  if (req.path.startsWith('/api/db/') && isLoopbackRequest(req)) return next();
+
+  const header = String(req.headers.authorization || '');
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  const userId = verifyAuthToken(token);
+  if (!userId) return res.status(401).json({ error: 'Требуется вход в систему' });
+
+  try {
+    const user = await getAuthUser(userId);
+    if (!user || user.isActive === false) {
+      return res.status(401).json({ error: 'Профиль отключен или удалён администратором' });
+    }
+    if (user.validUntil && new Date(user.validUntil).getTime() < Date.now()) {
+      return res.status(401).json({ error: 'Срок действия профиля истек' });
+    }
+
+    // Управление сотрудниками — только администратор; менять самого себя
+    // (имя/пароль) может каждый, но не роль/права/срок
+    const isUserRoute = /^\/api\/users\/[^/]+$/.test(req.path);
+    if (user.role !== 'ADMIN') {
+      if ((req.path === '/api/users' && req.method === 'POST') ||
+          (isUserRoute && req.method === 'DELETE')) {
+        return res.status(403).json({ error: 'Доступно только администратору' });
+      }
+      if (isUserRoute && req.method === 'PUT') {
+        const targetId = req.path.split('/').pop();
+        if (targetId !== user.id) {
+          return res.status(403).json({ error: 'Доступно только администратору' });
+        }
+        req.body = { name: req.body?.name, password: req.body?.password };
+      }
+    }
+
+    (req as any).authUser = user;
+    return next();
+  } catch (e: any) {
+    return res.status(500).json({ error: 'Не удалось проверить сессию', details: e?.message });
+  }
+});
 
 // Готовность сервера: порт начинает слушать только после инициализации БД,
 // так что успешный ответ = приложение полностью готово (для стартовой заставки)
@@ -1071,7 +1190,8 @@ app.post('/api/login', async (req: Request, res: Response) => {
           trustedNowSync();
         }
         const { password: _pw, ...safeUser } = user as any;
-        return res.json({ success: true, user: safeUser });
+        // Токен сессии: клиент шлёт его в Authorization на каждом запросе
+        return res.json({ success: true, user: safeUser, token: issueAuthToken(user.id) });
       } else {
         return res.status(401).json({ success: false, message: 'Неверный пароль доступа!' });
       }

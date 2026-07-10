@@ -4,7 +4,7 @@
 // собеседника не открывались. Теперь путь один — работает и локально,
 // и с сервером компании (адрес подставляет fetch-прокси из config/env).
 import { create } from 'zustand';
-import { ENV_CONFIG, SERVER_BASE_URL } from '../config/env';
+import { ENV_CONFIG, SERVER_BASE_URL, getAuthToken } from '../config/env';
 import { io, Socket } from 'socket.io-client';
 
 export interface ChatAttachment {
@@ -426,6 +426,7 @@ export const useChatStore = create<ChatState>((set, get) => {
 
         console.log('[ChatStore] Connecting chat socket.io to:', ENV_CONFIG.socketUrl);
         socketInstance = io(ENV_CONFIG.socketUrl, {
+          auth: { token: getAuthToken() },
           transports: ['websocket', 'polling'],
           reconnectionDelay: 800,
           reconnectionDelayMax: 4000,

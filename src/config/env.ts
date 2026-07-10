@@ -52,6 +52,22 @@ export async function setConfiguredServerUrl(url: string): Promise<void> {
   } catch (_) {}
 }
 
+// ── Токен сессии ──
+// Выдаётся сервером при входе; уходит в Authorization на каждом запросе к API
+// (добавляет fetch-обёртка ниже) и в handshake socket.io. Ответ 401 означает
+// «сессия недействительна» — приложение возвращает на экран входа.
+const AUTH_TOKEN_KEY = 'flux_auth_token';
+
+export function getAuthToken(): string {
+  try { return localStorage.getItem(AUTH_TOKEN_KEY) || ''; } catch (_) { return ''; }
+}
+export function setAuthToken(token: string): void {
+  try {
+    if (token) localStorage.setItem(AUTH_TOKEN_KEY, token);
+    else localStorage.removeItem(AUTH_TOKEN_KEY);
+  } catch (_) {}
+}
+
 // Адрес зафиксирован на момент загрузки: смена сервера = перезагрузка окна,
 // чтобы не жить в состоянии «половина запросов туда, половина сюда»
 export const SERVER_BASE_URL = getServerBaseUrl();
@@ -104,6 +120,19 @@ if (typeof window !== 'undefined') {
     const method = (init?.method || (input instanceof Request ? input.method : 'GET') || 'GET').toUpperCase();
     const isApi = /\/api\//.test(urlForLog);
     const shortUrl = urlForLog.replace(/^https?:\/\/[^/]+/, '').replace(/^.*\/api\//, '/api/');
+
+    // Токен сессии — на каждый запрос к API (кроме случая, когда вызывающий
+    // код уже выставил Authorization сам)
+    if (isApi) {
+      const token = getAuthToken();
+      if (token) {
+        try {
+          const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+          if (!headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
+          init = { ...(init || {}), headers };
+        } catch (_) {}
+      }
+    }
     // Фоновые поллинги (уведомления, чат) идут каждые несколько секунд —
     // их успешные запросы не пишем, чтобы не забивать журнал шумом (ошибки пишем)
     const isBackgroundPoll = method === 'GET' && /\/api\/(notifications|chat\/(messages|group-messages|groups))/.test(shortUrl);
@@ -112,6 +141,11 @@ if (typeof window !== 'undefined') {
     try {
       const res = await originalFetch(input as any, init);
       if (isApi && (!isBackgroundPoll || !res.ok)) logApi(res.ok ? 'INFO' : 'ERROR', 'Ответ', `${res.status} ${method} ${shortUrl}`);
+      // Сессия недействительна (истекла, профиль отключён) → на экран входа.
+      // /api/login не считается: там 401 = просто неверный пароль
+      if (res.status === 401 && isApi && !shortUrl.startsWith('/api/login')) {
+        try { window.dispatchEvent(new CustomEvent('flux:auth-expired')); } catch (_) {}
+      }
       return res;
     } catch (err: any) {
       if (isApi) logApi('ERROR', 'Сбой запроса', `${method} ${shortUrl}: ${err?.message || err}`);

@@ -114,6 +114,17 @@ function AnimatedRoutes() {
     useAssistantStore.getState().setRoute(location.pathname);
   }, [location.pathname]);
 
+  // Сессия API истекла или профиль отключён (401 от сервера) → на экран входа
+  React.useEffect(() => {
+    const onExpired = () => {
+      if (useStore.getState().user) {
+        useStore.getState().setUser(null);
+      }
+    };
+    window.addEventListener('flux:auth-expired', onExpired);
+    return () => window.removeEventListener('flux:auth-expired', onExpired);
+  }, []);
+
   // Save the user's active route path when they interact
   React.useEffect(() => {
     if (user && location.pathname !== '/sticker') {

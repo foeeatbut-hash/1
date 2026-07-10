@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { ENV_CONFIG } from '../config/env';
+import { ENV_CONFIG, getAuthToken } from '../config/env';
 import { useToastStore } from '../store/toastStore';
+import { useStore } from '../store/store';
 import { useNavigate } from 'react-router-dom';
 
 // ── Реальное соединение socket.io — всегда ──
@@ -34,11 +35,20 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const { addToast } = useToastStore();
+  const userId = useStore((s) => s.user?.id);
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Сервер пускает по токену сессии — подключаемся только после входа
+    if (!userId) {
+      setSocket(null);
+      setIsConnected(false);
+      return;
+    }
+
     console.log('[RealTimeSync] Подключение socket.io к серверу:', ENV_CONFIG.socketUrl);
     const activeSocket = io(ENV_CONFIG.socketUrl, {
+      auth: { token: getAuthToken() },
       // websocket в приоритете, polling — запасной транспорт (строгие прокси)
       transports: ['websocket', 'polling'],
       autoConnect: true,
@@ -93,7 +103,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       activeSocket.off('equipment:conflict', handleEquipmentConflict);
       activeSocket.disconnect();
     };
-  }, [addToast, navigate]);
+  }, [addToast, navigate, userId]);
 
   const emitTagChange = (type: 'linked' | 'updated', tagId: string, details?: any) => {
     if (!socket) return;

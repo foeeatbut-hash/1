@@ -4,7 +4,7 @@ import { useToastStore } from '../store/toastStore';
 import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
 import { Lock, User, Eye, EyeOff, Loader2, AlertCircle, Sun, Moon, Database, FolderOpen, RotateCcw, Server, Laptop, CheckCircle2 } from 'lucide-react';
-import { ENV_CONFIG, getConfiguredServerUrl, setConfiguredServerUrl } from '../config/env';
+import { ENV_CONFIG, getConfiguredServerUrl, setConfiguredServerUrl, setAuthToken } from '../config/env';
 
 interface LoginProps {
   onConfigureDatabase?: () => void;
@@ -145,6 +145,8 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
     try {
       const data = await dataService.login(normUser, password);
       if (data.success) {
+        // Токен сессии — до setUser, чтобы первые же запросы экранов ушли с ним
+        if ((data as any).token) setAuthToken((data as any).token);
         if (remember) {
           localStorage.setItem('login_remember', 'true');
           localStorage.setItem('login_saved_username', login.trim());
