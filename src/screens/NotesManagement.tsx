@@ -27,6 +27,16 @@ export default function NotesManagement() {
   const [selectedNote, setSelectedNote] = useState<UserNote | null>(null);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  // Сортировка списка заметок
+  const [sortBy, setSortBy] = useState<'updated' | 'title' | 'created'>(() => {
+    const v = localStorage.getItem(`pdm_notes_sort_${user?.id || 'anon'}`);
+    return v === 'title' || v === 'created' ? v : 'updated';
+  });
+  const changeSort = (v: 'updated' | 'title' | 'created') => {
+    setSortBy(v);
+    try { localStorage.setItem(`pdm_notes_sort_${user?.id || 'anon'}`, v); } catch (_) {}
+  };
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   // Теги активного проекта — для вставки внутренних ссылок в заметку
   const [projectTags, setProjectTags] = useState<{ id: string; identifier: string }[]>([]);
@@ -182,8 +192,9 @@ export default function NotesManagement() {
   const handleCreateNote = async (presetTitle?: string) => {
     try {
       const newNote = await dataService.createNote({
+        // Пустой контент — редактор сам покажет подсказку, не нужно стирать текст
         title: presetTitle && presetTitle.trim() ? presetTitle.trim() : 'Новая заметка',
-        content: '<p>Запишите здесь расчеты оборудования или важные детали...</p>',
+        content: '',
         color: 'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200'
       });
       addToast('Заметка создана', 'success');
@@ -255,7 +266,8 @@ export default function NotesManagement() {
       const copy = await dataService.createNote({
         title: `${note.title} (копия)`,
         content: note.content,
-        color: note.color
+        color: note.color,
+        groupName: note.groupName ?? null,
       });
       addToast('Создана копия заметки', 'success');
       await loadNotes(copy.id);
@@ -325,13 +337,14 @@ export default function NotesManagement() {
     }
   };
 
-  // Ctrl+S — мгновенное сохранение
+  // Горячие клавиши: Ctrl+S — сохранить, Ctrl+N — новая заметка, Ctrl+F — поиск
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
-        e.preventDefault();
-        flushPendingSave();
-      }
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const k = e.key.toLowerCase();
+      if (k === 's') { e.preventDefault(); flushPendingSave(); }
+      else if (k === 'n') { e.preventDefault(); handleCreateNote(); }
+      else if (k === 'f') { e.preventDefault(); searchInputRef.current?.focus(); }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -377,8 +390,24 @@ export default function NotesManagement() {
       const pinA = pinnedIds.includes(a.id) ? 1 : 0;
       const pinB = pinnedIds.includes(b.id) ? 1 : 0;
       if (pinA !== pinB) return pinB - pinA;
+      if (sortBy === 'title') return (a.title || '').localeCompare(b.title || '', 'ru');
+      if (sortBy === 'created') return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
     });
+
+  // Относительная дата для списка: сегодня ЧЧ:ММ / вчера / дд.мм.гггг
+  const relDate = (iso: string) => {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    const y = new Date(now); y.setDate(now.getDate() - 1);
+    const yesterday = d.toDateString() === y.toDateString();
+    const hm = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    if (sameDay) return `сегодня ${hm}`;
+    if (yesterday) return `вчера ${hm}`;
+    return d.toLocaleDateString('ru-RU');
+  };
 
   // Счетчик слов и символов выбранной заметки
   const noteStats = (() => {
@@ -420,12 +449,31 @@ export default function NotesManagement() {
           <div className="relative">
             <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
             <input
+              ref={searchInputRef}
               type="text"
-              placeholder="Поиск заметок..."
+              placeholder="Поиск заметок… (Ctrl+F)"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 bg-slate-100/70 dark:bg-slate-950 border border-transparent dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-white placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+              className="w-full pl-9 pr-8 py-2 bg-slate-100/70 dark:bg-slate-950 border border-transparent dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-white placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
             />
+            {search && (
+              <button onClick={() => setSearch('')} className="absolute right-2 top-2 p-0.5 text-slate-400 hover:text-slate-600 cursor-pointer" title="Очистить">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          {/* Сортировка списка */}
+          <div className="flex items-center gap-1 text-[11px]">
+            <span className="text-slate-400 mr-0.5">Сортировка:</span>
+            {([['updated','Изменённые'],['created','Новые'],['title','А–Я']] as const).map(([v, label]) => (
+              <button
+                key={v}
+                onClick={() => changeSort(v)}
+                className={`px-2 py-0.5 rounded-md font-semibold cursor-pointer transition-colors ${sortBy === v ? 'bg-emerald-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -523,9 +571,9 @@ export default function NotesManagement() {
                   </p>
 
                   <div className="mt-2.5 flex items-center justify-between">
-                    <span className="text-xs font-mono text-slate-400 dark:text-slate-500 flex items-center gap-1">
-                      <Calendar className="w-2.5 h-2.5" />
-                      {new Date(note.updatedAt).toLocaleDateString('ru-RU')} {new Date(note.updatedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                    <span className="text-xs font-mono text-slate-400 dark:text-slate-500 flex items-center gap-1 whitespace-nowrap">
+                      <Calendar className="w-2.5 h-2.5 shrink-0" />
+                      {relDate(note.updatedAt)}
                     </span>
                     
                     {/* Tiny Color indicator dot */}
