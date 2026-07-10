@@ -382,18 +382,29 @@ export default function Registry() {
   const linkingFromRef = useRef<string | null>(null);
   useEffect(() => { linkingFromRef.current = linkingFrom; }, [linkingFrom]);
 
-  // Способ создания связей: 'click' (кнопка→клик) или 'drag' (порты). Настройка
-  // из раздела «Настройки → Теги → Холст»; меняется вживую по событию.
+  // Способ создания связей на ХОЛСТЕ и в ДЕРЕВЕ: 'click' или 'drag'. Настройки
+  // из «Настройки → Теги»; меняются вживую по событию.
   const [linkMode, setLinkMode] = useState<'click' | 'drag'>('click');
+  const [treeLinkMode, setTreeLinkMode] = useState<'click' | 'drag'>('click');
+  // Режим «связать» в дереве (клик по «+» у строки → клик по строке-получателю)
+  const [treeLinkingFrom, setTreeLinkingFrom] = useState<string | null>(null);
+  const treeLinkingFromRef = useRef<string | null>(null);
+  useEffect(() => { treeLinkingFromRef.current = treeLinkingFrom; }, [treeLinkingFrom]);
+  // Перетаскивание строки дерева на другую (drag-режим)
+  const [treeDragOverId, setTreeDragOverId] = useState<string | null>(null);
+  const treeDraggedIdRef = useRef<string | null>(null);
   useEffect(() => {
     fetch('/api/settings/registry_link_mode').then(r => r.json()).then(d => {
       if (d.global === 'drag' || d.global === 'click') setLinkMode(d.global);
     }).catch(() => {});
+    fetch('/api/settings/tree_link_mode').then(r => r.json()).then(d => {
+      if (d.global === 'drag' || d.global === 'click') setTreeLinkMode(d.global);
+    }).catch(() => {});
     const onSettings = (e: any) => {
-      if (e?.detail?.key === 'registry_link_mode' && (e.detail.value === 'click' || e.detail.value === 'drag')) {
-        setLinkMode(e.detail.value);
-        setLinkingFrom(null);
-      }
+      const v = e?.detail?.value;
+      if (v !== 'click' && v !== 'drag') return;
+      if (e.detail.key === 'registry_link_mode') { setLinkMode(v); setLinkingFrom(null); }
+      if (e.detail.key === 'tree_link_mode') { setTreeLinkMode(v); setTreeLinkingFrom(null); }
     };
     window.addEventListener('flux:settings-changed', onSettings);
     return () => window.removeEventListener('flux:settings-changed', onSettings);
@@ -485,6 +496,7 @@ export default function Registry() {
       // Esc: сначала выходим из режима связывания, затем закрываем панели и снимаем выделение
       if (e.key === 'Escape') {
         if (linkingFromRef.current) { setLinkingFrom(null); return; }
+        if (treeLinkingFromRef.current) { setTreeLinkingFrom(null); return; }
         setCardPanel(null);
         setDupPanel(null);
         setMultiSelectMode(false);
@@ -3894,6 +3906,18 @@ export default function Registry() {
             transition={{ duration: 0.15 }}
             className="h-full w-full overflow-y-auto space-y-4 text-left pr-1"
           >
+            {/* Подсказка по способу связывания в дереве */}
+            <div className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-500 dark:text-slate-400">
+              <span className="flex items-center gap-1.5">
+                <Link2 className="w-3.5 h-3.5 text-sky-500" />
+                {treeLinkMode === 'click'
+                  ? <>Связи: <b>кликом</b> — кнопка <Link2 className="w-3 h-3 inline -mt-0.5" /> у строки, затем клик по дочерней. Способ меняется в «Настройки → Теги → Дерево».</>
+                  : <>Связи: <b>перетаскиванием</b> — тяните строку тега на другую (перетащенный станет дочерним). Способ меняется в «Настройки → Теги → Дерево».</>}
+              </span>
+              {treeLinkingFrom && (
+                <button onClick={() => setTreeLinkingFrom(null)} className="shrink-0 px-2 py-1 rounded-lg bg-sky-500 text-white font-semibold cursor-pointer">Отмена связи (Esc)</button>
+              )}
+            </div>
             <div className="p-5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs">
               {buildTree().length === 0 ? (
                 <div className="text-center py-16 text-slate-400">
@@ -5593,6 +5617,28 @@ export default function Registry() {
       <div key={node.id} className="space-y-1">
         <div
           id={`tree-node-${node.id}`}
+          draggable={treeLinkMode === 'drag'}
+          onDragStart={(e) => {
+            if (treeLinkMode !== 'drag') return;
+            treeDraggedIdRef.current = node.id;
+            e.dataTransfer.effectAllowed = 'move';
+            try { e.dataTransfer.setData('text/plain', node.id); } catch (_) {}
+          }}
+          onDragOver={(e) => {
+            if (treeLinkMode !== 'drag') return;
+            const from = treeDraggedIdRef.current;
+            if (from && from !== node.id) { e.preventDefault(); if (treeDragOverId !== node.id) setTreeDragOverId(node.id); }
+          }}
+          onDragLeave={() => { if (treeDragOverId === node.id) setTreeDragOverId(null); }}
+          onDrop={async (e) => {
+            if (treeLinkMode !== 'drag') return;
+            e.preventDefault();
+            const from = treeDraggedIdRef.current;
+            treeDraggedIdRef.current = null;
+            setTreeDragOverId(null);
+            if (from && from !== node.id) await handleAddConnection(node.id, from); // перетащенный (from) → дочерний узла node
+          }}
+          onDragEnd={() => { treeDraggedIdRef.current = null; setTreeDragOverId(null); }}
           onClick={(e) => {
             // Ctrl+клик — мультивыбор для «Поделиться в чате»
             if (e.ctrlKey || e.metaKey) {
@@ -5603,6 +5649,13 @@ export default function Registry() {
                 else next.add(node.id);
                 return next;
               });
+              return;
+            }
+            // Режим «связать» кликом: выбираем строку-получателя (станет дочерней)
+            if (treeLinkingFrom) {
+              const from = treeLinkingFrom;
+              setTreeLinkingFrom(null);
+              if (from !== node.id) handleAddConnection(from, node.id);
             }
           }}
           onContextMenu={(e) => {
@@ -5611,12 +5664,18 @@ export default function Registry() {
             if (!selectedTagIds.has(node.id)) setSelectedTagIds(new Set([node.id]));
             setCardMenu({ x: e.clientX, y: e.clientY, tagId: node.id });
           }}
-          className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${
-            selectedTagIds.has(node.id)
-              ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/30 ring-1 ring-indigo-300 dark:ring-indigo-800'
-              : duplicateCodes.has((node.identifier || '').trim())
-                ? 'border-rose-300 dark:border-rose-700/60 bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-50 dark:hover:bg-rose-950/30'
-                : 'border-slate-100 dark:border-slate-850 hover:bg-slate-50 dark:hover:bg-slate-900/60'
+          className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${treeLinkMode === 'drag' ? 'cursor-move' : ''} ${
+            treeLinkingFrom === node.id
+              ? 'border-sky-400 dark:border-sky-600 bg-sky-50 dark:bg-sky-950/30 ring-2 ring-sky-400'
+              : treeDragOverId === node.id
+                ? 'border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 ring-2 ring-emerald-400'
+                : treeLinkingFrom
+                  ? 'border-sky-200/60 dark:border-sky-900/40 hover:ring-2 hover:ring-sky-300 cursor-pointer'
+                  : selectedTagIds.has(node.id)
+                    ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/30 ring-1 ring-indigo-300 dark:ring-indigo-800'
+                    : duplicateCodes.has((node.identifier || '').trim())
+                      ? 'border-rose-300 dark:border-rose-700/60 bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-50 dark:hover:bg-rose-950/30'
+                      : 'border-slate-100 dark:border-slate-850 hover:bg-slate-50 dark:hover:bg-slate-900/60'
           }`}
           style={{ marginLeft: `${level * 24}px` }}
         >
@@ -5677,6 +5736,15 @@ export default function Registry() {
             )}
 
             <div className="flex bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg p-0.5 border border-slate-200 dark:border-slate-800">
+              {treeLinkMode === 'click' && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setTreeLinkingFrom(prev => prev === node.id ? null : node.id); }}
+                  title={treeLinkingFrom === node.id ? 'Отменить связывание' : 'Связать: затем кликните дочернюю строку'}
+                  className={`p-1 rounded transition-colors cursor-pointer ${treeLinkingFrom === node.id ? 'bg-sky-500 text-white' : 'hover:text-sky-600 text-slate-500'}`}
+                >
+                  <Link2 className="w-3.5 h-3.5" />
+                </button>
+              )}
               <button
                 onClick={() => setEditingTag(node)}
                 title="Редактировать описания и комментарии тега"
