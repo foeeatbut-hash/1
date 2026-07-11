@@ -12,6 +12,7 @@ import {
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import EquipmentImportPreview from '../components/EquipmentImportPreview';
 
 // Виртуальные корневые разделы проводника: «Общий» и «Личный».
 // Они зашиты в программу: их нельзя удалить, переименовать или переместить.
@@ -144,6 +145,7 @@ export default function Explorer() {
 
   // Какие файлы ждут выбора категории для импорта в «Оборудование» (мультивыбор)
   const [importPickerFiles, setImportPickerFiles] = useState<string[] | null>(null);
+  const [importPreview, setImportPreview] = useState<{ fileIds: string[]; category: string } | null>(null);
   // Карта загруженных в оборудование файлов: имя файла -> { category, version }
   const [loadedMap, setLoadedMap] = useState<Record<string, { category: string; version: number }>>({});
 
@@ -167,33 +169,11 @@ export default function Explorer() {
 
   useEffect(() => { loadEquipMap(); }, [loadEquipMap]);
 
-  // Импорт выбранных файлов в выбранную категорию оборудования
-  const importFilesToCategory = async (fileIds: string[], category: string) => {
+  // Импорт: категория выбрана → открываем предпросмотр (dry-run) вместо прямой записи
+  const importFilesToCategory = (fileIds: string[], category: string) => {
     setImportPickerFiles(null);
-    const projectId = activeProject?.id || 'default';
     if (!fileIds.length) return;
-    let totalConflicts = 0; let ok = 0;
-    addToast(`Загрузка данных в оборудование (${fileIds.length})…`, 'info');
-    for (const fileId of fileIds) {
-      try {
-        const res = await fetch('/api/equipment/import-to-category', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileId, category, projectId }),
-        });
-        const parsed = await res.json();
-        if (!res.ok) throw new Error(parsed.error || 'Ошибка импорта');
-        totalConflicts += parsed.conflictsCount || 0;
-        ok++;
-      } catch (err: any) {
-        addToast(`Файл не загружен: ${err.message}`, 'error');
-      }
-    }
-    await Promise.all([fetchData(), loadEquipMap()]);
-    if (totalConflicts > 0) {
-      addToast(`Загружено файлов: ${ok}. Конфликтов характеристик: ${totalConflicts} — нажмите для разрешения.`, 'error', () => navigate('/equipment'));
-    } else if (ok > 0) {
-      addToast(`Данные загружены в оборудование (файлов: ${ok}).`, 'success');
-    }
+    setImportPreview({ fileIds, category });
   };
 
   // Категории оборудования для подменю импорта (с учётом добавленных в настройках)
@@ -1660,6 +1640,22 @@ export default function Explorer() {
       )}
 
       {/* Выбор категории оборудования для импорта выделенных файлов */}
+      {importPreview && (
+        <EquipmentImportPreview
+          fileIds={importPreview.fileIds}
+          category={importPreview.category}
+          categoryLabel={catLabel(importPreview.category)}
+          projectId={activeProject?.id || 'default'}
+          onClose={() => { setImportPreview(null); Promise.all([fetchData(), loadEquipMap()]); }}
+          onDone={({ files, conflicts }) => {
+            setImportPreview(null);
+            Promise.all([fetchData(), loadEquipMap()]);
+            if (conflicts > 0) addToast(`Импортировано (файлов: ${files}). Расхождений значений: ${conflicts} — нажмите для разрешения.`, 'error', () => navigate('/equipment'));
+            else addToast(`Данные импортированы в оборудование (файлов: ${files}).`, 'success');
+          }}
+        />
+      )}
+
       {importPickerFiles && (
         <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md flex items-center justify-center z-[70]" onClick={() => setImportPickerFiles(null)}>
           <motion.div
