@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { XMLParser } from 'fast-xml-parser';
 
 // ── Структурированный результат разбора расчёта вентиляционного оборудования ──
 export interface SpecParam { key: string; value: string; unit: string; }
@@ -32,20 +33,214 @@ export function detectEquipType(text: string): string {
   return 'ПРОЧЕЕ';
 }
 
-const PARAM_HEADER_WORDS = new Set([
-  'параметр', 'parameter', 'свойство', 'property', 'наименование параметра', 'наименование',
-]);
-const VALUE_HEADER_WORDS = new Set(['значение', 'value']);
-const UNIT_HEADER_WORDS = new Set(['ед_изм', 'ед.изм.', 'ед. изм.', 'ед', 'unit', 'единица']);
+// ── Словари распознавания шапок и единиц (нормализованные основы) ──
+const HEADER_KEY_STEMS = ['параметр', 'наименован', 'показател', 'свойств', 'характеристик', 'parameter', 'property'];
+const HEADER_VALUE_STEMS = ['значен', 'величин', 'value'];
+const HEADER_UNIT_STEMS = ['ед', 'unit', 'единиц'];
 
-function cellStr(c: any): string {
-  if (c === null || c === undefined) return '';
-  return String(c).trim();
+// Канонический набор единиц измерения для классификации колонок (§3.1 дизайна)
+const UNIT_WORDS = new Set([
+  'мм', 'см', 'м', 'м2', 'м²', 'м3', 'м³', 'м3/ч', 'м³/ч', 'м3/час', 'м/с', 'л/с', 'л/ч',
+  'па', 'кпа', 'мпа', 'бар', 'мм.вод.ст', 'мм.вод.ст.', 'ммвс',
+  'вт', 'квт', 'мвт', 'квт*ч', 'а', 'в', 'гц', 'об/мин', 'об/м',
+  '°c', 'c', '°с', 'с*', 'к', '%', 'кг', 'г', 'т', 'кг/ч', 'кг/м3', 'кг/м³',
+  'дб', 'дб(а)', 'дба', 'шт', 'шт.', 'мин', 'ч', 'сек',
+  'mm', 'm', 'm2', 'm3', 'm3/h', 'pa', 'kpa', 'kw', 'w', 'hz', 'v', 'a', 'rpm', 'kg', 'db', 'pcs',
+]);
+
+const normUnit = (s: string) => s.toLowerCase().replace(/[\s ]/g, '').replace(/\.$/, '');
+const isUnitWord = (s: string) => s !== '' && UNIT_WORDS.has(normUnit(s));
+
+// Число в русской записи: «1 250,5», «0,50» (для классификации колонок)
+function looksNumeric(v: any, w: string): boolean {
+  if (typeof v === 'number') return true;
+  const s = String(w || '').replace(/[\s ]/g, '').replace(',', '.');
+  return s !== '' && /^-?\d+(\.\d+)?$/.test(s);
 }
 
-// Превращает строки листа (массив массивов) в сгруппированные параметры.
-// Однокле­точная строка = заголовок группы; строка с 2-3 ячейками = параметр.
-export function extractGroupedSpecs(rows: any[][], skipTitleRow = true): SpecGroup[] {
+const hasStem = (s: string, stems: string[]) => {
+  const t = s.toLowerCase();
+  return stems.some(st => t.includes(st));
+};
+
+// ── Сетка листа: сырое (v) и отображаемое (w) значение каждой ячейки ──
+// Отображаемое — то, что инженер видел в Excel: даты вместо серийных чисел,
+// «0,50» вместо 0.5. Объединённые ячейки разворачиваются (значение копируется
+// во весь диапазон) — двухстрочные шапки и «лесенки» перестают давать пустые ключи.
+interface GridCell { v: any; w: string; merged?: boolean }
+type GridRow = GridCell[];
+
+const MAX_ROWS = 5000;
+const MAX_COLS = 64;
+
+function cellText(c: GridCell | undefined): string {
+  if (!c) return '';
+  if (c.w !== '') return c.w;
+  return c.v === null || c.v === undefined ? '' : String(c.v).trim();
+}
+
+function readSheetGrid(wb: XLSX.WorkBook, name: string): GridRow[] {
+  const sheet = wb.Sheets[name];
+  if (!sheet || !sheet['!ref']) return [];
+  const range = XLSX.utils.decode_range(sheet['!ref']);
+  const rEnd = Math.min(range.e.r, range.s.r + MAX_ROWS - 1);
+  const cEnd = Math.min(range.e.c, range.s.c + MAX_COLS - 1);
+
+  const rows: GridRow[] = [];
+  for (let r = range.s.r; r <= rEnd; r++) {
+    const row: GridRow = [];
+    for (let c = range.s.c; c <= cEnd; c++) {
+      const cell: any = (sheet as any)[XLSX.utils.encode_cell({ r, c })];
+      row.push({
+        v: cell?.v ?? '',
+        w: String(cell?.w ?? (cell?.v ?? '')).trim(),
+      });
+    }
+    rows.push(row);
+  }
+
+  // Разворачиваем объединённые ячейки
+  for (const m of (sheet['!merges'] || [])) {
+    const src = rows[m.s.r - range.s.r]?.[m.s.c - range.s.c];
+    if (!src) continue;
+    for (let r = m.s.r; r <= Math.min(m.e.r, rEnd); r++) {
+      for (let c = m.s.c; c <= Math.min(m.e.c, cEnd); c++) {
+        if (r === m.s.r && c === m.s.c) continue;
+        const target = rows[r - range.s.r]?.[c - range.s.c];
+        if (target) { target.v = src.v; target.w = src.w; target.merged = true; }
+      }
+    }
+  }
+  return rows;
+}
+
+// Обратная совместимость: extractGroupedSpecs принимает и «голые» строки
+function toGrid(rows: any[][]): GridRow[] {
+  return rows.map(r => (r || []).map(c => ({
+    v: c ?? '',
+    w: c === null || c === undefined ? '' : String(c).trim(),
+  })));
+}
+
+// ── Классификатор колонок таблицы параметров (§3.1 дизайна) ──
+// Определяет по СОДЕРЖИМОМУ, где ключ, где значение(я), где единицы —
+// вместо жёсткого «0/1/2». При слабых сигналах возвращает раскладку,
+// эквивалентную старому поведению (совместимость с текущими бланками).
+interface ColumnLayout {
+  keyCol: number;
+  valueCols: { col: number; label: string }[]; // >1 = приток/вытяжка и т.п.
+  unitCol: number | null;
+  headerRowIdx: number | null; // строка-шапка «Параметр|Значение|ед» — пропускается
+}
+
+function classifyColumns(rows: GridRow[], startIdx: number): ColumnLayout {
+  // Кандидаты — строки, похожие на параметры (≥2 значимых ячейки)
+  const paramRows = rows.slice(startIdx).filter(r => {
+    const filled = r.filter(c => cellText(c) !== '');
+    // разворот merged повторяет одно значение — не считаем такие строки параметрами
+    const distinct = new Set(filled.map(cellText));
+    return filled.length >= 2 && distinct.size >= 2;
+  });
+
+  const maxCols = Math.min(MAX_COLS, Math.max(0, ...rows.map(r => r.length)));
+  const stats = Array.from({ length: maxCols }, () => ({ nonEmpty: 0, text: 0, num: 0, unit: 0, ordinal: 0 }));
+  for (const r of paramRows) {
+    for (let c = 0; c < maxCols; c++) {
+      const s = cellText(r[c]);
+      if (s === '') continue;
+      const st = stats[c];
+      st.nonEmpty++;
+      if (isUnitWord(s)) st.unit++;
+      else if (looksNumeric(r[c]?.v, s)) {
+        st.num++;
+        if (/^\d{1,3}$/.test(s)) st.ordinal++; // маленькие целые — кандидат в «№»
+      } else if (/[a-zа-яё]/i.test(s)) st.text++;
+    }
+  }
+  const total = Math.max(1, paramRows.length);
+
+  // Колонка «№»: маленькие целые, монотонно растущие
+  const isOrdinalCol = (c: number) => {
+    if (stats[c].ordinal / total < 0.6) return false;
+    const nums = paramRows.map(r => Number(String(cellText(r[c])).trim())).filter(n => !isNaN(n));
+    if (nums.length < 3) return false;
+    let asc = 0;
+    for (let i = 1; i < nums.length; i++) if (nums[i] >= nums[i - 1]) asc++;
+    return asc / (nums.length - 1) > 0.8;
+  };
+
+  // Ключ: самая «текстовая» из первых трёх содержательных колонок (минуя «№»)
+  let keyCol = 0;
+  let bestText = -1;
+  let seen = 0;
+  for (let c = 0; c < maxCols && seen < 3; c++) {
+    if (stats[c].nonEmpty === 0) continue;
+    if (isOrdinalCol(c)) continue;
+    seen++;
+    if (stats[c].text > bestText) { bestText = stats[c].text; keyCol = c; }
+  }
+
+  // Единицы: колонка (≠ключ) со словами-единицами
+  let unitCol: number | null = null;
+  for (let c = 0; c < maxCols; c++) {
+    if (c === keyCol || stats[c].nonEmpty === 0) continue;
+    if (stats[c].unit / stats[c].nonEmpty >= 0.4 && (unitCol === null || c > unitCol)) unitCol = c;
+  }
+
+  // Значения: остальные заполненные колонки (числа и текстовые значения)
+  const valueCandidates: number[] = [];
+  for (let c = 0; c < maxCols; c++) {
+    if (c === keyCol || c === unitCol || isOrdinalCol(c)) continue;
+    if (stats[c].nonEmpty / total >= 0.3) valueCandidates.push(c);
+  }
+
+  // Строка-шапка таблицы: в первых строках области ключ/значение/ед из словарей
+  let headerRowIdx: number | null = null;
+  const headerLabels = new Map<number, string>();
+  for (let i = startIdx; i < Math.min(startIdx + 4, rows.length); i++) {
+    const keyTxt = cellText(rows[i]?.[keyCol]);
+    const isHeader = hasStem(keyTxt, HEADER_KEY_STEMS) ||
+      valueCandidates.some(c => hasStem(cellText(rows[i]?.[c]), HEADER_VALUE_STEMS)) ||
+      (unitCol !== null && hasStem(cellText(rows[i]?.[unitCol]), HEADER_UNIT_STEMS));
+    if (isHeader) {
+      headerRowIdx = i;
+      for (const c of valueCandidates) {
+        const label = cellText(rows[i]?.[c]);
+        if (label && !hasStem(label, HEADER_VALUE_STEMS)) headerLabels.set(c, label);
+      }
+      break;
+    }
+  }
+
+  // Несколько колонок значений (приток/вытяжка, зима/лето) — только если у них
+  // есть собственные подписи в шапке; иначе берём первую (старое поведение)
+  let valueCols: { col: number; label: string }[];
+  const labelled = valueCandidates.filter(c => headerLabels.has(c));
+  if (labelled.length >= 2) {
+    valueCols = labelled.map(c => ({ col: c, label: headerLabels.get(c)! }));
+  } else {
+    const primary = valueCandidates.find(c => c > keyCol) ?? valueCandidates[0];
+    valueCols = primary !== undefined ? [{ col: primary, label: '' }] : [];
+  }
+
+  // Слабые сигналы → раскладка, эквивалентная историческому «0/1/2»
+  if (paramRows.length === 0 || valueCols.length === 0) {
+    return { keyCol: 0, valueCols: [{ col: 1, label: '' }], unitCol: 2, headerRowIdx };
+  }
+  return { keyCol, valueCols, unitCol, headerRowIdx };
+}
+
+// ── Строки листа → сгруппированные параметры ──
+// Заголовок группы: одна значимая ячейка в строке (включая развёрнутые merged —
+// повторы одного значения считаются одной ячейкой).
+export function extractGroupedSpecs(rowsIn: any[][] | GridRow[], skipTitleRow = true): SpecGroup[] {
+  const rows: GridRow[] = rowsIn.length && typeof (rowsIn[0] as any[])[0] === 'object' && (rowsIn[0] as GridRow)[0] !== null && 'w' in ((rowsIn[0] as GridRow)[0] || {})
+    ? (rowsIn as GridRow[])
+    : toGrid(rowsIn as any[][]);
+
+  const startIdx = skipTitleRow ? 1 : 0;
+  const layout = classifyColumns(rows, startIdx);
+
   const groups: SpecGroup[] = [];
   let current: SpecGroup | null = null;
   const ensureDefault = () => {
@@ -53,44 +248,59 @@ export function extractGroupedSpecs(rows: any[][], skipTitleRow = true): SpecGro
     return current;
   };
 
-  for (let i = 0; i < rows.length; i++) {
-    if (skipTitleRow && i === 0) continue; // первая строка — заголовок узла
+  for (let i = startIdx; i < rows.length; i++) {
+    if (i === layout.headerRowIdx) continue;
     const row = rows[i] || [];
-    const cells = row.map(cellStr);
-    const nonEmpty = cells.filter(c => c !== '');
+    const texts = row.map(cellText);
+    const nonEmpty = texts.filter(t => t !== '');
     if (nonEmpty.length === 0) continue;
 
-    const first = cells[0] || nonEmpty[0];
-    const firstLower = first.toLowerCase();
+    const first = texts[layout.keyCol] || nonEmpty[0];
 
-    // Строка-шапка таблицы "Параметр | Значение | ед_изм" — пропускаем
-    if (PARAM_HEADER_WORDS.has(firstLower)) continue;
+    // Повторная шапка внутри листа (многостраничные бланки) — пропускаем
+    if (hasStem(first, HEADER_KEY_STEMS) && nonEmpty.length <= 3) continue;
 
-    if (nonEmpty.length === 1) {
-      // Заголовок группы
-      current = { title: first, params: [] };
+    // Заголовок группы: одно значимое значение (merged-развёртка дает повторы)
+    const distinct = new Set(nonEmpty);
+    if (distinct.size === 1) {
+      current = { title: nonEmpty[0], params: [] };
       groups.push(current);
       continue;
     }
 
-    // Параметр: ключ, значение, [единица]
-    let value = cells[1] !== undefined && cells[1] !== '' ? cells[1] : (nonEmpty[1] || '');
-    let unit = cells[2] || '';
-    const unitLower = unit.toLowerCase();
-    if (VALUE_HEADER_WORDS.has(unitLower) || UNIT_HEADER_WORDS.has(unitLower)) unit = '';
     if (!first) continue;
-    ensureDefault().params.push({ key: first, value, unit });
+
+    // Параметр: одна или несколько колонок значений
+    const unit = layout.unitCol !== null ? (texts[layout.unitCol] || '') : '';
+    const cleanUnit = hasStem(unit, HEADER_UNIT_STEMS) || hasStem(unit, HEADER_VALUE_STEMS) ? '' : unit;
+    let emitted = false;
+    for (const vc of layout.valueCols) {
+      const value = texts[vc.col] || '';
+      if (value === '') continue;
+      const key = vc.label && layout.valueCols.length > 1 ? `${first} (${vc.label})` : first;
+      ensureDefault().params.push({ key, value, unit: cleanUnit });
+      emitted = true;
+    }
+    // Значение вне размеченных колонок (кривая строка) — старое поведение: вторая ячейка
+    if (!emitted && nonEmpty.length >= 2) {
+      const value = nonEmpty[1];
+      if (!isUnitWord(value)) ensureDefault().params.push({ key: first, value, unit: cleanUnit });
+    }
   }
 
-  // Убираем пустые группы
   return groups.filter(g => g.params.length > 0);
 }
 
-// Поиск листа по коду/описанию (как в исходном парсере, но компактно)
+// ── Поиск листа по коду/описанию ──
+// Нормализация «бл 2.1 (Клапан)» → «бл2.1(клапан)»; лист подходит, если
+// его нормализованное имя равно коду или начинается с него.
 function findSheet(sheetNames: string[], code: string, desc: string): string | null {
-  const norm = (s: string) => s.toLowerCase().trim();
+  const norm = (s: string) => s.toLowerCase().replace(/[\s ]/g, '');
   const c = norm(code);
+  if (!c) return null;
   let hit = sheetNames.find(n => norm(n) === c);
+  if (hit) return hit;
+  hit = sheetNames.find(n => norm(n).startsWith(c) && /[^a-zа-яё0-9]|^$/i.test(norm(n).slice(c.length, c.length + 1)));
   if (hit) return hit;
   // числовой префикс описания вида "2.1." → ищем лист "бл2.1"
   const m = (desc || '').match(/^(\d+(?:\.\d+)*)/);
@@ -108,14 +318,19 @@ const reBlock = /^(бл|bl)\d+/i;
 const reSupp = /^(шум|схема|диаг|вент|вспом|sound|scheme|diag)/i;
 const reProject = /^(п|проект|project)$/i;
 
-// Разбор книги Excel/расчёта → иерархия установок
+// ── Разбор книги Excel/расчёта → иерархия установок ──
 export function parseEquipmentExcel(buffer: Buffer): EquipParseResult {
-  const wb = XLSX.read(buffer, { type: 'buffer' });
+  // cellNF/cellText: нужны отображаемые значения (даты, форматированные числа)
+  const wb = XLSX.read(buffer, { type: 'buffer', cellNF: true, cellText: true });
   const sheetNames = wb.SheetNames;
   const result: EquipParseResult = { units: [] };
   if (sheetNames.length === 0) return result;
 
-  const readRows = (name: string): any[][] => XLSX.utils.sheet_to_json<any[]>(wb.Sheets[name], { header: 1, blankrows: false });
+  const gridCache = new Map<string, GridRow[]>();
+  const readRows = (name: string): GridRow[] => {
+    if (!gridCache.has(name)) gridCache.set(name, readSheetGrid(wb, name));
+    return gridCache.get(name)!;
+  };
 
   // Лист-оглавление: "0" / "index" / первый
   const indexName = sheetNames.find(n => n === '0' || n.toLowerCase().trim() === 'index') || sheetNames[0];
@@ -123,7 +338,7 @@ export function parseEquipmentExcel(buffer: Buffer): EquipParseResult {
 
   // Является ли оглавление списком "код | описание"
   const looksLikeIndex = indexRows.some(r => {
-    const code = cellStr((r || [])[0]);
+    const code = cellText((r || [])[0]);
     return reUnit.test(code) || reMono.test(code) || reBlock.test(code);
   });
 
@@ -132,8 +347,8 @@ export function parseEquipmentExcel(buffer: Buffer): EquipParseResult {
     let mono: ParsedMonoblock | null = null;
 
     for (const r of indexRows) {
-      const code = cellStr((r || [])[0]);
-      const desc = cellStr((r || [])[1]);
+      const code = cellText((r || [])[0]);
+      const desc = cellText((r || [])[1]);
       if (!code || reProject.test(code) || reSupp.test(code)) continue;
 
       if (reUnit.test(code)) {
@@ -171,7 +386,7 @@ export function parseEquipmentExcel(buffer: Buffer): EquipParseResult {
     if (name === indexName && looksLikeIndex) continue;
     const rows = readRows(name);
     if (!rows.length) continue;
-    const title = cellStr((rows[0] || [])[0]) || name;
+    const title = cellText((rows[0] || [])[0]) || name;
     const groups = extractGroupedSpecs(rows);
     if (groups.length === 0) continue;
     mono.blocks.push({ name, title, equipType: detectEquipType(title), groups });
@@ -180,8 +395,134 @@ export function parseEquipmentExcel(buffer: Buffer): EquipParseResult {
   return result;
 }
 
-// Разбор XML-расчёта (теги <system>/<monoblock>/<block>/<param>) → та же иерархия
+// ── Разбор XML-расчёта → та же иерархия ──
+// Настоящий XML-парсер (fast-xml-parser): CDATA, namespace-префиксы и вложенность
+// перестают терять данные. Прежний разбор регулярками — аварийный фоллбэк.
+const TAG_SYNONYMS = {
+  system: ['system', 'equipmentsystem', 'установка', 'unit'],
+  monoblock: ['monoblock', 'моноблок', 'mb'],
+  block: ['block', 'блок', 'component', 'element'],
+  group: ['group', 'группа', 'section'],
+  param: ['param', 'параметр', 'property'],
+};
+
+// Имя тега без namespace-префикса, в нижнем регистре
+const localName = (tag: string) => tag.toLowerCase().split(':').pop() || '';
+const matches = (tag: string, kind: keyof typeof TAG_SYNONYMS) => TAG_SYNONYMS[kind].includes(localName(tag));
+
+function xAttr(node: any, ...names: string[]): string {
+  if (!node || typeof node !== 'object') return '';
+  for (const key of Object.keys(node)) {
+    if (!key.startsWith('@_')) continue;
+    const bare = localName(key.slice(2));
+    if (names.includes(bare)) return String(node[key] ?? '').trim();
+  }
+  return '';
+}
+
+// Все дочерние узлы данного вида (fast-xml-parser: одиночный ребёнок — объект, повторы — массив)
+function xChildren(node: any, kind: keyof typeof TAG_SYNONYMS): any[] {
+  if (!node || typeof node !== 'object') return [];
+  const out: any[] = [];
+  for (const key of Object.keys(node)) {
+    if (key.startsWith('@_') || key === '#text' || key === '#cdata') continue;
+    if (!matches(key, kind)) continue;
+    const v = node[key];
+    out.push(...(Array.isArray(v) ? v : [v]));
+  }
+  return out;
+}
+
+function xText(node: any): string {
+  if (node === null || node === undefined) return '';
+  if (typeof node !== 'object') return String(node).trim();
+  const t = node['#text'] ?? node['#cdata'] ?? '';
+  return String(t).trim();
+}
+
+function xParams(node: any): SpecParam[] {
+  return xChildren(node, 'param')
+    .map(p => ({
+      key: xAttr(p, 'name', 'key', 'параметр'),
+      value: xText(p),
+      unit: xAttr(p, 'unit', 'ед'),
+    }))
+    .filter(p => p.key);
+}
+
+function xBlocks(node: any): ParsedBlock[] {
+  return xChildren(node, 'block').map((b, i) => {
+    const name = xAttr(b, 'name', 'код') || `бл${i + 1}`;
+    const title = xAttr(b, 'title', 'описание') || name;
+    const groups: SpecGroup[] = xChildren(b, 'group').map(g => ({
+      title: xAttr(g, 'title', 'name') || 'Основные',
+      params: xParams(g),
+    }));
+    if (groups.length === 0) {
+      const params = xParams(b);
+      if (params.length) groups.push({ title: 'Основные', params });
+    }
+    return { name, title, equipType: detectEquipType(title), groups: groups.filter(g => g.params.length) };
+  });
+}
+
+// Рекурсивный поиск узлов-систем на любом уровне вложенности
+function findSystems(node: any, acc: any[]): void {
+  if (!node || typeof node !== 'object') return;
+  for (const key of Object.keys(node)) {
+    if (key.startsWith('@_') || key === '#text' || key === '#cdata') continue;
+    const v = node[key];
+    const items = Array.isArray(v) ? v : [v];
+    if (matches(key, 'system')) acc.push(...items);
+    else for (const item of items) findSystems(item, acc);
+  }
+}
+
 export function parseEquipmentXML(xmlText: string): EquipParseResult {
+  try {
+    const parser = new XMLParser({
+      ignoreAttributes: false,
+      attributeNamePrefix: '@_',
+      cdataPropName: '#cdata',
+      trimValues: true,
+      parseTagValue: false,
+      parseAttributeValue: false,
+    });
+    const doc = parser.parse(xmlText);
+
+    const systems: any[] = [];
+    findSystems(doc, systems);
+
+    const result: EquipParseResult = { units: [] };
+    for (const sys of systems) {
+      const sysName = xAttr(sys, 'name', 'код') || `у${result.units.length + 1}`;
+      const unit: ParsedUnit = {
+        name: sysName,
+        title: xAttr(sys, 'title', 'описание') || sysName,
+        groups: [],
+        monoblocks: [],
+      };
+      result.units.push(unit);
+
+      const monos = xChildren(sys, 'monoblock');
+      for (const mb of monos) {
+        const mbName = xAttr(mb, 'name') || `мн${unit.monoblocks.length + 1}`;
+        unit.monoblocks.push({ name: mbName, title: xAttr(mb, 'title') || mbName, blocks: xBlocks(mb) });
+      }
+      if (monos.length === 0) {
+        const blocks = xBlocks(sys);
+        if (blocks.length) unit.monoblocks.push({ name: 'мн1', title: 'Оборудование', blocks });
+      }
+    }
+    if (result.units.length) return result;
+  } catch (err) {
+    console.warn('[equipmentParser] XML-парсер не справился, фоллбэк на регулярки:', (err as any)?.message);
+  }
+  return parseEquipmentXMLLegacy(xmlText);
+}
+
+// ── Прежний разбор регулярками — аварийный фоллбэк ──
+function parseEquipmentXMLLegacy(xmlText: string): EquipParseResult {
   const result: EquipParseResult = { units: [] };
   const attr = (s: string, a: string) => (s.match(new RegExp(`${a}\\s*=\\s*"([^"]*)"`, 'i')) || [])[1] || '';
 
@@ -201,35 +542,34 @@ export function parseEquipmentXML(xmlText: string): EquipParseResult {
       const mbName = attr(mbm[1], 'name') || `мн${unit.monoblocks.length + 1}`;
       const mono: ParsedMonoblock = { name: mbName, title: attr(mbm[1], 'title') || mbName, blocks: [] };
       unit.monoblocks.push(mono);
-      mono.blocks.push(...parseXmlBlocks(mbm[2], attr));
+      mono.blocks.push(...parseXmlBlocksLegacy(mbm[2], attr));
     }
     if (!foundMb) {
       const mono: ParsedMonoblock = { name: 'мн1', title: 'Оборудование', blocks: [] };
-      const blocks = parseXmlBlocks(sm[2], attr);
+      const blocks = parseXmlBlocksLegacy(sm[2], attr);
       if (blocks.length) { mono.blocks.push(...blocks); unit.monoblocks.push(mono); }
     }
   }
   return result;
 }
 
-function parseXmlBlocks(inner: string, attr: (s: string, a: string) => string): ParsedBlock[] {
+function parseXmlBlocksLegacy(inner: string, attr: (s: string, a: string) => string): ParsedBlock[] {
   const blocks: ParsedBlock[] = [];
   const blRe = /<(?:block|блок|component|element)\b([^>]*)>([\s\S]*?)<\/(?:block|блок|component|element)>/gi;
   let bm: RegExpExecArray | null;
   while ((bm = blRe.exec(inner))) {
     const name = attr(bm[1], 'name') || attr(bm[1], 'код') || `бл${blocks.length + 1}`;
     const title = attr(bm[1], 'title') || attr(bm[1], 'описание') || name;
-    // группы: <group title="..."><param name=".." unit="..">val</param></group>
     const groups: SpecGroup[] = [];
     const grRe = /<(?:group|группа|section)\b([^>]*)>([\s\S]*?)<\/(?:group|группа|section)>/gi;
     let gm: RegExpExecArray | null;
     let hasGroups = false;
     while ((gm = grRe.exec(bm[2]))) {
       hasGroups = true;
-      groups.push({ title: attr(gm[1], 'title') || attr(gm[1], 'name') || 'Основные', params: parseXmlParams(gm[2], attr) });
+      groups.push({ title: attr(gm[1], 'title') || attr(gm[1], 'name') || 'Основные', params: parseXmlParamsLegacy(gm[2], attr) });
     }
     if (!hasGroups) {
-      const params = parseXmlParams(bm[2], attr);
+      const params = parseXmlParamsLegacy(bm[2], attr);
       if (params.length) groups.push({ title: 'Основные', params });
     }
     blocks.push({ name, title, equipType: detectEquipType(title), groups: groups.filter(g => g.params.length) });
@@ -237,7 +577,7 @@ function parseXmlBlocks(inner: string, attr: (s: string, a: string) => string): 
   return blocks;
 }
 
-function parseXmlParams(inner: string, attr: (s: string, a: string) => string): SpecParam[] {
+function parseXmlParamsLegacy(inner: string, attr: (s: string, a: string) => string): SpecParam[] {
   const params: SpecParam[] = [];
   const pRe = /<(?:param|параметр|property)\b([^>]*)>([\s\S]*?)<\/(?:param|параметр|property)>/gi;
   let pm: RegExpExecArray | null;
