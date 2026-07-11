@@ -133,16 +133,79 @@ interface ColumnLayout {
   headerRowIdx: number | null; // строка-шапка «Параметр|Значение|ед» — пропускается
 }
 
+const ORDINAL_MARKERS = ['№', '#', 'n', 'пп', 'поз', 'номер'];
+const isOrdinalLabel = (s: string) => {
+  const t = s.toLowerCase().replace(/[\s ./]/g, '');
+  return t !== '' && ORDINAL_MARKERS.some(m => t === m || t.startsWith(m));
+};
+
 function classifyColumns(rows: GridRow[], startIdx: number): ColumnLayout {
-  // Кандидаты — строки, похожие на параметры (≥2 значимых ячейки)
+  const maxCols = Math.min(MAX_COLS, Math.max(0, ...rows.map(r => r.length)));
+
+  // ── 1. Строка-шапка ищется НЕЗАВИСИМО от колонок: ≥2 ячейки со словами
+  // ключ/значение/ед/№ из словарей. Детект не зависит от числа строк данных.
+  let headerRowIdx: number | null = null;
+  for (let i = startIdx; i < Math.min(startIdx + 5, rows.length); i++) {
+    let hits = 0;
+    for (const c of (rows[i] || [])) {
+      const s = cellText(c);
+      if (s === '') continue;
+      if (hasStem(s, HEADER_KEY_STEMS) || hasStem(s, HEADER_VALUE_STEMS) || hasStem(s, HEADER_UNIT_STEMS) || isOrdinalLabel(s)) hits++;
+    }
+    if (hits >= 2) { headerRowIdx = i; break; }
+  }
+
+  // Самая «текстовая» колонка среди строк данных (для ключа), исключая шапку
+  const pickTextCol = (): number => {
+    const text = new Array(maxCols).fill(0);
+    for (let i = startIdx; i < rows.length; i++) {
+      if (i === headerRowIdx) continue;
+      const r = rows[i] || [];
+      const filled = r.filter(c => cellText(c) !== '');
+      if (new Set(filled.map(cellText)).size < 2) continue;
+      for (let c = 0; c < maxCols; c++) {
+        const s = cellText(r[c]);
+        if (s !== '' && !isUnitWord(s) && !looksNumeric(r[c]?.v, s) && /[a-zа-яё]/i.test(s)) text[c]++;
+      }
+    }
+    let best = 0, bestC = 0;
+    for (let c = 0; c < maxCols; c++) if (text[c] > best) { best = text[c]; bestC = c; }
+    return bestC;
+  };
+
+  // ── 2а. Есть шапка → классифицируем по её подписям ──
+  if (headerRowIdx !== null) {
+    const hdr = (rows[headerRowIdx] || []).map(cellText);
+    let keyCol = -1;
+    let unitCol: number | null = null;
+    const valueCols: { col: number; label: string }[] = [];
+    for (let c = 0; c < maxCols; c++) {
+      const label = hdr[c];
+      if (label === '') continue;
+      if (isOrdinalLabel(label)) continue;                       // «№» — пропускаем
+      if (hasStem(label, HEADER_UNIT_STEMS)) { if (unitCol === null) unitCol = c; continue; }
+      if (hasStem(label, HEADER_KEY_STEMS)) { if (keyCol === -1) keyCol = c; continue; }
+      valueCols.push({ col: c, label: hasStem(label, HEADER_VALUE_STEMS) ? '' : label });
+    }
+    if (keyCol === -1) keyCol = pickTextCol();
+    let vcs = valueCols.filter(v => v.col !== keyCol && v.col !== unitCol);
+
+    // Несколько подписанных колонок значений (приток/вытяжка) — с суффиксами;
+    // иначе одна колонка значений без суффикса (обычный бланк)
+    const labelled = vcs.filter(v => v.label);
+    if (!(labelled.length >= 2)) {
+      const primary = vcs.find(v => v.col > keyCol) ?? vcs[0];
+      vcs = primary ? [{ col: primary.col, label: '' }] : [];
+    }
+    if (vcs.length > 0) return { keyCol, valueCols: vcs, unitCol, headerRowIdx };
+    // шапка есть, но колонку значений не нашли — падаем в позиционный фоллбэк ниже
+  }
+
+  // ── 2б. Шапки нет → классификация по содержимому колонок ──
   const paramRows = rows.slice(startIdx).filter(r => {
     const filled = r.filter(c => cellText(c) !== '');
-    // разворот merged повторяет одно значение — не считаем такие строки параметрами
-    const distinct = new Set(filled.map(cellText));
-    return filled.length >= 2 && distinct.size >= 2;
+    return filled.length >= 2 && new Set(filled.map(cellText)).size >= 2;
   });
-
-  const maxCols = Math.min(MAX_COLS, Math.max(0, ...rows.map(r => r.length)));
   const stats = Array.from({ length: maxCols }, () => ({ nonEmpty: 0, text: 0, num: 0, unit: 0, ordinal: 0 }));
   for (const r of paramRows) {
     for (let c = 0; c < maxCols; c++) {
@@ -151,79 +214,43 @@ function classifyColumns(rows: GridRow[], startIdx: number): ColumnLayout {
       const st = stats[c];
       st.nonEmpty++;
       if (isUnitWord(s)) st.unit++;
-      else if (looksNumeric(r[c]?.v, s)) {
-        st.num++;
-        if (/^\d{1,3}$/.test(s)) st.ordinal++; // маленькие целые — кандидат в «№»
-      } else if (/[a-zа-яё]/i.test(s)) st.text++;
+      else if (looksNumeric(r[c]?.v, s)) { st.num++; if (/^\d{1,3}$/.test(s)) st.ordinal++; }
+      else if (/[a-zа-яё]/i.test(s)) st.text++;
     }
   }
   const total = Math.max(1, paramRows.length);
 
-  // Колонка «№»: маленькие целые, монотонно растущие
   const isOrdinalCol = (c: number) => {
     if (stats[c].ordinal / total < 0.6) return false;
     const nums = paramRows.map(r => Number(String(cellText(r[c])).trim())).filter(n => !isNaN(n));
-    if (nums.length < 3) return false;
+    if (nums.length < 2) return false;
     let asc = 0;
     for (let i = 1; i < nums.length; i++) if (nums[i] >= nums[i - 1]) asc++;
     return asc / (nums.length - 1) > 0.8;
   };
 
-  // Ключ: самая «текстовая» из первых трёх содержательных колонок (минуя «№»)
-  let keyCol = 0;
-  let bestText = -1;
-  let seen = 0;
+  let keyCol = 0, bestText = -1, seen = 0;
   for (let c = 0; c < maxCols && seen < 3; c++) {
-    if (stats[c].nonEmpty === 0) continue;
-    if (isOrdinalCol(c)) continue;
+    if (stats[c].nonEmpty === 0 || isOrdinalCol(c)) continue;
     seen++;
     if (stats[c].text > bestText) { bestText = stats[c].text; keyCol = c; }
   }
 
-  // Единицы: колонка (≠ключ) со словами-единицами
   let unitCol: number | null = null;
   for (let c = 0; c < maxCols; c++) {
     if (c === keyCol || stats[c].nonEmpty === 0) continue;
     if (stats[c].unit / stats[c].nonEmpty >= 0.4 && (unitCol === null || c > unitCol)) unitCol = c;
   }
 
-  // Значения: остальные заполненные колонки (числа и текстовые значения)
   const valueCandidates: number[] = [];
   for (let c = 0; c < maxCols; c++) {
     if (c === keyCol || c === unitCol || isOrdinalCol(c)) continue;
     if (stats[c].nonEmpty / total >= 0.3) valueCandidates.push(c);
   }
+  const primaryC = valueCandidates.find(c => c > keyCol) ?? valueCandidates[0];
+  const valueCols = primaryC !== undefined ? [{ col: primaryC, label: '' }] : [];
 
-  // Строка-шапка таблицы: в первых строках области ключ/значение/ед из словарей
-  let headerRowIdx: number | null = null;
-  const headerLabels = new Map<number, string>();
-  for (let i = startIdx; i < Math.min(startIdx + 4, rows.length); i++) {
-    const keyTxt = cellText(rows[i]?.[keyCol]);
-    const isHeader = hasStem(keyTxt, HEADER_KEY_STEMS) ||
-      valueCandidates.some(c => hasStem(cellText(rows[i]?.[c]), HEADER_VALUE_STEMS)) ||
-      (unitCol !== null && hasStem(cellText(rows[i]?.[unitCol]), HEADER_UNIT_STEMS));
-    if (isHeader) {
-      headerRowIdx = i;
-      for (const c of valueCandidates) {
-        const label = cellText(rows[i]?.[c]);
-        if (label && !hasStem(label, HEADER_VALUE_STEMS)) headerLabels.set(c, label);
-      }
-      break;
-    }
-  }
-
-  // Несколько колонок значений (приток/вытяжка, зима/лето) — только если у них
-  // есть собственные подписи в шапке; иначе берём первую (старое поведение)
-  let valueCols: { col: number; label: string }[];
-  const labelled = valueCandidates.filter(c => headerLabels.has(c));
-  if (labelled.length >= 2) {
-    valueCols = labelled.map(c => ({ col: c, label: headerLabels.get(c)! }));
-  } else {
-    const primary = valueCandidates.find(c => c > keyCol) ?? valueCandidates[0];
-    valueCols = primary !== undefined ? [{ col: primary, label: '' }] : [];
-  }
-
-  // Слабые сигналы → раскладка, эквивалентная историческому «0/1/2»
+  // Слабые сигналы → историческая раскладка «0/1/2»
   if (paramRows.length === 0 || valueCols.length === 0) {
     return { keyCol: 0, valueCols: [{ col: 1, label: '' }], unitCol: 2, headerRowIdx };
   }

@@ -6,6 +6,7 @@ import { parseExcel, parseXML, importParsedDataToDB } from './server/excelParser
 import { parseEquipmentExcel, parseEquipmentXML } from './server/equipmentParser.js';
 import * as XLSX from 'xlsx';
 import { importEquipmentToDB } from './server/equipmentImport.js';
+import { planEquipmentImport, applyEdits, filterBySelection } from './server/equipmentPlan.js';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import fs from 'fs';
@@ -3290,57 +3291,81 @@ app.post('/api/chat/group-messages', async (req: Request, res: Response) => {
 // --- VENTILATION EQUIPMENT API ---
 
 // 1. Импорт расчёта в выбранную категорию (новый парсер: группы + тип + ревизии)
+// Общий шаг: файл Проводника → разобранный расчёт. Кидает { status, error }
+// при проблемах формата, чтобы оба роута (план и запись) отвечали одинаково.
+async function readEquipmentFile(fileId: string): Promise<{ result: any; fileName: string }> {
+  const fileNode = await prisma.fileNode.findUnique({ where: { id: fileId } });
+  if (!fileNode) throw { status: 404, error: 'Файл не найден' };
+  if (!fileNode.content) throw { status: 400, error: 'Содержимое файла пустое' };
+
+  let base64 = fileNode.content;
+  if (base64.includes(',')) base64 = base64.split(',')[1];
+  const buffer = Buffer.from(base64, 'base64');
+  const extension = fileNode.name.split('.').pop()?.toLowerCase();
+
+  if (!['xlsx', 'xls', 'xml', 'csv'].includes(extension || '')) {
+    throw { status: 400, error: `Файл .${extension} этим способом не импортируется. Откройте «Оборудование» → «Импорт из документов» — там поддерживаются PDF, Word, Excel и XML с распознаванием.` };
+  }
+
+  let result;
+  try {
+    result = (extension === 'xml') ? parseEquipmentXML(buffer.toString('utf-8')) : parseEquipmentExcel(buffer);
+  } catch {
+    throw { status: 400, error: 'Не удалось прочитать файл как расчёт. Для бланков и опросных листов используйте «Оборудование» → «Импорт из документов».' };
+  }
+  if (!result.units.length) {
+    throw { status: 400, error: 'Не удалось распознать оборудование в файле. Проверьте формат расчёта.' };
+  }
+  return { result, fileName: fileNode.name };
+}
+
+async function resolveImportProject(reqProjectId: any): Promise<string> {
+  if (reqProjectId && !['null', 'undefined', 'default'].includes(reqProjectId)) return reqProjectId;
+  let first = await prisma.project.findFirst();
+  if (!first) first = await prisma.project.create({ data: { name: 'Общий Проект' } });
+  return first.id;
+}
+
+// Dry-run: что изменится в проекте, без записи (дерево + дифф для предпросмотра)
+app.post('/api/equipment/import-plan', async (req: Request, res: Response) => {
+  const { fileId, category, projectId: reqProjectId, edits } = req.body;
+  if (!fileId || !category) return res.status(400).json({ error: 'Не указан файл или категория' });
+  try {
+    const projectId = await resolveImportProject(reqProjectId);
+    const { result, fileName } = await readEquipmentFile(fileId);
+    const edited = applyEdits(result, edits);
+    const plan = await planEquipmentImport(prisma, projectId, category, edited);
+    res.json({ success: true, fileName, plan });
+  } catch (err: any) {
+    if (err && err.status) return res.status(err.status).json({ error: err.error });
+    console.error('Error in import-plan:', err);
+    res.status(500).json({ error: err.message || 'Не удалось построить план импорта' });
+  }
+});
+
 app.post('/api/equipment/import-to-category', async (req: Request, res: Response) => {
-  const { fileId, category, projectId: reqProjectId } = req.body;
+  const { fileId, category, projectId: reqProjectId, edits, selection } = req.body;
   if (!fileId || !category) {
     return res.status(400).json({ error: 'Не указан файл или категория' });
   }
 
-  let projectId = reqProjectId;
-  if (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default') {
-    let firstProject = await prisma.project.findFirst();
-    if (!firstProject) firstProject = await prisma.project.create({ data: { name: 'Общий Проект' } });
-    projectId = firstProject.id;
-  }
-
   try {
-    const fileNode = await prisma.fileNode.findUnique({ where: { id: fileId } });
-    if (!fileNode) return res.status(404).json({ error: 'Файл не найден' });
-    if (!fileNode.content) return res.status(400).json({ error: 'Содержимое файла пустое' });
+    const projectId = await resolveImportProject(reqProjectId);
+    const { result, fileName } = await readEquipmentFile(fileId);
 
-    let base64 = fileNode.content;
-    if (base64.includes(',')) base64 = base64.split(',')[1];
-    const buffer = Buffer.from(base64, 'base64');
-    const extension = fileNode.name.split('.').pop()?.toLowerCase();
-
-    // Этот путь понимает только файлы расчёта. Word/PDF, прочитанные как Excel,
-    // раньше давали 500 или систему с бинарным мусором в названии.
-    if (!['xlsx', 'xls', 'xml', 'csv'].includes(extension || '')) {
-      return res.status(400).json({
-        error: `Файл .${extension} этим способом не импортируется. Откройте «Оборудование» → «Импорт из документов» — там поддерживаются PDF, Word, Excel и XML с распознаванием.`,
-      });
-    }
-
-    let result;
-    try {
-      result = (extension === 'xml')
-        ? parseEquipmentXML(buffer.toString('utf-8'))
-        : parseEquipmentExcel(buffer);
-    } catch (parseErr: any) {
-      return res.status(400).json({
-        error: 'Не удалось прочитать файл как расчёт. Для бланков и опросных листов используйте «Оборудование» → «Импорт из документов».',
-      });
-    }
-
-    if (!result.units.length) {
-      return res.status(400).json({ error: 'Не удалось распознать оборудование в файле. Проверьте формат расчёта.' });
+    // Правки предпросмотра и выбор области применяются до записи
+    const edited = applyEdits(result, edits);
+    const sel = Array.isArray(selection) ? new Set<string>(selection) : null;
+    const finalResult = filterBySelection(edited, sel);
+    if (!finalResult.units.length) {
+      return res.status(400).json({ error: 'Не выбрано ни одного блока для импорта' });
     }
 
     // Режим разрешения конфликтов из глобальных настроек
     const modeSetting = await prisma.appSetting.findFirst({ where: { key: 'equip_conflict_mode', userId: null } });
     const conflictMode: 'immediate' | 'wait' = (modeSetting && modeSetting.value === 'immediate') ? 'immediate' : 'wait';
 
-    const summary = await importEquipmentToDB(prisma, projectId, category, fileNode.name, result, conflictMode);
+    const summary = await importEquipmentToDB(prisma, projectId, category, fileName, finalResult, conflictMode);
 
     res.json({
       success: true,
@@ -3351,6 +3376,7 @@ app.post('/api/equipment/import-to-category', async (req: Request, res: Response
       conflictMode,
     });
   } catch (error: any) {
+    if (error && error.status) return res.status(error.status).json({ error: error.error });
     console.error('Error in import-to-category:', error);
     res.status(500).json({ error: error.message || 'Не удалось импортировать файл' });
   }
