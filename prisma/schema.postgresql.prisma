@@ -70,8 +70,26 @@ model ConstructorDoc {
   updatedAt   DateTime  @updatedAt
 
   project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions    ConstructorDocVersion[]
   @@index([projectId, kind])
 }
+
+// Версия документа Конструктора: автоснимок перед обновлением данных,
+// перед восстановлением и ручные сохранения. Храним последние 20 на документ.
+model ConstructorDocVersion {
+  id        String   @id @default(uuid())
+  docId     String
+  version   Int      // порядковый номер в документе
+  workbook  String   @default("")
+  bindings  String   @default("[]")
+  comment   String   @default("") // «перед обновлением данных», «ручное сохранение»…
+  authorId  String?
+  createdAt DateTime @default(now())
+
+  doc       ConstructorDoc @relation(fields: [docId], references: [id], onDelete: Cascade)
+  @@index([docId, version])
+}
+
 
 model Dictionary {
   id        String   @id @default(uuid())

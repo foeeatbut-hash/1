@@ -287,6 +287,20 @@ function ensureSchemaColumns(dbPath: string) {
       )`);
       db.exec('CREATE INDEX IF NOT EXISTS "ConstructorDoc_projectId_kind_idx" ON "ConstructorDoc"("projectId", "kind")');
 
+      // Версии документов Конструктора (автоснимки + ручные)
+      db.exec(`CREATE TABLE IF NOT EXISTS "ConstructorDocVersion" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "docId" TEXT NOT NULL,
+        "version" INTEGER NOT NULL,
+        "workbook" TEXT NOT NULL DEFAULT '',
+        "bindings" TEXT NOT NULL DEFAULT '[]',
+        "comment" TEXT NOT NULL DEFAULT '',
+        "authorId" TEXT,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "ConstructorDocVersion_docId_fkey" FOREIGN KEY ("docId") REFERENCES "ConstructorDoc" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS "ConstructorDocVersion_docId_version_idx" ON "ConstructorDocVersion"("docId", "version")');
+
       const tagCols = db.prepare('PRAGMA table_info("Tag")').all() as Array<{ name: string }>;
       if (tagCols.length > 0 && !tagCols.find(c => c.name === 'updatedAt')) {
         db.exec('ALTER TABLE "Tag" ADD COLUMN "updatedAt" DATETIME');

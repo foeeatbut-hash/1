@@ -180,6 +180,18 @@ async function ensureTableExists(): Promise<void> {
         CONSTRAINT "ConstructorDoc_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE
       )`);
       await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "ConstructorDoc_projectId_kind_idx" ON "ConstructorDoc"("projectId", "kind")');
+      await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "ConstructorDocVersion" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "docId" TEXT NOT NULL,
+        "version" INTEGER NOT NULL,
+        "workbook" TEXT NOT NULL DEFAULT '',
+        "bindings" TEXT NOT NULL DEFAULT '[]',
+        "comment" TEXT NOT NULL DEFAULT '',
+        "authorId" TEXT,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "ConstructorDocVersion_docId_fkey" FOREIGN KEY ("docId") REFERENCES "ConstructorDoc" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+      )`);
+      await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "ConstructorDocVersion_docId_version_idx" ON "ConstructorDocVersion"("docId", "version")');
       pgEnsured = true;
     } catch (e) { /* нет прав на DDL — count упадёт и вернёт понятную ошибку */ }
   }
@@ -367,6 +379,85 @@ export function registerConstructorRoutes(app: Express): void {
   });
 
   // ── Дублирование ──
+  // ── Версии документа: автоснимки и ручные, последние 20 (часть I §3) ──
+  const VERSIONS_KEEP = 20;
+
+  const createDocVersion = async (doc: any, comment: string, authorId: string | null) => {
+    const prisma = getPrisma();
+    const last = await prisma.constructorDocVersion.findFirst({
+      where: { docId: doc.id }, orderBy: { version: 'desc' }, select: { version: true },
+    });
+    const created = await prisma.constructorDocVersion.create({
+      data: {
+        docId: doc.id,
+        version: (last?.version || 0) + 1,
+        workbook: doc.workbook || '',
+        bindings: doc.bindings || '[]',
+        comment: String(comment || '').slice(0, 200),
+        authorId,
+      },
+    });
+    // Ретеншн: последние N, старые схлопываются
+    await prisma.constructorDocVersion.deleteMany({
+      where: { docId: doc.id, version: { lte: created.version - VERSIONS_KEEP } },
+    });
+    return created;
+  };
+
+  // Доступ к документу с проверкой личного (общий код трёх роутов ниже)
+  const loadDocChecked = async (req: Request, res: Response): Promise<any | null> => {
+    const me = authUserOf(req);
+    const doc = await getPrisma().constructorDoc.findUnique({ where: { id: req.params.id } });
+    if (!doc) { res.status(404).json({ error: 'Документ не найден' }); return null; }
+    if (doc.scope === 'PERSONAL' && doc.ownerId !== me?.id) {
+      res.status(403).json({ error: 'Личный документ другого пользователя' });
+      return null;
+    }
+    return doc;
+  };
+
+  app.get('/api/constructor/docs/:id/versions', async (req: Request, res: Response) => {
+    try {
+      const doc = await loadDocChecked(req, res);
+      if (!doc) return;
+      const versions = await getPrisma().constructorDocVersion.findMany({
+        where: { docId: doc.id },
+        orderBy: { version: 'desc' },
+        select: { id: true, version: true, comment: true, authorId: true, createdAt: true },
+      });
+      res.json({ versions });
+    } catch (err: any) { sendError(res, err); }
+  });
+
+  app.post('/api/constructor/docs/:id/versions', async (req: Request, res: Response) => {
+    try {
+      const me = authUserOf(req);
+      const doc = await loadDocChecked(req, res);
+      if (!doc) return;
+      const v = await createDocVersion(doc, req.body?.comment || 'ручное сохранение', me?.id || null);
+      res.json({ version: { id: v.id, version: v.version, comment: v.comment, createdAt: v.createdAt } });
+    } catch (err: any) { sendError(res, err); }
+  });
+
+  // Откат: текущее состояние сначала само становится версией —
+  // «откат отката» всегда возможен (часть I §12 дизайна)
+  app.post('/api/constructor/docs/:id/restore/:versionId', async (req: Request, res: Response) => {
+    try {
+      const me = authUserOf(req);
+      const doc = await loadDocChecked(req, res);
+      if (!doc) return;
+      const prisma = getPrisma();
+      const ver = await prisma.constructorDocVersion.findUnique({ where: { id: req.params.versionId } });
+      if (!ver || ver.docId !== doc.id) return res.status(404).json({ error: 'Версия не найдена' });
+      await createDocVersion(doc, `перед восстановлением версии ${ver.version}`, me?.id || null);
+      const updated = await prisma.constructorDoc.update({
+        where: { id: doc.id },
+        data: { workbook: ver.workbook, bindings: ver.bindings, updatedById: me?.id || null },
+      });
+      res.json({ doc: updated });
+    } catch (err: any) { sendError(res, err); }
+  });
+
   app.post('/api/constructor/docs/:id/duplicate', async (req: Request, res: Response) => {
     try {
       const me = authUserOf(req);
