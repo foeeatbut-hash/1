@@ -376,12 +376,16 @@ export function registerConstructorRoutes(app: Express): void {
       if (doc.scope === 'PERSONAL' && doc.ownerId !== me?.id) {
         return res.status(403).json({ error: 'Личный документ другого пользователя' });
       }
+      // Переопределения для шаблонов: «Сохранить как шаблон» (kind=TEMPLATE)
+      // и «Создать документ по шаблону» (kind=DOC, своё имя)
+      const kindOverride = req.body?.kind === 'TEMPLATE' ? 'TEMPLATE' : req.body?.kind === 'DOC' ? 'DOC' : doc.kind;
+      const nameOverride = typeof req.body?.name === 'string' && req.body.name.trim() ? req.body.name.trim() : `${doc.name} (копия)`;
       const copy = await prisma.constructorDoc.create({
         data: {
           projectId: doc.projectId,
-          name: `${doc.name} (копия)`,
+          name: nameOverride,
           named: doc.named,
-          kind: doc.kind,
+          kind: kindOverride,
           scope: doc.scope,
           ownerId: me?.id || null,
           createdById: me?.id || null,
@@ -463,6 +467,60 @@ export function registerConstructorRoutes(app: Express): void {
   // Дёшево (без исполнения фильтров): блок сравнивает отпечаток на момент
   // своего обновления с текущим — расхождение = значок «данные изменились».
   // Ложноположительные срабатывания допустимы, ложноотрицательных нет.
+  // ── Формульные функции листа: =ТЕГ / =ПАРАМ / =ПАРАМ_ЭЛ / =ПРОЕКТ ──
+  // Батч точечных значений; ошибки — типизированными строками (видны в ячейке)
+  app.post('/api/constructor/fn', async (req: Request, res: Response) => {
+    try {
+      const projectId = await resolveProjectId(String(req.body?.projectId || ''));
+      const calls: { fn: string; args: string[] }[] = Array.isArray(req.body?.calls) ? req.body.calls : [];
+      const prisma = getPrisma();
+
+      // Срез грузим один раз на батч и только если он реально нужен
+      let slice: { tags: any[]; elements: any[] } | null = null;
+      const getSlice = async () => (slice ??= await loadProjectSlice(projectId));
+
+      const asCellValue = (v: string) => {
+        const n = parseRuNumber(v);
+        return n != null && String(n) === v.replace(/[\s\u00A0]/g, '').replace(',', '.') ? n : v;
+      };
+
+      const results: any[] = [];
+      for (const c of calls) {
+        const args = (c.args || []).map(a => String(a ?? '').trim());
+        try {
+          if (c.fn === 'project') {
+            const proj = await prisma.project.findUnique({ where: { id: projectId } });
+            const allowed = ['name', 'code', 'customer', 'contractor', 'description', 'status'];
+            results.push(proj && allowed.includes(args[0]) ? String((proj as any)[args[0]] ?? '') : '#НЕТ_ПОЛЯ');
+            continue;
+          }
+          if (c.fn === 'tag' || c.fn === 'param') {
+            const { tags } = await getSlice();
+            const ident = args[0].toLowerCase();
+            const tag = tags.find(t => String(t.identifier).toLowerCase() === ident);
+            if (!tag) { results.push('#НЕТ_ТЕГА'); continue; }
+            const v = c.fn === 'tag'
+              ? resolveValue('tag', tag, args[1])
+              : resolveValue('tag', tag, `param:${args[1]}|${args[2]}`);
+            results.push(v === '' && c.fn === 'param' ? '#НЕТ_ПАРАМА' : asCellValue(v));
+            continue;
+          }
+          if (c.fn === 'paramEl') {
+            const { elements } = await getSlice();
+            const code = args[0].toLowerCase();
+            const el = elements.find(e => String(e.itemCode).toLowerCase() === code || String(e.name).toLowerCase() === code);
+            if (!el) { results.push('#НЕТ_ЭЛЕМЕНТА'); continue; }
+            const v = resolveValue('element', el, `param:${args[1]}|${args[2]}`);
+            results.push(v === '' ? '#НЕТ_ПАРАМА' : asCellValue(v));
+            continue;
+          }
+          results.push('#ОШИБКА');
+        } catch (_) { results.push('#ОШИБКА'); }
+      }
+      res.json({ results });
+    } catch (err: any) { sendError(res, err); }
+  });
+
   app.get('/api/constructor/fingerprint', async (req: Request, res: Response) => {
     try {
       const projectId = await resolveProjectId(String(req.query.projectId || ''));

@@ -294,7 +294,7 @@ function DataWizard({ projectId, onInsert, onClose }: {
 
 // ═══════════════════════ Редактор (движок Univer) ═══════════════════════
 
-function DocEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
+function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: () => void; autoRefresh?: boolean }) {
   const user = useStore(s => s.user);
   const activeProject = useStore(s => s.activeProject);
   const { addToast } = useToastStore();
@@ -425,6 +425,39 @@ function DocEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
         univerAPI.createWorkbook(snapshot || { id: loaded.id, name: loaded.name });
         lastSavedRef.current = loaded.workbook || '';
 
+        // ── Формульные функции с данными проекта (часть I §7, MVP) ──
+        // Асинхронные: движок сам ждёт ответа сервера; повторные вызовы с теми же
+        // аргументами берутся из кэша (сбрасывается кнопками обновления данных).
+        // Разделитель аргументов — запятая: =ПАРАМ_ЭЛ("бл1.1","Габариты","Высота")
+        try {
+          const formula = univerAPI.getFormula?.();
+          const fnMemo = new Map<string, any>();
+          (univerRef.current as any).fnMemo = fnMemo;
+          const serverCall = async (fn: string, args: any[]) => {
+            const key = `${fn}|${JSON.stringify(args)}`;
+            if (fnMemo.has(key)) return fnMemo.get(key);
+            try {
+              const r = await fetch('/api/constructor/fn', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId: loaded.projectId, calls: [{ fn, args }] }),
+              });
+              const v = r.ok ? (await r.json()).results?.[0] ?? '#ОШИБКА' : '#ОШИБКА';
+              fnMemo.set(key, v);
+              return v;
+            } catch (_) { return '#ОШИБКА'; }
+          };
+          const reg = (names: string[], fn: string, argc: number, desc: string) => {
+            for (const n of names) {
+              try { formula?.registerAsyncFunction?.(n, async (...a: any[]) => serverCall(fn, a.slice(0, argc).map((x: any) => String(x ?? ''))), desc); }
+              catch (e) { console.warn(`[Constructor] Функция ${n} не зарегистрирована:`, e); }
+            }
+          };
+          reg(['ТЕГ', 'TAGINFO'], 'tag', 2, 'Поле тега по идентификатору: =ТЕГ("AHU-2","brand"). Поля: brand, department, wbs, fluid, system.name…');
+          reg(['ПАРАМ', 'PARAMINFO'], 'param', 3, 'Параметр оборудования по тегу: =ПАРАМ("AHU-2","Габариты","Высота")');
+          reg(['ПАРАМ_ЭЛ', 'PARAMEL'], 'paramEl', 3, 'Параметр по коду элемента: =ПАРАМ_ЭЛ("бл1.1","Габариты","Высота")');
+          reg(['ПРОЕКТ', 'PROJECTINFO'], 'project', 1, 'Поле проекта: =ПРОЕКТ("customer"). Поля: name, code, customer, contractor, description');
+        } catch (e) { console.warn('[Constructor] Регистрация функций пропущена:', e); }
+
         // ── Коллаборация: комната документа ──
         const sock = io(ENV_CONFIG.socketUrl, {
           auth: { token: getAuthToken() },
@@ -461,6 +494,10 @@ function DocEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
         (univerRef.current as any).cmdDisposer = cmdDisposer;
 
         setLoading(false);
+        // Документ создан по шаблону: сразу наполняем блоки данными ЭТОГО проекта
+        if (autoRefresh && bindingsRef.current.blocks.length > 0) {
+          setTimeout(() => { refreshAll(); }, 600);
+        }
       } catch (err: any) {
         console.error('[Constructor] Ошибка инициализации движка:', err);
         addToast('Не удалось загрузить редактор таблиц', 'error');
@@ -684,6 +721,7 @@ function DocEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
   };
 
   const refreshAll = async () => {
+    (univerRef.current as any)?.fnMemo?.clear?.(); // формулы =ТЕГ/=ПАРАМ возьмут свежее
     for (const b of [...bindingsRef.current.blocks]) await refreshBlock(b.id);
   };
 
@@ -913,6 +951,20 @@ function DocEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
             )}
           </button>
         )}
+        <button
+          onClick={async () => {
+            await saveNow();
+            const res = await fetch(`/api/constructor/docs/${docId}/duplicate`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ kind: 'TEMPLATE', name: `${doc?.name || 'Документ'} — шаблон` }),
+            });
+            if (res.ok) addToast('Сохранён в «Шаблоны»: структура, блоки и формулы переиспользуемы', 'success');
+            else addToast('Не удалось сохранить шаблон', 'error');
+          }}
+          title="Сохранить как шаблон: структура и блоки с запросами, применяется к любым данным"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
+          <Copy className="w-3.5 h-3.5" /> Как шаблон
+        </button>
         <button onClick={handlePrint} title="Печать активного листа" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
           <Printer className="w-3.5 h-3.5" /> Печать
         </button>
@@ -1081,6 +1133,7 @@ export default function ConstructorScreen() {
   };
   const [trashOpen, setTrashOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const autoRefreshRef = useRef(false); // открыть следующий документ с обновлением блоков
 
   const projectId = activeProject?.id || 'default';
 
@@ -1096,6 +1149,7 @@ export default function ConstructorScreen() {
 
   const me = user?.id;
   const alive = docs.filter(d => !d.deletedAt);
+  const templates = alive.filter(d => d.kind === 'TEMPLATE');
   const recents = useMemo(() => {
     if (!me) return [] as DocMeta[];
     try {
@@ -1104,8 +1158,8 @@ export default function ConstructorScreen() {
     } catch (_) { return []; }
   }, [docs, me]);
   // «Мои» — по авторству, а не только по приватности (часть III §1)
-  const myDocs = alive.filter(d => d.scope === 'PERSONAL' ? d.ownerId === me : d.createdById === me);
-  const sharedDocs = alive.filter(d => d.scope === 'SHARED');
+  const myDocs = alive.filter(d => d.kind !== 'TEMPLATE' && (d.scope === 'PERSONAL' ? d.ownerId === me : d.createdById === me));
+  const sharedDocs = alive.filter(d => d.kind !== 'TEMPLATE' && d.scope === 'SHARED');
   const trash = docs.filter(d => d.deletedAt);
 
   const createDoc = async () => {
@@ -1132,6 +1186,19 @@ export default function ConstructorScreen() {
     if (res.ok) { addToast('Документ продублирован', 'success'); loadDocs(); }
   };
 
+  // «Создать документ» из шаблона: копия как DOC + свежие данные при открытии
+  const createFromTemplate = async (tmpl: DocMeta) => {
+    const res = await fetch(`/api/constructor/docs/${tmpl.id}/duplicate`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'DOC', name: tmpl.name }),
+    });
+    if (res.ok) {
+      const { doc } = await res.json();
+      autoRefreshRef.current = true;
+      setActiveDocId(doc.id);
+    } else addToast('Не удалось создать документ по шаблону', 'error');
+  };
+
   const deleteForever = async (id: string) => {
     if (!confirm('Удалить документ окончательно? Это действие необратимо.')) return;
     const res = await fetch(`/api/constructor/docs/${id}`, { method: 'DELETE' });
@@ -1140,7 +1207,9 @@ export default function ConstructorScreen() {
   };
 
   if (activeDocId) {
-    return <DocEditor docId={activeDocId} onClose={() => setActiveDocId(null)} />;
+    const ar = autoRefreshRef.current;
+    autoRefreshRef.current = false;
+    return <DocEditor docId={activeDocId} autoRefresh={ar} onClose={() => setActiveDocId(null)} />;
   }
 
   const Card = ({ d, inTrash }: { d: DocMeta; inTrash?: boolean }) => (
@@ -1169,8 +1238,16 @@ export default function ConstructorScreen() {
       </div>
       <div className="mt-1 text-[11px] text-slate-400 flex items-center gap-2">
         <span>{fmtDate(d.updatedAt)}</span>
-        {!d.named && <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 font-bold">ЧЕРНОВИК</span>}
+        {d.kind === 'TEMPLATE' && <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-bold">ШАБЛОН</span>}
+        {!d.named && d.kind !== 'TEMPLATE' && <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 font-bold">ЧЕРНОВИК</span>}
       </div>
+      {d.kind === 'TEMPLATE' && !inTrash && (
+        <button
+          onClick={e => { e.stopPropagation(); createFromTemplate(d); }}
+          className="mt-2.5 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold cursor-pointer">
+          <Plus className="w-3 h-3" /> Создать документ
+        </button>
+      )}
     </div>
   );
 
@@ -1212,6 +1289,7 @@ export default function ConstructorScreen() {
           )}
           <Section title="Мои файлы" icon={Lock} items={myDocs} />
           <Section title="Общие файлы" icon={Users2} items={sharedDocs.filter(d => d.createdById !== me)} />
+          {templates.length > 0 && <Section title="Шаблоны" icon={Copy} items={templates} />}
 
           {trash.length > 0 && (
             <div>
