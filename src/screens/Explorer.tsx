@@ -47,6 +47,24 @@ const formatSize = (bytes: number) => {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 };
 
+// data:...;base64,<...> → текст в UTF-8 (atob даёт latin1, поэтому через TextDecoder)
+const decodeTextContent = (dataUri: string): string => {
+  try {
+    const comma = dataUri.indexOf(',');
+    const meta = dataUri.slice(0, comma);
+    const body = dataUri.slice(comma + 1);
+    if (/;base64/i.test(meta)) {
+      const bin = atob(body);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return new TextDecoder('utf-8').decode(bytes);
+    }
+    return decodeURIComponent(body);
+  } catch (_) {
+    return dataUri;
+  }
+};
+
 export default function Explorer() {
   const { 
     activeProject, 
@@ -1314,7 +1332,11 @@ export default function Explorer() {
                      <div className="flex-1 flex items-center justify-center min-h-[240px] max-h-[300px] bg-white dark:bg-dark-panel border border-slate-200 dark:border-dark-border rounded mb-4 overflow-hidden relative shadow-sm">
                         {isImage && item.content ? (
                           <img src={item.content} alt={item.name} className="max-w-full max-h-full object-contain" />
-                        ) : (isPdf || isText) && item.content ? (
+                        ) : isText && item.content ? (
+                          // Текст декодируем как UTF-8 в <pre> — iframe с data:text
+                          // без charset давал кракозябры на кириллице
+                          <pre className="w-full h-full overflow-auto text-left text-[11px] leading-relaxed p-3 text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words font-mono">{decodeTextContent(item.content)}</pre>
+                        ) : isPdf && item.content ? (
                           // B5: пустой sandbox ломал встроенный PDF-вьюер
                           <iframe src={item.content} className="w-full h-full border-0 bg-white dark:bg-dark-panel" title={item.name} sandbox="allow-scripts allow-same-origin" />
                         ) : (
