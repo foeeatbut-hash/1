@@ -47,6 +47,30 @@ const formatSize = (bytes: number) => {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 };
 
+// ── Статусы документооборота (код A/B/C/D → человекочитаемый поток) ──
+// Проводник 2.0 §6.2: вместо безымянной цветной точки — понятный чип.
+const FILE_STATUSES: Record<string, { label: string; dot: string; chip: string }> = {
+  D: { label: 'Черновик',    dot: 'bg-slate-400',   chip: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' },
+  C: { label: 'На проверке', dot: 'bg-amber-500',   chip: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' },
+  B: { label: 'Согласован',  dot: 'bg-sky-500',     chip: 'bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400' },
+  A: { label: 'Выдан',       dot: 'bg-emerald-500', chip: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400' },
+};
+const STATUS_ORDER = ['D', 'C', 'B', 'A'];
+const statusOf = (code: string | undefined) => FILE_STATUSES[code || 'D'] || FILE_STATUSES.D;
+
+const StatusChip = ({ code, onClick }: { code?: string; onClick?: (e: React.MouseEvent) => void }) => {
+  const s = statusOf(code);
+  return (
+    <span
+      onClick={onClick}
+      title={onClick ? 'Сменить статус документа' : s.label}
+      className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${s.chip} ${onClick ? 'cursor-pointer hover:brightness-95' : ''}`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} /> {s.label}
+    </span>
+  );
+};
+
 // data:...;base64,<...> → текст в UTF-8 (atob даёт latin1, поэтому через TextDecoder)
 const decodeTextContent = (dataUri: string): string => {
   try {
@@ -570,6 +594,24 @@ export default function Explorer() {
         fetchData();
     }
   }
+
+  // Смена статуса документооборота: применяется к выделению (или к одному файлу)
+  const handleChangeStatus = async (fileId: string) => {
+    const target = selectedIds.has(fileId) ? Array.from(selectedIds) : [fileId];
+    const fileTargets = target.filter(id => {
+      const it = allCurrentItemsRef.current.find(i => i.id === id);
+      return it && !it.isFolder;
+    });
+    if (fileTargets.length === 0) return;
+    const code = await openSelect('Статус документа', `Новый статус для ${fileTargets.length > 1 ? `${fileTargets.length} файлов` : 'файла'}:`,
+      STATUS_ORDER.map(c => ({ value: c, label: FILE_STATUSES[c].label })));
+    if (code === null) return;
+    await Promise.all(fileTargets.map(id => fetch(`/api/files/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ statusCode: code }),
+    })));
+    addToast(`Статус изменён: ${FILE_STATUSES[code].label}${fileTargets.length > 1 ? ` (${fileTargets.length})` : ''}`, 'success');
+    fetchData();
+  };
 
   const handlePaste = async () => {
     if (!clipboard || clipboard.ids.length === 0) return;
@@ -1127,7 +1169,7 @@ export default function Explorer() {
                     <tr>
                       <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Имя</th>
                       <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Дата изменения</th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Тип</th>
+                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Статус</th>
                       <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Размер</th>
                       <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Теги</th>
                       <th className="py-2 px-3 font-medium cursor-default">Отдел</th>
@@ -1157,8 +1199,8 @@ export default function Explorer() {
                       <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('updatedAt')}>
                         Дата изменения {sortConfig.key === 'updatedAt' && (sortConfig.direction==='asc'?'↑':'↓')}
                       </th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('type')}>
-                        Тип {sortConfig.key === 'type' && (sortConfig.direction==='asc'?'↑':'↓')}
+                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('statusCode')}>
+                        Статус {sortConfig.key === 'statusCode' && (sortConfig.direction==='asc'?'↑':'↓')}
                       </th>
                       <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('size')}>
                         Размер {sortConfig.key === 'size' && (sortConfig.direction==='asc'?'↑':'↓')}
@@ -1214,6 +1256,8 @@ export default function Explorer() {
                               onDragStart={(e: React.DragEvent) => handleDragStart(e, item)}
                               onDropItems={handleDropItems}
                               measureElement={listVirtualizer.measureElement}
+                              onChangeStatus={handleChangeStatus}
+                              onOpenTag={(ident: string) => navigate(`/registry?tag=${encodeURIComponent(ident)}`)}
                             />
                           );
                         })}
@@ -1428,6 +1472,7 @@ export default function Explorer() {
                   <MenuItem icon={<Download />} label="Скачать" onClick={() => { handleDownload(contextMenu.targetId!, false); setContextMenu(null); }} />
                   <MenuItem icon={<Tag />} label="Назначить теги..." onClick={() => { handleAssignTag(contextMenu.targetId!); setContextMenu(null); }} />
                   <MenuItem icon={<Shield />} label="Назначить отдел..." onClick={() => { handleAssignDepartment(contextMenu.targetId!); setContextMenu(null); }} />
+                  <MenuItem icon={<Info />} label="Статус документа..." onClick={() => { handleChangeStatus(contextMenu.targetId!); setContextMenu(null); }} />
                 </>
               )}
               <div className="h-px bg-slate-300 dark:bg-dark-border my-1 mx-2" />
@@ -1858,10 +1903,12 @@ const FileRowItem = React.memo(({
   onDropItems,
   measureElement,
   loaded,
-  catLabel
+  catLabel,
+  onChangeStatus,
+  onOpenTag
 }: any) => {
   return (
-    <tr 
+    <tr
       ref={measureElement}
       data-index={index}
       draggable
@@ -1891,13 +1938,11 @@ const FileRowItem = React.memo(({
         <div className="relative shrink-0">
            {getFileIcon(item, "w-5 h-5")}
            {!item.isFolder && item.statusCode && (
-              <span className={`absolute -bottom-1 -right-1 text-xs font-bold w-3 h-3 flex items-center justify-center rounded-full text-white ${item.statusCode === 'A' ? 'bg-green-500' : item.statusCode === 'B' ? 'bg-teal-500' : item.statusCode === 'C' ? 'bg-yellow-500' : 'bg-red-500'}`}>
-                {item.statusCode}
-              </span>
+              <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white dark:ring-dark-bg ${statusOf(item.statusCode).dot}`} title={statusOf(item.statusCode).label} />
            )}
         </div>
         {isRenaming ? (
-          <input 
+          <input
             type="text"
             autoFocus
             value={renameValue}
@@ -1922,11 +1967,19 @@ const FileRowItem = React.memo(({
           </span>
         )}
       </td>
-      <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : ''}</td>
-      <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted">{item.isFolder ? 'Папка с файлами' : (item.type || 'Файл')}</td>
-      <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted text-right">{!item.isFolder ? formatSize(item.size) : ''}</td>
-      <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted">
-         {!item.isFolder && [...(item.mainTags||[]), ...(item.additionalTags||[])].map((t:any) => t.identifier).join(', ')}
+      <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted whitespace-nowrap">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : ''}</td>
+      <td className="py-1.5 px-3 text-sm">{!item.isFolder ? <StatusChip code={item.statusCode} onClick={onChangeStatus ? (e) => { e.stopPropagation(); onChangeStatus(item.id); } : undefined} /> : <span className="text-slate-400 text-xs">Папка</span>}</td>
+      <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted text-right whitespace-nowrap">{!item.isFolder ? formatSize(item.size) : ''}</td>
+      <td className="py-1.5 px-3">
+         <div className="flex flex-wrap gap-1">
+           {!item.isFolder && (item.mainTags || []).map((t: any) => (
+             <span key={t.id} onClick={onOpenTag ? (e) => { e.stopPropagation(); onOpenTag(t.identifier); } : undefined}
+               className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400 ${onOpenTag ? 'cursor-pointer hover:brightness-95' : ''}`} title={`Основной тег ${t.identifier}`}>{t.identifier}</span>
+           ))}
+           {!item.isFolder && (item.additionalTags || []).map((t: any) => (
+             <span key={t.id} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400" title={`Доп. тег ${t.identifier}`}>{t.identifier}</span>
+           ))}
+         </div>
       </td>
       <td className="py-1.5 px-3 text-xs text-slate-500 dark:text-dark-text-muted">{!item.isFolder && item.department !== 'Unassigned' ? item.department : ''}</td>
     </tr>
