@@ -715,6 +715,12 @@ export default function Explorer() {
 
   useEffect(() => { allCurrentItemsRef.current = allCurrentItems; }, [allCurrentItems]);
 
+  // Сколько ФАЙЛОВ (не папок) выделено — для контекстных кнопок тулбара
+  const selectedFileCount = useMemo(
+    () => Array.from(selectedIds).filter(id => { const it = allCurrentItems.find(i => i.id === id); return it && !it.isFolder; }).length,
+    [selectedIds, allCurrentItems]
+  );
+
   const [paneWidth, setPaneWidth] = useState(800);
 
   useEffect(() => {
@@ -1001,47 +1007,45 @@ export default function Explorer() {
       
       {/* Explorer Top Bar - Like Windows */}
       <div className="flex flex-col bg-slate-100/95 dark:bg-slate-900/90 border-b border-slate-200 dark:border-slate-800">
-        {/* Main Ribbon */}
-        <div className="flex items-center gap-4 px-3 py-2 border-b border-slate-200 dark:border-slate-850">
-           <div className="flex gap-1 items-center">
-             <button onClick={createFolder} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-705 dark:text-slate-300 text-center leading-[1.15] cursor-pointer">
-                <FolderPlus className="w-5 h-5 text-yellow-500 shrink-0 mb-0.5" />
-                <span className="whitespace-pre-line">Новая папка</span>
-             </button>
-             <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-700 dark:text-slate-300 text-center leading-[1.15] cursor-pointer">
-                <Upload className="w-5 h-5 text-green-600 shrink-0 mb-0.5" />
-                <span className="whitespace-pre-line">Загрузить</span>
-             </button>
-             <input type="file" ref={fileInputRef} className="hidden" multiple onChange={handleFileUpload} />
+        {/* Современный компактный тулбар */}
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-slate-850">
+           <button onClick={createFolder} title="Новая папка"
+             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 shadow-xs cursor-pointer">
+              <FolderPlus className="w-4 h-4 text-amber-500" /> Папка
+           </button>
+           <button onClick={() => fileInputRef.current?.click()} title="Загрузить файлы"
+             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm cursor-pointer">
+              <Upload className="w-4 h-4" /> Загрузить
+           </button>
+           <input type="file" ref={fileInputRef} className="hidden" multiple onChange={handleFileUpload} />
 
-             <div className="w-px h-10 bg-slate-300 dark:bg-slate-800 mx-1"></div>
+           {selectedFileCount > 0 && (
+             <>
+               <div className="w-px h-6 bg-slate-300 dark:bg-slate-700 mx-1" />
+               <button onClick={() => openImportPicker()} title="Загрузить данные выбранных файлов в «Оборудование»"
+                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 cursor-pointer">
+                  <Boxes className="w-4 h-4" /> В оборудование
+               </button>
+               <button onClick={() => handleChangeStatus(Array.from(selectedIds)[0])} title="Сменить статус выделенных"
+                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 cursor-pointer">
+                  <Info className="w-4 h-4" /> Статус
+               </button>
+               <span className="text-[11px] text-slate-400 ml-1">выбрано: {selectedFileCount}</span>
+             </>
+           )}
 
-             {/* Импорт данных выбранных файлов в раздел «Оборудование» */}
-             <button
-               onClick={() => openImportPicker()}
-               disabled={Array.from(selectedIds).filter(id => !allCurrentItems.find(i => i.id === id)?.isFolder).length === 0}
-               title="Загрузить данные выбранных файлов в раздел «Оборудование»"
-               className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-emerald-100 dark:hover:bg-emerald-950/40 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-705 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
-                <Boxes className="w-5 h-5 text-emerald-600 shrink-0 mb-0.5" />
-                <span className="whitespace-pre-line">В оборудование</span>
-             </button>
-            </div>
-
-            {/* Right-aligned tools restored */}
-                            {/* Right aligned tools */}
-           <div className="ml-auto flex items-center pr-2">
-             <div className="flex border border-slate-300 dark:border-dark-border rounded-lg overflow-hidden mr-4 bg-white dark:bg-dark-panel">
-               <button onClick={() => setViewMode('list')} className={`p-1.5 cursor-pointer ${viewMode === 'list' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'bg-transparent text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-surface'}`} title="Списком">
+           <div className="ml-auto flex items-center gap-2">
+             <div className="flex border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-white dark:bg-slate-800">
+               <button onClick={() => setViewMode('list')} className={`p-1.5 cursor-pointer ${viewMode === 'list' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-750'}`} title="Списком">
                  <List className="w-4 h-4" />
                </button>
-               <button onClick={() => setViewMode('grid')} className={`p-1.5 cursor-pointer ${viewMode === 'grid' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'bg-transparent text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-surface'}`} title="Сеткой">
+               <button onClick={() => setViewMode('grid')} className={`p-1.5 cursor-pointer ${viewMode === 'grid' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-750'}`} title="Сеткой">
                  <LayoutGrid className="w-4 h-4" />
                </button>
              </div>
-             
-             <button onClick={() => setShowPreviewPane(!showPreviewPane)} className={`flex flex-col items-center justify-start pt-1.5 pb-1 px-1 rounded-lg w-[84px] h-[64px] shrink-0 text-xs text-slate-705 dark:text-dark-text-main text-center leading-[1.15] cursor-pointer ${showPreviewPane ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-750' : 'bg-transparent hover:bg-slate-202 dark:hover:bg-dark-panel'}`}>
-               <PanelRight className="w-5 h-5 text-slate-600 dark:text-dark-text-muted shrink-0 mb-0.5" />
-               <span className="whitespace-pre-line">Превью</span>
+             <button onClick={() => setShowPreviewPane(!showPreviewPane)} title="Панель предпросмотра"
+               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${showPreviewPane ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750'}`}>
+               <PanelRight className="w-4 h-4" /> Превью
              </button>
            </div>
         </div>
