@@ -1981,7 +1981,24 @@ app.delete('/api/folders/:id', async (req: Request, res: Response) => {
 });
 
 app.post('/api/files', async (req: Request, res: Response) => {
-  const data = { ...req.body };
+  // Белый список полей (B6): не пишем произвольные поля из тела запроса
+  const b = req.body || {};
+  const data: any = {
+    name: String(b.name || 'Без имени'),
+    folderId: b.folderId || null,
+    filePath: typeof b.filePath === 'string' ? b.filePath : `/shared/${b.name || ''}`,
+    size: Number.isFinite(b.size) ? Math.max(0, Math.trunc(b.size)) : 0,
+    type: typeof b.type === 'string' ? b.type : 'FILE',
+    department: typeof b.department === 'string' ? b.department : 'Unassigned',
+    content: typeof b.content === 'string' ? b.content : undefined,
+    createdById: b.createdById || null,
+    updatedById: b.updatedById || b.createdById || null,
+    ...(typeof b.refId === 'string' ? { refId: b.refId } : {}),
+    ...(typeof b.revision === 'string' ? { revision: b.revision } : {}),
+    ...(typeof b.statusCode === 'string' ? { statusCode: b.statusCode } : {}),
+    ...(b.scope === 'PERSONAL' || b.scope === 'SHARED' ? { scope: b.scope } : {}),
+    ...(typeof b.ownerId === 'string' ? { ownerId: b.ownerId } : {}),
+  };
   // Файл внутри папки наследует её раздел (общий/личный)
   if (data.folderId) {
     try {

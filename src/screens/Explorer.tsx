@@ -342,11 +342,32 @@ export default function Explorer() {
     const sec = inSectionRoot ? parseSection(targetFolderId) : null;
     const realFolderId = inSectionRoot ? null : targetFolderId;
 
+    // Имена, уже занятые в целевой папке (для дедупа при загрузке — B8)
+    const existingNames = new Set(
+      (realFolderId === null
+        ? rootFiles.filter((f: any) => itemSection(f) === targetFolderId)
+        : (folders.find((f: any) => f.id === realFolderId)?.files || [])
+      ).map((f: any) => String(f.name))
+    );
+    const uniqueName = (name: string): string => {
+      if (!existingNames.has(name)) { existingNames.add(name); return name; }
+      const parts = name.split('.');
+      const hasExt = parts.length > 1;
+      const ext = hasExt ? parts.pop() : '';
+      const base = parts.join('.');
+      let n = 1, candidate = name;
+      do { candidate = hasExt ? `${base} (${n}).${ext}` : `${base} (${n})`; n++; } while (existingNames.has(candidate));
+      existingNames.add(candidate);
+      return candidate;
+    };
+
+    const CONTENT_LIMIT = 5 * 1024 * 1024; // порог хранения содержимого в БД
     setUploadProgress({ current: 0, total: files.length });
-    
+    let ok = 0; const failed: string[] = []; const skippedBig: string[] = [];
+
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        
+
         // Файл просто сохраняется в проводник. Импорт в «Оборудование» —
         // только вручную: выделить файл(ы) и нажать «В оборудование» на панели.
         let type = 'FILE';
@@ -356,36 +377,46 @@ export default function Explorer() {
         else if (file.name.match(/\.(png|jpe?g|gif|webp)$/i)) type = 'IMAGE';
         else type = file.name.split('.').pop()?.toUpperCase() || 'FILE';
 
-        let content = undefined;
-        if (file.size < 5 * 1024 * 1024) { // < 5MB
+        let content: any = undefined;
+        if (file.size < CONTENT_LIMIT) {
            const reader = new FileReader();
-           const readPromise = new Promise((resolve) => {
+           content = await new Promise((resolve) => {
              reader.onload = (e) => resolve(e.target?.result);
+             reader.onerror = () => resolve(undefined);
              reader.readAsDataURL(file);
            });
-           content = await readPromise;
+        } else {
+           skippedBig.push(file.name); // содержимое не сохраняем — предупредим (B3)
         }
 
-        await fetch('/api/files', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name: file.name,
-              folderId: realFolderId,
-              ...(sec ? { scope: sec.scope, ownerId: sec.ownerId || user?.id } : {}),
-              filePath: `/shared/${file.name}`,
-              size: file.size || Math.floor(Math.random() * 5000000), // mock size if 0
-              type,
-              department: "Unassigned",
-              content,
-              createdById: user?.id,
-              updatedById: user?.id
-            })
-        });
+        const name = uniqueName(file.name);
+        const scopeLabel = sec?.scope === 'PERSONAL' ? 'personal' : 'shared';
+        try {
+          const res = await fetch('/api/files', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name,
+                folderId: realFolderId,
+                ...(sec ? { scope: sec.scope, ownerId: sec.ownerId || user?.id } : {}),
+                filePath: `/${scopeLabel}/${name}`,
+                size: file.size,          // реальный размер, без random (B2)
+                type,
+                department: 'Unassigned',
+                content,
+                createdById: user?.id,
+                updatedById: user?.id
+              })
+          });
+          if (res.ok) ok++; else failed.push(file.name); // честный итог (B10)
+        } catch (_) { failed.push(file.name); }
         setUploadProgress(prev => prev ? { ...prev, current: i + 1 } : null);
     }
     setUploadProgress(null);
-    addToast(`Успешно загружено файлов: ${files.length}`, 'success');
+
+    if (ok > 0) addToast(`Загружено файлов: ${ok}${failed.length ? `, ошибок: ${failed.length}` : ''}`, failed.length ? 'error' : 'success');
+    else if (failed.length) addToast(`Не удалось загрузить: ${failed.length}`, 'error');
+    if (skippedBig.length) addToast(`Файлы больше 5 МБ сохранены без предпросмотра/скачивания: ${skippedBig.join(', ')}`, 'info');
     fetchData();
   };
 
@@ -732,10 +763,16 @@ export default function Explorer() {
 
   const handleItemDoubleClick = useCallback((id: string, isFolder: boolean) => {
     if (isFolder) { navigateToRef.current(id); return; }
+    const f = allCurrentItemsRef.current?.find((x: any) => x.id === id);
     // Зеркало документа Конструктора: открываем сам документ
-    const f = filesRef.current?.find((x: any) => x.id === id);
-    if (f?.type === 'CONSTRUCTOR' && f?.refId) navigate(`/constructor?doc=${f.refId}`);
-  }, [navigate]);
+    if (f?.type === 'CONSTRUCTOR' && f?.refId) { navigate(`/constructor?doc=${f.refId}`); return; }
+    // Обычный файл: двойной клик ВСЕГДА что-то делает (B1) — выделяем и
+    // открываем панель предпросмотра; при отсутствии содержимого — тост
+    setSelectedIds(new Set([id]));
+    setLastSelectedId(id);
+    setShowPreviewPane(true);
+    if (!f?.content) addToast('У файла нет сохранённого содержимого (загружен без предпросмотра).', 'info');
+  }, [navigate, addToast]);
 
   const handleItemContextMenu = useCallback((e: React.MouseEvent, id: string, isFile: boolean) => {
     e.preventDefault();
@@ -1278,7 +1315,8 @@ export default function Explorer() {
                         {isImage && item.content ? (
                           <img src={item.content} alt={item.name} className="max-w-full max-h-full object-contain" />
                         ) : (isPdf || isText) && item.content ? (
-                          <iframe src={item.content} className="w-full h-full border-0 bg-white dark:bg-dark-panel" title={item.name} sandbox="" />
+                          // B5: пустой sandbox ломал встроенный PDF-вьюер
+                          <iframe src={item.content} className="w-full h-full border-0 bg-white dark:bg-dark-panel" title={item.name} sandbox="allow-scripts allow-same-origin" />
                         ) : (
                           <div className="text-center text-slate-400 flex flex-col items-center">
                              {getFileIcon(item, "w-12 h-12 mb-2")}
