@@ -1,5 +1,38 @@
 import type { Express, Request, Response } from 'express';
-import { getPrisma, resolveProjectId, sendError } from '../context.js';
+import { getPrisma, resolveProjectId, sendError, upsertSetting } from '../context.js';
+import { normalizeKey, parseRuNumber } from '../normalize.js';
+
+const ALIAS_SETTING_KEY = 'constructor_param_aliases';
+
+// Алиасы параметров проекта (общие на проект): «Расход воздуха»/«Производительность»/
+// «Расход, м3/ч» из разных бланков считаются одним полем. Хранятся в AppSetting,
+// применяются на ЧТЕНИИ (Конструктор) — недеструктивно, без переимпорта.
+async function loadProjectAliases(projectId: string): Promise<{ name: string; unit?: string; members: string[] }[]> {
+  const prisma = getPrisma();
+  const row = await prisma.appSetting.findFirst({ where: { key: ALIAS_SETTING_KEY, userId: null } });
+  if (!row) return [];
+  try {
+    const all = JSON.parse(row.value) || {};
+    const list = all[projectId];
+    return Array.isArray(list) ? list : [];
+  } catch { return []; }
+}
+
+async function saveProjectAliases(projectId: string, aliases: any[]): Promise<void> {
+  const prisma = getPrisma();
+  const row = await prisma.appSetting.findFirst({ where: { key: ALIAS_SETTING_KEY, userId: null } });
+  let all: any = {};
+  if (row) { try { all = JSON.parse(row.value) || {}; } catch { all = {}; } }
+  all[projectId] = aliases;
+  await upsertSetting(ALIAS_SETTING_KEY, null, JSON.stringify(all));
+}
+
+// Список алиасов → карта name→alias (для resolveValue)
+function aliasMap(list: { name: string; unit?: string; members: string[] }[]): Record<string, { name: string; unit?: string; members: string[] }> {
+  const m: Record<string, any> = {};
+  for (const a of list) if (a?.name) m[a.name] = a;
+  return m;
+}
 
 // ── Конструктор: документы-таблицы, собираемые из данных проекта ──
 // Дизайн: docs/constructor-design-v0.25*.md. Здесь MVP-слой:
@@ -73,13 +106,28 @@ async function loadProjectSlice(projectId: string) {
   return { tags, elements };
 }
 
+// Алиас параметра: одно имя для нескольких «группа|ключ» из разных бланков
+export interface ParamAlias { name: string; unit?: string; members: string[] }
+export type AliasMap = Record<string, ParamAlias>; // name → alias
+
 // ── Разрешение значения по пути поля ──
 // Пути (часть II дизайна, MVP-подмножество):
-//   простые поля своей сущности; param:Группа|Ключ; meta:ключ;
+//   простые поля своей сущности; param:Группа|Ключ; param:@Алиас; meta:ключ;
 //   system.name / monoblock.name; tags (список тегов элемента)
-function resolveValue(entity: 'tag' | 'element', row: any, path: string): string {
+function resolveValue(entity: 'tag' | 'element', row: any, path: string, aliases?: AliasMap): string {
   if (path.startsWith('param:')) {
-    const [group, key] = path.slice(6).split('|');
+    const spec = path.slice(6);
+    // Алиас: перебираем участников по порядку, первое непустое значение
+    if (spec.startsWith('@') && aliases) {
+      const alias = aliases[spec.slice(1)];
+      for (const member of (alias?.members || [])) {
+        const [g, k] = member.split('|');
+        const v = resolveValue(entity, row, `param:${g}|${k}`, aliases);
+        if (v !== '') return v;
+      }
+      return '';
+    }
+    const [group, key] = spec.split('|');
     if (entity === 'element') return elementParamValue(row, group, key);
     // тег → через связанные элементы: первое непустое значение
     for (const el of (row.componentElements || [])) {
@@ -128,10 +176,6 @@ function resolveValue(entity: 'tag' | 'element', row: any, path: string): string
 }
 
 // Число из строки в русской записи: «1 250,5 мм» → 1250.5 (для сортировки/фильтров)
-function parseRuNumber(v: string): number | null {
-  const s = String(v || '').replace(/[\s ]/g, '').replace(',', '.').match(/^-?\d+(\.\d+)?/);
-  return s ? parseFloat(s[0]) : null;
-}
 
 function applyFilter(value: string, op: string, target: any): boolean {
   const v = String(value ?? '');
@@ -523,6 +567,32 @@ export function registerConstructorRoutes(app: Express): void {
         }
       }
 
+      // Алиасы: объединённая заполненность (у скольких элементов есть хоть один
+      // участник) + подсказка «похожие» по нормализованным основам ключей
+      const aliases = await loadProjectAliases(projectId);
+      const memberSet = new Set<string>();
+      for (const a of aliases) for (const m of a.members) memberSet.add(m);
+      const aliasFields = aliases.map(a => {
+        let count = 0;
+        for (const el of elements) {
+          const specs = normalizeSpecs(el.specs);
+          const has = a.members.some(m => {
+            const [g, k] = m.split('|');
+            return specs.groups.some(gr => gr.title === g && (gr.params || []).some(p => p.key === k));
+          });
+          if (has) count++;
+        }
+        return { path: `param:@${a.name}`, title: a.name, unit: a.unit || '', members: a.members, count };
+      });
+      // Похожие сырые параметры (по основам слов) — для предложения объединить
+      const byStem = new Map<string, string[]>();
+      for (const rec of paramMap.values()) {
+        const st = normalizeKey(rec.key);
+        if (!byStem.has(st)) byStem.set(st, []);
+        byStem.get(st)!.push(`${rec.group}|${rec.key}`);
+      }
+      const similarGroups = [...byStem.values()].filter(ids => ids.length >= 2 && ids.some(id => !memberSet.has(id)));
+
       res.json({
         counts: { tags: tags.length, elements: elements.length },
         tagFields: [
@@ -550,7 +620,42 @@ export function registerConstructorRoutes(app: Express): void {
         params: Array.from(paramMap.values()).sort((a, b) =>
           a.group.localeCompare(b.group, 'ru') || a.key.localeCompare(b.key, 'ru')),
         metaKeys: Array.from(metaMap.entries()).map(([key, count]) => ({ path: `meta:${key}`, key, count })),
+        aliases: aliasFields,
+        similar: similarGroups, // группы «похожих» сырых параметров — предложить объединить
       });
+    } catch (err: any) { sendError(res, err); }
+  });
+
+  // ── Алиасы параметров проекта (GET/PUT) — общие для отдела ──
+  app.get('/api/constructor/aliases', async (req: Request, res: Response) => {
+    try {
+      const projectId = await resolveProjectId(String(req.query.projectId || ''));
+      res.json({ aliases: await loadProjectAliases(projectId) });
+    } catch (err: any) { sendError(res, err); }
+  });
+
+  app.put('/api/constructor/aliases', async (req: Request, res: Response) => {
+    try {
+      const me = authUserOf(req);
+      // Править общие алиасы может админ/менеджер (влияют на всех)
+      if (me && me.role !== 'ADMIN' && me.role !== 'MANAGER') {
+        return res.status(403).json({ error: 'Изменять алиасы может администратор или руководитель' });
+      }
+      const projectId = await resolveProjectId(String(req.body?.projectId || ''));
+      const input = Array.isArray(req.body?.aliases) ? req.body.aliases : [];
+      // Санитизация: имя обязательно, участник в максимум одном алиасе
+      const seen = new Set<string>();
+      const clean = input
+        .map((a: any) => ({
+          name: String(a?.name || '').trim(),
+          unit: String(a?.unit || '').trim() || undefined,
+          members: Array.isArray(a?.members) ? a.members.map((m: any) => String(m)).filter(Boolean) : [],
+        }))
+        .filter((a: any) => a.name && a.members.length > 0)
+        .map((a: any) => ({ ...a, members: a.members.filter((m: string) => !seen.has(m) && seen.add(m)) }))
+        .filter((a: any) => a.members.length > 0);
+      await saveProjectAliases(projectId, clean);
+      res.json({ aliases: clean });
     } catch (err: any) { sendError(res, err); }
   });
 
@@ -640,17 +745,18 @@ export function registerConstructorRoutes(app: Express): void {
       const limit = Math.min(Number(req.body?.limit) || 50000, 50000);
 
       const slice = await loadProjectSlice(projectId);
+      const aliases = aliasMap(await loadProjectAliases(projectId));
       let rows: any[] = entity === 'tag' ? slice.tags : slice.elements;
 
       for (const f of filters) {
-        rows = rows.filter(r => applyFilter(resolveValue(entity, r, f.field), f.op, f.value));
+        rows = rows.filter(r => applyFilter(resolveValue(entity, r, f.field, aliases), f.op, f.value));
       }
 
       if (sort?.field) {
         const dir = sort.dir === 'desc' ? -1 : 1;
         rows = [...rows].sort((a, b) => {
-          const va = resolveValue(entity, a, sort.field);
-          const vb = resolveValue(entity, b, sort.field);
+          const va = resolveValue(entity, a, sort.field, aliases);
+          const vb = resolveValue(entity, b, sort.field, aliases);
           const na = parseRuNumber(va), nb = parseRuNumber(vb);
           if (na != null && nb != null) return (na - nb) * dir;
           return va.localeCompare(vb, 'ru') * dir;
@@ -661,7 +767,7 @@ export function registerConstructorRoutes(app: Express): void {
       const out = rows.slice(0, limit).map(r => ({
         key: `${entity}:${r.id}`,
         cells: columns.map(c => {
-          const v = resolveValue(entity, r, c);
+          const v = resolveValue(entity, r, c, aliases);
           // Числа отдаём числами — иначе в таблице не заработает СУММ()
           const n = parseRuNumber(v);
           return n != null && String(n) === v.replace(/[\s ]/g, '').replace(',', '.') ? n : v;
