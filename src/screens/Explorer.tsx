@@ -1406,6 +1406,14 @@ export default function Explorer() {
                          <span className="text-slate-500 dark:text-dark-text-muted">Тип</span>
                          <span className="text-slate-800 dark:text-dark-text-main flex-1 text-right truncate ml-2">{item.type}</span>
                        </div>
+                       <div className="flex justify-between items-center border-b border-slate-100 pb-1">
+                         <span className="text-slate-500 dark:text-dark-text-muted">Статус</span>
+                         <StatusChip code={item.statusCode} onClick={(e) => { e.stopPropagation(); handleChangeStatus(item.id); }} />
+                       </div>
+                       <div className="flex justify-between border-b border-slate-100 pb-1">
+                         <span className="text-slate-500 dark:text-dark-text-muted">Ревизия</span>
+                         <span className="text-slate-800 dark:text-dark-text-main">v{item.revision || '1'}</span>
+                       </div>
                        <div className="flex justify-between border-b border-slate-100 pb-1">
                          <span className="text-slate-500 dark:text-dark-text-muted">Дата изменения</span>
                          <span className="text-slate-800 dark:text-dark-text-main">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : ''}</span>
@@ -2042,9 +2050,7 @@ const FileCardItem = React.memo(({
            getFileIcon(item, "w-12 h-12")
          )}
          {!item.isFolder && item.statusCode && (
-            <span className={`absolute bottom-0 right-0 text-xs font-bold w-4 h-4 flex items-center justify-center rounded-full border border-white text-white ${item.statusCode === 'A' ? 'bg-green-500' : item.statusCode === 'B' ? 'bg-teal-500' : item.statusCode === 'C' ? 'bg-yellow-500' : 'bg-red-500'}`}>
-              {item.statusCode}
-            </span>
+            <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full ring-2 ring-white dark:ring-dark-bg ${statusOf(item.statusCode).dot}`} title={statusOf(item.statusCode).label} />
          )}
          {loaded && (
             <span
