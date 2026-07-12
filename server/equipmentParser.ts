@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { XMLParser } from 'fast-xml-parser';
+import { canonicalUnit } from './normalize.js';
 
 // ── Структурированный результат разбора расчёта вентиляционного оборудования ──
 export interface SpecParam { key: string; value: string; unit: string; }
@@ -305,13 +306,13 @@ export function extractGroupedSpecs(rowsIn: any[][] | GridRow[], skipTitleRow = 
       const value = texts[vc.col] || '';
       if (value === '') continue;
       const key = vc.label && layout.valueCols.length > 1 ? `${first} (${vc.label})` : first;
-      ensureDefault().params.push({ key, value, unit: cleanUnit });
+      ensureDefault().params.push({ key, value, unit: canonicalUnit(cleanUnit) });
       emitted = true;
     }
     // Значение вне размеченных колонок (кривая строка) — старое поведение: вторая ячейка
     if (!emitted && nonEmpty.length >= 2) {
       const value = nonEmpty[1];
-      if (!isUnitWord(value)) ensureDefault().params.push({ key: first, value, unit: cleanUnit });
+      if (!isUnitWord(value)) ensureDefault().params.push({ key: first, value, unit: canonicalUnit(cleanUnit) });
     }
   }
 
@@ -472,7 +473,7 @@ function xParams(node: any): SpecParam[] {
     .map(p => ({
       key: xAttr(p, 'name', 'key', 'параметр'),
       value: xText(p),
-      unit: xAttr(p, 'unit', 'ед'),
+      unit: canonicalUnit(xAttr(p, 'unit', 'ед')),
     }))
     .filter(p => p.key);
 }
@@ -612,7 +613,7 @@ function parseXmlParamsLegacy(inner: string, attr: (s: string, a: string) => str
     const key = attr(pm[1], 'name') || attr(pm[1], 'key') || attr(pm[1], 'параметр');
     const unit = attr(pm[1], 'unit') || attr(pm[1], 'ед');
     const value = pm[2].replace(/<[^>]+>/g, '').trim();
-    if (key) params.push({ key, value, unit });
+    if (key) params.push({ key, value, unit: canonicalUnit(unit) });
   }
   return params;
 }

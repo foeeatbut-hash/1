@@ -94,7 +94,7 @@ const flatParams = (r: ReturnType<typeof parseEquipmentExcel>) => {
   });
   const p = flatParams(parseEquipmentExcel(buf));
   check('шапка таблицы не стала параметром', !p.some(x => x.key.includes('Наименование')), p.map(x => x.key));
-  check('Расход: значение 5000, ед м3/ч', p.some(x => x.key === 'Расход воздуха' && x.value === '5000' && x.unit === 'м3/ч'), p);
+  check('Расход: 5000, ед канонизирована м³/ч', p.some(x => x.key === 'Расход воздуха' && x.value === '5000' && x.unit === 'м³/ч'), p);
   check('колонка № не съела ключи', p.some(x => x.key === 'Полное давление' && x.value === '450'), p);
   check('текстовое значение (марка) на месте', p.some(x => x.key === 'Марка двигателя' && x.value === 'АИР80'), p);
 }
@@ -114,7 +114,7 @@ const flatParams = (r: ReturnType<typeof parseEquipmentExcel>) => {
   const p = flatParams(parseEquipmentExcel(buf));
   check('приток отдельным параметром', p.some(x => x.key === 'Расход воздуха (Приток)' && x.value === '5000'), p);
   check('вытяжка отдельным параметром', p.some(x => x.key === 'Расход воздуха (Вытяжка)' && x.value === '4500'), p);
-  check('единица у обоих', p.filter(x => x.key.startsWith('Расход')).every(x => x.unit.includes('м3/ч')), p);
+  check('единица у обоих канонизирована', p.filter(x => x.key.startsWith('Расход')).every(x => x.unit === 'м³/ч'), p);
 }
 
 // ── 6. Поиск листа с «хвостом» в имени ──

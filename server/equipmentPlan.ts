@@ -1,5 +1,6 @@
 import { EquipParseResult, SpecGroup, SpecParam } from './equipmentParser.js';
 import { flattenGroups } from './equipmentImport.js';
+import { parseRuNumber } from './normalize.js';
 
 // ── Dry-run план импорта (Фаза 2 «Импорт бланков 2.0») ──
 // Считает, ЧТО изменится в проекте, НЕ трогая БД: инженер видит дерево
@@ -72,10 +73,7 @@ const COMMON_RANGES: RangeRule[] = [
   { keys: ['масс', 'вес'], min: 0, max: 50000, label: 'масса, кг' },
 ];
 
-function parseNum(v: string): number | null {
-  const s = String(v || '').replace(/[\s ]/g, '').replace(',', '.').match(/^-?\d+(\.\d+)?/);
-  return s ? parseFloat(s[0]) : null;
-}
+const parseNum = parseRuNumber;
 
 function validateParam(equipType: string, key: string, value: string): string | undefined {
   const kl = key.toLowerCase();
