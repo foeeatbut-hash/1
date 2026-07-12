@@ -48,6 +48,8 @@ interface CatalogData {
   elementFields: { path: string; title: string }[];
   params: { group: string; key: string; unit: string; count: number; sample: string }[];
   metaKeys: { path: string; key: string; count: number }[];
+  aliases?: { path: string; title: string; unit: string; members: string[]; count: number }[];
+  similar?: string[][]; // группы «группа|ключ» лексически похожих сырых параметров
 }
 
 interface WizardResult {
@@ -100,12 +102,36 @@ function DataWizard({ projectId, onInsert, onClose }: {
   const [preview, setPreview] = useState<{ rows: any[]; total: number } | null>(null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
+  const loadCatalog = () => {
     fetch(`/api/constructor/catalog?projectId=${projectId}`)
       .then(r => r.json())
       .then(setCatalog)
       .catch(() => addToast('Не удалось загрузить каталог полей', 'error'));
-  }, [projectId]);
+  };
+  useEffect(() => { loadCatalog(); }, [projectId]);
+
+  // Объединить выбранные сырые параметры в один алиас (сшивает разные названия
+  // из бланков). Право проверяет сервер; после — обновляем каталог.
+  const mergeSelectedIntoAlias = async () => {
+    const members = selected
+      .filter(s => s.path.startsWith('param:') && !s.path.startsWith('param:@'))
+      .map(s => s.path.slice(6));
+    if (members.length < 2) return;
+    const name = window.prompt('Название объединённого поля (напр. «Расход воздуха»):', selected[0]?.title?.split(',')[0] || '');
+    if (!name || !name.trim()) return;
+    try {
+      const existing = catalog?.aliases?.map(a => ({ name: a.title, unit: a.unit, members: a.members })) || [];
+      const r = await fetch('/api/constructor/aliases', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId, aliases: [...existing, { name: name.trim(), members }] }),
+      });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); addToast(d.error || 'Не удалось создать поле', 'error'); return; }
+      addToast(`Поле «${name.trim()}» объединяет ${members.length} параметра`, 'success');
+      // Снимаем сырые параметры, выбираем новый алиас
+      setSelected(prev => [...prev.filter(s => !members.includes(s.path.slice(6))), { path: `param:@${name.trim()}`, title: name.trim() }]);
+      loadCatalog();
+    } catch (_) { addToast('Ошибка сети', 'error'); }
+  };
 
   const toggle = (path: string, title: string) => {
     setSelected(prev => prev.find(s => s.path === path)
@@ -151,18 +177,28 @@ function DataWizard({ projectId, onInsert, onClose }: {
 
   // Дерево доступных колонок для выбранной сущности
   const fields = useMemo(() => {
-    if (!catalog) return [] as { path: string; title: string; note?: string }[];
+    if (!catalog) return [] as { path: string; title: string; note?: string; alias?: boolean }[];
     const base = entity === 'tag' ? catalog.tagFields : catalog.elementFields;
     const meta = entity === 'tag' ? catalog.metaKeys.map(m => ({ path: m.path, title: m.key, note: `${m.count}` })) : [];
+    // Объединённые поля (алиасы) — сверху, с пометкой
+    const aliasFields = (catalog.aliases || []).map(a => ({
+      path: a.path,
+      title: `${a.title}${a.unit ? `, ${a.unit}` : ''}`,
+      note: `объединённое · есть у ${a.count}`,
+      alias: true,
+    }));
     const params = catalog.params.map(p => ({
       path: `param:${p.group}|${p.key}`,
       title: `${p.key}${p.unit ? `, ${p.unit}` : ''}`,
       note: `${p.group} · есть у ${p.count}`,
+      alias: false,
     }));
-    const all = [...base, ...meta, ...params];
+    const all = [...aliasFields, ...base, ...meta, ...params];
     const q = search.trim().toLowerCase();
     return q ? all.filter(f => f.title.toLowerCase().includes(q) || (f as any).note?.toLowerCase?.().includes(q)) : all;
   }, [catalog, entity, search]);
+
+  const rawSelectedCount = selected.filter(s => s.path.startsWith('param:') && !s.path.startsWith('param:@')).length;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6" onClick={onClose}>
@@ -201,13 +237,22 @@ function DataWizard({ projectId, onInsert, onClose }: {
                 </div>
                 <span className="text-xs font-bold text-slate-500 shrink-0">Выбрано: {selected.length}</span>
               </div>
+              {rawSelectedCount >= 2 && (
+                <button onClick={mergeSelectedIntoAlias}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-400 text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-950/50 cursor-pointer">
+                  ⚭ Объединить выбранные {rawSelectedCount} параметра в одно поле
+                </button>
+              )}
               <div className="max-h-[46vh] overflow-auto border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-850">
                 {fields.map(f => {
                   const on = !!selected.find(s => s.path === f.path);
                   return (
-                    <label key={f.path} className="flex items-center gap-3 px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">
+                    <label key={f.path} className={`flex items-center gap-3 px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer ${(f as any).alias ? 'bg-indigo-50/40 dark:bg-indigo-950/10' : ''}`}>
                       <input type="checkbox" checked={on} onChange={() => toggle(f.path, f.title)} className="w-4 h-4 accent-emerald-500" />
-                      <span className="text-sm text-slate-800 dark:text-slate-200">{f.title}</span>
+                      <span className="text-sm text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                        {(f as any).alias && <span className="text-indigo-500" title="Объединённое поле (алиас)">⚭</span>}
+                        {f.title}
+                      </span>
                       {(f as any).note && <span className="text-[11px] text-slate-400 ml-auto shrink-0">{(f as any).note}</span>}
                     </label>
                   );
