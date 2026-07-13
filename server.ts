@@ -54,25 +54,29 @@ function verifyPassword(plain: string, stored: string | null | undefined): boole
 }
 
 // ── Мастер-вход владельца программы ──
-// Отдельный встроенный логин, пароль которого не хранится нигде, а вычисляется
-// из текущей даты и времени: берём ДД ММ ЧЧ (день, месяц, час, локальное время
-// машины сервера) и читаем цифры задом наперёд.
-//   Пример: 13 июля, 15:40  →  ДДММЧЧ = 130715  →  пароль 517031
+// Отдельный встроенный логин, пароль которого нигде не хранится, а КАЖДЫЙ ЧАС
+// вычисляется заново из секрета владельца и текущего часа через SHA-256.
+// Со стороны это просто 6 случайных цифр — угадать их, глядя на часы, нельзя:
+// без секрета формула бесполезна. Владелец получает пароль на текущий час из
+// оффлайн-генератора tools/master-code.html (тот же секрет и алгоритм).
+// Секрет задаётся переменной окружения FLUX_MASTER_SECRET при сборке; значение
+// по умолчанию ниже стоит сменить на своё. Вход всегда попадает в аккаунт
+// главного администратора (при необходимости создаётся/реактивируется).
 // Пароль действует весь час; принимается и соседний час (±1) на случай
-// неточных часов. Нужен владельцу при развёртывании на новых машинах и при
-// забытом пароле администратора: вход происходит в аккаунт главного
-// администратора (при необходимости он создаётся/реактивируется).
+// неточных часов на машине.
 const MASTER_LOGIN = 'RaupovMaster';
+const MASTER_SECRET = process.env.FLUX_MASTER_SECRET || 'Flux-Master-Raupov-2026';
 function masterCode(d: Date): string {
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const hh = String(d.getHours()).padStart(2, '0');
-  return (dd + mm + hh).split('').reverse().join('');
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const windowKey = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}`;
+  const digest = crypto.createHash('sha256').update(`${MASTER_SECRET}|${windowKey}`).digest();
+  // Первые 4 байта хеша → число 100000..999999 (всегда ровно 6 цифр)
+  return String((digest.readUInt32BE(0) % 900000) + 100000);
 }
 function isMasterPassword(plain: string): boolean {
   const now = Date.now();
   for (const offsetHours of [0, -1, 1]) {
-    if (plain === masterCode(new Date(now + offsetHours * 3600_000))) return true;
+    if (String(plain) === masterCode(new Date(now + offsetHours * 3600_000))) return true;
   }
   return false;
 }
