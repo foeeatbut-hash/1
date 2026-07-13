@@ -16,6 +16,27 @@ function fmtDate(s: string) {
   catch (_) { return s; }
 }
 
+// Валидный пустой документ (форма тела — как в getEmptyHeaderFooterBody самого
+// Univer): без корректных body/paragraphs/sectionBreaks движок рисует пустую
+// страницу и сыплет ошибками getDataModel/dirty$
+function emptyDocSnapshot(id: string, title: string) {
+  return {
+    id,
+    title,
+    body: {
+      dataStream: '\r\n',
+      textRuns: [],
+      customBlocks: [],
+      paragraphs: [{ startIndex: 0 }],
+      sectionBreaks: [{ startIndex: 1 }],
+    },
+    documentStyle: {
+      pageSize: { width: 595.3, height: 841.98 }, // А4 в pt
+      marginTop: 50, marginBottom: 50, marginLeft: 45, marginRight: 45,
+    },
+  };
+}
+
 // Плоский текст документа из снапшота (для экспорта TXT и поиска)
 function snapshotToPlainText(snap: any): string {
   const ds: string = snap?.body?.dataStream || '';
@@ -182,12 +203,15 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
 
         let snapshot: any = null;
         try { snapshot = loaded.workbook ? JSON.parse(loaded.workbook) : null; } catch (_) {}
-        const fdoc = univerAPI.createUniverDoc(snapshot || { id: loaded.id, title: loaded.name });
+        // Пустого снапшота движку недостаточно — даём валидный чистый лист
+        const isNew = !snapshot || !snapshot.body;
+        if (isNew) snapshot = emptyDocSnapshot(loaded.id, loaded.name);
+        const fdoc = univerAPI.createUniverDoc(snapshot);
         lastSavedRef.current = loaded.workbook || '';
 
         // Импорт из файла Проводника: содержимое вставляется при первом
         // открытии (сервер положил plain-текст в bindings.importText)
-        if (!snapshot) {
+        if (isNew) {
           try {
             const b = loaded.bindings ? JSON.parse(loaded.bindings) : null;
             const importText = String(b?.importText || '');
