@@ -8,8 +8,9 @@ import * as XLSX from 'xlsx';
 import {
   Table2, Plus, ArrowLeft, Loader2, Download, FolderOpen, Copy, Trash2,
   RotateCcw, Lock, Users2, Search, ChevronRight, Database, X, CheckCircle2,
-  Boxes, RefreshCw, Unlink, AlertTriangle, Printer, History
+  Boxes, RefreshCw, Unlink, AlertTriangle, Printer, History, FileText
 } from 'lucide-react';
+import TextDocEditor from './TextDocEditor';
 
 // ── Конструктор: сборка своих таблиц из данных проекта ──
 // Дизайн: docs/constructor-design-v0.25*.md. Реализация MVP (Фаза 1):
@@ -1265,6 +1266,34 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   );
 }
 
+// ═══════════════════════ Выбор редактора по типу документа ═══════════════════════
+// Таблица (DOC/TEMPLATE) → редактор Univer Sheets; текст (TEXT) → Univer Docs.
+// При глубокой ссылке (/constructor?doc=…) тип берётся лёгким запросом meta.
+function EditorGate({ docId, knownKind, autoRefresh, onClose }: {
+  docId: string; knownKind?: string; autoRefresh?: boolean; onClose: () => void;
+}) {
+  const [kind, setKind] = useState<string | null>(knownKind || null);
+  const { addToast } = useToastStore();
+
+  useEffect(() => {
+    if (kind) return;
+    let alive = true;
+    fetch(`/api/constructor/docs/${docId}/meta`)
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(d => { if (alive) setKind(d?.doc?.kind || 'DOC'); })
+      .catch(() => { if (alive) { addToast('Не удалось открыть документ', 'error'); onClose(); } });
+    return () => { alive = false; };
+  }, [docId, kind]);
+
+  if (!kind) {
+    return <div className="h-full flex items-center justify-center text-slate-400"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+  }
+  if (kind === 'TEXT' || kind === 'NOTE') {
+    return <TextDocEditor docId={docId} onClose={onClose} />;
+  }
+  return <DocEditor docId={docId} autoRefresh={autoRefresh} onClose={onClose} />;
+}
+
 // ═══════════════════════ Библиотека ═══════════════════════
 
 export default function ConstructorScreen() {
@@ -1281,6 +1310,8 @@ export default function ConstructorScreen() {
   };
   const [trashOpen, setTrashOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Вкладки студии: все документы / таблицы (Эксель) / текстовые (Ворд)
+  const [tab, setTab] = useState<'all' | 'sheet' | 'text'>('all');
   const autoRefreshRef = useRef(false); // открыть следующий документ с обновлением блоков
 
   const projectId = activeProject?.id || 'default';
@@ -1296,7 +1327,10 @@ export default function ConstructorScreen() {
   useEffect(() => { setLoading(true); loadDocs(); }, [activeProject?.id, activeDocId]);
 
   const me = user?.id;
-  const alive = docs.filter(d => !d.deletedAt);
+  // Фильтр по вкладке: sheet = таблицы (DOC), text = текстовые документы (TEXT/NOTE)
+  const matchesTab = (d: DocMeta) =>
+    tab === 'all' ? true : tab === 'sheet' ? d.kind === 'DOC' : (d.kind === 'TEXT' || d.kind === 'NOTE');
+  const alive = docs.filter(d => !d.deletedAt && (d.kind === 'TEMPLATE' || matchesTab(d)));
   const templates = alive.filter(d => d.kind === 'TEMPLATE');
   const recents = useMemo(() => {
     if (!me) return [] as DocMeta[];
@@ -1310,13 +1344,15 @@ export default function ConstructorScreen() {
   const sharedDocs = alive.filter(d => d.kind !== 'TEMPLATE' && d.scope === 'SHARED');
   const trash = docs.filter(d => d.deletedAt);
 
-  const createDoc = async () => {
+  // Создание: таблица (Эксель, kind=DOC) или текстовый документ (Ворд, kind=TEXT)
+  const createDoc = async (kind: 'DOC' | 'TEXT' = 'DOC') => {
     const res = await fetch('/api/constructor/docs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId }),
+      body: JSON.stringify({ projectId, ...(kind !== 'DOC' ? { kind } : {}) }),
     });
     if (res.ok) {
       const { doc } = await res.json();
+      loadDocs(); // список знает kind нового документа до открытия
       setActiveDocId(doc.id);
     } else addToast('Не удалось создать документ', 'error');
   };
@@ -1357,14 +1393,17 @@ export default function ConstructorScreen() {
   if (activeDocId) {
     const ar = autoRefreshRef.current;
     autoRefreshRef.current = false;
-    return <DocEditor docId={activeDocId} autoRefresh={ar} onClose={() => setActiveDocId(null)} />;
+    return <EditorGate docId={activeDocId} knownKind={docs.find(d => d.id === activeDocId)?.kind} autoRefresh={ar} onClose={() => { setActiveDocId(null); loadDocs(); }} />;
   }
 
   const Card = ({ d, inTrash }: { d: DocMeta; inTrash?: boolean }) => (
     <div className="group bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 hover:border-emerald-400 dark:hover:border-emerald-700 hover:shadow-md transition-all cursor-pointer"
       onClick={() => !inTrash && setActiveDocId(d.id)}>
       <div className="flex items-start justify-between gap-2">
-        <Table2 className="w-5 h-5 text-emerald-600 dark:text-emerald-500 shrink-0 mt-0.5" />
+        {/* Тип видно по иконке: таблица — изумруд, текстовый документ — синий */}
+        {(d.kind === 'TEXT' || d.kind === 'NOTE')
+          ? <FileText className="w-5 h-5 text-sky-600 dark:text-sky-500 shrink-0 mt-0.5" />
+          : <Table2 className="w-5 h-5 text-emerald-600 dark:text-emerald-500 shrink-0 mt-0.5" />}
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
           {!inTrash && (
             <>
@@ -1416,16 +1455,38 @@ export default function ConstructorScreen() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
-      <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-6 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5">
-            <Table2 className="w-6 h-6 text-emerald-600" /> Конструктор
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Собирайте свои таблицы и документы из данных проекта</p>
+      <div className="flex flex-col gap-4 bg-white dark:bg-slate-900 p-6 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5">
+              <Table2 className="w-6 h-6 text-emerald-600" /> Конструктор
+            </h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Таблицы и текстовые документы из данных проекта — в одном месте</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => createDoc('DOC')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новая таблица: формулы, данные проекта, умные блоки">
+              <Table2 className="w-4 h-4" /> Таблица
+            </button>
+            <button onClick={() => createDoc('TEXT')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новый текстовый документ: страницы, стили, списки — как в Word">
+              <FileText className="w-4 h-4" /> Документ
+            </button>
+          </div>
         </div>
-        <button onClick={createDoc} className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm cursor-pointer">
-          <Plus className="w-4 h-4" /> Новый документ
-        </button>
+        {/* Вкладки типов */}
+        <div className="flex items-center gap-1.5">
+          {([
+            { id: 'all' as const, label: 'Все' },
+            { id: 'sheet' as const, label: 'Таблицы' },
+            { id: 'text' as const, label: 'Документы' },
+          ]).map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-all ${tab === t.id
+                ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-800 dark:border-slate-100'
+                : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:border-slate-400'}`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {loading ? (

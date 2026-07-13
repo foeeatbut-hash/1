@@ -508,22 +508,44 @@ export default function Explorer() {
      fetchData();
   };
 
-  // «Создать → Таблицу»: новый документ Конструктора и сразу в его редактор.
-  // Зеркало в Проводнике появится автоматически после первого сохранения с именем.
-  const createConstructorSheet = async () => {
+  // «Создать → Таблицу/Документ»: новый документ Конструктора нужного типа
+  // и сразу в его редактор. Зеркало в Проводнике появится после именования.
+  const createConstructorDoc = async (kind: 'DOC' | 'TEXT') => {
     try {
       const res = await fetch('/api/constructor/docs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: activeProject?.id || '' }),
+        body: JSON.stringify({ projectId: activeProject?.id || '', ...(kind !== 'DOC' ? { kind } : {}) }),
       });
       const data = await res.json();
       if (!res.ok || !data?.doc?.id) throw new Error(data?.error || 'Не удалось создать документ');
       navigate(`/constructor?doc=${data.doc.id}`);
     } catch (e: any) {
-      addToast(`Не удалось создать таблицу: ${e.message}`, 'error');
+      addToast(`Не удалось создать документ: ${e.message}`, 'error');
     }
   };
+  const createConstructorSheet = () => createConstructorDoc('DOC');
+
+  // «Редактировать копию в Конструкторе»: xlsx/csv → таблица, txt/md/docx → текст.
+  // Исходный файл не меняется — редактируется копия-документ студии.
+  const editCopyInConstructor = async (fileId: string) => {
+    try {
+      const res = await fetch('/api/constructor/docs/import-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId, projectId: activeProject?.id || '' }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.doc?.id) throw new Error(data?.error || 'Не удалось открыть файл');
+      addToast('Создана редактируемая копия — исходный файл не изменён', 'success');
+      navigate(`/constructor?doc=${data.doc.id}`);
+    } catch (e: any) {
+      addToast(String(e.message || e), 'error');
+    }
+  };
+
+  // Файл можно открыть в Конструкторе? (по расширению)
+  const canEditInConstructor = (name: string) => /\.(xlsx|xlsm|xls|csv|txt|md|log|json|docx)$/i.test(name || '');
 
   // Тело запроса перемещения/копирования с учётом виртуальных разделов:
   // при переносе в корень раздела передаём его область видимости
@@ -1484,8 +1506,9 @@ export default function Explorer() {
               {/* «Создать» — как в Windows: правый клик по пустому месту */}
               <div className="px-6 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 select-none">Создать</div>
               <MenuItem icon={<FolderPlus />} label="Папку" onClick={() => { createFolder(); setContextMenu(null); }} />
-              <MenuItem icon={<Grid3X3 />} label="Таблицу (Конструктор)" onClick={() => { createConstructorSheet(); setContextMenu(null); }} />
-              <MenuItem icon={<FileIcon />} label="Текстовый документ" onClick={() => { createEmptyFile("Новый документ.txt", "TXT", ""); setContextMenu(null); }} />
+              <MenuItem icon={<Grid3X3 />} label="Таблицу (Excel)" onClick={() => { createConstructorDoc('DOC'); setContextMenu(null); }} />
+              <MenuItem icon={<FileText />} label="Документ (Word)" onClick={() => { createConstructorDoc('TEXT'); setContextMenu(null); }} />
+              <MenuItem icon={<FileIcon />} label="Текстовый файл (.txt)" onClick={() => { createEmptyFile("Новый документ.txt", "TXT", ""); setContextMenu(null); }} />
               <div className="h-px bg-slate-300 dark:bg-dark-border my-1 mx-2" />
               <MenuItem icon={<Upload />} label="Загрузить" onClick={() => { fileInputRef.current?.click(); setContextMenu(null); }} />
               {clipboard && (
@@ -1500,6 +1523,13 @@ export default function Explorer() {
               )}
               {contextMenu.isFile && (
                 <>
+                  {canEditInConstructor(allCurrentItems.find(i => i.id === contextMenu.targetId)?.name || '') && (
+                    <MenuItem
+                      icon={<Grid3X3 />}
+                      label="Редактировать копию в Конструкторе"
+                      onClick={() => { editCopyInConstructor(contextMenu.targetId!); setContextMenu(null); }}
+                    />
+                  )}
                   <MenuItem icon={<Boxes />} label="В оборудование…" onClick={() => { openImportPicker(contextMenu.targetId!); setContextMenu(null); }} />
                   <div className="h-px bg-slate-300 dark:bg-dark-border my-1 mx-2" />
                   <MenuItem icon={<Download />} label="Скачать" onClick={() => { handleDownload(contextMenu.targetId!, false); setContextMenu(null); }} />
