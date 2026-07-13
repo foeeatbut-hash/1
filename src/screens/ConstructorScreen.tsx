@@ -1308,6 +1308,12 @@ export default function ConstructorScreen() {
     setActiveDocIdRaw(id);
     setSearchParams(id ? { doc: id } : {}, { replace: true });
   };
+  // Переход на /constructor?doc=… из Проводника/уведомлений меняет URL уже после
+  // монтирования — синхронизируем открытый документ с параметром
+  useEffect(() => {
+    const fromUrl = searchParams.get('doc');
+    if (fromUrl !== activeDocId) setActiveDocIdRaw(fromUrl);
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
   const [trashOpen, setTrashOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   // Вкладки студии: все документы / таблицы (Эксель) / текстовые (Ворд)
