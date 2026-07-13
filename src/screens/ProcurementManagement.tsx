@@ -9,17 +9,21 @@ import {
 } from 'lucide-react';
 import CustomSelect from '../components/CustomSelect';
 import {
-  ProcurementStage, loadProcurementStages, stageIcon, stageColor
+  ProcurementStage, StageTemplate, loadProcurementStages, loadStageTemplates,
+  resolveTemplate, stageIcon, stageColor, DEFAULT_TEMPLATE_ID
 } from '../lib/procurementStages';
 
 // ── Раздел «Менеджмент» ────────────────────────────────────────────────────────
 // Оболочка над той же базой тегов под задачи менеджеров по закупкам.
-// Этапы закупки настраиваются в «Настройки → Менеджмент» (название/значок/цвет).
+// Этапы закупки настраиваются в «Настройки → Менеджмент» (название/значок/цвет),
+// там же создаются шаблоны этапов с правилами применения (класс, тип
+// оборудования, обозначение) — каждая позиция получает свой набор этапов.
 // Отметки этапов хранятся в metadata тега: procurement.stage + stageLog.
 
 interface ProcurementInfo {
   stage?: string;
   stageLog?: Record<string, { at: string; by: string }>;
+  templateId?: string; // назначенный вручную шаблон этапов ('' = автоматически)
   // Старый формат (v0.21.0) — переносится в stageLog при чтении
   orderedAt?: string; orderedBy?: string;
   approvedAt?: string; approvedBy?: string;
@@ -80,6 +84,8 @@ interface Row {
   tag: any;
   meta: any;
   proc: ProcurementInfo;
+  stages: ProcurementStage[];     // этапы позиции (стандартные или шаблонные)
+  template: StageTemplate | null; // применённый шаблон (null = стандартный)
   stageIdx: number;
   actuality: string;
   isDup: boolean;
@@ -94,6 +100,7 @@ export default function ProcurementManagement() {
 
   const [tags, setTags] = useState<any[]>([]);
   const [stages, setStages] = useState<ProcurementStage[]>([]);
+  const [templates, setTemplates] = useState<StageTemplate[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [search, setSearch] = useState('');
   // Дебаунс поиска: фильтрация и сортировка всех строк на каждый символ фризили ввод
@@ -119,13 +126,15 @@ export default function ProcurementManagement() {
     if (!activeProject) return;
     setIsLoading(true);
     try {
-      const [data, loadedStages] = await Promise.all([
+      const [data, loadedStages, loadedTemplates] = await Promise.all([
         dataService.getTags(activeProject.id),
-        loadProcurementStages()
+        loadProcurementStages(),
+        loadStageTemplates()
       ]);
       const tagsList = data.tags || [];
       setTags(tagsList);
       setStages(loadedStages);
+      setTemplates(loadedTemplates);
       const liveIds = new Set(tagsList.map((t: any) => t.id));
       setSelectedIds(prev => new Set(Array.from(prev).filter(id => liveIds.has(id))));
     } catch (err) {
@@ -138,8 +147,6 @@ export default function ProcurementManagement() {
   useEffect(() => {
     loadAll();
   }, [loadAll]);
-
-  const stageIds = useMemo(() => stages.map(s => s.id), [stages]);
 
   const duplicateCodes = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -156,17 +163,30 @@ export default function ProcurementManagement() {
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'ru'));
   }, [tags]);
 
-  // Строки: тег + распарсенные закупочные данные с учётом настроенных этапов
+  // Строки: тег + распарсенные закупочные данные. Набор этапов у каждой позиции
+  // свой: подбирается шаблон по правилам (обозначение/тип/категория/отдел)
+  // либо назначенный вручную (proc.templateId), иначе — стандартные этапы.
   const rows = useMemo<Row[]>(() => {
     return tags.map(t => {
       const meta = parseMeta(t);
       const proc = normalizeProc(meta.procurement || {});
-      let stageIdx = proc.stage ? stageIds.indexOf(proc.stage) : 0;
+      const links = Array.isArray(t.componentElements) ? t.componentElements : [];
+      const template = resolveTemplate({
+        identifier: t.identifier || '',
+        department: t.department || '',
+        equipTypes: links.map((c: any) => String(c.equipType || '')).filter(Boolean),
+        categories: links.map((c: any) => String(c?.monoblock?.system?.category || '')).filter(Boolean),
+        explicitTemplateId: proc.templateId,
+      }, templates);
+      const rowStages = template ? template.stages : stages;
+      let stageIdx = proc.stage ? rowStages.findIndex(s => s.id === proc.stage) : 0;
       if (stageIdx < 0) stageIdx = 0; // этап удалили из настроек — позиция на первом
       return {
         tag: t,
         meta,
         proc,
+        stages: rowStages,
+        template,
         stageIdx,
         actuality: tagActuality(meta),
         isDup: duplicateCodes.has((t.identifier || '').trim()),
@@ -174,7 +194,7 @@ export default function ProcurementManagement() {
         qtyNum: parseFloat(String(proc.qty || '').replace(',', '.')) || 0,
       };
     });
-  }, [tags, duplicateCodes, stageIds]);
+  }, [tags, duplicateCodes, stages, templates]);
 
   const rowsById = useMemo(() => {
     const m: Record<string, Row> = {};
@@ -184,16 +204,26 @@ export default function ProcurementManagement() {
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
-    for (const s of stages) c[s.id] = 0;
     for (const r of rows) {
-      const id = stages[r.stageIdx]?.id;
+      const id = r.stages[r.stageIdx]?.id;
       if (id) c[id] = (c[id] || 0) + 1;
     }
     return c;
-  }, [rows, stages]);
+  }, [rows]);
+
+  // Карточки-счётчики: стандартные этапы + этапы шаблонов, на которых есть позиции
+  const stageCards = useMemo(() => {
+    const cards: Array<{ stage: ProcurementStage; templateName?: string }> = stages.map(s => ({ stage: s }));
+    for (const t of templates) {
+      for (const s of t.stages) {
+        if ((counts[s.id] || 0) > 0) cards.push({ stage: s, templateName: t.name });
+      }
+    }
+    return cards;
+  }, [stages, templates, counts]);
 
   const rowMatchesFilters = useCallback((r: Row): boolean => {
-    if (stageFilter !== 'all' && stages[r.stageIdx]?.id !== stageFilter) return false;
+    if (stageFilter !== 'all' && r.stages[r.stageIdx]?.id !== stageFilter) return false;
     if (deptFilter && r.tag.department !== deptFilter) return false;
     if (onlyDuplicates && !r.isDup) return false;
     if (onlyCritical && r.actuality !== 'critical' && r.actuality !== 'warning') return false;
@@ -207,7 +237,7 @@ export default function ProcurementManagement() {
       if (!hit) return false;
     }
     return true;
-  }, [stageFilter, deptFilter, onlyDuplicates, onlyCritical, debouncedSearch, stages]);
+  }, [stageFilter, deptFilter, onlyDuplicates, onlyCritical, debouncedSearch]);
 
   // Смена фильтров возвращает порционный рендер к началу
   useEffect(() => {
@@ -216,8 +246,8 @@ export default function ProcurementManagement() {
 
   const lastDateOf = (r: Row): number => {
     let max = new Date(r.tag.createdAt || 0).getTime();
-    for (const id of stageIds) {
-      const rec = r.proc.stageLog?.[id];
+    for (const s of r.stages) {
+      const rec = r.proc.stageLog?.[s.id];
       if (rec?.at) max = Math.max(max, new Date(rec.at).getTime());
     }
     return max;
@@ -233,7 +263,7 @@ export default function ProcurementManagement() {
       if (sortKey === 'qty') return dir * (a.qtyNum - b.qtyNum);
       return dir * (lastDateOf(a) - lastDateOf(b));
     });
-  }, [rows, rowMatchesFilters, sortKey, sortAsc, stageIds]);
+  }, [rows, rowMatchesFilters, sortKey, sortAsc]);
 
   // ── Дерево: родитель → дочерние (по связям тегов на холсте) ────────────────
   const tree = useMemo(() => {
@@ -284,14 +314,15 @@ export default function ProcurementManagement() {
     }
   };
 
-  // Установка этапа одной позиции (с датами промежуточных этапов)
+  // Установка этапа одной позиции (с датами промежуточных этапов).
+  // Работает по набору этапов самой позиции (стандартному или шаблонному).
   const applyStage = (row: Row, targetIdx: number): ProcurementInfo => {
     const now = new Date().toISOString();
     const who = user?.name || 'Пользователь';
     const proc = normalizeProc(row.proc);
     const log = { ...(proc.stageLog || {}) };
-    for (let i = 1; i < stages.length; i++) {
-      const sid = stages[i].id;
+    for (let i = 1; i < row.stages.length; i++) {
+      const sid = row.stages[i].id;
       if (i <= targetIdx) {
         if (!log[sid]) log[sid] = { at: now, by: who };
       } else {
@@ -303,7 +334,7 @@ export default function ProcurementManagement() {
     delete proc.approvedAt; delete proc.approvedBy;
     delete proc.purchasedAt; delete proc.purchasedBy;
     proc.stageLog = log;
-    proc.stage = stages[targetIdx]?.id;
+    proc.stage = row.stages[targetIdx]?.id;
     return proc;
   };
 
@@ -312,12 +343,14 @@ export default function ProcurementManagement() {
     const finalIdx = (targetIdx === row.stageIdx && targetIdx > 0) ? targetIdx - 1 : targetIdx;
     await saveProc(row.tag, row.meta, applyStage(row, finalIdx));
     if (finalIdx !== row.stageIdx) {
-      addToast(`«${row.tag.identifier}»: этап «${stages[finalIdx]?.label}»`, finalIdx > row.stageIdx ? 'success' : 'info');
+      addToast(`«${row.tag.identifier}»: этап «${row.stages[finalIdx]?.label}»`, finalIdx > row.stageIdx ? 'success' : 'info');
     }
   };
 
   // Массовая установка этапа всем выбранным — одним запросом
-  // (последовательные PUT по каждой позиции заметно фризили интерфейс)
+  // (последовательные PUT по каждой позиции заметно фризили интерфейс).
+  // Этап применяется по НОМЕРУ в наборе этапов каждой позиции — так массовое
+  // действие корректно работает и при выборе позиций с разными шаблонами.
   const setStageBulk = async (targetIdx: number) => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
@@ -325,7 +358,8 @@ export default function ProcurementManagement() {
     for (const id of ids) {
       const row = rowsById[id];
       if (!row) continue;
-      const newMeta = { ...row.meta, procurement: applyStage(row, targetIdx) };
+      const idx = Math.min(targetIdx, row.stages.length - 1);
+      const newMeta = { ...row.meta, procurement: applyStage(row, idx) };
       updates.push({ id, metadata: JSON.stringify(newMeta) });
     }
     // Мгновенное локальное обновление
@@ -340,13 +374,58 @@ export default function ProcurementManagement() {
         body: JSON.stringify({ updates }),
       });
       if (!res.ok) throw new Error('bulk update failed');
-      addToast(`Этап «${stages[targetIdx]?.label}» установлен для позиций: ${updates.length}`, 'success');
+      addToast(`Этап установлен для позиций: ${updates.length}`, 'success');
     } catch (err) {
       console.error('Bulk stage update failed:', err);
       addToast('Не удалось сохранить массовое изменение — обновите страницу', 'error');
       loadAll();
     }
   };
+
+  // Массовое назначение шаблона этапов выбранным позициям ('' = автоматически)
+  const setTemplateBulk = async (templateId: string) => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    const updates: { id: string; metadata: string }[] = [];
+    for (const id of ids) {
+      const row = rowsById[id];
+      if (!row) continue;
+      const proc = normalizeProc(row.proc);
+      if (templateId) proc.templateId = templateId;
+      else delete proc.templateId;
+      updates.push({ id, metadata: JSON.stringify({ ...row.meta, procurement: proc }) });
+    }
+    const metaById = new Map(updates.map(u => [u.id, u.metadata]));
+    setTags(prev => prev.map(t => metaById.has(t.id)
+      ? { ...t, metadata: metaById.get(t.id), parsedMetadata: undefined, __procMeta: undefined }
+      : t));
+    try {
+      const res = await fetch('/api/tags/bulk-metadata', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates }),
+      });
+      if (!res.ok) throw new Error('bulk template failed');
+      const name = templateId === DEFAULT_TEMPLATE_ID ? 'Стандартный'
+        : templateId === '' ? 'Автоматически (по правилам)'
+        : (templates.find(t => t.id === templateId)?.name || templateId);
+      addToast(`Шаблон этапов «${name}» назначен позициям: ${updates.length}`, 'success');
+    } catch (err) {
+      console.error('Bulk template update failed:', err);
+      addToast('Не удалось назначить шаблон — обновите страницу', 'error');
+      loadAll();
+    }
+  };
+
+  // Кнопки массовой установки этапов: если у всех выбранных один набор этапов —
+  // показываем его; иначе обобщённые кнопки по номерам
+  const bulkStages = useMemo<ProcurementStage[] | null>(() => {
+    const sel = Array.from(selectedIds).map(id => rowsById[id]).filter(Boolean) as Row[];
+    if (sel.length === 0) return stages;
+    const first = sel[0].stages;
+    const key = (l: ProcurementStage[]) => l.map(s => s.id).join('|');
+    return sel.every(r => key(r.stages) === key(first)) ? first : null;
+  }, [selectedIds, rowsById, stages]);
 
   const saveField = async (row: Row, field: 'supplier' | 'qty' | 'note', value: string) => {
     await saveProc(row.tag, row.meta, { ...normalizeProc(row.proc), [field]: value });
@@ -458,10 +537,10 @@ export default function ProcurementManagement() {
           </span>
         </td>
 
-        {/* Этап закупки: настроенный степпер */}
+        {/* Этап закупки: степпер по этапам позиции (стандартным или шаблонным) */}
         <td className="px-4 py-3 align-top">
           <div className="flex items-center gap-0.5 flex-wrap">
-            {stages.map((s, idx) => {
+            {row.stages.map((s, idx) => {
               const Icon = stageIcon(s.icon);
               const c = stageColor(s.color);
               const reached = idx <= row.stageIdx;
@@ -483,13 +562,23 @@ export default function ProcurementManagement() {
               );
             })}
           </div>
-          <div className="text-[10px] font-bold mt-1 text-slate-500 dark:text-slate-400">{stages[row.stageIdx]?.label || '—'}</div>
+          <div className="text-[10px] font-bold mt-1 text-slate-500 dark:text-slate-400">
+            {row.stages[row.stageIdx]?.label || '—'}
+            {row.template && (
+              <span
+                className="ml-1.5 px-1.5 py-px rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-500 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900/50 font-semibold normal-case"
+                title={row.proc.templateId ? 'Шаблон назначен вручную' : 'Шаблон применён по правилам'}
+              >
+                {row.template.name}
+              </span>
+            )}
+          </div>
         </td>
 
         {/* Даты этапов */}
         <td className="px-4 py-3 align-top">
           <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 space-y-0.5 leading-tight">
-            {stages.slice(1).map(s => {
+            {row.stages.slice(1).map(s => {
               const rec = row.proc.stageLog?.[s.id];
               const c = stageColor(s.color);
               return (
@@ -621,7 +710,7 @@ export default function ProcurementManagement() {
           <div className="text-2xl font-black leading-none">{rows.length}</div>
           <div className={`text-xs font-bold mt-1 ${stageFilter === 'all' ? 'text-indigo-100' : 'text-slate-400'}`}>Все позиции</div>
         </button>
-        {stages.map(s => {
+        {stageCards.map(({ stage: s, templateName }) => {
           const Icon = stageIcon(s.icon);
           const c = stageColor(s.color);
           const active = stageFilter === s.id;
@@ -629,13 +718,17 @@ export default function ProcurementManagement() {
             <button
               key={s.id}
               onClick={() => setStageFilter(active ? 'all' : s.id)}
+              title={templateName ? `Этап шаблона «${templateName}»` : undefined}
               className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${active ? `${c.bg} ${c.border} ring-2 ring-offset-1 dark:ring-offset-slate-950 ring-current ${c.color} shadow-md` : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 hover:shadow-sm'}`}
             >
               <div className="flex items-center justify-between">
                 <div className={`text-2xl font-black leading-none ${c.color}`}>{counts[s.id] || 0}</div>
                 <Icon className={`w-5 h-5 ${c.color}`} />
               </div>
-              <div className="text-xs font-bold mt-1 text-slate-400 truncate">{s.label}</div>
+              <div className="text-xs font-bold mt-1 text-slate-400 truncate">
+                {s.label}
+                {templateName && <span className="ml-1 text-[9px] text-indigo-400 font-semibold">· {templateName}</span>}
+              </div>
             </button>
           );
         })}
@@ -679,19 +772,39 @@ export default function ProcurementManagement() {
             <CheckSquare className="w-4 h-4" /> Выбрано: {selectedIds.size}
           </span>
           <span className="text-xs text-slate-500 dark:text-slate-400">Установить этап:</span>
-          {stages.map((s, idx) => {
+          {(bulkStages || stages).map((s, idx) => {
             const Icon = stageIcon(s.icon);
             const c = stageColor(s.color);
             return (
               <button
                 key={s.id}
                 onClick={() => setStageBulk(idx)}
+                title={bulkStages ? s.label : `Этап №${idx + 1} в наборе каждой позиции`}
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all hover:scale-105 ${c.bg} ${c.border} ${c.color}`}
               >
-                <Icon className="w-3.5 h-3.5" /> {s.label}
+                <Icon className="w-3.5 h-3.5" /> {bulkStages ? s.label : `№${idx + 1} ${s.label}`}
               </button>
             );
           })}
+          {!bulkStages && (
+            <span className="text-[10px] text-slate-400" title="У выбранных позиций разные шаблоны — этап применяется по номеру в наборе каждой позиции">
+              (разные шаблоны — по номеру этапа)
+            </span>
+          )}
+          {templates.length > 0 && (
+            <div className="w-56">
+              <CustomSelect
+                value=""
+                onChange={(v) => { if (v) setTemplateBulk(v === '__auto__' ? '' : v); }}
+                placeholder="Шаблон этапов…"
+                options={[
+                  { value: '__auto__', label: 'Автоматически (по правилам)' },
+                  { value: DEFAULT_TEMPLATE_ID, label: 'Стандартные этапы' },
+                  ...templates.map(t => ({ value: t.id, label: t.name })),
+                ]}
+              />
+            </div>
+          )}
           <button
             onClick={() => setSelectedIds(new Set())}
             className="ml-auto p-1.5 rounded-lg hover:bg-white/60 dark:hover:bg-slate-900 text-slate-400 cursor-pointer"

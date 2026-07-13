@@ -15,8 +15,9 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import {
-  ProcurementStage, DEFAULT_STAGES, STAGE_ICONS, STAGE_COLORS,
-  loadProcurementStages, saveProcurementStages, stageIcon, stageColor
+  ProcurementStage, StageTemplate, DEFAULT_STAGES, STAGE_ICONS, STAGE_COLORS,
+  loadProcurementStages, saveProcurementStages, stageIcon, stageColor,
+  loadStageTemplates, saveStageTemplates, emptyRules
 } from '../lib/procurementStages';
 
 // ── Раздел «Настройки» ─────────────────────────────────────────────────────────
@@ -45,6 +46,15 @@ export default function SettingsScreen() {
 
   const initial = (searchParams.get('section') as SectionId) || 'general';
   const [section, setSection] = useState<SectionId>(SECTIONS.some(s => s.id === initial) ? initial : 'general');
+
+  // Секция может смениться и через URL (туры ассистента, кнопка «Этапы» в
+  // Менеджменте): следим за query и переключаемся, а не только при монтировании
+  useEffect(() => {
+    const fromUrl = searchParams.get('section') as SectionId | null;
+    if (fromUrl && SECTIONS.some(s => s.id === fromUrl) && fromUrl !== section) {
+      setSection(fromUrl);
+    }
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pick = (id: SectionId) => {
     setSection(id);
@@ -171,27 +181,23 @@ function GeneralSection({ theme, toggleTheme }: any) {
   );
 }
 
-// ── Менеджмент: редактор этапов закупки ────────────────────────────────────────
-function ManagementSection({ isAdmin, addToast }: any) {
-  const [stages, setStages] = useState<ProcurementStage[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+// ── Менеджмент: редактор этапов закупки и шаблонов ─────────────────────────────
+// Стандартный набор этапов — общий по умолчанию. Дополнительно можно завести
+// именованные шаблоны со своими этапами и правилами применения: отделы (классы),
+// типы оборудования, категории установок, подстроки обозначения. Отдельным
+// тегам шаблон назначается вручную в разделе «Менеджмент».
+
+// Переиспользуемый редактор списка этапов (для стандартного набора и шаблонов)
+function StageListEditor({ stages, onChange, isAdmin, addToast }: {
+  stages: ProcurementStage[];
+  onChange: (next: ProcurementStage[]) => void;
+  isAdmin: boolean;
+  addToast: (msg: string, type?: string) => void;
+}) {
   const [editingIconFor, setEditingIconFor] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadProcurementStages().then(s => { setStages(s); setLoading(false); });
-  }, []);
-
-  const persist = async (next: ProcurementStage[]) => {
-    setStages(next);
-    setSaving(true);
-    const ok = await saveProcurementStages(next);
-    setSaving(false);
-    if (!ok) addToast('Не удалось сохранить этапы', 'error');
-  };
-
   const update = (id: string, patch: Partial<ProcurementStage>) => {
-    persist(stages.map(s => s.id === id ? { ...s, ...patch } : s));
+    onChange(stages.map(s => s.id === id ? { ...s, ...patch } : s));
   };
 
   const move = (idx: number, dir: -1 | 1) => {
@@ -199,12 +205,12 @@ function ManagementSection({ isAdmin, addToast }: any) {
     const j = idx + dir;
     if (j < 0 || j >= next.length) return;
     [next[idx], next[j]] = [next[j], next[idx]];
-    persist(next);
+    onChange(next);
   };
 
   const addStage = () => {
     const id = 'st' + Date.now().toString(36);
-    persist([...stages, { id, label: 'Новый этап', icon: 'Flag', color: 'indigo' }]);
+    onChange([...stages, { id, label: 'Новый этап', icon: 'Flag', color: 'indigo' }]);
   };
 
   const removeStage = (id: string) => {
@@ -213,20 +219,12 @@ function ManagementSection({ isAdmin, addToast }: any) {
       return;
     }
     if (!confirm('Удалить этап? Позиции на этом этапе вернутся на первый этап.')) return;
-    persist(stages.filter(s => s.id !== id));
+    onChange(stages.filter(s => s.id !== id));
   };
 
-  if (loading) return <SectionShell title="Менеджмент" desc="Загрузка…"><Loader2 className="w-5 h-5 animate-spin text-emerald-600" /></SectionShell>;
-
   return (
-    <SectionShell title="Менеджмент" desc="Этапы закупки: настройте названия, значки, цвета и порядок под свой процесс. Первый этап — начальный (позиция только добавлена).">
-      {!isAdmin && (
-        <div className="mb-4 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-xs text-amber-700 dark:text-amber-300">
-          Изменять этапы может администратор. Вы видите текущую настройку.
-        </div>
-      )}
-
-      <div className="space-y-2 mb-4">
+    <>
+      <div className="space-y-2 mb-3">
         {stages.map((s, idx) => {
           const Icon = stageIcon(s.icon);
           const c = stageColor(s.color);
@@ -305,20 +303,220 @@ function ManagementSection({ isAdmin, addToast }: any) {
       </div>
 
       {isAdmin && (
-        <div className="flex items-center gap-2">
-          <button onClick={addStage} className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">
-            <Plus className="w-4 h-4" /> Добавить этап
-          </button>
-          <button
-            onClick={() => { if (confirm('Вернуть стандартные 4 этапа?')) persist(DEFAULT_STAGES); }}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg text-xs font-bold cursor-pointer"
-          >
-            <RotateCcw className="w-4 h-4" /> Стандартные этапы
-          </button>
-          {saving && <span className="text-xs text-slate-400 flex items-center gap-1"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Сохранение…</span>}
-          {!saving && <span className="text-xs text-emerald-600 flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Сохраняется автоматически</span>}
+        <button onClick={addStage} className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+          <Plus className="w-4 h-4" /> Добавить этап
+        </button>
+      )}
+    </>
+  );
+}
+
+// Редактор списка значений правила (через запятую)
+function RuleListInput({ label, hint, values, onChange, disabled }: {
+  label: string; hint: string; values: string[]; onChange: (v: string[]) => void; disabled: boolean;
+}) {
+  return (
+    <div className="space-y-1">
+      <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">{label}</label>
+      <input
+        disabled={disabled}
+        defaultValue={values.join(', ')}
+        placeholder={hint}
+        onBlur={(e) => {
+          const next = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+          if (JSON.stringify(next) !== JSON.stringify(values)) onChange(next);
+        }}
+        className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-emerald-500"
+      />
+    </div>
+  );
+}
+
+function ManagementSection({ isAdmin, addToast }: any) {
+  const [stages, setStages] = useState<ProcurementStage[]>([]);
+  const [templates, setTemplates] = useState<StageTemplate[]>([]);
+  const [activeId, setActiveId] = useState<string>('default'); // 'default' | id шаблона
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    Promise.all([loadProcurementStages(), loadStageTemplates()]).then(([s, t]) => {
+      setStages(s); setTemplates(t); setLoading(false);
+    });
+  }, []);
+
+  const persistStages = async (next: ProcurementStage[]) => {
+    setStages(next);
+    setSaving(true);
+    const ok = await saveProcurementStages(next);
+    setSaving(false);
+    if (!ok) addToast('Не удалось сохранить этапы', 'error');
+  };
+
+  const persistTemplates = async (next: StageTemplate[]) => {
+    setTemplates(next);
+    setSaving(true);
+    const ok = await saveStageTemplates(next);
+    setSaving(false);
+    if (!ok) addToast('Не удалось сохранить шаблоны', 'error');
+  };
+
+  const activeTemplate = templates.find(t => t.id === activeId) || null;
+
+  const updateTemplate = (id: string, patch: Partial<StageTemplate>) => {
+    persistTemplates(templates.map(t => t.id === id ? { ...t, ...patch } : t));
+  };
+
+  const addTemplate = () => {
+    const id = 'tpl' + Date.now().toString(36);
+    const tpl: StageTemplate = {
+      id,
+      name: 'Новый шаблон',
+      stages: DEFAULT_STAGES.map(s => ({ ...s, id: `${id}_${s.id}` })),
+      rules: emptyRules(),
+    };
+    persistTemplates([...templates, tpl]);
+    setActiveId(id);
+  };
+
+  const removeTemplate = (id: string) => {
+    if (!confirm('Удалить шаблон? Позиции, использующие его, вернутся на стандартные этапы.')) return;
+    persistTemplates(templates.filter(t => t.id !== id));
+    setActiveId('default');
+  };
+
+  if (loading) return <SectionShell title="Менеджмент" desc="Загрузка…"><Loader2 className="w-5 h-5 animate-spin text-emerald-600" /></SectionShell>;
+
+  return (
+    <SectionShell title="Менеджмент" desc="Этапы закупки. Стандартный набор действует для всех позиций; шаблоны применяются автоматически по правилам (класс, тип оборудования, обозначение) или назначаются тегам вручную в разделе «Менеджмент».">
+      {!isAdmin && (
+        <div className="mb-4 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-xs text-amber-700 dark:text-amber-300">
+          Изменять этапы и шаблоны может администратор. Вы видите текущую настройку.
         </div>
       )}
+
+      {/* Переключатель: стандартный набор + шаблоны */}
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <button
+          onClick={() => setActiveId('default')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-all ${activeId === 'default' ? 'bg-emerald-600 border-emerald-700 text-white' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:border-emerald-400'}`}
+        >
+          Стандартные этапы
+        </button>
+        {templates.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setActiveId(t.id)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-all ${activeId === t.id ? 'bg-indigo-600 border-indigo-700 text-white' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:border-indigo-400'}`}
+          >
+            {t.name}
+          </button>
+        ))}
+        {isAdmin && (
+          <button
+            onClick={addTemplate}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold border border-dashed border-slate-300 dark:border-slate-700 text-slate-500 hover:border-indigo-400 hover:text-indigo-600 cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" /> Новый шаблон
+          </button>
+        )}
+      </div>
+
+      {activeId === 'default' ? (
+        <>
+          <StageListEditor stages={stages} onChange={persistStages} isAdmin={isAdmin} addToast={addToast} />
+          {isAdmin && (
+            <div className="flex items-center gap-2 mt-3">
+              <button
+                onClick={() => { if (confirm('Вернуть стандартные 4 этапа?')) persistStages(DEFAULT_STAGES); }}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg text-xs font-bold cursor-pointer"
+              >
+                <RotateCcw className="w-4 h-4" /> Стандартные этапы
+              </button>
+              {saving
+                ? <span className="text-xs text-slate-400 flex items-center gap-1"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Сохранение…</span>
+                : <span className="text-xs text-emerald-600 flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Сохраняется автоматически</span>}
+            </div>
+          )}
+        </>
+      ) : activeTemplate ? (
+        <div className="space-y-5">
+          {/* Имя шаблона и удаление */}
+          <div className="flex items-center gap-2">
+            <input
+              disabled={!isAdmin}
+              defaultValue={activeTemplate.name}
+              onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== activeTemplate.name) updateTemplate(activeTemplate.id, { name: v }); }}
+              className="flex-1 px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+              placeholder="Название шаблона"
+            />
+            {isAdmin && (
+              <button
+                onClick={() => removeTemplate(activeTemplate.id)}
+                className="p-2 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer"
+                title="Удалить шаблон"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Правила применения */}
+          <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-400">Когда применяется (автоматически)</div>
+            <div className="grid md:grid-cols-2 gap-3">
+              <RuleListInput
+                label="Отделы / классы тегов"
+                hint="ОВ, ВК, ЭОМ (через запятую)"
+                values={activeTemplate.rules.departments}
+                onChange={(v) => updateTemplate(activeTemplate.id, { rules: { ...activeTemplate.rules, departments: v } })}
+                disabled={!isAdmin}
+              />
+              <RuleListInput
+                label="Типы оборудования"
+                hint="КЛАПАН, ФИЛЬТР, ВЕНТИЛЯТОР"
+                values={activeTemplate.rules.equipTypes}
+                onChange={(v) => updateTemplate(activeTemplate.id, { rules: { ...activeTemplate.rules, equipTypes: v } })}
+                disabled={!isAdmin}
+              />
+              <RuleListInput
+                label="Категории установок"
+                hint="AHU, FAN, VALVE"
+                values={activeTemplate.rules.categories}
+                onChange={(v) => updateTemplate(activeTemplate.id, { rules: { ...activeTemplate.rules, categories: v } })}
+                disabled={!isAdmin}
+              />
+              <RuleListInput
+                label="Обозначение содержит"
+                hint="P-, -EX, AHU (подстроки)"
+                values={activeTemplate.rules.identifierIncludes}
+                onChange={(v) => updateTemplate(activeTemplate.id, { rules: { ...activeTemplate.rules, identifierIncludes: v } })}
+                disabled={!isAdmin}
+              />
+            </div>
+            <p className="text-[10px] text-slate-400 leading-relaxed">
+              Шаблон применится к тегу, если совпало хотя бы одно правило. Приоритет: назначение вручную →
+              обозначение → тип оборудования → категория установки → отдел. Назначить шаблон конкретным
+              тегам вручную можно в разделе «Менеджмент» (выделите позиции → «Шаблон этапов»).
+            </p>
+          </div>
+
+          {/* Этапы шаблона */}
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Этапы шаблона</div>
+            <StageListEditor
+              stages={activeTemplate.stages}
+              onChange={(next) => updateTemplate(activeTemplate.id, { stages: next })}
+              isAdmin={isAdmin}
+              addToast={addToast}
+            />
+          </div>
+
+          {saving
+            ? <span className="text-xs text-slate-400 flex items-center gap-1"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Сохранение…</span>
+            : <span className="text-xs text-emerald-600 flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Сохраняется автоматически</span>}
+        </div>
+      ) : null}
     </SectionShell>
   );
 }

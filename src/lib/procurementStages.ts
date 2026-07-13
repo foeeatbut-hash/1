@@ -46,6 +46,96 @@ export function stageColor(name: string) {
   return STAGE_COLORS[name] || STAGE_COLORS.slate;
 }
 
+// ── Шаблоны этапов ──────────────────────────────────────────────────────────
+// Кроме стандартного набора этапов можно завести именованные шаблоны со своими
+// этапами и правилами применения: по отделу (классу) тега, по типу оборудования
+// привязанного элемента, по категории установки, по подстроке в обозначении —
+// или назначить шаблон конкретным тегам вручную (metadata.procurement.templateId).
+export interface StageTemplateRules {
+  departments: string[];        // классы/отделы тега («ОВ», «ВК», …)
+  equipTypes: string[];         // типы оборудования элементов («КЛАПАН», «ФИЛЬТР», …)
+  categories: string[];         // категории установок («AHU», «FAN», …)
+  identifierIncludes: string[]; // подстроки обозначения («P-», «-EX», …)
+}
+
+export interface StageTemplate {
+  id: string;
+  name: string;                 // «Импортное оборудование», «Насосы», …
+  stages: ProcurementStage[];
+  rules: StageTemplateRules;
+}
+
+export const DEFAULT_TEMPLATE_ID = 'default';
+
+export function emptyRules(): StageTemplateRules {
+  return { departments: [], equipTypes: [], categories: [], identifierIncludes: [] };
+}
+
+// Загрузка шаблонов (кроме стандартного — он живёт в procurement_stages)
+export async function loadStageTemplates(): Promise<StageTemplate[]> {
+  try {
+    const res = await fetch('/api/settings/procurement_templates');
+    const data = await res.json();
+    if (data.global) {
+      const parsed = JSON.parse(data.global);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter((t: any) => t && t.id && t.name && Array.isArray(t.stages) && t.stages.length >= 2)
+          .map((t: any) => ({ ...t, rules: { ...emptyRules(), ...(t.rules || {}) } }));
+      }
+    }
+  } catch (_) {}
+  return [];
+}
+
+export async function saveStageTemplates(templates: StageTemplate[]): Promise<boolean> {
+  try {
+    const res = await fetch('/api/settings/procurement_templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: JSON.stringify(templates) })
+    });
+    return res.ok;
+  } catch (_) {
+    return false;
+  }
+}
+
+// Информация о привязках тега для подбора шаблона (равнение по данным
+// componentElements, которые сервер отдаёт вместе с тегами)
+export interface TagTemplateContext {
+  identifier: string;
+  department: string;
+  equipTypes: string[];   // типы привязанных элементов
+  categories: string[];   // категории установок привязанных элементов
+  explicitTemplateId?: string; // metadata.procurement.templateId
+}
+
+// Подбор шаблона для тега. Приоритет: явное назначение → обозначение →
+// тип оборудования → категория установки → отдел → стандартный (null).
+export function resolveTemplate(ctx: TagTemplateContext, templates: StageTemplate[]): StageTemplate | null {
+  if (ctx.explicitTemplateId) {
+    if (ctx.explicitTemplateId === DEFAULT_TEMPLATE_ID) return null; // явно «стандартный»
+    const t = templates.find(t => t.id === ctx.explicitTemplateId);
+    if (t) return t;
+  }
+  const idLow = (ctx.identifier || '').toLowerCase();
+  for (const t of templates) {
+    if (t.rules.identifierIncludes.some(s => s && idLow.includes(s.toLowerCase()))) return t;
+  }
+  for (const t of templates) {
+    if (t.rules.equipTypes.some(e => e && ctx.equipTypes.some(et => et.toLowerCase() === e.toLowerCase()))) return t;
+  }
+  for (const t of templates) {
+    if (t.rules.categories.some(c => c && ctx.categories.some(cat => cat.toLowerCase() === c.toLowerCase()))) return t;
+  }
+  const depLow = (ctx.department || '').toLowerCase();
+  for (const t of templates) {
+    if (depLow && t.rules.departments.some(d => d && d.toLowerCase() === depLow)) return t;
+  }
+  return null;
+}
+
 // Загрузка этапов из настроек (глобальная настройка; при отсутствии — стандартные)
 export async function loadProcurementStages(): Promise<ProcurementStage[]> {
   try {

@@ -5,7 +5,7 @@ import {
   RefreshCw, AlertTriangle, History, Check, Pencil, Eye, EyeOff, Settings,
   ChevronRight, ChevronDown, Trash2, Tag as TagIcon, X, Plus, Boxes, Layers, Wind, Sparkles,
   Fan, Filter, Flame, Snowflake, Droplets, Recycle, Volume2, SlidersHorizontal, Box, Square,
-  ArrowRight, LayoutGrid, List
+  ArrowRight, LayoutGrid, List, Search
 } from 'lucide-react';
 import DocImportWizard from '../components/DocImportWizard';
 
@@ -18,6 +18,11 @@ interface Component {
   specs?: string; overrides?: string; paramConflicts?: string;
   version: number; hasConflict: boolean; status: string;
   tags?: { id: string; identifier: string }[];
+}
+// Тег в списке привязки: с занятостью (один тег — одно изделие)
+interface PickerTag {
+  id: string; identifier: string; department?: string; metadata?: string;
+  componentElements?: { id: string; name: string; itemCode: string }[];
 }
 interface Monoblock { id: string; name: string; components: Component[]; }
 interface SystemUnit { id: string; name: string; category: string; fileName?: string; monoblocks: Monoblock[]; }
@@ -96,7 +101,7 @@ export default function Equipment() {
   const [activeCat, setActiveCat] = useState<string>('AHU');
   const [systems, setSystems] = useState<SystemUnit[]>([]);
   const [loading, setLoading] = useState(false);
-  const [tags, setTags] = useState<{ id: string; identifier: string }[]>([]);
+  const [tags, setTags] = useState<PickerTag[]>([]);
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
@@ -252,12 +257,23 @@ export default function Equipment() {
   };
 
   const linkTag = async (comp: Component, tagId: string) => {
-    await fetch(api(`/components/${comp.id}/tags/${tagId}`), { method: 'POST' }).catch(() => {});
-    setTagPickerFor(null); loadSystems();
+    try {
+      const r = await fetch(api(`/components/${comp.id}/tags/${tagId}`), { method: 'POST' });
+      if (!r.ok) {
+        // 409 = тег уже привязан к другому изделию (один тег — одно изделие)
+        const d = await r.json().catch(() => ({}));
+        addToast(d.error || 'Не удалось привязать тег', 'error');
+        return;
+      }
+      addToast('Тег привязан', 'success');
+    } catch (_) {
+      addToast('Не удалось привязать тег', 'error');
+    }
+    setTagPickerFor(null); loadSystems(); loadTags();
   };
   const unlinkTag = async (comp: Component, tagId: string) => {
     await fetch(api(`/components/${comp.id}/tags/${tagId}`), { method: 'DELETE' }).catch(() => {});
-    loadSystems();
+    loadSystems(); loadTags();
   };
 
   const deleteUnit = async (unit: SystemUnit) => {
@@ -411,6 +427,8 @@ export default function Equipment() {
             unit={selectedUnit}
             blockLabel={blockLabel}
             onSelectBlock={(id: string) => { setSelectedBlockId(id); setSelectedUnitId(null); setShowAllParams(false); }}
+            onPickTag={(comp: Component) => setTagPickerFor(comp)}
+            onUnlinkTag={(comp: Component, tid: string) => unlinkTag(comp, tid)}
           />
         ) : (
           <div className="h-full flex items-center justify-center text-slate-400 text-sm">Выберите установку или элемент в дереве слева</div>
@@ -442,26 +460,24 @@ export default function Equipment() {
       )}
 
       {tagPickerFor && (
-        <Modal title="Привязать тег" onClose={() => setTagPickerFor(null)}>
-          <div className="max-h-80 overflow-y-auto space-y-1">
-            {tags.length === 0 ? <p className="text-xs text-slate-400">В проекте нет тегов. Создайте их в разделе «Теги».</p> :
-              tags.map(t => (
-                <button key={t.id} onClick={() => linkTag(tagPickerFor, t.id)} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-left text-xs cursor-pointer">
-                  <TagIcon className="w-3.5 h-3.5 text-emerald-500" /> {t.identifier}
-                </button>
-              ))}
-          </div>
-        </Modal>
+        <TagPickerModal
+          tags={tags}
+          currentComponentId={tagPickerFor.id}
+          onPick={(tagId) => linkTag(tagPickerFor, tagId)}
+          onClose={() => setTagPickerFor(null)}
+        />
       )}
     </div>
   );
 }
 
 // ── Схема установки: кликабельный «чертёж» из секций ──
-function UnitSchematic({ unit, blockLabel, onSelectBlock }: {
+function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag }: {
   unit: SystemUnit;
   blockLabel: (c: Component) => string;
   onSelectBlock: (id: string) => void;
+  onPickTag?: (comp: Component) => void;
+  onUnlinkTag?: (comp: Component, tagId: string) => void;
 }) {
   // Разбираем компоненты установки: общие параметры vs. секции (составные части)
   const { generalComp, monoGenerals, monoSections } = useMemo(() => {
@@ -527,6 +543,28 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock }: {
           </div>
           <h3 className="u-sel text-sm font-bold mt-1 truncate flex items-center gap-1.5"><Boxes className="w-4 h-4 text-emerald-600 shrink-0" />{unit.name}</h3>
           <p className="text-[11px] text-slate-400 mt-0.5">{totalSections} {totalSections === 1 ? 'секция' : totalSections >= 2 && totalSections <= 4 ? 'секции' : 'секций'} · нажмите на секцию, чтобы открыть её характеристики</p>
+          {/* Тег на установку целиком (через компонент «Параметры установки») */}
+          {generalComp && (
+            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+              {(generalComp.tags || []).map((t: any) => (
+                <span key={t.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 text-[10px] text-emerald-700 dark:text-emerald-300">
+                  <TagIcon className="w-2.5 h-2.5" /><span className="u-sel">{t.identifier}</span>
+                  {onUnlinkTag && (
+                    <button onClick={() => onUnlinkTag(generalComp!, t.id)} className="hover:text-rose-500 cursor-pointer" title="Отвязать тег от установки"><X className="w-2.5 h-2.5" /></button>
+                  )}
+                </span>
+              ))}
+              {onPickTag && (
+                <button
+                  onClick={() => onPickTag(generalComp!)}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-dashed border-slate-300 dark:border-slate-600 text-[10px] text-slate-500 hover:border-emerald-400 hover:text-emerald-600 cursor-pointer"
+                  title="Назначить тег всей установке"
+                >
+                  <Plus className="w-2.5 h-2.5" />тег установки
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -762,6 +800,86 @@ function BlockCard(props: any) {
         {specs.groups.length === 0 && <p className="text-xs text-slate-400">Нет параметров.</p>}
       </div>
     </>
+  );
+}
+
+// ── Выбор тега для привязки: поиск + занятость (один тег — одно изделие) ──
+function TagPickerModal({ tags, currentComponentId, onPick, onClose }: {
+  tags: PickerTag[];
+  currentComponentId: string;
+  onPick: (tagId: string) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState('');
+
+  const tagName = (t: PickerTag): string => {
+    try { return t.metadata ? (JSON.parse(t.metadata).mainName || '') : ''; } catch { return ''; }
+  };
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const list = q
+      ? tags.filter(t =>
+          t.identifier.toLowerCase().includes(q) ||
+          (t.department || '').toLowerCase().includes(q) ||
+          tagName(t).toLowerCase().includes(q))
+      : tags;
+    // Свободные теги сверху, занятые — в конце списка
+    return [...list].sort((a, b) => {
+      const aBusy = (a.componentElements?.length || 0) > 0 ? 1 : 0;
+      const bBusy = (b.componentElements?.length || 0) > 0 ? 1 : 0;
+      if (aBusy !== bBusy) return aBusy - bBusy;
+      return a.identifier.localeCompare(b.identifier, 'ru');
+    });
+  }, [tags, query]);
+
+  return (
+    <Modal title="Привязать тег" onClose={onClose}>
+      <div className="relative mb-2">
+        <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
+        <input
+          autoFocus
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Поиск: обозначение, наименование, отдел…"
+          className="w-full pl-8 pr-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs focus:outline-none focus:border-emerald-500 text-slate-800 dark:text-slate-100"
+        />
+      </div>
+      <p className="text-[10px] text-slate-400 mb-2">Один тег — одно изделие: занятые теги показаны серым, сначала отвяжите их на текущем месте.</p>
+      <div className="max-h-80 overflow-y-auto space-y-1">
+        {tags.length === 0 ? (
+          <p className="text-xs text-slate-400">В проекте нет тегов. Создайте их в разделе «Теги».</p>
+        ) : filtered.length === 0 ? (
+          <p className="text-xs text-slate-400 text-center py-4">Ничего не найдено по запросу «{query}».</p>
+        ) : filtered.map(t => {
+          const holder = (t.componentElements || []).find(c => c.id !== currentComponentId);
+          const linkedHere = (t.componentElements || []).some(c => c.id === currentComponentId);
+          const busy = !!holder || linkedHere;
+          const name = tagName(t);
+          return (
+            <button
+              key={t.id}
+              disabled={busy}
+              onClick={() => onPick(t.id)}
+              title={linkedHere ? 'Уже привязан к этому изделию' : holder ? `Занят: ${holder.name || holder.itemCode}` : 'Привязать'}
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-xs ${busy
+                ? 'opacity-45 cursor-not-allowed'
+                : 'hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer'}`}
+            >
+              <TagIcon className={`w-3.5 h-3.5 shrink-0 ${busy ? 'text-slate-400' : 'text-emerald-500'}`} />
+              <span className="font-mono font-bold shrink-0">{t.identifier}</span>
+              {name && <span className="text-slate-400 truncate">{name}</span>}
+              <span className="ml-auto flex items-center gap-1.5 shrink-0">
+                {t.department && <span className="text-[10px] text-slate-400">{t.department}</span>}
+                {linkedHere && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600">привязан</span>}
+                {holder && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-500" title={`Занят: ${holder.name || holder.itemCode}`}>занят · {holder.name || holder.itemCode}</span>}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </Modal>
   );
 }
 

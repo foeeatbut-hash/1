@@ -109,9 +109,22 @@ export default function ActionLogWidget() {
     }
   };
 
-  // Format all logs to a neat string
+  // Filter & Search logs (то, что видно на экране)
+  const filteredLogs = logs.filter(log => {
+    const matchesFilter = filter === 'ALL' || log.type === filter;
+    const matchesSearch = !search ||
+      log.context.toLowerCase().includes(search.toLowerCase()) ||
+      log.message.toLowerCase().includes(search.toLowerCase());
+    return matchesFilter && matchesSearch;
+  });
+
+  // Название активной категории для тостов («скопированы только ошибки»)
+  const filterLabel = filter === 'ALL' ? '' : filter === 'INFO' ? ' (только инфо)' : filter === 'WARN' ? ' (только предупреждения)' : ' (только ошибки)';
+
+  // Копирование/экспорт/отправка берут ровно то, что отфильтровано на экране:
+  // выбрали категорию «Ошибки» — копируются только ошибки, а не весь журнал
   const getFormattedLogs = () => {
-    return logs
+    return filteredLogs
       .map(l => `[${l.timestamp}] [${l.type}] [${l.context}] ${l.message}${l.stack ? `\nStack:\n${l.stack}` : ''}`)
       .join('\n');
   };
@@ -119,14 +132,14 @@ export default function ActionLogWidget() {
   const handleCopyLogs = async () => {
     const text = getFormattedLogs();
     if (!text) {
-      addToast('Журнал логов пуст', 'info');
+      addToast('Нет записей в выбранной категории', 'info');
       return;
     }
-    
+
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
-      addToast('Журнал логов успешно скопирован', 'success');
+      addToast(`Скопировано записей: ${filteredLogs.length}${filterLabel}`, 'success');
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       addToast('Не удалось скопировать логи', 'error');
@@ -136,7 +149,7 @@ export default function ActionLogWidget() {
   const handleExportLogs = async () => {
     const text = getFormattedLogs();
     if (!text) {
-      addToast('Журнал логов пуст', 'info');
+      addToast('Нет записей в выбранной категории', 'info');
       return;
     }
 
@@ -173,7 +186,7 @@ export default function ActionLogWidget() {
   const handleSendLogs = async () => {
     const text = getFormattedLogs();
     if (!text) {
-      addToast('Журнал логов пуст', 'info');
+      addToast('Нет записей в выбранной категории', 'info');
       return;
     }
     try {
@@ -186,15 +199,6 @@ export default function ActionLogWidget() {
       addToast('Не удалось открыть чат', 'error');
     }
   };
-
-  // Filter & Search logs
-  const filteredLogs = logs.filter(log => {
-    const matchesFilter = filter === 'ALL' || log.type === filter;
-    const matchesSearch = !search || 
-      log.context.toLowerCase().includes(search.toLowerCase()) || 
-      log.message.toLowerCase().includes(search.toLowerCase());
-    return matchesFilter && matchesSearch;
-  });
 
   // Виджет логов — только для авторизованных: на экране входа он перекрывал версию
   if (!currentUser) return null;
@@ -299,18 +303,22 @@ export default function ActionLogWidget() {
 
             {/* Bottom Actions */}
             <div className="px-3.5 py-3 bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 flex items-center gap-2">
+              {/* Действия работают по выбранной категории: фильтр «Ошибки» —
+                  копируются/экспортируются/отправляются только ошибки */}
               <button
                 onClick={handleCopyLogs}
-                disabled={logs.length === 0}
+                disabled={filteredLogs.length === 0}
+                title={filter === 'ALL' ? 'Копировать весь журнал' : `Копировать только категорию «${filter === 'INFO' ? 'Инфо' : filter === 'WARN' ? 'Предупреждения' : 'Ошибки'}»`}
                 className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-150 dark:hover:bg-slate-800 disabled:opacity-40 rounded-md cursor-pointer border border-slate-200 dark:border-slate-850 shadow-xs transition font-medium"
               >
                 {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>Копировать</span>
+                <span>Копировать{filter !== 'ALL' ? ` (${filteredLogs.length})` : ''}</span>
               </button>
 
               <button
                 onClick={handleExportLogs}
-                disabled={logs.length === 0}
+                disabled={filteredLogs.length === 0}
+                title={filter === 'ALL' ? 'Экспортировать весь журнал' : 'Экспортировать только выбранную категорию'}
                 className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs bg-slate-150 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40 rounded-md cursor-pointer border border-slate-200 dark:border-slate-800 shadow-xs transition font-semibold"
               >
                 <Download className="w-3.5 h-3.5" />
@@ -319,7 +327,8 @@ export default function ActionLogWidget() {
 
               <button
                 onClick={handleSendLogs}
-                disabled={logs.length === 0}
+                disabled={filteredLogs.length === 0}
+                title={filter === 'ALL' ? 'Отправить весь журнал в чат' : 'Отправить только выбранную категорию в чат'}
                 className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-40 disabled:hover:bg-emerald-600 rounded-md cursor-pointer shadow-xs transition font-semibold border border-transparent"
               >
                 <Send className="w-3.5 h-3.5" />

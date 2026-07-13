@@ -5056,17 +5056,21 @@ export default function Registry() {
                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
                   <Database className="w-5 h-5 text-emerald-400 shrink-0" />
                   <div className="text-left min-w-0 flex-1">
-                    {/* Код тега редактируется прямо здесь — автосохранение на blur/Enter */}
-                    <input
-                      value={modalCode}
-                      onChange={(e) => setModalCode(e.target.value)}
-                      onBlur={() => handleRenameTag(editingTag.id, modalCode)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                      spellCheck={false}
-                      className="w-full bg-transparent text-base font-bold font-mono tracking-tight text-white outline-none border-b border-transparent hover:border-slate-700 focus:border-emerald-500 transition-colors"
-                      title="Код тега — изменение сохранит связи"
-                    />
-                    <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mt-0.5">Свойства тега · изменения сохраняются сами</p>
+                    {/* Код тега редактируется прямо здесь — автосохранение на blur/Enter.
+                        Видимая рамка и карандаш — чтобы редактируемость была очевидна */}
+                    <div className="flex items-center gap-1.5 group/rename">
+                      <input
+                        value={modalCode}
+                        onChange={(e) => setModalCode(e.target.value)}
+                        onBlur={() => handleRenameTag(editingTag.id, modalCode)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                        spellCheck={false}
+                        className="min-w-0 flex-1 bg-slate-800/60 px-2 py-0.5 rounded-md text-base font-bold font-mono tracking-tight text-white outline-none border border-dashed border-slate-600 hover:border-slate-400 focus:border-emerald-500 focus:border-solid transition-colors"
+                        title="Код тега можно изменить прямо здесь — связи сохранятся"
+                      />
+                      <Edit2 className="w-3.5 h-3.5 text-slate-500 group-focus-within/rename:text-emerald-400 shrink-0" />
+                    </div>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mt-0.5">Код и данные тега редактируются · сохраняются сами</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -5254,6 +5258,29 @@ export default function Registry() {
                       }
                     }}
                     className="w-full px-3 py-2 mt-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 font-medium"
+                  />
+
+                  {/* WBS — автосохранение на blur */}
+                  <input
+                    key={`wbs-${editingTag.id}`}
+                    type="text"
+                    placeholder="WBS (структура работ, необязательно)"
+                    defaultValue={editingTag.wbs || ''}
+                    onBlur={async (e) => {
+                      const v = e.target.value.trim();
+                      if (v === (editingTag.wbs || '')) return;
+                      try {
+                        const res = await fetch(`/api/tags/${editingTag.id}`, {
+                          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ wbs: v }),
+                        });
+                        if (!res.ok) throw new Error();
+                        setTags(prev => prev.map(t => t.id === editingTag.id ? { ...t, wbs: v } : t));
+                        setEditingTag((prev: any) => prev ? { ...prev, wbs: v } : null);
+                        flashSaved();
+                      } catch { addToast('Не удалось сохранить WBS', 'error'); }
+                    }}
+                    className="w-full px-3 py-2 mt-2 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 font-medium"
                   />
                 </div>
 
