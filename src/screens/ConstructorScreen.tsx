@@ -422,6 +422,31 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
     } catch (_) { setSaveState('idle'); }
   };
 
+  // Страховка от вылета/закрытия окна: несохранённый снапшот уходит запросом
+  // с keepalive — браузер дошлёт его даже после закрытия страницы. Вместе с
+  // автосейвом раз в 2.5 с потеря правок сводится к нулю.
+  useEffect(() => {
+    const flushOnClose = () => {
+      try {
+        const snapshot = takeSnapshot();
+        if (!snapshot || snapshot === lastSavedRef.current) return;
+        fetch(`/api/constructor/docs/${docId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workbook: snapshot }),
+          keepalive: true,
+        }).catch(() => {});
+        lastSavedRef.current = snapshot;
+      } catch (_) {}
+    };
+    window.addEventListener('beforeunload', flushOnClose);
+    window.addEventListener('pagehide', flushOnClose);
+    return () => {
+      window.removeEventListener('beforeunload', flushOnClose);
+      window.removeEventListener('pagehide', flushOnClose);
+    };
+  }, [docId]);
+
   // Инициализация движка: загрузка документа → createUniver → книга из снапшота
   useEffect(() => {
     let disposed = false;

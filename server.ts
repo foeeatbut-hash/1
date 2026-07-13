@@ -18,6 +18,7 @@ import { registerNoteRoutes } from './server/routes/notes.js';
 import { registerConstructorRoutes } from './server/routes/constructor.js';
 import { registerLogRoutes } from './server/routes/logs.js';
 import { registerSettingsRoutes } from './server/routes/settings.js';
+import { initBackups } from './server/backup.js';
 
 // ── Пароли: хеширование (scrypt) с обратной совместимостью ────────────────────
 // Формат хранения: "scrypt$<saltHex>$<hashHex>". Любое другое значение считается
@@ -2807,6 +2808,19 @@ app.post('/api/tags/generate', async (req: Request, res: Response) => {
 registerNoteRoutes(app);
 registerLogRoutes(app);
 registerConstructorRoutes(app);
+
+// Резервные копии: суточный «Архив» (БД + файлы Проводника в родных форматах
+// + данные в Excel), страховочные копии базы при старте, API и расписание
+initBackups({
+  app,
+  getPrisma: () => prisma,
+  baseDataDir: ventAppDataPath,
+  getDbPath: () => {
+    const cfg = loadAppConfig();
+    return cfg.current_db_type === 'LOCAL' ? resolveLocalDbPath(cfg) : '';
+  },
+  log: logInit,
+});
 
 
 // --- CORPORATE MESSENGER CHAT API ---

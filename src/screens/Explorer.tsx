@@ -7,7 +7,8 @@ import {
   Folder, File as FileIcon, ChevronRight, ChevronDown, Plus, Upload, 
   Search, MoreVertical, Copy, Edit2, Trash2, FolderPlus, RefreshCw, 
   ArrowLeft, ArrowRight, ArrowUp, Tag, Shield, PanelRight, LayoutGrid, List,
-  Download, Image as ImageIcon, FileText, FileCode, FileSpreadsheet, Info, Boxes, Scissors, ClipboardPaste
+  Download, Image as ImageIcon, FileText, FileCode, FileSpreadsheet, Info, Boxes, Scissors, ClipboardPaste,
+  Grid3X3
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
@@ -505,6 +506,23 @@ export default function Explorer() {
         })
      });
      fetchData();
+  };
+
+  // «Создать → Таблицу»: новый документ Конструктора и сразу в его редактор.
+  // Зеркало в Проводнике появится автоматически после первого сохранения с именем.
+  const createConstructorSheet = async () => {
+    try {
+      const res = await fetch('/api/constructor/docs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: activeProject?.id || '' }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.doc?.id) throw new Error(data?.error || 'Не удалось создать документ');
+      navigate(`/constructor?doc=${data.doc.id}`);
+    } catch (e: any) {
+      addToast(`Не удалось создать таблицу: ${e.message}`, 'error');
+    }
   };
 
   // Тело запроса перемещения/копирования с учётом виртуальных разделов:
@@ -1463,10 +1481,13 @@ export default function Explorer() {
             </>
           ) : contextMenu.isContainer ? (
             <>
-              <MenuItem icon={<FolderPlus />} label="Новая папка" onClick={() => { createFolder(); setContextMenu(null); }} />
-              <MenuItem icon={<FileIcon />} label="Новый текстовый документ" onClick={() => { createEmptyFile("Новый документ.txt", "TXT", ""); setContextMenu(null); }} />
-              <MenuItem icon={<Upload />} label="Загрузить" onClick={() => { fileInputRef.current?.click(); setContextMenu(null); }} />
+              {/* «Создать» — как в Windows: правый клик по пустому месту */}
+              <div className="px-6 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 select-none">Создать</div>
+              <MenuItem icon={<FolderPlus />} label="Папку" onClick={() => { createFolder(); setContextMenu(null); }} />
+              <MenuItem icon={<Grid3X3 />} label="Таблицу (Конструктор)" onClick={() => { createConstructorSheet(); setContextMenu(null); }} />
+              <MenuItem icon={<FileIcon />} label="Текстовый документ" onClick={() => { createEmptyFile("Новый документ.txt", "TXT", ""); setContextMenu(null); }} />
               <div className="h-px bg-slate-300 dark:bg-dark-border my-1 mx-2" />
+              <MenuItem icon={<Upload />} label="Загрузить" onClick={() => { fileInputRef.current?.click(); setContextMenu(null); }} />
               {clipboard && (
                  <MenuItem icon={<Copy />} label="Вставить" onClick={() => { handlePaste(); setContextMenu(null); }} />
               )}
