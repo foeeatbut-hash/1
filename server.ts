@@ -2368,16 +2368,23 @@ app.delete('/api/dictionaries/items/:itemId', async (req: Request, res: Response
 app.get('/api/projects/:projectId/tags', async (req: Request, res: Response) => {
   const { projectId } = req.params;
   try {
+    // componentElements: лёгкая проекция для клиента — по ней Менеджмент
+    // подбирает шаблон этапов (тип оборудования/категория установки), а экран
+    // «Оборудование» показывает занятость тега (один тег = одно изделие)
+    const include = {
+      equipment: true,
+      componentElements: {
+        select: {
+          id: true, name: true, itemCode: true, equipType: true,
+          monoblock: { select: { system: { select: { id: true, name: true, category: true } } } },
+        },
+      },
+    } as const;
     let tags;
     if (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default') {
-      tags = await prisma.tag.findMany({
-        include: { equipment: true }
-      });
+      tags = await prisma.tag.findMany({ include });
     } else {
-      tags = await prisma.tag.findMany({
-        where: { projectId },
-        include: { equipment: true }
-      });
+      tags = await prisma.tag.findMany({ where: { projectId }, include });
     }
     res.json({ tags });
   } catch (err: any) {
@@ -2651,6 +2658,19 @@ app.delete('/api/systems/:id', async (req: Request, res: Response) => {
 app.post('/api/components/:componentId/tags/:tagId', async (req: Request, res: Response) => {
   const { componentId, tagId } = req.params;
   try {
+    // Один тег — одно изделие: тег, уже привязанный к другому элементу,
+    // повторно привязать нельзя (иначе одно обозначение висело бы на двух узлах)
+    const existing = await prisma.tag.findUnique({
+      where: { id: tagId },
+      include: { componentElements: { select: { id: true, name: true, itemCode: true } } },
+    });
+    if (!existing) return res.status(404).json({ error: 'Тег не найден' });
+    const takenBy = (existing.componentElements || []).find((c: any) => c.id !== componentId);
+    if (takenBy) {
+      return res.status(409).json({
+        error: `Тег «${existing.identifier}» уже привязан к «${takenBy.name || takenBy.itemCode}». Один тег — одно изделие: сначала отвяжите его там.`,
+      });
+    }
     const component = await prisma.componentElement.update({
       where: { id: componentId },
       data: {
