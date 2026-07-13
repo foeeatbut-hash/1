@@ -472,24 +472,14 @@ app.whenReady().then(() => {
     throw new Error('Источники видеозахвата не найдены.');
   });
 
-  // Real auto-updater implementation
-  let latestCachedUpdate: { version: string; fileUrl: string; changelog: string } | null = null;
+  // ── Автообновления через сервер ──
+  // Проверка и публикация релизов идут через HTTP API сервера (см. UpdaterWidget):
+  // рендерер сам знает адрес сервера и токен сессии. Главному процессу остаются
+  // две вещи, которые из рендерера не сделать: скачать большой exe на диск и
+  // подменить работающий портативный exe новым.
+  let latestCachedUpdate: { version: string; installerPath: string } | null = null;
 
-  function isNewerVersion(latest: string, current: string): boolean {
-    // Суффиксы вида "-beta" дают NaN при Number() и ломают сравнение — оставляем только цифры и точки
-    const clean = (v: string) => String(v || '').replace(/[^0-9.]/g, '');
-    const latestParts = clean(latest).split('.').map(Number);
-    const currentParts = clean(current).split('.').map(Number);
-    for (let i = 0; i < Math.max(latestParts.length, currentParts.length); i++) {
-      const l = latestParts[i] || 0;
-      const c = currentParts[i] || 0;
-      if (l > c) return true;
-      if (l < c) return false;
-    }
-    return false;
-  }
-
-  function downloadUpdate(url: string, dest: string, onProgress: (percent: number) => void): Promise<void> {
+  function downloadUpdate(url: string, dest: string, onProgress: (percent: number) => void, headers?: Record<string, string>): Promise<void> {
     const fs = require('fs');
     const https = require('https');
     const http = require('http');
@@ -506,10 +496,10 @@ app.whenReady().then(() => {
           reject(new Error(`Invalid download URL: ${requestUrl}`));
           return;
         }
-        
+
         const protocol = parsedUrl.protocol === 'https:' ? https : http;
 
-        const req = protocol.get(requestUrl, (res: any) => {
+        const req = protocol.get(requestUrl, { headers: headers || {} }, (res: any) => {
           // Handle redirect (3xx codes)
           if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
             if (redirectCount > 5) {
@@ -564,80 +554,35 @@ app.whenReady().then(() => {
     });
   }
 
-  // Check version and DB app update
-  ipcMain.handle('updater:check', async () => {
-    try {
-      if (!app.isPackaged) {
-        console.log('[Updater] Portable/Dev mode check: Auto-updates are offline.');
-        return { available: false, isDevelopment: true, version: app.getVersion() || '1.0.0-dev' };
-      }
-
-      console.log('[Updater] Production: Checking configured database for update records...');
-      const prismaInstance = createDbClient(currentDbType, finalDbUrl);
-
-      const dbUpdate = await prismaInstance.appUpdate.findFirst({
-        orderBy: { createdAt: 'desc' }
-      });
-
-      await prismaInstance.$disconnect();
-
-      if (!dbUpdate) {
-        console.log('[Updater] No update packages found in the remote database.');
-        return { available: false, version: app.getVersion() || '1.0.0' };
-      }
-
-      const currentVer = app.getVersion() || '1.0.0';
-      const newestAvailable = isNewerVersion(dbUpdate.version, currentVer);
-
-      console.log(`[Updater] Current version: ${currentVer}. Latest in DB: ${dbUpdate.version}. Update available: ${newestAvailable}`);
-
-      if (newestAvailable) {
-        latestCachedUpdate = {
-          version: dbUpdate.version,
-          changelog: dbUpdate.changelog,
-          fileUrl: dbUpdate.fileUrl
-        };
-        return {
-          available: true,
-          version: dbUpdate.version,
-          changelog: dbUpdate.changelog,
-          fileUrl: dbUpdate.fileUrl,
-          isDevelopment: false
-        };
-      }
-
-      return { available: false, version: currentVer, isDevelopment: false };
-    } catch (err: any) {
-      console.error('[Updater Check Error]', err);
-      return { available: false, error: err.message, isDevelopment: false };
-    }
-  });
-
-  // Download update file in background
-  ipcMain.handle('updater:start-download', async () => {
-    const fs = require('fs');
+  // Скачивание файла обновления на диск. Рендерер передаёт абсолютный адрес,
+  // версию и токен сессии (сервер отдаёт exe только авторизованным).
+  ipcMain.handle('updater:start-download', async (_event, payload: { url: string; version: string; token?: string }) => {
     const path = require('path');
 
-    if (!latestCachedUpdate) {
-      throw new Error('No update package metainformation is cached. Ensure updater:check was completed.');
-    }
+    const url = String(payload?.url || '');
+    const version = String(payload?.version || '').replace(/[^0-9a-zA-Z.\-]/g, '');
+    if (!url || !version) throw new Error('Не переданы адрес или версия обновления.');
 
     try {
-      const installerPath = path.join(app.getPath('temp'), `update-${latestCachedUpdate.version}.exe`);
-      console.log(`[Updater] Starting download: ${latestCachedUpdate.fileUrl} -> ${installerPath}`);
+      const installerPath = path.join(app.getPath('temp'), `flux-update-${version}.exe`);
+      console.log(`[Updater] Starting download: ${url} -> ${installerPath}`);
 
       mainWindow?.webContents.send('updater:status', 'downloading', { percent: 0 });
 
+      const headers: Record<string, string> = {};
+      if (payload?.token) headers['Authorization'] = `Bearer ${payload.token}`;
+
       let lastPercent = -1;
-      await downloadUpdate(latestCachedUpdate.fileUrl, installerPath, (percent) => {
+      await downloadUpdate(url, installerPath, (percent) => {
         if (percent !== lastPercent) {
           lastPercent = percent;
           mainWindow?.webContents.send('updater:status', 'downloading', { percent });
         }
-      });
+      }, headers);
 
+      latestCachedUpdate = { version, installerPath };
       console.log('[Updater] Download completed successfully on disk.');
-      mainWindow?.webContents.send('updater:status', 'downloaded', { version: latestCachedUpdate.version });
+      mainWindow?.webContents.send('updater:status', 'downloaded', { version });
       return { success: true };
     } catch (err: any) {
       console.error('[Updater Download Error]', err);
@@ -646,7 +591,11 @@ app.whenReady().then(() => {
     }
   });
 
-  // Hot seamless quit & reinstall
+  // Установка скачанного обновления с перезапуском.
+  // Портативный exe не может перезаписать сам себя, пока запущен, поэтому
+  // подмену делает отдельный cmd-скрипт: ждёт выхода приложения, кладёт новый
+  // exe на место старого (то же имя файла, тот же ярлык) и запускает его.
+  // Для установленной NSIS-версии остаётся классический тихий инсталлятор /S.
   ipcMain.handle('updater:quitAndInstall', () => {
     const fs = require('fs');
     const path = require('path');
@@ -654,28 +603,42 @@ app.whenReady().then(() => {
 
     if (!latestCachedUpdate) {
       console.error('[Updater] No downloaded update package info cached.');
-      return { success: false, error: 'Информация по пакету обновлений отсутствует.' };
+      return { success: false, error: 'Обновление ещё не скачано.' };
     }
 
-    const installerPath = path.join(app.getPath('temp'), `update-${latestCachedUpdate.version}.exe`);
-
+    const installerPath = latestCachedUpdate.installerPath;
     if (!fs.existsSync(installerPath)) {
       console.error(`[Updater] Installer file does not exist at: ${installerPath}`);
-      return { success: false, error: 'Файл установщика не найден на системном накопителе.' };
+      return { success: false, error: 'Файл обновления не найден на диске.' };
     }
 
     try {
-      console.log(`[Updater] Spawning silent automatic installer reinstall: "${installerPath}" /S`);
+      // electron-builder portable выставляет путь к исходному exe пользователя
+      const portableExe = process.env.PORTABLE_EXECUTABLE_FILE || '';
 
-      // Spawn installer with silent /S flag
-      const child = spawn(installerPath, ['/S'], {
-        detached: true,
-        stdio: 'ignore',
-        shell: true
-      });
-      child.unref();
+      if (portableExe && fs.existsSync(portableExe)) {
+        const scriptPath = path.join(app.getPath('temp'), `flux-update-${Date.now()}.cmd`);
+        const script = [
+          '@echo off',
+          'chcp 65001 >nul',
+          ':wait',
+          // ждём завершения текущего процесса (фильтр по PID не зависит от языка системы)
+          `tasklist /FI "PID eq ${process.pid}" 2>nul | find "${process.pid}" >nul && (ping -n 2 127.0.0.1 >nul & goto wait)`,
+          `move /y "${installerPath}" "${portableExe}"`,
+          `start "" "${portableExe}"`,
+          'del "%~f0"',
+        ].join('\r\n');
+        fs.writeFileSync(scriptPath, script);
+        console.log(`[Updater] Portable self-replace scheduled: ${installerPath} -> ${portableExe}`);
+        const child = spawn('cmd.exe', ['/c', scriptPath], { detached: true, stdio: 'ignore', windowsHide: true });
+        child.unref();
+      } else {
+        console.log(`[Updater] Spawning silent installer: "${installerPath}" /S`);
+        const child = spawn(installerPath, ['/S'], { detached: true, stdio: 'ignore', shell: true });
+        child.unref();
+      }
 
-      console.log('[Updater] Exiting main electron application window context to allow overwrite...');
+      console.log('[Updater] Exiting application to allow overwrite...');
       app.exit(0);
       return { success: true };
     } catch (err: any) {
@@ -691,48 +654,6 @@ app.whenReady().then(() => {
 
   ipcMain.handle('updater:version', () => {
     return app.getVersion() || '1.0.0';
-  });
-
-  // Admin publish release action
-  ipcMain.handle('updater:publish-release', async (event, { version, changelog, fileUrl }) => {
-    try {
-      const prismaInstance = createDbClient(currentDbType, finalDbUrl);
-
-      const update = await prismaInstance.appUpdate.upsert({
-        where: { version },
-        update: { changelog, fileUrl },
-        create: { version, changelog, fileUrl }
-      });
-
-      await prismaInstance.$disconnect();
-      return { success: true, update };
-    } catch (err: any) {
-      console.error('[Updater Publish Error]', err);
-      return { success: false, error: err.message };
-    }
-  });
-
-  // Maintain outdated mock simulations fallback
-  ipcMain.handle('updater:simulateCheck', () => {
-    mainWindow?.webContents.send('updater:status', 'checking');
-    setTimeout(() => {
-      mainWindow?.webContents.send('updater:status', 'available', {
-        version: '1.2.0',
-        releaseNotes: '### PDM Sync v1.2.0\n\n- Добавлен высокоскоростной конвейер Socket.io\n- Реализация конфликтов specs тегов\n- Повышение стабильности'
-      });
-    }, 1000);
-  });
-
-  ipcMain.handle('updater:simulateDownload', () => {
-    let percent = 0;
-    const interval = setInterval(() => {
-      percent += 20;
-      mainWindow?.webContents.send('updater:status', 'downloading', { percent });
-      if (percent >= 100) {
-        clearInterval(interval);
-        mainWindow?.webContents.send('updater:status', 'downloaded', { version: '1.2.0' });
-      }
-    }, 500);
   });
 
   // --- STICKER SUB-WINDOW PROVISIONING (STEP 4) ---

