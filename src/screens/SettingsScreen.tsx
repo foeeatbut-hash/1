@@ -47,6 +47,15 @@ export default function SettingsScreen() {
   const initial = (searchParams.get('section') as SectionId) || 'general';
   const [section, setSection] = useState<SectionId>(SECTIONS.some(s => s.id === initial) ? initial : 'general');
 
+  // Секция может смениться и через URL (туры ассистента, кнопка «Этапы» в
+  // Менеджменте): следим за query и переключаемся, а не только при монтировании
+  useEffect(() => {
+    const fromUrl = searchParams.get('section') as SectionId | null;
+    if (fromUrl && SECTIONS.some(s => s.id === fromUrl) && fromUrl !== section) {
+      setSection(fromUrl);
+    }
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const pick = (id: SectionId) => {
     setSection(id);
     setSearchParams({ section: id }, { replace: true });
