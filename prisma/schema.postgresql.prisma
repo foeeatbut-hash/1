@@ -45,7 +45,51 @@ model Project {
   equipmentSystems EquipmentSystem[]
   chatMessages     ChatMessage[]     @relation("LinkedProject")
   chatGroups       ChatGroup[]       @relation("ProjectGroups")
+  constructorDocs  ConstructorDoc[]
 }
+
+// Документ Конструктора: книга-таблица, собираемая из данных проекта
+// (см. docs/constructor-design-v0.25*.md). workbook — JSON-снапшот движка,
+// bindings — привязки умных блоков (наша бизнес-логика, отдельно от движка).
+model ConstructorDoc {
+  id          String    @id @default(uuid())
+  projectId   String
+  name        String    @default("Без названия")
+  kind        String    @default("DOC")    // "DOC" | "TEMPLATE"
+  scope       String    @default("SHARED") // "SHARED" | "PERSONAL"
+  ownerId     String?   // владелец личного документа (= createdById)
+  named       Boolean   @default(false)    // имя дано человеком (гасит диалог при закрытии)
+  description String    @default("")
+  workbook    String    @default("")       // JSON-снапшот книги
+  bindings    String    @default("[]")     // JSON: умные блоки
+  settings    String    @default("{}")     // JSON: печать/ориентация и т.п.
+  createdById String?
+  updatedById String?
+  deletedAt   DateTime? // корзина (мягкое удаление)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions    ConstructorDocVersion[]
+  @@index([projectId, kind])
+}
+
+// Версия документа Конструктора: автоснимок перед обновлением данных,
+// перед восстановлением и ручные сохранения. Храним последние 20 на документ.
+model ConstructorDocVersion {
+  id        String   @id @default(uuid())
+  docId     String
+  version   Int      // порядковый номер в документе
+  workbook  String   @default("")
+  bindings  String   @default("[]")
+  comment   String   @default("") // «перед обновлением данных», «ручное сохранение»…
+  authorId  String?
+  createdAt DateTime @default(now())
+
+  doc       ConstructorDoc @relation(fields: [docId], references: [id], onDelete: Cascade)
+  @@index([docId, version])
+}
+
 
 model Dictionary {
   id        String   @id @default(uuid())
@@ -83,6 +127,7 @@ model Folder {
   project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   scope       String   @default("SHARED") // "SHARED" — общий раздел, "PERSONAL" — личный раздел пользователя
   ownerId     String?  // Владелец личной папки (User.id); null для общих
+  system      Boolean  @default(false) // Системная папка: нельзя удалить/переименовать
 
   parentId    String?
   parent      Folder?  @relation("FolderToFolder", fields: [parentId], references: [id], onDelete: Cascade)
@@ -110,6 +155,7 @@ model FileNode {
   updatedBy   User?    @relation("FileUpdater", fields: [updatedById], references: [id])
   updatedAt   DateTime @default(now()) @updatedAt
   content     String?
+  refId       String?  // Ссылка на сущность программы (type="CONSTRUCTOR" → ConstructorDoc.id)
 
   folderId    String?
   folder      Folder?   @relation(fields: [folderId], references: [id], onDelete: Cascade)
@@ -135,6 +181,7 @@ model Tag {
   equipmentId  String?
   metadata     String?
   createdAt    DateTime    @default(now())
+  updatedAt    DateTime?   @updatedAt // для индикатора «данные изменились» в Конструкторе
   
   project      Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   equipment    Equipment?  @relation(fields: [equipmentId], references: [id], onDelete: SetNull)

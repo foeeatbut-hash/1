@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, utilityProcess } from 'electron';
 import path from 'path';
 
 const additionalData = { myKey: 'pdm-system' };
@@ -101,60 +101,51 @@ app.whenReady().then(() => {
     }
   } catch (e) {}
 
-  // Главное окно покажется, когда будет готово к отрисовке (сразу со стартовой
-  // заставкой). Встроенный Express-сервер поднимаем после первой отрисовки
-  // страницы — не блокируя интерфейс.
+  // Главное окно покажется, когда будет готово к отрисовке — сразу со стартовой
+  // заставкой из index.html. Встроенный Express-сервер поднимается ниже,
+  // как только будет вычислен DATABASE_URL.
   createWindow();
-
-  if (app.isPackaged) {
-    // Инициализация сервера (require server.cjs) на секунды блокирует главный
-    // процесс — если запустить её сразу, рендерер не успевает отрисовать
-    // стартовую заставку и пользователь видит пустой синий экран.
-    // Поэтому ждём первой отрисовки страницы и только потом поднимаем сервер;
-    // CSS-анимации заставки живут в рендерере и продолжают идти.
-    let serverStarted = false;
-    const startEmbeddedServer = () => {
-      if (serverStarted) return;
-      serverStarted = true;
-      const startupLogPath = path.join(ventAppDataPath, 'server-startup.log');
-      try {
-        fs.writeFileSync(startupLogPath, `[${new Date().toISOString()}] Инициализация встроенного Express-сервера...\n`, 'utf-8');
-        require(path.join(__dirname, '../dist/server.cjs'));
-        fs.appendFileSync(startupLogPath, `[${new Date().toISOString()}] Модуль сервера успешно подключен через require().\n`, 'utf-8');
-      } catch (err: any) {
-        console.error('[Electron Main] Сбой при автоматическом запуске встроенного Express-сервера:', err);
-        try {
-          fs.appendFileSync(startupLogPath, `[${new Date().toISOString()}] СБОЙ ЗАПУСКА: ${err.message}\nStack:\n${err.stack}\n`, 'utf-8');
-        } catch (writeErr) {}
-      }
-    };
-    mainWindow?.webContents.once('did-finish-load', () => {
-      // Небольшая пауза, чтобы заставка гарантированно успела отрисоваться
-      setTimeout(startEmbeddedServer, 250);
-    });
-    // Страховка: если событие загрузки не пришло (например, страница упала) —
-    // всё равно поднимаем сервер
-    setTimeout(startEmbeddedServer, 5000);
-  }
 
   const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');
 
-  // Читает config.json: тип БД, удаленный URL, пользовательский путь SQLite и папку crash-логов
+  // Читает config.json: тип БД, удаленный URL, пользовательский путь SQLite,
+  // папку crash-логов и адрес сервера компании (пусто = встроенный сервер)
   const readAppConfig = () => {
-    const result = { currentDbType: 'LOCAL', databaseUrlSetting: '', localDbPath: '', crashLogDir: '' };
+    const result = { currentDbType: 'LOCAL', databaseUrlSetting: '', localDbPath: '', crashLogDir: '', remoteServerUrl: '' };
     try {
       if (fs.existsSync(CONFIG_FILE)) {
         const parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
-        if (parsed && typeof parsed.current_db_type === 'string') {
-          result.currentDbType = parsed.current_db_type;
-          result.databaseUrlSetting = parsed.database_url || '';
-          result.localDbPath = parsed.local_db_path || '';
-          result.crashLogDir = parsed.crash_log_dir || '';
+        if (parsed && typeof parsed === 'object') {
+          if (typeof parsed.current_db_type === 'string') {
+            result.currentDbType = parsed.current_db_type;
+            result.databaseUrlSetting = parsed.database_url || '';
+            result.localDbPath = parsed.local_db_path || '';
+            result.crashLogDir = parsed.crash_log_dir || '';
+          }
+          result.remoteServerUrl = String(parsed.remote_server_url || '').trim();
         }
       }
     } catch (e) {}
     return result;
   };
+
+  // Смена адреса сервера из интерфейса (экран входа): пусто = встроенный.
+  // Пишем в config.json, не трогая остальные ключи; применяется при
+  // следующем запуске (рендерер сам перезагружается и читает localStorage)
+  ipcMain.handle('app:set-server-url', (_event, url: string) => {
+    try {
+      let parsed: any = {};
+      try {
+        if (fs.existsSync(CONFIG_FILE)) parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8')) || {};
+      } catch (e) { parsed = {}; }
+      parsed.remote_server_url = String(url || '').trim();
+      fs.writeFileSync(CONFIG_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || String(err) };
+    }
+  });
+  ipcMain.handle('app:get-server-url', () => readAppConfig().remoteServerUrl);
 
   const resolveLocalDbPath = (localDbPathSetting: string) => {
     const custom = String(localDbPathSetting || '').trim();
@@ -174,6 +165,65 @@ app.whenReady().then(() => {
   }
 
   process.env.DATABASE_URL = finalDbUrl;
+
+  if (app.isPackaged && startupConfig.remoteServerUrl) {
+    // Настроен сервер компании: встроенный Express не нужен — клиент ходит
+    // на удалённый адрес (fetch-прокси и socket.io в рендерере), старт мгновенный
+    console.log('[Electron Main] Режим сервера компании:', startupConfig.remoteServerUrl, '— встроенный сервер не запускается.');
+  } else if (app.isPackaged) {
+    // Встроенный Express поднимаем СРАЗУ и в ОТДЕЛЬНОМ процессе (utilityProcess):
+    // - сервер грузится параллельно с отрисовкой окна — интро короче;
+    // - главный процесс не блокируется на секунды (раньше синхронный require
+    //   подвешивал окно: его нельзя было двигать, показ мог задержаться и
+    //   пользователь видел пустой синий фон вместо заставки).
+    const startupLogPath = path.join(ventAppDataPath, 'server-startup.log');
+    const logStartup = (line: string) => {
+      try { fs.appendFileSync(startupLogPath, `[${new Date().toISOString()}] ${line}\n`, 'utf-8'); } catch (e) {}
+    };
+    try {
+      fs.writeFileSync(startupLogPath, `[${new Date().toISOString()}] Инициализация встроенного Express-сервера...\n`, 'utf-8');
+    } catch (e) {}
+
+    const serverPath = path.join(__dirname, '../dist/server.cjs');
+    const serverStartedAt = Date.now();
+
+    // Аварийный фоллбэк: если отдельный процесс не запустился/сразу упал —
+    // поднимаем сервер в главном процессе, как раньше (пусть медленно, но работает)
+    let fallbackDone = false;
+    const requireServerInMain = (reason: string) => {
+      if (fallbackDone) return;
+      fallbackDone = true;
+      logStartup(`Фоллбэк на запуск в главном процессе: ${reason}`);
+      try {
+        require(serverPath);
+        logStartup('Модуль сервера успешно подключен через require() (fallback).');
+      } catch (err: any) {
+        console.error('[Electron Main] Сбой при автоматическом запуске встроенного Express-сервера:', err);
+        logStartup(`СБОЙ ЗАПУСКА: ${err.message}\nStack:\n${err.stack}`);
+      }
+    };
+
+    try {
+      const serverProc = utilityProcess.fork(serverPath, [], {
+        env: { ...process.env },
+        stdio: 'pipe',
+        serviceName: 'flux-embedded-server',
+      });
+      serverProc.stdout?.on('data', (d: any) => logStartup(`[server] ${String(d).trimEnd()}`));
+      serverProc.stderr?.on('data', (d: any) => logStartup(`[server:err] ${String(d).trimEnd()}`));
+      serverProc.on('spawn', () => logStartup('Серверный процесс запущен (utilityProcess).'));
+      serverProc.once('exit', (code: number) => {
+        logStartup(`Серверный процесс завершился с кодом ${code}.`);
+        // Ненулевой выход в первые секунды = сервер не поднялся — пробуем по-старому
+        if (code !== 0 && Date.now() - serverStartedAt < 20000) {
+          requireServerInMain(`utilityProcess завершился с кодом ${code}`);
+        }
+      });
+      app.on('will-quit', () => { try { serverProc.kill(); } catch (e) {} });
+    } catch (err: any) {
+      requireServerInMain(`utilityProcess.fork недоступен: ${err?.message || err}`);
+    }
+  }
 
   try {
     const localPrisma = createDbClient(currentDbType, finalDbUrl);
@@ -344,171 +394,17 @@ app.whenReady().then(() => {
     }
   });
 
-  // --- CHAT IPC HANDLERS ---
-  try {
-    let chatPrismaInstance: any = null;
-    let lastLoadedDbUrl: string | null = null;
+  // --- ЛОКАЛЬНЫЕ IPC-ВОЗМОЖНОСТИ ---
+  // Чат полностью переведён на сервер (HTTP + socket.io): обработчики с прямым
+  // доступом к БД из главного процесса удалены — они шли мимо сервера (события
+  // не рассылались, вложения писались на диск отправителя). Здесь остались
+  // только по-настоящему локальные возможности Electron.
 
-    // Обертка для IPC: вместо многострочного код-фрейма Prisma в renderer уходит суть ошибки
-    const handleDb = (channel: string, fn: (...args: any[]) => Promise<any>) => {
-      ipcMain.handle(channel, async (...args: any[]) => {
-        try {
-          return await fn(...args);
-        } catch (err: any) {
-          const rawMsg = String(err?.message || err);
-          let friendly: string;
-          if (rawMsg.includes('malformed') || rawMsg.includes('disk image')) {
-            friendly = 'База данных повреждена. Перезапустите приложение — она будет автоматически восстановлена из шаблона.';
-          } else if (rawMsg.includes('Foreign key constraint')) {
-            friendly = 'Сессия устарела: текущий пользователь отсутствует в базе данных. Выйдите из профиля и войдите заново.';
-          } else {
-            const lines = rawMsg.split('\n').map(l => l.trim()).filter(Boolean);
-            friendly = lines[lines.length - 1] || rawMsg;
-          }
-          console.error(`[IPC ${channel}] ${friendly}`);
-          throw new Error(friendly);
-        }
-      });
-    };
-
-    const getChatPrisma = () => {
-      // Используем ту же папку данных (pdm-app) и тот же config.json, что и Express-сервер
-      const cfg = readAppConfig();
-
-      let dbUrl = '';
-      if (cfg.currentDbType === 'LOCAL') {
-        const localDbPath = resolveLocalDbPath(cfg.localDbPath);
-        dbUrl = `file:${localDbPath}?connection_limit=1&busy_timeout=15000`;
-      } else {
-        dbUrl = cfg.databaseUrlSetting || "postgresql://postgres:gfhjkm1212@11.22.33.44:5432/pdm_system?schema=public";
-      }
-
-      if (!chatPrismaInstance || lastLoadedDbUrl !== dbUrl) {
-        if (chatPrismaInstance) {
-          try {
-            chatPrismaInstance.$disconnect();
-          } catch (e) {}
-        }
-
-        chatPrismaInstance = createDbClient(cfg.currentDbType, dbUrl);
-        lastLoadedDbUrl = dbUrl;
-      }
-      return chatPrismaInstance;
-    };
-
-    const chatPrisma = new Proxy({}, {
-      get(target, prop) {
-        const client = getChatPrisma();
-        const value = client[prop];
-        if (typeof value === 'function') {
-          return value.bind(client);
-        }
-        return value;
-      }
-    }) as any;
-
-    handleDb('chat:get-messages', async (event, { senderId, receiverId }) => {
-      return await chatPrisma.chatMessage.findMany({
-        where: {
-          OR: [
-            { senderId, receiverId },
-            { senderId: receiverId, receiverId: senderId }
-          ]
-        },
-        include: {
-          attachments: true,
-          sender: { select: { id: true, name: true, symbol: true, role: true } },
-          receiver: { select: { id: true, name: true, symbol: true, role: true } },
-          linkedElement: true,
-          replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
-        },
-        orderBy: { createdAt: 'asc' }
-      });
-    });
-
-    handleDb('chat:send-message', async (event, { senderId, receiverId, content, linkedElementId, linkedProjectId, attachments, replyToId }) => {
-      const msg = await chatPrisma.chatMessage.create({
-        data: {
-          senderId,
-          receiverId,
-          content,
-          linkedElementId: linkedElementId || null,
-          linkedProjectId: linkedProjectId || null,
-          replyToId: replyToId || null,
-        }
-      });
-
-      if (attachments && Array.isArray(attachments)) {
-        for (const att of attachments) {
-          await chatPrisma.chatAttachment.create({
-            data: {
-              messageId: msg.id,
-              fileName: att.fileName,
-              filePath: att.filePath,
-              fileSize: att.fileSize || 0
-            }
-          });
-        }
-      }
-
-      // Личное уведомление получателю о новом сообщении (категория ЧАТ)
-      try {
-        const s = await chatPrisma.user.findUnique({ where: { id: senderId }, select: { name: true } });
-        await chatPrisma.notification.create({ data: {
-          userId: receiverId, category: 'ЧАТ',
-          title: `Новое сообщение от ${s?.name || 'сотрудника'}`,
-          body: String(content || '').slice(0, 80),
-          targetRoute: `/chat?from=${senderId}`,
-        }});
-      } catch (e) {}
-
-      return await chatPrisma.chatMessage.findUnique({
-        where: { id: msg.id },
-        include: {
-          attachments: true,
-          sender: { select: { id: true, name: true, symbol: true, role: true } },
-          receiver: { select: { id: true, name: true, symbol: true, role: true } },
-          linkedElement: true,
-          replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
-        }
-      });
-    });
-
-    handleDb('chat:upload-file', async (event, { fileName, base64Data }) => {
-      const fs = require('fs');
-      const path = require('path');
-      const { app } = require('electron');
-      const dir = path.join(app.getPath('userData'), 'chat_files');
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      // Sanitizing fileName to prevent Path Traversal
-      let sanitizedFileName = path.basename(String(fileName || '')).replace(/[\/\\]/g, '').trim();
-      // '.', '..' и пустое имя недопустимы — подставляем безопасное имя
-      if (!sanitizedFileName || sanitizedFileName === '.' || sanitizedFileName === '..') {
-        sanitizedFileName = `file_${Date.now()}`;
-      }
-      // Уникальность: не затираем существующее вложение с тем же именем
-      {
-        const dot = sanitizedFileName.lastIndexOf('.');
-        const stem = dot > 0 ? sanitizedFileName.slice(0, dot) : sanitizedFileName;
-        const ext = dot > 0 ? sanitizedFileName.slice(dot) : '';
-        let n = 1;
-        while (fs.existsSync(path.join(dir, sanitizedFileName))) {
-          sanitizedFileName = `${stem}-${n}${ext}`;
-          n++;
-        }
-      }
-      const localPath = path.join(dir, sanitizedFileName);
-      const buffer = Buffer.from(base64Data, 'base64');
-      fs.writeFileSync(localPath, buffer);
-      return { filePath: localPath, fileName: sanitizedFileName, fileSize: buffer.length };
-    });
-
-    handleDb('chat:open-file', async (event, filePath) => {
-      const { shell, app } = require('electron');
-      const fs = require('fs');
-      const path = require('path');
+  // Легаси: открытие СТАРЫХ вложений чата, сохранённых прежними версиями
+  // на диск этой машины (новые вложения живут на сервере и открываются по URL)
+  ipcMain.handle('chat:open-file', async (event, filePath) => {
+    const { shell } = require('electron');
+    try {
       // Открываем только вложения чата (каталог chat_files), а не произвольный путь
       const chatDir = path.resolve(path.join(app.getPath('userData'), 'chat_files'));
       const resolved = path.resolve(String(filePath || ''));
@@ -518,270 +414,63 @@ app.whenReady().then(() => {
       if (fs.existsSync(resolved)) {
         await shell.openPath(resolved);
         return { success: true };
-      } else {
-        return { success: false, error: 'Файл не найден на системном диске.' };
       }
-    });
+      return { success: false, error: 'Файл не найден на системном диске.' };
+    } catch (err: any) {
+      return { success: false, error: err?.message || String(err) };
+    }
+  });
 
-    ipcMain.handle('shell:open-external', async (event, url) => {
-      const { shell } = require('electron');
-      try {
-        let raw = String(url || '').trim();
-        // Ссылка без схемы трактуется как http(s)
-        if (raw && !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw)) raw = 'https://' + raw;
-        const parsed = new URL(raw);
-        // Разрешаем только безопасные протоколы (не file:, не пользовательские схемы)
-        if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) {
-          return { success: false, error: 'Недопустимый протокол ссылки.' };
-        }
-        await shell.openExternal(raw);
-        return { success: true };
-      } catch (err: any) {
-        return { success: false, error: err.message };
+  ipcMain.handle('shell:open-external', async (event, url) => {
+    const { shell } = require('electron');
+    try {
+      let raw = String(url || '').trim();
+      // Ссылка без схемы трактуется как http(s)
+      if (raw && !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw)) raw = 'https://' + raw;
+      const parsed = new URL(raw);
+      // Разрешаем только безопасные протоколы (не file:, не пользовательские схемы)
+      if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) {
+        return { success: false, error: 'Недопустимый протокол ссылки.' };
       }
-    });
-
-    // Automated Project Group Chats Helpers and Handlers
-    const ensureProjectChatGroupsIPC = async () => {
-      try {
-        const projects = await chatPrisma.project.findMany();
-        const users = await chatPrisma.user.findMany();
-        for (const p of projects) {
-          const g = await chatPrisma.chatGroup.findFirst({ where: { projectId: p.id } });
-          if (!g) {
-            await chatPrisma.chatGroup.create({
-              data: {
-                name: `Проект: ${p.name}`,
-                type: 'PROJECT',
-                projectId: p.id,
-                members: { connect: users.map((u: any) => ({ id: u.id })) }
-              }
-            });
-          } else {
-            // keep up to date and sync members
-            await chatPrisma.chatGroup.update({
-              where: { id: g.id },
-              data: {
-                name: `Проект: ${p.name}`,
-                members: { connect: users.map((u: any) => ({ id: u.id })) }
-              }
-            });
-          }
-        }
-      } catch (err) {
-        console.warn('ensureProjectChatGroupsIPC error:', err);
-      }
-    };
-
-    handleDb('chat:get-groups', async () => {
-      await ensureProjectChatGroupsIPC();
-      return await chatPrisma.chatGroup.findMany({
-        include: {
-          members: { select: { id: true, name: true, symbol: true, role: true } },
-          project: { select: { id: true, name: true } }
-        },
-        orderBy: { createdAt: 'desc' }
-      });
-    });
-
-    handleDb('chat:get-group-messages', async (event, { groupId }) => {
-      return await chatPrisma.chatMessage.findMany({
-        where: { chatGroupId: groupId },
-        include: {
-          attachments: true,
-          sender: { select: { id: true, name: true, symbol: true, role: true } },
-          linkedElement: true,
-          replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
-        },
-        orderBy: { createdAt: 'asc' }
-      });
-    });
-
-    handleDb('chat:send-group-message', async (event, { senderId, groupId, content, linkedElementId, linkedProjectId, attachments, replyToId }) => {
-      // В каналах писать может только владелец или администратор
-      const grp = await chatPrisma.chatGroup.findUnique({ where: { id: groupId } });
-      if (grp && grp.type === 'CHANNEL') {
-        const u = await chatPrisma.user.findUnique({ where: { id: senderId } });
-        if (grp.ownerId && grp.ownerId !== senderId && u?.role !== 'ADMIN') {
-          throw new Error('В канал может писать только владелец или администратор');
-        }
-      }
-      const msg = await chatPrisma.chatMessage.create({
-        data: {
-          senderId,
-          chatGroupId: groupId,
-          content,
-          linkedElementId: linkedElementId || null,
-          linkedProjectId: linkedProjectId || null,
-          replyToId: replyToId || null,
-        }
-      });
-
-      if (attachments && Array.isArray(attachments)) {
-        for (const att of attachments) {
-          await chatPrisma.chatAttachment.create({
-            data: {
-              messageId: msg.id,
-              fileName: att.fileName,
-              filePath: att.filePath,
-              fileSize: att.fileSize || 0
-            }
-          });
-        }
-      }
-
-      // Личные уведомления участникам группы (кроме отправителя)
-      try {
-        const s = await chatPrisma.user.findUnique({ where: { id: senderId }, select: { name: true } });
-        const g = await chatPrisma.chatGroup.findUnique({ where: { id: groupId }, include: { members: { select: { id: true } } } });
-        for (const m of (g?.members || [])) {
-          if (m.id === senderId) continue;
-          await chatPrisma.notification.create({ data: {
-            userId: m.id, category: 'ЧАТ',
-            title: `${s?.name || 'Сотрудник'} в «${g?.name || 'группе'}»`,
-            body: String(content || '').slice(0, 80),
-            targetRoute: `/chat?group=${groupId}`,
-          }});
-        }
-      } catch (e) {}
-
-      return await chatPrisma.chatMessage.findUnique({
-        where: { id: msg.id },
-        include: {
-          attachments: true,
-          sender: { select: { id: true, name: true, symbol: true, role: true } },
-          linkedElement: true,
-          replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
-        }
-      });
-    });
-
-    // Редактирование своего сообщения
-    handleDb('chat:edit-message', async (event, { messageId, userId, content }) => {
-      const msg = await chatPrisma.chatMessage.findUnique({ where: { id: messageId } });
-      if (!msg) throw new Error('Сообщение не найдено');
-      if (msg.senderId !== userId) throw new Error('Можно редактировать только свои сообщения');
-      return await chatPrisma.chatMessage.update({
-        where: { id: messageId },
-        data: { content: String(content || ''), editedAt: new Date() },
-        include: {
-          attachments: true,
-          sender: { select: { id: true, name: true, symbol: true, role: true } },
-          receiver: { select: { id: true, name: true, symbol: true, role: true } },
-          linkedElement: true,
-          replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
-        }
-      });
-    });
-
-    // Удаление своего сообщения
-    handleDb('chat:delete-message', async (event, { messageId, userId }) => {
-      const msg = await chatPrisma.chatMessage.findUnique({ where: { id: messageId } });
-      if (!msg) throw new Error('Сообщение не найдено');
-      if (msg.senderId !== userId) throw new Error('Можно удалять только свои сообщения');
-      await chatPrisma.chatMessage.delete({ where: { id: messageId } });
+      await shell.openExternal(raw);
       return { success: true };
-    });
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
 
-    // Feature 3: Screen capture
-    ipcMain.handle('desktop:capture', async () => {
-      const { desktopCapturer } = require('electron');
-      const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 1280, height: 720 } });
-      if (sources.length > 0) {
-        return sources[0].thumbnail.toDataURL();
-      }
-      throw new Error('Источники видеозахвата не найдены.');
-    });
-
-    // Chat ComponentElement Search handler
-    handleDb('chat:search-element', async (event, { tag }) => {
-      return await chatPrisma.componentElement.findFirst({
-        where: {
-          OR: [
-            { itemCode: tag },
-            { name: tag },
-            { id: tag },
-            { tags: { some: { identifier: { contains: tag } } } }
-          ]
-        },
-        include: {
-          tags: true,
-          monoblock: { include: { system: true } }
-        }
+  // PDF из готового HTML (печатный вид Конструктора): скрытое окно →
+  // printToPDF → диалог сохранения. Векторный PDF без внешних зависимостей.
+  ipcMain.handle('print:to-pdf', async (_event, { html, title, landscape }: { html: string; title?: string; landscape?: boolean }) => {
+    const { dialog } = require('electron');
+    const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+    try {
+      await pdfWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(String(html || '')));
+      const pdf = await pdfWin.webContents.printToPDF({ landscape: !!landscape, printBackground: true });
+      const result = await dialog.showSaveDialog({
+        title: 'Сохранить PDF',
+        defaultPath: `${String(title || 'Документ').replace(/[\\/:*?"<>|]/g, '_')}.pdf`,
+        filters: [{ name: 'PDF (*.pdf)', extensions: ['pdf'] }],
       });
-    });
+      if (result.canceled || !result.filePath) return { success: false, canceled: true };
+      fs.writeFileSync(result.filePath, pdf);
+      return { success: true, filePath: result.filePath };
+    } catch (err: any) {
+      return { success: false, error: err?.message || String(err) };
+    } finally {
+      try { pdfWin.destroy(); } catch (e) {}
+    }
+  });
 
-    // Chat ComponentElement Autocomplete handler
-    handleDb('chat:autocomplete-tags', async (event, { query, projectId }) => {
-      const cleanQuery = query ? String(query).toLowerCase() : '';
-      const cleanProjId = projectId ? String(projectId) : undefined;
-
-      const suggestions: Array<{ text: string; description: string; elementId?: string }> = [];
-
-      // 1. Fetch tags matching cleanQuery
-      const tags = await chatPrisma.tag.findMany({
-        where: {
-          ...(cleanProjId ? { projectId: cleanProjId } : {}),
-          identifier: { contains: cleanQuery }
-        },
-        take: 15
-      });
-
-      for (const t of tags) {
-        suggestions.push({
-          text: t.identifier,
-          description: `BIM/KKS Тег: ${t.fluid || ''} (${t.department || ''})`
-        });
-      }
-
-      // 2. Fetch component elements matching cleanQuery
-      const elements = await chatPrisma.componentElement.findMany({
-        where: {
-          ...(cleanProjId ? {
-            monoblock: {
-              system: {
-                projectId: cleanProjId
-              }
-            }
-          } : {}),
-          OR: [
-            { itemCode: { contains: cleanQuery } },
-            { name: { contains: cleanQuery } }
-          ]
-        },
-        include: {
-          monoblock: {
-            include: {
-              system: true
-            }
-          }
-        },
-        take: 20
-      });
-
-      for (const el of elements) {
-        const systemName = el.monoblock?.system?.name || '';
-        const monoName = el.monoblock?.name || '';
-        suggestions.push({
-          text: el.itemCode || el.name,
-          description: `Оборудование: ${el.name} | [${systemName} > ${monoName}]`,
-          elementId: el.id
-        });
-      }
-
-      // Deduplicate suggestions by text
-      const seen = new Set<string>();
-      return suggestions.filter(s => {
-        const key = s.text.toLowerCase();
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-    });
-
-  } catch (chatErr) {
-    console.warn('[Electron Main] Prisma chat IPC handlers initialization skipped:', chatErr);
-  }
+  // Захват экрана (вставка скриншота в чат)
+  ipcMain.handle('desktop:capture', async () => {
+    const { desktopCapturer } = require('electron');
+    const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 1280, height: 720 } });
+    if (sources.length > 0) {
+      return sources[0].thumbnail.toDataURL();
+    }
+    throw new Error('Источники видеозахвата не найдены.');
+  });
 
   // Real auto-updater implementation
   let latestCachedUpdate: { version: string; fileUrl: string; changelog: string } | null = null;

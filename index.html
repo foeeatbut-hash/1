@@ -8,11 +8,12 @@
     <style>
       html, body { margin: 0; background: #0f172a; }
       /* ── Стартовая заставка Flux ──
-         Видна, пока грузится JS; React продолжает её тем же дизайном,
-         пока поднимается встроенный сервер. Если скрипт упадёт —
-         пользователь увидит её вместо немого белого экрана. */
+         Живёт ВНЕ #root: React её не пересоздаёт, поэтому интро идёт одной
+         непрерывной анимацией от первой отрисовки страницы до готовности
+         сервера (прогресс ведёт инлайн-скрипт ниже, гасит — ServerGate).
+         Если скрипт упадёт — пользователь увидит её вместо немого экрана. */
       #boot-splash {
-        position: fixed; inset: 0; overflow: hidden;
+        position: fixed; inset: 0; overflow: hidden; z-index: 50;
         display: flex; flex-direction: column; align-items: center; justify-content: center;
         background: #0f172a; color: #94a3b8;
         font-family: 'Inter', system-ui, -apple-system, sans-serif;
@@ -127,10 +128,7 @@
       @keyframes fx-float   { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-34px); } }
       @keyframes fx-stream  { from { transform: translateX(-360px); } to { transform: translateX(calc(100vw + 360px)); } }
       @keyframes fx-spin    { to { transform: rotate(360deg); } }
-      /* React-версия заставки живёт внутри приложения (под тайтл-баром),
-         чтобы кнопки окна оставались доступны во время запуска сервера */
-      #boot-splash.in-app { position: absolute; }
-      /* Готово: вспышка логотипа + плавное растворение (класс ставит React) */
+      /* Готово: вспышка логотипа + плавное растворение (класс ставит __bootSplashDone) */
       #boot-splash.done { animation: fx-out 0.55s ease forwards; pointer-events: none; }
       #boot-splash.done .tile { animation: fx-flash 0.55s ease forwards; }
       @keyframes fx-out   { to { opacity: 0; transform: scale(1.04); } }
@@ -138,32 +136,86 @@
     </style>
   </head>
   <body>
-    <div id="root">
-      <div id="boot-splash">
-        <div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div>
-        <div class="stream s1"></div><div class="stream s2"></div><div class="stream s3"></div>
-        <div class="glow"></div>
-        <div class="tile-wrap">
-          <div class="halo"></div>
-          <div class="tile">
-            <svg width="58" height="58" viewBox="0 0 100 100">
-              <path class="flux-curve flux-base" pathLength="100" d="M16 62 C36 28 64 28 84 62" />
-              <path class="flux-curve flux-base" pathLength="100" d="M16 40 C36 74 64 74 84 40" />
-              <path class="flux-curve flux-comet" pathLength="100" d="M16 62 C36 28 64 28 84 62" />
-              <path class="flux-curve flux-comet rev" pathLength="100" d="M16 40 C36 74 64 74 84 40" />
-            </svg>
-          </div>
+    <!-- Заставка — сиблинг #root, а не его содержимое: React при монтировании
+         её не трогает, интро не перезапускается и не прыгает -->
+    <div id="boot-splash">
+      <div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div>
+      <div class="stream s1"></div><div class="stream s2"></div><div class="stream s3"></div>
+      <div class="glow"></div>
+      <div class="tile-wrap">
+        <div class="halo"></div>
+        <div class="tile">
+          <svg width="58" height="58" viewBox="0 0 100 100">
+            <path class="flux-curve flux-base" pathLength="100" d="M16 62 C36 28 64 28 84 62" />
+            <path class="flux-curve flux-base" pathLength="100" d="M16 40 C36 74 64 74 84 40" />
+            <path class="flux-curve flux-comet" pathLength="100" d="M16 62 C36 28 64 28 84 62" />
+            <path class="flux-curve flux-comet rev" pathLength="100" d="M16 40 C36 74 64 74 84 40" />
+          </svg>
         </div>
-        <div class="wordmark">Flux</div>
-        <div class="subtitle">Инженерный документооборот</div>
-        <div class="bar-row">
-          <div class="bar"><span class="fill"></span></div>
-          <span class="pct"></span>
-        </div>
-        <div class="status">Загрузка интерфейса…</div>
-        <div class="credit">Разработка Раупова Хусрава</div>
       </div>
+      <div class="wordmark">Flux</div>
+      <div class="subtitle">Инженерный документооборот</div>
+      <div class="bar-row">
+        <div class="bar"><span class="fill"></span></div>
+        <span class="pct"></span>
+      </div>
+      <div class="status">Загрузка интерфейса…</div>
+      <div class="credit">Разработка Раупова Хусрава</div>
     </div>
+    <script>
+      // Ведёт прогресс/статусы заставки с ПЕРВОЙ отрисовки страницы — ещё до
+      // загрузки React-бандла. Гасится вызовом window.__bootSplashDone(instant)
+      // из ServerGate, когда встроенный сервер ответил на /api/health.
+      (function () {
+        var splash = document.getElementById('boot-splash');
+        if (!splash) return;
+        var fill = splash.querySelector('.fill');
+        var pctEl = splash.querySelector('.pct');
+        var statusEl = splash.querySelector('.status');
+        // Этапы запуска: реального прогресса нет (порт молчит, пока всё не
+        // готово), поэтому статусы сменяются по прошедшему времени.
+        // При настроенном сервере компании (flux_server_url) — свои тексты.
+        var remote = '';
+        try { remote = (localStorage.getItem('flux_server_url') || '').trim(); } catch (e) {}
+        var STAGES = remote ? [
+          [0,  'Подключение к серверу компании…'],
+          [4,  'Ожидание ответа: ' + remote],
+          [12, 'Сервер отвечает дольше обычного…']
+        ] : [
+          [0,  'Загрузка интерфейса…'],
+          [2,  'Запуск встроенного сервера…'],
+          [5,  'Подключение к базе данных…'],
+          [10, 'Проверка и обновление структуры данных…'],
+          [22, 'Подготовка рабочего пространства…'],
+          [40, 'Почти готово, ещё немного…']
+        ];
+        var startAt = Date.now();
+        function tick() {
+          var s = (Date.now() - startAt) / 1000;
+          // Плавная асимптота: быстро в начале, медленнее к концу, 100% при готовности
+          var pct = Math.min(96, Math.round(100 * (1 - Math.exp(-s / 15))));
+          if (fill) fill.style.width = Math.max(10, pct) + '%';
+          if (pctEl) pctEl.textContent = pct + '%';
+          var text = STAGES[0][1];
+          for (var i = 0; i < STAGES.length; i++) { if (s >= STAGES[i][0]) text = STAGES[i][1]; }
+          if (statusEl) statusEl.textContent = String(text);
+        }
+        var timer = setInterval(tick, 400);
+        tick();
+        window.__bootSplashDone = function (instant) {
+          if (!splash) return;
+          clearInterval(timer);
+          var el = splash;
+          splash = null;
+          if (instant) { el.remove(); return; } // сервер уже был готов — без задержки и мигания
+          if (fill) fill.style.width = '100%';
+          if (pctEl) pctEl.textContent = '100%';
+          el.classList.add('done'); // вспышка логотипа + растворение (CSS)
+          setTimeout(function () { el.remove(); }, 600);
+        };
+      })();
+    </script>
+    <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

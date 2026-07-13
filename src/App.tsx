@@ -25,6 +25,7 @@ const ChatManagement = lazy(() => import('./screens/ChatManagement'));
 const LogsManagement = lazy(() => import('./screens/LogsManagement'));
 const ProcurementManagement = lazy(() => import('./screens/ProcurementManagement'));
 const SettingsScreen = lazy(() => import('./screens/SettingsScreen'));
+const ConstructorScreen = lazy(() => import('./screens/ConstructorScreen'));
 
 import { SocketProvider } from './components/SocketProvider';
 import { ServerGate } from './components/BootSplash';
@@ -62,7 +63,9 @@ function ElectronTitleBar() {
 
   return (
     <div
-      className="h-9 shrink-0 flex items-center justify-between bg-slate-900 border-b border-slate-800 select-none"
+      // z-[60] — выше стартовой заставки (#boot-splash, z-50): кнопки окна
+      // доступны во время запуска сервера; фон у них одинаковый (#0f172a)
+      className="relative z-[60] h-9 shrink-0 flex items-center justify-between bg-slate-900 border-b border-slate-800 select-none"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       onDoubleClick={() => wc?.maximize?.()}
     >
@@ -112,6 +115,17 @@ function AnimatedRoutes() {
     useAssistantStore.getState().setRoute(location.pathname);
   }, [location.pathname]);
 
+  // Сессия API истекла или профиль отключён (401 от сервера) → на экран входа
+  React.useEffect(() => {
+    const onExpired = () => {
+      if (useStore.getState().user) {
+        useStore.getState().setUser(null);
+      }
+    };
+    window.addEventListener('flux:auth-expired', onExpired);
+    return () => window.removeEventListener('flux:auth-expired', onExpired);
+  }, []);
+
   // Save the user's active route path when they interact
   React.useEffect(() => {
     if (user && location.pathname !== '/sticker') {
@@ -159,6 +173,7 @@ function AnimatedRoutes() {
             <Route path="/settings" element={<SettingsScreen />} />
             <Route path="/equipment" element={<Equipment />} />
             <Route path="/generator" element={<UniversalGenerator />} />
+            <Route path="/constructor" element={<ConstructorScreen />} />
             <Route path="/directory" element={<DictionaryEditor />} />
             <Route path="/logs" element={<LogsManagement />} />
             <Route path="/users" element={user && user.role === 'ADMIN' ? <UsersManagement /> : <Navigate to="/" replace />} />

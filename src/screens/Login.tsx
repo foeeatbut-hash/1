@@ -3,8 +3,8 @@ import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
-import { Lock, User, Eye, EyeOff, Loader2, AlertCircle, Sun, Moon, Database, FolderOpen, RotateCcw } from 'lucide-react';
-import { ENV_CONFIG } from '../config/env';
+import { Lock, User, Eye, EyeOff, Loader2, AlertCircle, Sun, Moon, Database, FolderOpen, RotateCcw, Server, Laptop, CheckCircle2 } from 'lucide-react';
+import { ENV_CONFIG, getConfiguredServerUrl, setConfiguredServerUrl, setAuthToken } from '../config/env';
 
 interface LoginProps {
   onConfigureDatabase?: () => void;
@@ -41,14 +41,47 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
     const isRemembered = localStorage.getItem('login_remember') === 'true';
     return isRemembered ? localStorage.getItem('login_saved_username') || '' : '';
   });
-  const [password, setPassword] = useState(() => {
-    const isRemembered = localStorage.getItem('login_remember') === 'true';
-    return isRemembered ? localStorage.getItem('login_saved_password') || '' : '';
-  });
+  // Пароль в localStorage больше не храним (небезопасно): «запомнить» = логин,
+  // а сессия и так живёт по токену без повторного входа. Старое значение подчищаем.
+  const [password, setPassword] = useState('');
+  useEffect(() => {
+    try { localStorage.removeItem('login_saved_password'); } catch (_) {}
+  }, []);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isDbBusy, setIsDbBusy] = useState(false);
+
+  // ── Подключение: встроенный сервер (эта машина) или сервер компании ──
+  const [serverUrl] = useState(() => getConfiguredServerUrl());
+  const [serverPanelOpen, setServerPanelOpen] = useState(false);
+  const [serverDraft, setServerDraft] = useState(() => getConfiguredServerUrl());
+  const [serverCheck, setServerCheck] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle');
+
+  const checkServer = async (url: string): Promise<boolean> => {
+    try {
+      const base = url.trim().replace(/\/+$/, '');
+      const withProto = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(base) ? base : `http://${base}`;
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 4000);
+      const r = await fetch(`${withProto}/api/health`, { signal: ctl.signal });
+      clearTimeout(t);
+      return r.ok;
+    } catch (_) {
+      return false;
+    }
+  };
+
+  const handleServerCheck = async () => {
+    setServerCheck('checking');
+    setServerCheck((await checkServer(serverDraft)) ? 'ok' : 'fail');
+  };
+
+  const applyServerUrl = async (url: string) => {
+    await setConfiguredServerUrl(url);
+    addToast(url ? `Сервер компании: ${url}. Перезагрузка…` : 'Встроенный сервер. Перезагрузка…', 'success');
+    setTimeout(() => window.location.reload(), 600);
+  };
 
   const isElectronApp = typeof window !== 'undefined' && !!(window as any).electron?.ipcRenderer?.invoke;
 
@@ -114,14 +147,14 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
     try {
       const data = await dataService.login(normUser, password);
       if (data.success) {
+        // Токен сессии — до setUser, чтобы первые же запросы экранов ушли с ним
+        if ((data as any).token) setAuthToken((data as any).token);
         if (remember) {
           localStorage.setItem('login_remember', 'true');
           localStorage.setItem('login_saved_username', login.trim());
-          localStorage.setItem('login_saved_password', password);
         } else {
           localStorage.removeItem('login_remember');
           localStorage.removeItem('login_saved_username');
-          localStorage.removeItem('login_saved_password');
         }
         setTimeout(() => {
           setUser(data.user);
@@ -264,6 +297,77 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
             </button>
           </form>
         </motion.div>
+      </div>
+
+      {/* Подключение: встроенный сервер или сервер компании */}
+      <div className="w-full flex flex-col items-center gap-2 pb-1">
+        <button
+          type="button"
+          onClick={() => { setServerPanelOpen(v => !v); setServerDraft(serverUrl); setServerCheck('idle'); }}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-900 border border-transparent hover:border-slate-200 dark:hover:border-slate-800 transition-all cursor-pointer"
+          title="Настроить подключение к серверу"
+        >
+          {serverUrl ? <Server className="w-3.5 h-3.5 text-emerald-600" /> : <Laptop className="w-3.5 h-3.5" />}
+          {serverUrl ? `Сервер компании: ${serverUrl}` : 'Встроенный сервер (эта машина)'}
+        </button>
+
+        {serverPanelOpen && (
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg p-4 space-y-3">
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+              Укажите адрес сервера компании (например, <span className="font-mono">http://192.168.1.100:3000</span>) —
+              все данные и чат будут общими для сотрудников. Оставьте пустым, чтобы работать
+              на встроенном сервере этой машины.
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={serverDraft}
+                onChange={(e) => { setServerDraft(e.target.value); setServerCheck('idle'); }}
+                placeholder="http://адрес:порт (пусто = встроенный)"
+                className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+              />
+              <button
+                type="button"
+                onClick={handleServerCheck}
+                disabled={!serverDraft.trim() || serverCheck === 'checking'}
+                className="px-3 py-2 rounded-lg text-xs font-semibold border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 disabled:opacity-50 transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                {serverCheck === 'checking' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> :
+                 serverCheck === 'ok' ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> :
+                 serverCheck === 'fail' ? <AlertCircle className="w-3.5 h-3.5 text-rose-500" /> : null}
+                Проверить
+              </button>
+            </div>
+            {serverCheck === 'ok' && <p className="text-xs text-emerald-600 dark:text-emerald-400">Сервер отвечает — можно подключаться.</p>}
+            {serverCheck === 'fail' && <p className="text-xs text-rose-600 dark:text-rose-400">Сервер не отвечает. Проверьте адрес и что сервер запущен.</p>}
+            <div className="flex items-center justify-end gap-2">
+              {serverUrl && (
+                <button
+                  type="button"
+                  onClick={() => applyServerUrl('')}
+                  className="px-3 py-2 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-850 transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <Laptop className="w-3.5 h-3.5" /> Встроенный сервер
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setServerPanelOpen(false)}
+                className="px-3 py-2 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-850 transition-all cursor-pointer"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={() => applyServerUrl(serverDraft.trim())}
+                disabled={!serverDraft.trim()}
+                className="px-4 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <Server className="w-3.5 h-3.5" /> Подключиться
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Footer: авторство слева, версия справа */}

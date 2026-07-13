@@ -6,6 +6,7 @@ import { parseExcel, parseXML, importParsedDataToDB } from './server/excelParser
 import { parseEquipmentExcel, parseEquipmentXML } from './server/equipmentParser.js';
 import * as XLSX from 'xlsx';
 import { importEquipmentToDB } from './server/equipmentImport.js';
+import { planEquipmentImport, applyEdits, filterBySelection } from './server/equipmentPlan.js';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import fs from 'fs';
@@ -14,6 +15,7 @@ import os from 'os';
 import crypto from 'crypto';
 import { setPrisma, upsertSetting } from './server/context.js';
 import { registerNoteRoutes } from './server/routes/notes.js';
+import { registerConstructorRoutes } from './server/routes/constructor.js';
 import { registerLogRoutes } from './server/routes/logs.js';
 import { registerSettingsRoutes } from './server/routes/settings.js';
 
@@ -264,6 +266,60 @@ function ensureSchemaColumns(dbPath: string) {
     const Database = require('better-sqlite3');
     const db = new Database(dbPath);
     try {
+      // Новая таблица раздела «Конструктор» (документы-таблицы из данных проекта)
+      db.exec(`CREATE TABLE IF NOT EXISTS "ConstructorDoc" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "projectId" TEXT NOT NULL,
+        "name" TEXT NOT NULL DEFAULT 'Без названия',
+        "kind" TEXT NOT NULL DEFAULT 'DOC',
+        "scope" TEXT NOT NULL DEFAULT 'SHARED',
+        "ownerId" TEXT,
+        "named" BOOLEAN NOT NULL DEFAULT false,
+        "description" TEXT NOT NULL DEFAULT '',
+        "workbook" TEXT NOT NULL DEFAULT '',
+        "bindings" TEXT NOT NULL DEFAULT '[]',
+        "settings" TEXT NOT NULL DEFAULT '{}',
+        "createdById" TEXT,
+        "updatedById" TEXT,
+        "deletedAt" DATETIME,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "ConstructorDoc_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS "ConstructorDoc_projectId_kind_idx" ON "ConstructorDoc"("projectId", "kind")');
+
+      // Версии документов Конструктора (автоснимки + ручные)
+      db.exec(`CREATE TABLE IF NOT EXISTS "ConstructorDocVersion" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "docId" TEXT NOT NULL,
+        "version" INTEGER NOT NULL,
+        "workbook" TEXT NOT NULL DEFAULT '',
+        "bindings" TEXT NOT NULL DEFAULT '[]',
+        "comment" TEXT NOT NULL DEFAULT '',
+        "authorId" TEXT,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "ConstructorDocVersion_docId_fkey" FOREIGN KEY ("docId") REFERENCES "ConstructorDoc" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS "ConstructorDocVersion_docId_version_idx" ON "ConstructorDocVersion"("docId", "version")');
+
+      const tagCols = db.prepare('PRAGMA table_info("Tag")').all() as Array<{ name: string }>;
+      if (tagCols.length > 0 && !tagCols.find(c => c.name === 'updatedAt')) {
+        db.exec('ALTER TABLE "Tag" ADD COLUMN "updatedAt" DATETIME');
+        logInit('[DB Migrate] Добавлена колонка Tag.updatedAt');
+      }
+
+      // Зеркала документов Конструктора в Проводнике
+      const sysFolderCols = db.prepare('PRAGMA table_info("Folder")').all() as Array<{ name: string }>;
+      if (sysFolderCols.length > 0 && !sysFolderCols.find(c => c.name === 'system')) {
+        db.exec('ALTER TABLE "Folder" ADD COLUMN "system" BOOLEAN NOT NULL DEFAULT false');
+        logInit('[DB Migrate] Добавлена колонка Folder.system');
+      }
+      const fileNodeCols = db.prepare('PRAGMA table_info("FileNode")').all() as Array<{ name: string }>;
+      if (fileNodeCols.length > 0 && !fileNodeCols.find(c => c.name === 'refId')) {
+        db.exec('ALTER TABLE "FileNode" ADD COLUMN "refId" TEXT');
+        logInit('[DB Migrate] Добавлена колонка FileNode.refId');
+      }
+
       const cols = db.prepare('PRAGMA table_info("User")').all() as Array<{ name: string }>;
       if (cols.length > 0) {
         if (!cols.find(c => c.name === 'isActive')) {
@@ -632,6 +688,63 @@ try {
   }
 })();
 
+// ── Авторизация API: подписанные токены сессии ─────────────────────────────
+// Без токена API доступно любому в сети — для сервера компании это недопустимо.
+// Токен выдаётся при входе (POST /api/login), подписывается секретом сервера
+// (HMAC-SHA256) и проверяется на каждом запросе. Секрет генерируется при первом
+// запуске и хранится в папке данных — токены переживают перезапуск сервера,
+// таблиц в БД не требуется.
+const AUTH_SECRET_FILE = path.join(userDataPath, 'auth-secret');
+let authSecret = '';
+try {
+  if (fs.existsSync(AUTH_SECRET_FILE)) authSecret = fs.readFileSync(AUTH_SECRET_FILE, 'utf-8').trim();
+  if (!authSecret) {
+    authSecret = crypto.randomBytes(48).toString('hex');
+    fs.writeFileSync(AUTH_SECRET_FILE, authSecret, 'utf-8');
+  }
+} catch (e) {
+  // Файл недоступен (readonly-диск): секрет на время процесса — токены
+  // перестанут действовать после перезапуска, но авторизация работает
+  authSecret = crypto.randomBytes(48).toString('hex');
+}
+
+const AUTH_TOKEN_TTL_MS = 30 * 24 * 3600 * 1000; // 30 дней
+
+const signAuthPayload = (payload: string) =>
+  crypto.createHmac('sha256', authSecret).update(payload).digest('base64url');
+
+const issueAuthToken = (userId: string) => {
+  const payload = Buffer.from(JSON.stringify({ uid: userId, exp: Date.now() + AUTH_TOKEN_TTL_MS })).toString('base64url');
+  return `${payload}.${signAuthPayload(payload)}`;
+};
+
+const verifyAuthToken = (token: string): string | null => {
+  try {
+    const [payload, sig] = String(token || '').split('.');
+    if (!payload || !sig) return null;
+    const expected = signAuthPayload(payload);
+    const a = Buffer.from(sig);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8'));
+    if (!data?.uid || typeof data.exp !== 'number' || data.exp < Date.now()) return null;
+    return String(data.uid);
+  } catch (e) {
+    return null;
+  }
+};
+
+// Кэш пользователей на 30 с — проверка токена не ходит в БД на каждый запрос,
+// но отключение профиля администратором срабатывает в течение полуминуты
+const authUserCache = new Map<string, { user: any; at: number }>();
+const getAuthUser = async (userId: string) => {
+  const hit = authUserCache.get(userId);
+  if (hit && Date.now() - hit.at < 30000) return hit.user;
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  authUserCache.set(userId, { user, at: Date.now() });
+  return user;
+};
+
 const app = express();
 const PORT = 3000;
 
@@ -643,9 +756,37 @@ const io = new SocketIOServer(httpServer, {
   }
 });
 
+// Socket.io пускает только вошедших: клиент передаёт токен в handshake.auth —
+// иначе любой в сети слушал бы трансляцию сообщений чата
+io.use((socket, next) => {
+  const userId = verifyAuthToken(String((socket.handshake as any)?.auth?.token || ''));
+  if (!userId) return next(new Error('unauthorized'));
+  (socket as any).userId = userId;
+  next();
+});
+
+// ── Совместное редактирование Конструктора (часть IV дизайна, MVP) ──
+// Комната на документ: presence (кто в файле + выделенные ячейки, как в
+// онлайн-Excel) и репликация мутаций движка остальным участникам.
+// Состояние presence живёт в памяти и исчезает с дисконнектом.
+const PRESENCE_COLORS = ['#0ea5e9', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16'];
+const presenceColor = (userId: string) => {
+  let h = 0;
+  for (const ch of String(userId)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return PRESENCE_COLORS[h % PRESENCE_COLORS.length];
+};
+// docId → (socketId → участник)
+const docPresence = new Map<string, Map<string, { userId: string; name: string; color: string; selection: any }>>();
+
+const emitRoster = (docId: string) => {
+  const room = docPresence.get(docId);
+  const roster = room ? Array.from(room.entries()).map(([sid, p]) => ({ socketId: sid, ...p })) : [];
+  io.to(`constructor:${docId}`).emit('constructor:presence', { docId, peers: roster });
+};
+
 io.on('connection', (socket) => {
   console.log(`[Socket] client connected: ${socket.id}`);
-  
+
   socket.on('tag:linked', (data) => {
     socket.broadcast.emit('tag:linked', data);
   });
@@ -658,8 +799,48 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('equipment:conflict', data);
   });
 
+  const joinedDocs = new Set<string>();
+
+  socket.on('constructor:join', async ({ docId }: { docId: string }) => {
+    if (!docId) return;
+    const userId = String((socket as any).userId || '');
+    let name = 'Сотрудник';
+    try { name = (await getAuthUser(userId))?.name || name; } catch (e) {}
+    socket.join(`constructor:${docId}`);
+    joinedDocs.add(docId);
+    if (!docPresence.has(docId)) docPresence.set(docId, new Map());
+    docPresence.get(docId)!.set(socket.id, { userId, name, color: presenceColor(userId), selection: null });
+    emitRoster(docId);
+  });
+
+  socket.on('constructor:leave', ({ docId }: { docId: string }) => {
+    if (!docId) return;
+    socket.leave(`constructor:${docId}`);
+    joinedDocs.delete(docId);
+    docPresence.get(docId)?.delete(socket.id);
+    emitRoster(docId);
+  });
+
+  // Выделение участника (троттлится на клиенте) — остальным в комнате
+  socket.on('constructor:selection', ({ docId, selection }: { docId: string; selection: any }) => {
+    const p = docPresence.get(docId)?.get(socket.id);
+    if (!p) return;
+    p.selection = selection;
+    socket.to(`constructor:${docId}`).emit('constructor:selection', { socketId: socket.id, selection });
+  });
+
+  // Мутация движка от одного участника — всем остальным в комнате
+  socket.on('constructor:op', ({ docId, op }: { docId: string; op: any }) => {
+    if (!docId || !op) return;
+    socket.to(`constructor:${docId}`).emit('constructor:op', { socketId: socket.id, op });
+  });
+
   socket.on('disconnect', () => {
     console.log(`[Socket] client disconnected: ${socket.id}`);
+    for (const docId of joinedDocs) {
+      docPresence.get(docId)?.delete(socket.id);
+      emitRoster(docId);
+    }
   });
 });
 
@@ -676,6 +857,59 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use('/chat_files', express.static(path.join(userDataPath, 'chat_files')));
+
+// ── Проверка входа на каждом запросе к API ──────────────────────────────────
+// Открыты только вход, проверка готовности и конфиг БД для экрана входа.
+// Настройка БД (/api/db/*) до входа разрешена только с самой машины сервера —
+// это функция встроенного режима, по сети её дергать нельзя.
+const AUTH_EXEMPT = new Set(['/api/health', '/api/login', '/api/db/config']);
+const isLoopbackRequest = (req: Request) => {
+  const ip = String(req.ip || req.socket?.remoteAddress || '');
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+};
+
+app.use(async (req: Request, res: Response, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+  if (AUTH_EXEMPT.has(req.path)) return next();
+  if (req.path.startsWith('/api/db/') && isLoopbackRequest(req)) return next();
+
+  const header = String(req.headers.authorization || '');
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  const userId = verifyAuthToken(token);
+  if (!userId) return res.status(401).json({ error: 'Требуется вход в систему' });
+
+  try {
+    const user = await getAuthUser(userId);
+    if (!user || user.isActive === false) {
+      return res.status(401).json({ error: 'Профиль отключен или удалён администратором' });
+    }
+    if (user.validUntil && new Date(user.validUntil).getTime() < Date.now()) {
+      return res.status(401).json({ error: 'Срок действия профиля истек' });
+    }
+
+    // Управление сотрудниками — только администратор; менять самого себя
+    // (имя/пароль) может каждый, но не роль/права/срок
+    const isUserRoute = /^\/api\/users\/[^/]+$/.test(req.path);
+    if (user.role !== 'ADMIN') {
+      if ((req.path === '/api/users' && req.method === 'POST') ||
+          (isUserRoute && req.method === 'DELETE')) {
+        return res.status(403).json({ error: 'Доступно только администратору' });
+      }
+      if (isUserRoute && req.method === 'PUT') {
+        const targetId = req.path.split('/').pop();
+        if (targetId !== user.id) {
+          return res.status(403).json({ error: 'Доступно только администратору' });
+        }
+        req.body = { name: req.body?.name, password: req.body?.password };
+      }
+    }
+
+    (req as any).authUser = user;
+    return next();
+  } catch (e: any) {
+    return res.status(500).json({ error: 'Не удалось проверить сессию', details: e?.message });
+  }
+});
 
 // Готовность сервера: порт начинает слушать только после инициализации БД,
 // так что успешный ответ = приложение полностью готово (для стартовой заставки)
@@ -1071,7 +1305,8 @@ app.post('/api/login', async (req: Request, res: Response) => {
           trustedNowSync();
         }
         const { password: _pw, ...safeUser } = user as any;
-        return res.json({ success: true, user: safeUser });
+        // Токен сессии: клиент шлёт его в Authorization на каждом запросе
+        return res.json({ success: true, user: safeUser, token: issueAuthToken(user.id) });
       } else {
         return res.status(401).json({ success: false, message: 'Неверный пароль доступа!' });
       }
@@ -1723,6 +1958,11 @@ app.post('/api/folders', async (req: Request, res: Response) => {
 });
 
 app.patch('/api/folders/:id', async (req: Request, res: Response) => {
+  // Системные папки (напр. «Конструктор») переименовывать/переносить нельзя
+  const target = await prisma.folder.findUnique({ where: { id: req.params.id } });
+  if ((target as any)?.system && ('name' in req.body || 'parentId' in req.body)) {
+    return res.status(403).json({ error: 'Это системная папка — её нельзя переименовать или переместить.' });
+  }
   const folder = await prisma.folder.update({
     where: { id: req.params.id },
     data: req.body,
@@ -1732,12 +1972,33 @@ app.patch('/api/folders/:id', async (req: Request, res: Response) => {
 });
 
 app.delete('/api/folders/:id', async (req: Request, res: Response) => {
+  const target = await prisma.folder.findUnique({ where: { id: req.params.id } });
+  if ((target as any)?.system) {
+    return res.status(403).json({ error: 'Это системная папка — её нельзя удалить.' });
+  }
   await prisma.folder.delete({ where: { id: req.params.id } });
   res.json({ success: true });
 });
 
 app.post('/api/files', async (req: Request, res: Response) => {
-  const data = { ...req.body };
+  // Белый список полей (B6): не пишем произвольные поля из тела запроса
+  const b = req.body || {};
+  const data: any = {
+    name: String(b.name || 'Без имени'),
+    folderId: b.folderId || null,
+    filePath: typeof b.filePath === 'string' ? b.filePath : `/shared/${b.name || ''}`,
+    size: Number.isFinite(b.size) ? Math.max(0, Math.trunc(b.size)) : 0,
+    type: typeof b.type === 'string' ? b.type : 'FILE',
+    department: typeof b.department === 'string' ? b.department : 'Unassigned',
+    content: typeof b.content === 'string' ? b.content : undefined,
+    createdById: b.createdById || null,
+    updatedById: b.updatedById || b.createdById || null,
+    ...(typeof b.refId === 'string' ? { refId: b.refId } : {}),
+    ...(typeof b.revision === 'string' ? { revision: b.revision } : {}),
+    ...(typeof b.statusCode === 'string' ? { statusCode: b.statusCode } : {}),
+    ...(b.scope === 'PERSONAL' || b.scope === 'SHARED' ? { scope: b.scope } : {}),
+    ...(typeof b.ownerId === 'string' ? { ownerId: b.ownerId } : {}),
+  };
   // Файл внутри папки наследует её раздел (общий/личный)
   if (data.folderId) {
     try {
@@ -1860,6 +2121,12 @@ app.patch('/api/files/:id', async (req: Request, res: Response) => {
 });
 
 app.delete('/api/files/:id', async (req: Request, res: Response) => {
+  // Зеркало документа Конструктора — не самостоятельный файл: удаление
+  // выполняется в самом Конструкторе (там корзина с восстановлением)
+  const target = await prisma.fileNode.findUnique({ where: { id: req.params.id } });
+  if ((target as any)?.type === 'CONSTRUCTOR') {
+    return res.status(403).json({ error: 'Это документ Конструктора — удалите его в разделе «Конструктор» (там есть корзина).' });
+  }
   await prisma.fileNode.delete({ where: { id: req.params.id } });
   res.json({ success: true });
 });
@@ -2384,6 +2651,7 @@ app.post('/api/tags/generate', async (req: Request, res: Response) => {
 // Заметки (/api/notes) и журнал (/api/logs) — вынесены в модули-роуты
 registerNoteRoutes(app);
 registerLogRoutes(app);
+registerConstructorRoutes(app);
 
 
 // --- CORPORATE MESSENGER CHAT API ---
@@ -3040,57 +3308,81 @@ app.post('/api/chat/group-messages', async (req: Request, res: Response) => {
 // --- VENTILATION EQUIPMENT API ---
 
 // 1. Импорт расчёта в выбранную категорию (новый парсер: группы + тип + ревизии)
+// Общий шаг: файл Проводника → разобранный расчёт. Кидает { status, error }
+// при проблемах формата, чтобы оба роута (план и запись) отвечали одинаково.
+async function readEquipmentFile(fileId: string): Promise<{ result: any; fileName: string }> {
+  const fileNode = await prisma.fileNode.findUnique({ where: { id: fileId } });
+  if (!fileNode) throw { status: 404, error: 'Файл не найден' };
+  if (!fileNode.content) throw { status: 400, error: 'Содержимое файла пустое' };
+
+  let base64 = fileNode.content;
+  if (base64.includes(',')) base64 = base64.split(',')[1];
+  const buffer = Buffer.from(base64, 'base64');
+  const extension = fileNode.name.split('.').pop()?.toLowerCase();
+
+  if (!['xlsx', 'xls', 'xml', 'csv'].includes(extension || '')) {
+    throw { status: 400, error: `Файл .${extension} этим способом не импортируется. Откройте «Оборудование» → «Импорт из документов» — там поддерживаются PDF, Word, Excel и XML с распознаванием.` };
+  }
+
+  let result;
+  try {
+    result = (extension === 'xml') ? parseEquipmentXML(buffer.toString('utf-8')) : parseEquipmentExcel(buffer);
+  } catch {
+    throw { status: 400, error: 'Не удалось прочитать файл как расчёт. Для бланков и опросных листов используйте «Оборудование» → «Импорт из документов».' };
+  }
+  if (!result.units.length) {
+    throw { status: 400, error: 'Не удалось распознать оборудование в файле. Проверьте формат расчёта.' };
+  }
+  return { result, fileName: fileNode.name };
+}
+
+async function resolveImportProject(reqProjectId: any): Promise<string> {
+  if (reqProjectId && !['null', 'undefined', 'default'].includes(reqProjectId)) return reqProjectId;
+  let first = await prisma.project.findFirst();
+  if (!first) first = await prisma.project.create({ data: { name: 'Общий Проект' } });
+  return first.id;
+}
+
+// Dry-run: что изменится в проекте, без записи (дерево + дифф для предпросмотра)
+app.post('/api/equipment/import-plan', async (req: Request, res: Response) => {
+  const { fileId, category, projectId: reqProjectId, edits } = req.body;
+  if (!fileId || !category) return res.status(400).json({ error: 'Не указан файл или категория' });
+  try {
+    const projectId = await resolveImportProject(reqProjectId);
+    const { result, fileName } = await readEquipmentFile(fileId);
+    const edited = applyEdits(result, edits);
+    const plan = await planEquipmentImport(prisma, projectId, category, edited);
+    res.json({ success: true, fileName, plan });
+  } catch (err: any) {
+    if (err && err.status) return res.status(err.status).json({ error: err.error });
+    console.error('Error in import-plan:', err);
+    res.status(500).json({ error: err.message || 'Не удалось построить план импорта' });
+  }
+});
+
 app.post('/api/equipment/import-to-category', async (req: Request, res: Response) => {
-  const { fileId, category, projectId: reqProjectId } = req.body;
+  const { fileId, category, projectId: reqProjectId, edits, selection } = req.body;
   if (!fileId || !category) {
     return res.status(400).json({ error: 'Не указан файл или категория' });
   }
 
-  let projectId = reqProjectId;
-  if (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default') {
-    let firstProject = await prisma.project.findFirst();
-    if (!firstProject) firstProject = await prisma.project.create({ data: { name: 'Общий Проект' } });
-    projectId = firstProject.id;
-  }
-
   try {
-    const fileNode = await prisma.fileNode.findUnique({ where: { id: fileId } });
-    if (!fileNode) return res.status(404).json({ error: 'Файл не найден' });
-    if (!fileNode.content) return res.status(400).json({ error: 'Содержимое файла пустое' });
+    const projectId = await resolveImportProject(reqProjectId);
+    const { result, fileName } = await readEquipmentFile(fileId);
 
-    let base64 = fileNode.content;
-    if (base64.includes(',')) base64 = base64.split(',')[1];
-    const buffer = Buffer.from(base64, 'base64');
-    const extension = fileNode.name.split('.').pop()?.toLowerCase();
-
-    // Этот путь понимает только файлы расчёта. Word/PDF, прочитанные как Excel,
-    // раньше давали 500 или систему с бинарным мусором в названии.
-    if (!['xlsx', 'xls', 'xml', 'csv'].includes(extension || '')) {
-      return res.status(400).json({
-        error: `Файл .${extension} этим способом не импортируется. Откройте «Оборудование» → «Импорт из документов» — там поддерживаются PDF, Word, Excel и XML с распознаванием.`,
-      });
-    }
-
-    let result;
-    try {
-      result = (extension === 'xml')
-        ? parseEquipmentXML(buffer.toString('utf-8'))
-        : parseEquipmentExcel(buffer);
-    } catch (parseErr: any) {
-      return res.status(400).json({
-        error: 'Не удалось прочитать файл как расчёт. Для бланков и опросных листов используйте «Оборудование» → «Импорт из документов».',
-      });
-    }
-
-    if (!result.units.length) {
-      return res.status(400).json({ error: 'Не удалось распознать оборудование в файле. Проверьте формат расчёта.' });
+    // Правки предпросмотра и выбор области применяются до записи
+    const edited = applyEdits(result, edits);
+    const sel = Array.isArray(selection) ? new Set<string>(selection) : null;
+    const finalResult = filterBySelection(edited, sel);
+    if (!finalResult.units.length) {
+      return res.status(400).json({ error: 'Не выбрано ни одного блока для импорта' });
     }
 
     // Режим разрешения конфликтов из глобальных настроек
     const modeSetting = await prisma.appSetting.findFirst({ where: { key: 'equip_conflict_mode', userId: null } });
     const conflictMode: 'immediate' | 'wait' = (modeSetting && modeSetting.value === 'immediate') ? 'immediate' : 'wait';
 
-    const summary = await importEquipmentToDB(prisma, projectId, category, fileNode.name, result, conflictMode);
+    const summary = await importEquipmentToDB(prisma, projectId, category, fileName, finalResult, conflictMode);
 
     res.json({
       success: true,
@@ -3101,6 +3393,7 @@ app.post('/api/equipment/import-to-category', async (req: Request, res: Response
       conflictMode,
     });
   } catch (error: any) {
+    if (error && error.status) return res.status(error.status).json({ error: error.error });
     console.error('Error in import-to-category:', error);
     res.status(500).json({ error: error.message || 'Не удалось импортировать файл' });
   }

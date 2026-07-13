@@ -1,44 +1,94 @@
 /**
- * Global Environment Configuration
- * Dual-mode Support: Strict local mock mode for development/sandbox,
- * and transparent physical network mode for packaged production.
+ * Конфигурация подключения клиента к серверу.
+ *
+ * Одна настройка — адрес сервера (localStorage `flux_server_url`):
+ *  - пусто  → «встроенный» режим: в Electron это локальный Express на
+ *    localhost:3000, в браузере — тот же origin, откуда открыта страница
+ *    (сервер раздаёт фронтенд статикой). Так работает сегодняшний офлайн-тест.
+ *  - задан  → «сервер компании»: ВСЕ запросы (fetch и socket.io) идут на него,
+ *    встроенный сервер в Electron не запускается (см. electron/main.ts).
+ *
+ * Дублируется в config.json (remote_server_url) через IPC — чтобы главный
+ * процесс Electron знал о выборе ещё до загрузки рендерера.
  */
 
-// Detect standard electron environment variables or sandbox environments
-export const isLocalMode = (() => {
-  if (typeof window !== 'undefined') {
-    // If running in browser/preview and not on the specific production office IP, default to local relative API
-    if (window.location.hostname !== '192.168.1.100') {
-      return true;
-    }
-  }
-  if (typeof process !== 'undefined') {
-    if (process.env.NODE_ENV === 'development' || !process.env.IS_PRODUCTION || !process.env.NODE_ENV) {
-      return true;
-    }
-  }
-  return false;
-})();
+const SERVER_URL_KEY = 'flux_server_url';
 
-export const ENV = {
-  isProduction: false, // Флаг для будущего переключения на боевой сервер компании
-  serverUrl: 'http://192.168.1.100:5000', // Будущий IP-адрес офисного сервера
-};
+// Нормализованный адрес сервера компании ('' = встроенный режим)
+export function getConfiguredServerUrl(): string {
+  try {
+    const saved = (localStorage.getItem(SERVER_URL_KEY) || '').trim();
+    if (!saved) return '';
+    const withProto = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(saved) ? saved : `http://${saved}`;
+    return withProto.replace(/\/+$/, '');
+  } catch (_) {
+    return '';
+  }
+}
+
+// База для HTTP-запросов: '' означает «относительные пути от текущего origin»
+export function getServerBaseUrl(): string {
+  const configured = getConfiguredServerUrl();
+  if (configured) return configured;
+  if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
+    return 'http://localhost:3000'; // Electron: встроенный сервер
+  }
+  return '';
+}
+
+// Сохраняет выбор сервера (пустая строка = встроенный) и синхронизирует
+// config.json главного процесса Electron. Применяется после перезагрузки окна.
+export async function setConfiguredServerUrl(url: string): Promise<void> {
+  const clean = String(url || '').trim();
+  try {
+    if (clean) localStorage.setItem(SERVER_URL_KEY, clean);
+    else localStorage.removeItem(SERVER_URL_KEY);
+  } catch (_) {}
+  try {
+    const win = window as any;
+    if (win.electron?.ipcRenderer?.invoke) {
+      await win.electron.ipcRenderer.invoke('app:set-server-url', clean);
+    }
+  } catch (_) {}
+}
+
+// ── Токен сессии ──
+// Выдаётся сервером при входе; уходит в Authorization на каждом запросе к API
+// (добавляет fetch-обёртка ниже) и в handshake socket.io. Ответ 401 означает
+// «сессия недействительна» — приложение возвращает на экран входа.
+const AUTH_TOKEN_KEY = 'flux_auth_token';
+
+export function getAuthToken(): string {
+  try { return localStorage.getItem(AUTH_TOKEN_KEY) || ''; } catch (_) { return ''; }
+}
+export function setAuthToken(token: string): void {
+  try {
+    if (token) localStorage.setItem(AUTH_TOKEN_KEY, token);
+    else localStorage.removeItem(AUTH_TOKEN_KEY);
+  } catch (_) {}
+}
+
+// Адрес зафиксирован на момент загрузки: смена сервера = перезагрузка окна,
+// чтобы не жить в состоянии «половина запросов туда, половина сюда»
+export const SERVER_BASE_URL = getServerBaseUrl();
 
 export const ENV_CONFIG = {
-  isLocalMode,
-  apiUrl: isLocalMode ? 'http://localhost:3000/api' : 'http://192.168.1.100:5000/api',
-  socketUrl: isLocalMode ? 'ws://localhost:3000' : 'ws://192.168.1.100:5000',
-  updatesUrl: 'http://192.168.1.100/updates/'
+  // '' + '/api' = относительный '/api' — работает в браузере, открытом с сервера
+  apiUrl: `${SERVER_BASE_URL}/api`,
+  // socket.io сам поднимает websocket поверх http(s)-адреса
+  socketUrl: SERVER_BASE_URL ||
+    (typeof window !== 'undefined' && window.location.protocol !== 'file:'
+      ? window.location.origin
+      : 'http://localhost:3000'),
 };
 
-// Глобальная обёртка fetch: (1) в собранном Electron (file://) переписывает
-// относительные /api/... на встроенный сервер; (2) ВСЕГДА подробно логирует
-// каждый запрос и ответ в журнал — чтобы в crash-логе было видно «что нажали →
-// какой запрос → что ответил сервер».
+// Глобальная обёртка fetch: (1) переписывает корневые пути (/api/…, /chat_files/…)
+// на адрес сервера, когда страница открыта не с него (Electron file:// или задан
+// сервер компании); (2) подробно логирует запросы/ответы в журнал — чтобы в
+// crash-логе было видно «что нажали → какой запрос → что ответил сервер».
 if (typeof window !== 'undefined') {
-  const isFile = window.location.protocol === 'file:';
-  const baseUrl = 'http://localhost:3000';
+  const needsRewrite = window.location.protocol === 'file:' || !!getConfiguredServerUrl();
+  const baseUrl = SERVER_BASE_URL || 'http://localhost:3000';
   const originalFetch = window.fetch.bind(window);
 
   const logApi = (level: 'INFO' | 'ERROR', ctx: string, msg: string) => {
@@ -54,13 +104,13 @@ if (typeof window !== 'undefined') {
     try {
       if (typeof input === 'string') {
         urlForLog = input;
-        if (isFile && input.startsWith('/')) input = baseUrl + input;
+        if (needsRewrite && input.startsWith('/')) input = baseUrl + input;
       } else if (input instanceof URL) {
         urlForLog = input.pathname + input.search;
-        if (isFile && input.protocol === 'file:') input = baseUrl + input.pathname + input.search;
+        if (needsRewrite && input.protocol === 'file:') input = baseUrl + input.pathname + input.search;
       } else if (typeof Request !== 'undefined' && input instanceof Request) {
         urlForLog = input.url;
-        if (isFile && input.url.startsWith('file://')) {
+        if (needsRewrite && input.url.startsWith('file://')) {
           const u = new URL(input.url);
           input = new Request(baseUrl + u.pathname + u.search, input);
         }
@@ -70,6 +120,19 @@ if (typeof window !== 'undefined') {
     const method = (init?.method || (input instanceof Request ? input.method : 'GET') || 'GET').toUpperCase();
     const isApi = /\/api\//.test(urlForLog);
     const shortUrl = urlForLog.replace(/^https?:\/\/[^/]+/, '').replace(/^.*\/api\//, '/api/');
+
+    // Токен сессии — на каждый запрос к API (кроме случая, когда вызывающий
+    // код уже выставил Authorization сам)
+    if (isApi) {
+      const token = getAuthToken();
+      if (token) {
+        try {
+          const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+          if (!headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
+          init = { ...(init || {}), headers };
+        } catch (_) {}
+      }
+    }
     // Фоновые поллинги (уведомления, чат) идут каждые несколько секунд —
     // их успешные запросы не пишем, чтобы не забивать журнал шумом (ошибки пишем)
     const isBackgroundPoll = method === 'GET' && /\/api\/(notifications|chat\/(messages|group-messages|groups))/.test(shortUrl);
@@ -78,6 +141,11 @@ if (typeof window !== 'undefined') {
     try {
       const res = await originalFetch(input as any, init);
       if (isApi && (!isBackgroundPoll || !res.ok)) logApi(res.ok ? 'INFO' : 'ERROR', 'Ответ', `${res.status} ${method} ${shortUrl}`);
+      // Сессия недействительна (истекла, профиль отключён) → на экран входа.
+      // /api/login не считается: там 401 = просто неверный пароль
+      if (res.status === 401 && isApi && !shortUrl.startsWith('/api/login')) {
+        try { window.dispatchEvent(new CustomEvent('flux:auth-expired')); } catch (_) {}
+      }
       return res;
     } catch (err: any) {
       if (isApi) logApi('ERROR', 'Сбой запроса', `${method} ${shortUrl}: ${err?.message || err}`);

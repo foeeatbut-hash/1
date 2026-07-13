@@ -261,18 +261,10 @@ export default function ChatManagement() {
       try {
         setIsAutocompleteLoading(true);
         let list = [];
-        const win = window as any;
-        if (win.electron && win.electron.ipcRenderer) {
-          list = await win.electron.ipcRenderer.invoke('chat:autocomplete-tags', {
-            query: activeTagQuery,
-            projectId: activeProject?.id
-          });
-        } else {
-          const url = `/api/chat/autocomplete-tags?query=${encodeURIComponent(activeTagQuery)}&projectId=${activeProject?.id || ''}`;
-          const res = await fetch(url);
-          if (res.ok) {
-            list = await res.json();
-          }
+        const url = `/api/chat/autocomplete-tags?query=${encodeURIComponent(activeTagQuery)}&projectId=${activeProject?.id || ''}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          list = await res.json();
         }
         setAutocompleteSuggestions(list || []);
         setAutocompleteIndex(0);
@@ -587,15 +579,10 @@ export default function ChatManagement() {
     try {
       addToast(`Инженерный запрос тега #${tag}...`, 'info');
       let foundElement: any = null;
-      const win = window as any;
-      if (win.electron && win.electron.ipcRenderer) {
-        foundElement = await win.electron.ipcRenderer.invoke('chat:search-element', { tag });
-      } else {
-        const res = await fetch(`/api/chat/search-element?tag=${encodeURIComponent(tag)}`);
-        if (res.ok) {
-          const data = await res.json();
-          foundElement = data.element;
-        }
+      const res = await fetch(`/api/chat/search-element?tag=${encodeURIComponent(tag)}`);
+      if (res.ok) {
+        const data = await res.json();
+        foundElement = data.element;
       }
 
       if (foundElement) {

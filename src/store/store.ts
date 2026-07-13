@@ -72,6 +72,7 @@ export const useStore = create<AppState>((set, get) => {
           localStorage.setItem('pdm_session_user', JSON.stringify(user));
         } else {
           localStorage.removeItem('pdm_session_user');
+          localStorage.removeItem('flux_auth_token'); // выход = конец сессии API
         }
       } catch (e) {}
       setNotifUser(user?.id);

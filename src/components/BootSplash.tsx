@@ -1,72 +1,39 @@
 import React, { useEffect, useState } from 'react';
-
-// ── Стартовая заставка Flux (React-версия) ──
-// Продолжает заставку из index.html тем же дизайном: стили #boot-splash
-// живут в <head> и не удаляются при монтировании React, поэтому переход
-// «загрузка JS → ожидание сервера» происходит бесшовно.
-
-// Этапы запуска встроенного сервера: реального прогресса нет (порт молчит,
-// пока всё не готово), поэтому статусы сменяются по прошедшему времени.
-const STAGES: { after: number; text: string }[] = [
-  { after: 0, text: 'Запуск встроенного сервера…' },
-  { after: 3, text: 'Подключение к базе данных…' },
-  { after: 9, text: 'Проверка и обновление структуры данных…' },
-  { after: 22, text: 'Подготовка рабочего пространства…' },
-  { after: 40, text: 'Почти готово, ещё немного…' },
-];
-
-export default function BootSplash({ done = false }: { done?: boolean }) {
-  // Считаем от метки монтирования, а не накоплением тиков интервала:
-  // так время не ускоряется от лишних перерисовок (StrictMode и т.п.)
-  const [startAt] = useState(() => Date.now());
-  const [, forceTick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => forceTick(n => n + 1), 400);
-    return () => clearInterval(t);
-  }, []);
-  const elapsed = (Date.now() - startAt) / 1000;
-  const status = [...STAGES].reverse().find(s => elapsed >= s.after)?.text || STAGES[0].text;
-  // Процент — плавная асимптота: быстро в начале, медленнее к концу, 100% при готовности
-  const pct = done ? 100 : Math.min(96, Math.round(100 * (1 - Math.exp(-elapsed / 15))));
-
-  return (
-    <div id="boot-splash" className={`in-app${done ? ' done' : ''}`}>
-      <div className="orb o1" /><div className="orb o2" /><div className="orb o3" />
-      <div className="stream s1" /><div className="stream s2" /><div className="stream s3" />
-      <div className="glow" />
-      <div className="tile-wrap">
-        <div className="halo" />
-        <div className="tile">
-          <svg width="58" height="58" viewBox="0 0 100 100">
-            <path className="flux-curve flux-base" pathLength={100} d="M16 62 C36 28 64 28 84 62" />
-            <path className="flux-curve flux-base" pathLength={100} d="M16 40 C36 74 64 74 84 40" />
-            <path className="flux-curve flux-comet" pathLength={100} d="M16 62 C36 28 64 28 84 62" />
-            <path className="flux-curve flux-comet rev" pathLength={100} d="M16 40 C36 74 64 74 84 40" />
-          </svg>
-        </div>
-      </div>
-      <div className="wordmark">Flux</div>
-      <div className="subtitle">Инженерный документооборот</div>
-      <div className="bar-row">
-        <div className="bar"><span className="fill" style={{ width: `${Math.max(10, pct)}%` }} /></div>
-        <span className="pct">{pct}%</span>
-      </div>
-      <div className="status">{status}</div>
-      <div className="credit">Разработка Раупова Хусрава</div>
-    </div>
-  );
-}
+import { getConfiguredServerUrl, setConfiguredServerUrl, SERVER_BASE_URL } from '../config/env';
 
 // ── Гейт готовности сервера ──
-// Пока /api/health не отвечает (встроенный Express ещё поднимается),
-// держит заставку. Если сервер уже готов при первом же опросе (dev-режим,
-// обычный браузер) — пропускает без задержки и мигания.
+// Стартовая заставка (#boot-splash) целиком живёт в index.html: разметка —
+// сиблинг #root, прогресс и статусы ведёт инлайн-скрипт с первой отрисовки
+// страницы. React её НЕ пересоздаёт — интро идёт одной непрерывной анимацией.
+// Задача ServerGate — дождаться сервера (/api/health), затем погасить заставку
+// через window.__bootSplashDone и отрисовать приложение. Если сервер так и не
+// ответил (удалённый недоступен / встроенный не поднялся) — честный экран
+// ошибки с кнопками вместо вечной заставки.
 export function ServerGate({ children }: { children: React.ReactNode }) {
-  const [phase, setPhase] = useState<'checking' | 'waiting' | 'fading' | 'ready'>('checking');
+  const [phase, setPhase] = useState<'waiting' | 'ready' | 'failed'>('waiting');
+  const isRemote = !!getConfiguredServerUrl();
 
   useEffect(() => {
     let cancelled = false;
     const startedAt = Date.now();
+    // Удалённый сервер либо отвечает сразу, либо недоступен — ждём недолго;
+    // встроенному даём время на первый запуск (миграции БД на слабой машине)
+    const failAfterMs = isRemote ? 25000 : 120000;
+
+    const finish = () => {
+      if (cancelled) return;
+      // Сервер уже был готов при первом же опросе (dev-режим, обычный браузер) —
+      // убираем заставку мгновенно, без прощальной анимации и мигания
+      const instant = Date.now() - startedAt < 400;
+      try { (window as any).__bootSplashDone?.(instant); } catch (_) { /* заставки уже нет (HMR) */ }
+      setPhase('ready');
+    };
+
+    const fail = () => {
+      if (cancelled) return;
+      try { (window as any).__bootSplashDone?.(true); } catch (_) {}
+      setPhase('failed');
+    };
 
     const check = async () => {
       try {
@@ -74,26 +41,54 @@ export function ServerGate({ children }: { children: React.ReactNode }) {
         const timer = setTimeout(() => ctl.abort(), 2500);
         const r = await fetch('/api/health', { signal: ctl.signal });
         clearTimeout(timer);
-        if (r.ok) {
-          if (cancelled) return;
-          if (Date.now() - startedAt < 400) {
-            setPhase('ready'); // сервер уже был готов — без заставки
-          } else {
-            setPhase('fading');
-            setTimeout(() => { if (!cancelled) setPhase('ready'); }, 550);
-          }
-          return;
-        }
+        if (r.ok) { finish(); return; }
       } catch (_) { /* сервер ещё не слушает порт — ждём */ }
-      if (!cancelled) {
-        setPhase(p => (p === 'checking' ? 'waiting' : p));
-        setTimeout(check, 800);
-      }
+      if (cancelled) return;
+      if (Date.now() - startedAt > failAfterMs) { fail(); return; }
+      setTimeout(check, 800);
     };
     check();
-    return () => { cancelled = true; };
-  }, []);
 
-  if (phase === 'ready') return <>{children}</>;
-  return <BootSplash done={phase === 'fading'} />;
+    return () => { cancelled = true; };
+  }, [isRemote]);
+
+  if (phase === 'failed') {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-slate-950 p-6">
+        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-7 text-center space-y-4">
+          <div className="text-lg font-bold text-white">
+            {isRemote ? 'Сервер компании не отвечает' : 'Не удалось запустить встроенный сервер'}
+          </div>
+          <p className="text-sm text-slate-400 leading-relaxed">
+            {isRemote
+              ? <>Адрес: <span className="font-mono text-slate-300">{SERVER_BASE_URL}</span>.
+                 Проверьте, что сервер запущен и доступен по сети.</>
+              : 'Попробуйте перезапустить приложение. Если не помогает — посмотрите лог запуска (AppData/pdm-app/server-startup.log).'}
+          </p>
+          <div className="flex items-center justify-center gap-3 pt-1">
+            <button
+              onClick={() => window.location.reload()}
+              className="px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold transition-colors cursor-pointer"
+            >
+              Повторить
+            </button>
+            {isRemote && (
+              <button
+                onClick={async () => { await setConfiguredServerUrl(''); window.location.reload(); }}
+                className="px-5 py-2.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-sm font-semibold transition-colors cursor-pointer"
+              >
+                Встроенный сервер
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Пока сервер поднимается, ничего не рисуем — весь экран занимает заставка
+  // из index.html. Когда готов — приложение монтируется сразу, а заставка
+  // растворяется НАД ним, плавно открывая экран входа.
+  if (phase !== 'ready') return null;
+  return <>{children}</>;
 }

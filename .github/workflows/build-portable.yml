@@ -9,6 +9,7 @@ on:
       - claude/management-section-redesign-bjdxoh
       - claude/notebook-canvas-redesign-rhzsss
       - claude/program-code-review-ucf95m
+      - claude/custom-table-builder-design-38h1b8
 
 permissions:
   contents: write

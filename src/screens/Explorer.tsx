@@ -12,6 +12,7 @@ import {
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import EquipmentImportPreview from '../components/EquipmentImportPreview';
 
 // Виртуальные корневые разделы проводника: «Общий» и «Личный».
 // Они зашиты в программу: их нельзя удалить, переименовать или переместить.
@@ -29,7 +30,9 @@ const getFileIcon = (item: any, classNameStr: string) => {
       ? <Folder className={`${classNameStr} text-emerald-600 fill-emerald-200`} />
       : <Folder className={`${classNameStr} text-sky-600 fill-sky-200`} />;
   }
+  if (item.isFolder && item.system) return <Folder className={`${classNameStr} text-emerald-600 fill-emerald-100`} />;
   if (item.isFolder) return <Folder className={`${classNameStr} text-yellow-500 fill-yellow-200`} />;
+  if (item.type === 'CONSTRUCTOR') return <FileSpreadsheet className={`${classNameStr} text-emerald-600`} />;
   if (item.type === 'IMAGE' || item.name?.match(/\.(jpe?g|png|gif|webp)$/i)) return <ImageIcon className={`${classNameStr} text-emerald-500`} />;
   if (item.type === 'PDF' || item.name?.match(/\.pdf$/i)) return <FileText className={`${classNameStr} text-red-500`} />;
   if (item.type === 'DOCX' || item.name?.match(/\.(doc|docx)$/i)) return <FileText className={`${classNameStr} text-emerald-600`} />;
@@ -42,6 +45,48 @@ const formatSize = (bytes: number) => {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB';
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+};
+
+// ── Статусы документооборота (код A/B/C/D → человекочитаемый поток) ──
+// Проводник 2.0 §6.2: вместо безымянной цветной точки — понятный чип.
+const FILE_STATUSES: Record<string, { label: string; dot: string; chip: string }> = {
+  D: { label: 'Черновик',    dot: 'bg-slate-400',   chip: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' },
+  C: { label: 'На проверке', dot: 'bg-amber-500',   chip: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' },
+  B: { label: 'Согласован',  dot: 'bg-sky-500',     chip: 'bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400' },
+  A: { label: 'Выдан',       dot: 'bg-emerald-500', chip: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400' },
+};
+const STATUS_ORDER = ['D', 'C', 'B', 'A'];
+const statusOf = (code: string | undefined) => FILE_STATUSES[code || 'D'] || FILE_STATUSES.D;
+
+const StatusChip = ({ code, onClick }: { code?: string; onClick?: (e: React.MouseEvent) => void }) => {
+  const s = statusOf(code);
+  return (
+    <span
+      onClick={onClick}
+      title={onClick ? 'Сменить статус документа' : s.label}
+      className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${s.chip} ${onClick ? 'cursor-pointer hover:brightness-95' : ''}`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} /> {s.label}
+    </span>
+  );
+};
+
+// data:...;base64,<...> → текст в UTF-8 (atob даёт latin1, поэтому через TextDecoder)
+const decodeTextContent = (dataUri: string): string => {
+  try {
+    const comma = dataUri.indexOf(',');
+    const meta = dataUri.slice(0, comma);
+    const body = dataUri.slice(comma + 1);
+    if (/;base64/i.test(meta)) {
+      const bin = atob(body);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return new TextDecoder('utf-8').decode(bytes);
+    }
+    return decodeURIComponent(body);
+  } catch (_) {
+    return dataUri;
+  }
 };
 
 export default function Explorer() {
@@ -107,6 +152,7 @@ export default function Explorer() {
   const handleDeleteRef = useRef<any>(null);
   const handlePasteRef = useRef<any>(null);
   const navigateToRef = useRef<any>(null);
+  const filesRef = useRef<any[]>([]);
 
   useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
   useEffect(() => { lastSelectedIdRef.current = lastSelectedId; }, [lastSelectedId]);
@@ -141,6 +187,7 @@ export default function Explorer() {
 
   // Какие файлы ждут выбора категории для импорта в «Оборудование» (мультивыбор)
   const [importPickerFiles, setImportPickerFiles] = useState<string[] | null>(null);
+  const [importPreview, setImportPreview] = useState<{ fileIds: string[]; category: string } | null>(null);
   // Карта загруженных в оборудование файлов: имя файла -> { category, version }
   const [loadedMap, setLoadedMap] = useState<Record<string, { category: string; version: number }>>({});
 
@@ -164,33 +211,11 @@ export default function Explorer() {
 
   useEffect(() => { loadEquipMap(); }, [loadEquipMap]);
 
-  // Импорт выбранных файлов в выбранную категорию оборудования
-  const importFilesToCategory = async (fileIds: string[], category: string) => {
+  // Импорт: категория выбрана → открываем предпросмотр (dry-run) вместо прямой записи
+  const importFilesToCategory = (fileIds: string[], category: string) => {
     setImportPickerFiles(null);
-    const projectId = activeProject?.id || 'default';
     if (!fileIds.length) return;
-    let totalConflicts = 0; let ok = 0;
-    addToast(`Загрузка данных в оборудование (${fileIds.length})…`, 'info');
-    for (const fileId of fileIds) {
-      try {
-        const res = await fetch('/api/equipment/import-to-category', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileId, category, projectId }),
-        });
-        const parsed = await res.json();
-        if (!res.ok) throw new Error(parsed.error || 'Ошибка импорта');
-        totalConflicts += parsed.conflictsCount || 0;
-        ok++;
-      } catch (err: any) {
-        addToast(`Файл не загружен: ${err.message}`, 'error');
-      }
-    }
-    await Promise.all([fetchData(), loadEquipMap()]);
-    if (totalConflicts > 0) {
-      addToast(`Загружено файлов: ${ok}. Конфликтов характеристик: ${totalConflicts} — нажмите для разрешения.`, 'error', () => navigate('/equipment'));
-    } else if (ok > 0) {
-      addToast(`Данные загружены в оборудование (файлов: ${ok}).`, 'success');
-    }
+    setImportPreview({ fileIds, category });
   };
 
   // Категории оборудования для подменю импорта (с учётом добавленных в настройках)
@@ -359,11 +384,32 @@ export default function Explorer() {
     const sec = inSectionRoot ? parseSection(targetFolderId) : null;
     const realFolderId = inSectionRoot ? null : targetFolderId;
 
+    // Имена, уже занятые в целевой папке (для дедупа при загрузке — B8)
+    const existingNames = new Set(
+      (realFolderId === null
+        ? rootFiles.filter((f: any) => itemSection(f) === targetFolderId)
+        : (folders.find((f: any) => f.id === realFolderId)?.files || [])
+      ).map((f: any) => String(f.name))
+    );
+    const uniqueName = (name: string): string => {
+      if (!existingNames.has(name)) { existingNames.add(name); return name; }
+      const parts = name.split('.');
+      const hasExt = parts.length > 1;
+      const ext = hasExt ? parts.pop() : '';
+      const base = parts.join('.');
+      let n = 1, candidate = name;
+      do { candidate = hasExt ? `${base} (${n}).${ext}` : `${base} (${n})`; n++; } while (existingNames.has(candidate));
+      existingNames.add(candidate);
+      return candidate;
+    };
+
+    const CONTENT_LIMIT = 5 * 1024 * 1024; // порог хранения содержимого в БД
     setUploadProgress({ current: 0, total: files.length });
-    
+    let ok = 0; const failed: string[] = []; const skippedBig: string[] = [];
+
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        
+
         // Файл просто сохраняется в проводник. Импорт в «Оборудование» —
         // только вручную: выделить файл(ы) и нажать «В оборудование» на панели.
         let type = 'FILE';
@@ -373,36 +419,46 @@ export default function Explorer() {
         else if (file.name.match(/\.(png|jpe?g|gif|webp)$/i)) type = 'IMAGE';
         else type = file.name.split('.').pop()?.toUpperCase() || 'FILE';
 
-        let content = undefined;
-        if (file.size < 5 * 1024 * 1024) { // < 5MB
+        let content: any = undefined;
+        if (file.size < CONTENT_LIMIT) {
            const reader = new FileReader();
-           const readPromise = new Promise((resolve) => {
+           content = await new Promise((resolve) => {
              reader.onload = (e) => resolve(e.target?.result);
+             reader.onerror = () => resolve(undefined);
              reader.readAsDataURL(file);
            });
-           content = await readPromise;
+        } else {
+           skippedBig.push(file.name); // содержимое не сохраняем — предупредим (B3)
         }
 
-        await fetch('/api/files', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name: file.name,
-              folderId: realFolderId,
-              ...(sec ? { scope: sec.scope, ownerId: sec.ownerId || user?.id } : {}),
-              filePath: `/shared/${file.name}`,
-              size: file.size || Math.floor(Math.random() * 5000000), // mock size if 0
-              type,
-              department: "Unassigned",
-              content,
-              createdById: user?.id,
-              updatedById: user?.id
-            })
-        });
+        const name = uniqueName(file.name);
+        const scopeLabel = sec?.scope === 'PERSONAL' ? 'personal' : 'shared';
+        try {
+          const res = await fetch('/api/files', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name,
+                folderId: realFolderId,
+                ...(sec ? { scope: sec.scope, ownerId: sec.ownerId || user?.id } : {}),
+                filePath: `/${scopeLabel}/${name}`,
+                size: file.size,          // реальный размер, без random (B2)
+                type,
+                department: 'Unassigned',
+                content,
+                createdById: user?.id,
+                updatedById: user?.id
+              })
+          });
+          if (res.ok) ok++; else failed.push(file.name); // честный итог (B10)
+        } catch (_) { failed.push(file.name); }
         setUploadProgress(prev => prev ? { ...prev, current: i + 1 } : null);
     }
     setUploadProgress(null);
-    addToast(`Успешно загружено файлов: ${files.length}`, 'success');
+
+    if (ok > 0) addToast(`Загружено файлов: ${ok}${failed.length ? `, ошибок: ${failed.length}` : ''}`, failed.length ? 'error' : 'success');
+    else if (failed.length) addToast(`Не удалось загрузить: ${failed.length}`, 'error');
+    if (skippedBig.length) addToast(`Файлы больше 5 МБ сохранены без предпросмотра/скачивания: ${skippedBig.join(', ')}`, 'info');
     fetchData();
   };
 
@@ -539,6 +595,24 @@ export default function Explorer() {
     }
   }
 
+  // Смена статуса документооборота: применяется к выделению (или к одному файлу)
+  const handleChangeStatus = async (fileId: string) => {
+    const target = selectedIds.has(fileId) ? Array.from(selectedIds) : [fileId];
+    const fileTargets = target.filter(id => {
+      const it = allCurrentItemsRef.current.find(i => i.id === id);
+      return it && !it.isFolder;
+    });
+    if (fileTargets.length === 0) return;
+    const code = await openSelect('Статус документа', `Новый статус для ${fileTargets.length > 1 ? `${fileTargets.length} файлов` : 'файла'}:`,
+      STATUS_ORDER.map(c => ({ value: c, label: FILE_STATUSES[c].label })));
+    if (code === null) return;
+    await Promise.all(fileTargets.map(id => fetch(`/api/files/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ statusCode: code }),
+    })));
+    addToast(`Статус изменён: ${FILE_STATUSES[code].label}${fileTargets.length > 1 ? ` (${fileTargets.length})` : ''}`, 'success');
+    fetchData();
+  };
+
   const handlePaste = async () => {
     if (!clipboard || clipboard.ids.length === 0) return;
     if (!currentFolderId) {
@@ -590,6 +664,7 @@ export default function Explorer() {
     : isSectionId(currentFolderId)
       ? rootFiles.filter((f: any) => itemSection(f) === currentFolderId)
       : (currentFolder?.files || []);
+  filesRef.current = files; // для колбэков (двойной клик по зеркалу Конструктора)
 
   const allCurrentItems = useMemo(() => {
     const searchLower = searchQuery.toLowerCase();
@@ -639,6 +714,12 @@ export default function Explorer() {
   }, [folders, rootFiles, currentFolderId, currentSectionId, sections, searchQuery, sortConfig]);
 
   useEffect(() => { allCurrentItemsRef.current = allCurrentItems; }, [allCurrentItems]);
+
+  // Сколько ФАЙЛОВ (не папок) выделено — для контекстных кнопок тулбара
+  const selectedFileCount = useMemo(
+    () => Array.from(selectedIds).filter(id => { const it = allCurrentItems.find(i => i.id === id); return it && !it.isFolder; }).length,
+    [selectedIds, allCurrentItems]
+  );
 
   const [paneWidth, setPaneWidth] = useState(800);
 
@@ -747,8 +828,17 @@ export default function Explorer() {
   }, []);
 
   const handleItemDoubleClick = useCallback((id: string, isFolder: boolean) => {
-    if (isFolder) navigateToRef.current(id);
-  }, []);
+    if (isFolder) { navigateToRef.current(id); return; }
+    const f = allCurrentItemsRef.current?.find((x: any) => x.id === id);
+    // Зеркало документа Конструктора: открываем сам документ
+    if (f?.type === 'CONSTRUCTOR' && f?.refId) { navigate(`/constructor?doc=${f.refId}`); return; }
+    // Обычный файл: двойной клик ВСЕГДА что-то делает (B1) — выделяем и
+    // открываем панель предпросмотра; при отсутствии содержимого — тост
+    setSelectedIds(new Set([id]));
+    setLastSelectedId(id);
+    setShowPreviewPane(true);
+    if (!f?.content) addToast('У файла нет сохранённого содержимого (загружен без предпросмотра).', 'info');
+  }, [navigate, addToast]);
 
   const handleItemContextMenu = useCallback((e: React.MouseEvent, id: string, isFile: boolean) => {
     e.preventDefault();
@@ -917,47 +1007,45 @@ export default function Explorer() {
       
       {/* Explorer Top Bar - Like Windows */}
       <div className="flex flex-col bg-slate-100/95 dark:bg-slate-900/90 border-b border-slate-200 dark:border-slate-800">
-        {/* Main Ribbon */}
-        <div className="flex items-center gap-4 px-3 py-2 border-b border-slate-200 dark:border-slate-850">
-           <div className="flex gap-1 items-center">
-             <button onClick={createFolder} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-705 dark:text-slate-300 text-center leading-[1.15] cursor-pointer">
-                <FolderPlus className="w-5 h-5 text-yellow-500 shrink-0 mb-0.5" />
-                <span className="whitespace-pre-line">Новая папка</span>
-             </button>
-             <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-slate-200 dark:hover:bg-slate-805 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-700 dark:text-slate-300 text-center leading-[1.15] cursor-pointer">
-                <Upload className="w-5 h-5 text-green-600 shrink-0 mb-0.5" />
-                <span className="whitespace-pre-line">Загрузить</span>
-             </button>
-             <input type="file" ref={fileInputRef} className="hidden" multiple onChange={handleFileUpload} />
+        {/* Современный компактный тулбар */}
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-slate-850">
+           <button onClick={createFolder} title="Новая папка"
+             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 shadow-xs cursor-pointer">
+              <FolderPlus className="w-4 h-4 text-amber-500" /> Папка
+           </button>
+           <button onClick={() => fileInputRef.current?.click()} title="Загрузить файлы"
+             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm cursor-pointer">
+              <Upload className="w-4 h-4" /> Загрузить
+           </button>
+           <input type="file" ref={fileInputRef} className="hidden" multiple onChange={handleFileUpload} />
 
-             <div className="w-px h-10 bg-slate-300 dark:bg-slate-800 mx-1"></div>
+           {selectedFileCount > 0 && (
+             <>
+               <div className="w-px h-6 bg-slate-300 dark:bg-slate-700 mx-1" />
+               <button onClick={() => openImportPicker()} title="Загрузить данные выбранных файлов в «Оборудование»"
+                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 cursor-pointer">
+                  <Boxes className="w-4 h-4" /> В оборудование
+               </button>
+               <button onClick={() => handleChangeStatus(Array.from(selectedIds)[0])} title="Сменить статус выделенных"
+                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 cursor-pointer">
+                  <Info className="w-4 h-4" /> Статус
+               </button>
+               <span className="text-[11px] text-slate-400 ml-1">выбрано: {selectedFileCount}</span>
+             </>
+           )}
 
-             {/* Импорт данных выбранных файлов в раздел «Оборудование» */}
-             <button
-               onClick={() => openImportPicker()}
-               disabled={Array.from(selectedIds).filter(id => !allCurrentItems.find(i => i.id === id)?.isFolder).length === 0}
-               title="Загрузить данные выбранных файлов в раздел «Оборудование»"
-               className="flex flex-col items-center justify-start pt-1.5 pb-1 px-1 bg-transparent hover:bg-emerald-100 dark:hover:bg-emerald-950/40 rounded w-[84px] h-[64px] shrink-0 text-xs text-slate-705 dark:text-slate-300 text-center leading-[1.15] disabled:opacity-50 cursor-pointer">
-                <Boxes className="w-5 h-5 text-emerald-600 shrink-0 mb-0.5" />
-                <span className="whitespace-pre-line">В оборудование</span>
-             </button>
-            </div>
-
-            {/* Right-aligned tools restored */}
-                            {/* Right aligned tools */}
-           <div className="ml-auto flex items-center pr-2">
-             <div className="flex border border-slate-300 dark:border-dark-border rounded-lg overflow-hidden mr-4 bg-white dark:bg-dark-panel">
-               <button onClick={() => setViewMode('list')} className={`p-1.5 cursor-pointer ${viewMode === 'list' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'bg-transparent text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-surface'}`} title="Списком">
+           <div className="ml-auto flex items-center gap-2">
+             <div className="flex border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-white dark:bg-slate-800">
+               <button onClick={() => setViewMode('list')} className={`p-1.5 cursor-pointer ${viewMode === 'list' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-750'}`} title="Списком">
                  <List className="w-4 h-4" />
                </button>
-               <button onClick={() => setViewMode('grid')} className={`p-1.5 cursor-pointer ${viewMode === 'grid' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'bg-transparent text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-surface'}`} title="Сеткой">
+               <button onClick={() => setViewMode('grid')} className={`p-1.5 cursor-pointer ${viewMode === 'grid' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-750'}`} title="Сеткой">
                  <LayoutGrid className="w-4 h-4" />
                </button>
              </div>
-             
-             <button onClick={() => setShowPreviewPane(!showPreviewPane)} className={`flex flex-col items-center justify-start pt-1.5 pb-1 px-1 rounded-lg w-[84px] h-[64px] shrink-0 text-xs text-slate-705 dark:text-dark-text-main text-center leading-[1.15] cursor-pointer ${showPreviewPane ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-750' : 'bg-transparent hover:bg-slate-202 dark:hover:bg-dark-panel'}`}>
-               <PanelRight className="w-5 h-5 text-slate-600 dark:text-dark-text-muted shrink-0 mb-0.5" />
-               <span className="whitespace-pre-line">Превью</span>
+             <button onClick={() => setShowPreviewPane(!showPreviewPane)} title="Панель предпросмотра"
+               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${showPreviewPane ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750'}`}>
+               <PanelRight className="w-4 h-4" /> Превью
              </button>
            </div>
         </div>
@@ -1085,7 +1173,7 @@ export default function Explorer() {
                     <tr>
                       <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Имя</th>
                       <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Дата изменения</th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Тип</th>
+                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Статус</th>
                       <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Размер</th>
                       <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Теги</th>
                       <th className="py-2 px-3 font-medium cursor-default">Отдел</th>
@@ -1115,8 +1203,8 @@ export default function Explorer() {
                       <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('updatedAt')}>
                         Дата изменения {sortConfig.key === 'updatedAt' && (sortConfig.direction==='asc'?'↑':'↓')}
                       </th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('type')}>
-                        Тип {sortConfig.key === 'type' && (sortConfig.direction==='asc'?'↑':'↓')}
+                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('statusCode')}>
+                        Статус {sortConfig.key === 'statusCode' && (sortConfig.direction==='asc'?'↑':'↓')}
                       </th>
                       <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('size')}>
                         Размер {sortConfig.key === 'size' && (sortConfig.direction==='asc'?'↑':'↓')}
@@ -1172,6 +1260,8 @@ export default function Explorer() {
                               onDragStart={(e: React.DragEvent) => handleDragStart(e, item)}
                               onDropItems={handleDropItems}
                               measureElement={listVirtualizer.measureElement}
+                              onChangeStatus={handleChangeStatus}
+                              onOpenTag={(ident: string) => navigate(`/registry?tag=${encodeURIComponent(ident)}`)}
                             />
                           );
                         })}
@@ -1290,8 +1380,13 @@ export default function Explorer() {
                      <div className="flex-1 flex items-center justify-center min-h-[240px] max-h-[300px] bg-white dark:bg-dark-panel border border-slate-200 dark:border-dark-border rounded mb-4 overflow-hidden relative shadow-sm">
                         {isImage && item.content ? (
                           <img src={item.content} alt={item.name} className="max-w-full max-h-full object-contain" />
-                        ) : (isPdf || isText) && item.content ? (
-                          <iframe src={item.content} className="w-full h-full border-0 bg-white dark:bg-dark-panel" title={item.name} sandbox="" />
+                        ) : isText && item.content ? (
+                          // Текст декодируем как UTF-8 в <pre> — iframe с data:text
+                          // без charset давал кракозябры на кириллице
+                          <pre className="w-full h-full overflow-auto text-left text-[11px] leading-relaxed p-3 text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words font-mono">{decodeTextContent(item.content)}</pre>
+                        ) : isPdf && item.content ? (
+                          // B5: пустой sandbox ломал встроенный PDF-вьюер
+                          <iframe src={item.content} className="w-full h-full border-0 bg-white dark:bg-dark-panel" title={item.name} sandbox="allow-scripts allow-same-origin" />
                         ) : (
                           <div className="text-center text-slate-400 flex flex-col items-center">
                              {getFileIcon(item, "w-12 h-12 mb-2")}
@@ -1310,6 +1405,14 @@ export default function Explorer() {
                        <div className="flex justify-between border-b border-slate-100 pb-1">
                          <span className="text-slate-500 dark:text-dark-text-muted">Тип</span>
                          <span className="text-slate-800 dark:text-dark-text-main flex-1 text-right truncate ml-2">{item.type}</span>
+                       </div>
+                       <div className="flex justify-between items-center border-b border-slate-100 pb-1">
+                         <span className="text-slate-500 dark:text-dark-text-muted">Статус</span>
+                         <StatusChip code={item.statusCode} onClick={(e) => { e.stopPropagation(); handleChangeStatus(item.id); }} />
+                       </div>
+                       <div className="flex justify-between border-b border-slate-100 pb-1">
+                         <span className="text-slate-500 dark:text-dark-text-muted">Ревизия</span>
+                         <span className="text-slate-800 dark:text-dark-text-main">v{item.revision || '1'}</span>
                        </div>
                        <div className="flex justify-between border-b border-slate-100 pb-1">
                          <span className="text-slate-500 dark:text-dark-text-muted">Дата изменения</span>
@@ -1381,6 +1484,7 @@ export default function Explorer() {
                   <MenuItem icon={<Download />} label="Скачать" onClick={() => { handleDownload(contextMenu.targetId!, false); setContextMenu(null); }} />
                   <MenuItem icon={<Tag />} label="Назначить теги..." onClick={() => { handleAssignTag(contextMenu.targetId!); setContextMenu(null); }} />
                   <MenuItem icon={<Shield />} label="Назначить отдел..." onClick={() => { handleAssignDepartment(contextMenu.targetId!); setContextMenu(null); }} />
+                  <MenuItem icon={<Info />} label="Статус документа..." onClick={() => { handleChangeStatus(contextMenu.targetId!); setContextMenu(null); }} />
                 </>
               )}
               <div className="h-px bg-slate-300 dark:bg-dark-border my-1 mx-2" />
@@ -1653,6 +1757,22 @@ export default function Explorer() {
       )}
 
       {/* Выбор категории оборудования для импорта выделенных файлов */}
+      {importPreview && (
+        <EquipmentImportPreview
+          fileIds={importPreview.fileIds}
+          category={importPreview.category}
+          categoryLabel={catLabel(importPreview.category)}
+          projectId={activeProject?.id || 'default'}
+          onClose={() => { setImportPreview(null); Promise.all([fetchData(), loadEquipMap()]); }}
+          onDone={({ files, conflicts }) => {
+            setImportPreview(null);
+            Promise.all([fetchData(), loadEquipMap()]);
+            if (conflicts > 0) addToast(`Импортировано (файлов: ${files}). Расхождений значений: ${conflicts} — нажмите для разрешения.`, 'error', () => navigate('/equipment'));
+            else addToast(`Данные импортированы в оборудование (файлов: ${files}).`, 'success');
+          }}
+        />
+      )}
+
       {importPickerFiles && (
         <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md flex items-center justify-center z-[70]" onClick={() => setImportPickerFiles(null)}>
           <motion.div
@@ -1795,10 +1915,12 @@ const FileRowItem = React.memo(({
   onDropItems,
   measureElement,
   loaded,
-  catLabel
+  catLabel,
+  onChangeStatus,
+  onOpenTag
 }: any) => {
   return (
-    <tr 
+    <tr
       ref={measureElement}
       data-index={index}
       draggable
@@ -1828,13 +1950,11 @@ const FileRowItem = React.memo(({
         <div className="relative shrink-0">
            {getFileIcon(item, "w-5 h-5")}
            {!item.isFolder && item.statusCode && (
-              <span className={`absolute -bottom-1 -right-1 text-xs font-bold w-3 h-3 flex items-center justify-center rounded-full text-white ${item.statusCode === 'A' ? 'bg-green-500' : item.statusCode === 'B' ? 'bg-teal-500' : item.statusCode === 'C' ? 'bg-yellow-500' : 'bg-red-500'}`}>
-                {item.statusCode}
-              </span>
+              <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white dark:ring-dark-bg ${statusOf(item.statusCode).dot}`} title={statusOf(item.statusCode).label} />
            )}
         </div>
         {isRenaming ? (
-          <input 
+          <input
             type="text"
             autoFocus
             value={renameValue}
@@ -1859,11 +1979,19 @@ const FileRowItem = React.memo(({
           </span>
         )}
       </td>
-      <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : ''}</td>
-      <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted">{item.isFolder ? 'Папка с файлами' : (item.type || 'Файл')}</td>
-      <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted text-right">{!item.isFolder ? formatSize(item.size) : ''}</td>
-      <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted">
-         {!item.isFolder && [...(item.mainTags||[]), ...(item.additionalTags||[])].map((t:any) => t.identifier).join(', ')}
+      <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted whitespace-nowrap">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : ''}</td>
+      <td className="py-1.5 px-3 text-sm">{!item.isFolder ? <StatusChip code={item.statusCode} onClick={onChangeStatus ? (e) => { e.stopPropagation(); onChangeStatus(item.id); } : undefined} /> : <span className="text-slate-400 text-xs">Папка</span>}</td>
+      <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted text-right whitespace-nowrap">{!item.isFolder ? formatSize(item.size) : ''}</td>
+      <td className="py-1.5 px-3">
+         <div className="flex flex-wrap gap-1">
+           {!item.isFolder && (item.mainTags || []).map((t: any) => (
+             <span key={t.id} onClick={onOpenTag ? (e) => { e.stopPropagation(); onOpenTag(t.identifier); } : undefined}
+               className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400 ${onOpenTag ? 'cursor-pointer hover:brightness-95' : ''}`} title={`Основной тег ${t.identifier}`}>{t.identifier}</span>
+           ))}
+           {!item.isFolder && (item.additionalTags || []).map((t: any) => (
+             <span key={t.id} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400" title={`Доп. тег ${t.identifier}`}>{t.identifier}</span>
+           ))}
+         </div>
       </td>
       <td className="py-1.5 px-3 text-xs text-slate-500 dark:text-dark-text-muted">{!item.isFolder && item.department !== 'Unassigned' ? item.department : ''}</td>
     </tr>
@@ -1922,9 +2050,7 @@ const FileCardItem = React.memo(({
            getFileIcon(item, "w-12 h-12")
          )}
          {!item.isFolder && item.statusCode && (
-            <span className={`absolute bottom-0 right-0 text-xs font-bold w-4 h-4 flex items-center justify-center rounded-full border border-white text-white ${item.statusCode === 'A' ? 'bg-green-500' : item.statusCode === 'B' ? 'bg-teal-500' : item.statusCode === 'C' ? 'bg-yellow-500' : 'bg-red-500'}`}>
-              {item.statusCode}
-            </span>
+            <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full ring-2 ring-white dark:ring-dark-bg ${statusOf(item.statusCode).dot}`} title={statusOf(item.statusCode).label} />
          )}
          {loaded && (
             <span
