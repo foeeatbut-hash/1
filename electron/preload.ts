@@ -15,14 +15,13 @@ contextBridge.exposeInMainWorld('electron', {
   saveLog: (text: string) => ipcRenderer.invoke('log:save-dialog', text),
   emergencySave: (text: string) => ipcRenderer.send('log:emergency-save', text),
   
-  // Real database & auto-update APIs
-  checkUpdates: () => ipcRenderer.invoke('updater:check'),
-  startDownload: () => ipcRenderer.invoke('updater:start-download'),
+  // Автообновления: проверка и публикация идут через HTTP API сервера
+  // (см. UpdaterWidget); главный процесс скачивает exe и подменяет приложение
+  startDownload: (data: { url: string; version: string; token?: string }) =>
+    ipcRenderer.invoke('updater:start-download', data),
   quitAndInstall: () => ipcRenderer.invoke('updater:quitAndInstall'),
   getAppVersion: () => ipcRenderer.invoke('updater:version'),
   isPackaged: () => ipcRenderer.invoke('updater:is-packaged'),
-  publishRelease: (data: { version: string; changelog: string; fileUrl: string }) => 
-    ipcRenderer.invoke('updater:publish-release', data),
 
   // Listener registrations
   onUpdaterStatus: (callback: (state: string, data?: any) => void) => {
@@ -40,9 +39,6 @@ contextBridge.exposeInMainWorld('electron', {
     };
   },
 
-  // Simulated updater and existing helper APIs on window.electron
-  simulateCheck: () => ipcRenderer.invoke('updater:simulateCheck'),
-  simulateDownload: () => ipcRenderer.invoke('updater:simulateDownload'),
   openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
 
   // Управление окном (кастомный заголовок)

@@ -93,14 +93,22 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       );
     };
 
+    // Админ опубликовал новый релиз — сообщаем сразу, не дожидаясь ручной проверки
+    const handleUpdatePublished = (data: { version: string; changelog?: string }) => {
+      window.dispatchEvent(new CustomEvent('socket:app:update-published', { detail: data }));
+      addToast(`Опубликовано обновление Flux v${data.version} — откройте Настройки, чтобы установить.`, 'info');
+    };
+
     activeSocket.on('tag:linked', handleTagLinked);
     activeSocket.on('tag:updated', handleTagUpdated);
     activeSocket.on('equipment:conflict', handleEquipmentConflict);
+    activeSocket.on('app:update-published', handleUpdatePublished);
 
     return () => {
       activeSocket.off('tag:linked', handleTagLinked);
       activeSocket.off('tag:updated', handleTagUpdated);
       activeSocket.off('equipment:conflict', handleEquipmentConflict);
+      activeSocket.off('app:update-published', handleUpdatePublished);
       activeSocket.disconnect();
     };
   }, [addToast, navigate, userId]);
