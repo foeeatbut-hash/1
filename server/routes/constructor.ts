@@ -357,6 +357,59 @@ export function registerConstructorRoutes(app: Express): void {
     } catch (err: any) { sendError(res, err); }
   });
 
+  // ── Объединение Блокнота со студией: перенос старых заметок в NOTE-документы ──
+  // Заметки (UserNote) были глобальными, поэтому переносим как общие (SHARED),
+  // сохраняя видимость всем. Оригиналы НЕ удаляем (безопасность). Реестр
+  // перенесённых id в AppSetting — повторно не дублируем. Идемпотентно.
+  const MIGRATED_KEY = 'constructor_migrated_notes';
+  const htmlToText = (html: string): string => String(html || '')
+    .replace(/<\s*(br|\/p|\/div|\/li|\/h[1-6]|\/tr)\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>').replace(/&quot;/gi, '"').replace(/&#39;/gi, "'")
+    .replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim();
+
+  app.post('/api/constructor/migrate-notes', async (req: Request, res: Response) => {
+    try {
+      const me = authUserOf(req);
+      const prisma = getPrisma();
+      const projectId = await resolveProjectId(String(req.body?.projectId || ''));
+
+      const row = await prisma.appSetting.findFirst({ where: { key: MIGRATED_KEY, userId: null } });
+      let migratedIds: string[] = [];
+      if (row) { try { migratedIds = JSON.parse(row.value) || []; } catch { migratedIds = []; } }
+      const done = new Set(migratedIds);
+
+      const notes = await prisma.userNote.findMany({ orderBy: { updatedAt: 'desc' } });
+      let migrated = 0;
+      for (const n of notes) {
+        if (done.has(n.id)) continue;
+        const text = htmlToText(n.content);
+        const doc = await prisma.constructorDoc.create({
+          data: {
+            projectId,
+            name: n.title || 'Заметка',
+            named: true,
+            kind: 'NOTE',
+            scope: 'SHARED', // старые заметки были общими — сохраняем видимость
+            ownerId: me?.id || null,
+            createdById: me?.id || null,
+            updatedById: me?.id || null,
+            workbook: '',
+            bindings: JSON.stringify(text ? { importText: text } : {}),
+          },
+        });
+        syncMirror(doc);
+        done.add(n.id);
+        migrated++;
+      }
+      if (migrated > 0) {
+        await upsertSetting(MIGRATED_KEY, null, JSON.stringify([...done]));
+      }
+      res.json({ migrated });
+    } catch (err: any) { sendError(res, err); }
+  });
+
   // ── Лёгкие метаданные (без снапшота) — выбор редактора по kind ──
   app.get('/api/constructor/docs/:id/meta', async (req: Request, res: Response) => {
     try {

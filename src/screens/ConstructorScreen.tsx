@@ -1316,8 +1316,11 @@ export default function ConstructorScreen() {
   }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
   const [trashOpen, setTrashOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  // Вкладки студии: все / таблицы (Эксель) / документы (Ворд) / заметки
-  const [tab, setTab] = useState<'all' | 'sheet' | 'text' | 'note'>('all');
+  // Вкладки студии: все / таблицы (Эксель) / документы (Ворд) / заметки.
+  // Переход из бывшего «Блокнота» (/notes → /constructor?tab=note) открывает заметки
+  const [tab, setTab] = useState<'all' | 'sheet' | 'text' | 'note'>(
+    searchParams.get('tab') === 'note' ? 'note' : 'all'
+  );
   const autoRefreshRef = useRef(false); // открыть следующий документ с обновлением блоков
 
   const projectId = activeProject?.id || 'default';
@@ -1329,6 +1332,18 @@ export default function ConstructorScreen() {
     } catch (_) {}
     setLoading(false);
   };
+
+  // Одноразовый перенос старых заметок Блокнота в студию (идемпотентно на сервере)
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/constructor/migrate-notes', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId }),
+    }).then(r => r.ok ? r.json() : null).then(d => {
+      if (alive && d?.migrated > 0) { addToast(`Заметки перенесены из Блокнота: ${d.migrated}`, 'success'); loadDocs(); }
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [projectId]);
 
   useEffect(() => { setLoading(true); loadDocs(); }, [activeProject?.id, activeDocId]);
 

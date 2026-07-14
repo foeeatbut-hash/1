@@ -320,18 +320,19 @@ export default function Layout() {
     );
   };
 
-  // Единый плоский список разделов (рельс с иконками + подписями)
+  // Разделы, сгруппированные по смыслу (сверху вниз): контекст → инженерные
+  // данные → закупки → документы → коммуникации. «Блокнот» влит в Конструктор
+  // (вкладка «Заметки»), поэтому в рельсе его больше нет.
   const navItems = [
     { name: 'Главная', path: '/', icon: Home },
-    { name: 'Чат', path: '/chat', icon: MessagesSquare },
-    { name: 'Блокнот', path: '/notes', icon: NotebookPen },
     { name: 'Проекты', path: '/projects', icon: FolderKanban },
-    { name: 'Проводник', path: '/explorer', icon: FolderOpen },
     { name: 'Теги', path: '/registry', icon: Tag },
-    { name: 'Менеджмент', path: '/management', icon: Briefcase },
     { name: 'Оборудование', path: '/equipment', icon: Fan },
-    { name: 'Конструктор', path: '/constructor', icon: Table2 },
     { name: 'Справочник', path: '/directory', icon: BookOpen },
+    { name: 'Менеджмент', path: '/management', icon: Briefcase },
+    { name: 'Проводник', path: '/explorer', icon: FolderOpen },
+    { name: 'Конструктор', path: '/constructor', icon: Table2 },
+    { name: 'Чат', path: '/chat', icon: MessagesSquare },
   ];
 
   return (
