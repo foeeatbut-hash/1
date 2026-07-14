@@ -264,7 +264,7 @@ async function syncMirror(doc: any): Promise<void> {
   try {
     const existing = await prisma.fileNode.findFirst({ where: { type: 'CONSTRUCTOR', refId: doc.id } });
     // Зеркалятся и таблицы (DOC), и текстовые документы (TEXT)
-    const shouldExist = doc.named && !doc.deletedAt && (doc.kind === 'DOC' || doc.kind === 'TEXT');
+    const shouldExist = doc.named && !doc.deletedAt && (doc.kind === 'DOC' || doc.kind === 'TEXT' || doc.kind === 'NOTE');
     if (!shouldExist) {
       if (existing) await prisma.fileNode.delete({ where: { id: existing.id } });
       return;
@@ -343,7 +343,8 @@ export function registerConstructorRoutes(app: Express): void {
           name: String(req.body?.name || autoName),
           named: !!req.body?.name,
           kind,
-          scope: 'SHARED', // по умолчанию все документы общие
+          // Заметки по умолчанию личные (как в Блокноте); остальное — общее
+          scope: kind === 'NOTE' ? 'PERSONAL' : 'SHARED',
           ownerId: me?.id || null,
           createdById: me?.id || null,
           updatedById: me?.id || null,

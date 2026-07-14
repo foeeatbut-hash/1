@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx';
 import {
   Table2, Plus, ArrowLeft, Loader2, Download, FolderOpen, Copy, Trash2,
   RotateCcw, Lock, Users2, Search, ChevronRight, Database, X, CheckCircle2,
-  Boxes, RefreshCw, Unlink, AlertTriangle, Printer, History, FileText
+  Boxes, RefreshCw, Unlink, AlertTriangle, Printer, History, FileText, StickyNote
 } from 'lucide-react';
 import TextDocEditor from './TextDocEditor';
 
@@ -1316,8 +1316,8 @@ export default function ConstructorScreen() {
   }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
   const [trashOpen, setTrashOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  // Вкладки студии: все документы / таблицы (Эксель) / текстовые (Ворд)
-  const [tab, setTab] = useState<'all' | 'sheet' | 'text'>('all');
+  // Вкладки студии: все / таблицы (Эксель) / документы (Ворд) / заметки
+  const [tab, setTab] = useState<'all' | 'sheet' | 'text' | 'note'>('all');
   const autoRefreshRef = useRef(false); // открыть следующий документ с обновлением блоков
 
   const projectId = activeProject?.id || 'default';
@@ -1335,7 +1335,7 @@ export default function ConstructorScreen() {
   const me = user?.id;
   // Фильтр по вкладке: sheet = таблицы (DOC), text = текстовые документы (TEXT/NOTE)
   const matchesTab = (d: DocMeta) =>
-    tab === 'all' ? true : tab === 'sheet' ? d.kind === 'DOC' : (d.kind === 'TEXT' || d.kind === 'NOTE');
+    tab === 'all' ? true : tab === 'sheet' ? d.kind === 'DOC' : tab === 'note' ? d.kind === 'NOTE' : d.kind === 'TEXT';
   const alive = docs.filter(d => !d.deletedAt && (d.kind === 'TEMPLATE' || matchesTab(d)));
   const templates = alive.filter(d => d.kind === 'TEMPLATE');
   const recents = useMemo(() => {
@@ -1350,8 +1350,8 @@ export default function ConstructorScreen() {
   const sharedDocs = alive.filter(d => d.kind !== 'TEMPLATE' && d.scope === 'SHARED');
   const trash = docs.filter(d => d.deletedAt);
 
-  // Создание: таблица (Эксель, kind=DOC) или текстовый документ (Ворд, kind=TEXT)
-  const createDoc = async (kind: 'DOC' | 'TEXT' = 'DOC') => {
+  // Создание: таблица (DOC), текстовый документ (TEXT) или заметка (NOTE)
+  const createDoc = async (kind: 'DOC' | 'TEXT' | 'NOTE' = 'DOC') => {
     const res = await fetch('/api/constructor/docs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectId, ...(kind !== 'DOC' ? { kind } : {}) }),
@@ -1406,8 +1406,10 @@ export default function ConstructorScreen() {
     <div className="group bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 hover:border-emerald-400 dark:hover:border-emerald-700 hover:shadow-md transition-all cursor-pointer"
       onClick={() => !inTrash && setActiveDocId(d.id)}>
       <div className="flex items-start justify-between gap-2">
-        {/* Тип видно по иконке: таблица — изумруд, текстовый документ — синий */}
-        {(d.kind === 'TEXT' || d.kind === 'NOTE')
+        {/* Тип видно по иконке: таблица — изумруд, документ — синий, заметка — янтарь */}
+        {d.kind === 'NOTE'
+          ? <StickyNote className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+          : d.kind === 'TEXT'
           ? <FileText className="w-5 h-5 text-sky-600 dark:text-sky-500 shrink-0 mt-0.5" />
           : <Table2 className="w-5 h-5 text-emerald-600 dark:text-emerald-500 shrink-0 mt-0.5" />}
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
@@ -1467,7 +1469,7 @@ export default function ConstructorScreen() {
             <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5">
               <Table2 className="w-6 h-6 text-emerald-600" /> Конструктор
             </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Таблицы и текстовые документы из данных проекта — в одном месте</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Таблицы, документы и заметки из данных проекта — в одном месте</p>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => createDoc('DOC')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новая таблица: формулы, данные проекта, умные блоки">
@@ -1475,6 +1477,9 @@ export default function ConstructorScreen() {
             </button>
             <button onClick={() => createDoc('TEXT')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новый текстовый документ: страницы, стили, списки — как в Word">
               <FileText className="w-4 h-4" /> Документ
+            </button>
+            <button onClick={() => createDoc('NOTE')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новая заметка: быстрые записи, по умолчанию личная">
+              <StickyNote className="w-4 h-4" /> Заметка
             </button>
           </div>
         </div>
@@ -1484,6 +1489,7 @@ export default function ConstructorScreen() {
             { id: 'all' as const, label: 'Все' },
             { id: 'sheet' as const, label: 'Таблицы' },
             { id: 'text' as const, label: 'Документы' },
+            { id: 'note' as const, label: 'Заметки' },
           ]).map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-all ${tab === t.id
