@@ -165,8 +165,7 @@ function AnimatedRoutes() {
           <Route element={<Layout />}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/chat" element={<ChatManagement />} />
-            {/* Блокнот объединён со студией: заметки живут в Конструкторе */}
-            <Route path="/notes" element={<Navigate to="/constructor?tab=note" replace />} />
+            <Route path="/notes" element={<NotesManagement />} />
             <Route path="/projects" element={<ProjectsManagement />} />
             <Route path="/explorer" element={<Explorer />} />
             <Route path="/registry" element={<Registry />} />

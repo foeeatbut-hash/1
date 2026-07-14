@@ -195,6 +195,7 @@ export default function Dashboard() {
             { name: 'Менеджмент', path: '/management', icon: Briefcase },
             { name: 'Проводник', path: '/explorer', icon: FolderOpen },
             { name: 'Конструктор', path: '/constructor', icon: Table2 },
+            { name: 'Блокнот', path: '/notes', icon: NotebookPen },
             { name: 'Чат', path: '/chat', icon: MessagesSquare },
             ...(user?.role === 'ADMIN' ? [{ name: 'Сотрудники', path: '/users', icon: Users }] : []),
           ].map((s) => (
@@ -287,7 +288,7 @@ export default function Dashboard() {
               <span>Мои заметки</span>
             </h2>
             <button
-              onClick={() => navigate('/constructor?tab=note')}
+              onClick={() => navigate('/notes')}
               className="text-xs text-emerald-700 dark:text-emerald-400 hover:text-emerald-650 dark:hover:text-emerald-300 cursor-pointer font-bold flex items-center gap-0.5"
             >
               <span>Посмотреть все</span>
@@ -306,7 +307,7 @@ export default function Dashboard() {
                   <BookmarkCheck className="w-7 h-7 text-slate-300 dark:text-slate-750" />
                   <span>Панель заметок пуста</span>
                   <button
-                    onClick={() => navigate('/constructor?tab=note')}
+                    onClick={() => navigate('/notes')}
                     className="text-xs font-bold text-emerald-600 hover:underline mt-1 cursor-pointer"
                   >
                     Перейти и создать
@@ -333,7 +334,7 @@ export default function Dashboard() {
 
                       <div className="mt-4 pt-2.5 border-t border-black/5 dark:border-white/5 flex items-center justify-between gap-2">
                         <button
-                          onClick={() => navigate('/constructor?tab=note')}
+                          onClick={() => navigate('/notes')}
                           className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer whitespace-nowrap"
                         >
                           Открыть

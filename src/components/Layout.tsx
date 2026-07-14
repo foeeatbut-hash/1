@@ -321,8 +321,7 @@ export default function Layout() {
   };
 
   // Разделы, сгруппированные по смыслу (сверху вниз): контекст → инженерные
-  // данные → закупки → документы → коммуникации. «Блокнот» влит в Конструктор
-  // (вкладка «Заметки»), поэтому в рельсе его больше нет.
+  // данные → закупки/документы → заметки → коммуникации.
   const navItems = [
     { name: 'Главная', path: '/', icon: Home },
     { name: 'Проекты', path: '/projects', icon: FolderKanban },
@@ -332,6 +331,7 @@ export default function Layout() {
     { name: 'Менеджмент', path: '/management', icon: Briefcase },
     { name: 'Проводник', path: '/explorer', icon: FolderOpen },
     { name: 'Конструктор', path: '/constructor', icon: Table2 },
+    { name: 'Блокнот', path: '/notes', icon: NotebookPen },
     { name: 'Чат', path: '/chat', icon: MessagesSquare },
   ];
 
