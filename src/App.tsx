@@ -4,28 +4,13 @@
  */
 
 import React, { Suspense, lazy } from 'react';
-import { HashRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from './store/store';
 import Layout from './components/Layout';
 import Login from './screens/Login';
 
-// Ленивые экраны: ускоряют первый запуск — тяжелые модули (граф, чат, Excel-парсер)
-// подгружаются только при заходе на соответствующий раздел
-const Dashboard = lazy(() => import('./screens/Dashboard'));
-const Explorer = lazy(() => import('./screens/Explorer'));
-const Registry = lazy(() => import('./screens/Registry'));
-const UniversalGenerator = lazy(() => import('./screens/UniversalGenerator'));
-const DictionaryEditor = lazy(() => import('./screens/DictionaryEditor'));
-const Equipment = lazy(() => import('./screens/Equipment'));
-const UsersManagement = lazy(() => import('./screens/UsersManagement'));
-const NotesManagement = lazy(() => import('./screens/NotesManagement'));
-const ProjectsManagement = lazy(() => import('./screens/ProjectsManagement'));
+// Стикер открывается отдельным окном Electron — вне рабочего стола
 const StickerWindow = lazy(() => import('./screens/StickerWindow'));
-const ChatManagement = lazy(() => import('./screens/ChatManagement'));
-const LogsManagement = lazy(() => import('./screens/LogsManagement'));
-const ProcurementManagement = lazy(() => import('./screens/ProcurementManagement'));
-const SettingsScreen = lazy(() => import('./screens/SettingsScreen'));
-const ConstructorScreen = lazy(() => import('./screens/ConstructorScreen'));
 
 import { SocketProvider } from './components/SocketProvider';
 import { ServerGate } from './components/BootSplash';
@@ -156,29 +141,15 @@ function AnimatedRoutes() {
     return <Login />;
   }
 
+  // Разделы держит «живыми» рабочий стол внутри Layout (keep-alive + панели),
+  // поэтому здесь один маршрут: Layout сам решает, какой раздел показать по URL.
   return (
     <div className="w-full h-full flex flex-col overflow-hidden">
       <Suspense fallback={<ScreenLoader />}>
         <Routes location={location}>
           {/* Standing standalone route outside the layout to prevent Sidebar/Header replication */}
           <Route path="/sticker" element={<StickerWindow />} />
-          <Route element={<Layout />}>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/chat" element={<ChatManagement />} />
-            <Route path="/notes" element={<NotesManagement />} />
-            <Route path="/projects" element={<ProjectsManagement />} />
-            <Route path="/explorer" element={<Explorer />} />
-            <Route path="/registry" element={<Registry />} />
-            <Route path="/management" element={<ProcurementManagement />} />
-            <Route path="/settings" element={<SettingsScreen />} />
-            <Route path="/equipment" element={<Equipment />} />
-            <Route path="/generator" element={<UniversalGenerator />} />
-            <Route path="/constructor" element={<ConstructorScreen />} />
-            <Route path="/directory" element={<DictionaryEditor />} />
-            <Route path="/logs" element={<LogsManagement />} />
-            <Route path="/users" element={user && user.role === 'ADMIN' ? <UsersManagement /> : <Navigate to="/" replace />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Route>
+          <Route path="*" element={<Layout />} />
         </Routes>
       </Suspense>
     </div>

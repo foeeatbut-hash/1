@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, Sparkles, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -15,15 +15,23 @@ import RightRail from './RightRail';
 import ShareLayer from './ShareLayer';
 import FluxLogo from './FluxLogo';
 import { useNotificationStore } from '../store/notificationStore';
+import Workspace, { WorkspaceToolbar } from './Workspace';
+import { useWorkspaceStore } from '../store/workspaceStore';
 
 export default function Layout() {
   const { user, setUser, activeProject, theme, toggleTheme, syncStatus } = useStore();
-  const location = useLocation();
   const navigate = useNavigate();
   const [eqOpen, setEqOpen] = useState(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  // На Главной (/) левой панели нет; в любом разделе она закреплена
-  const sidebarHidden = location.pathname === '/';
+  // Активный раздел активной панели рабочего стола (для подсветки меню)
+  const wsLayout = useWorkspaceStore((s) => s.layout);
+  const wsActivePath = useWorkspaceStore((s) => {
+    const p = s.panes.find((x) => x.id === s.activePaneId);
+    return p ? p.stack[p.stack.length - 1] : '/';
+  });
+  const openInActivePane = useWorkspaceStore((s) => s.openInActivePane);
+  // На Главной (/) в режиме одного окна левой панели нет; иначе она закреплена
+  const sidebarHidden = wsLayout === 'single' && wsActivePath === '/';
   const chatUnread = useNotificationStore((s) => s.chatUnread);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const addLog = useLogStore((state) => state.addLog);
@@ -348,18 +356,19 @@ export default function Layout() {
         <div className="flex-1 overflow-y-auto py-2 scrollbar-thin">
           <nav className="flex flex-col gap-1 px-1.5">
             {[...navItems, ...(user && user.role === 'ADMIN' ? [{ name: 'Сотрудники', path: '/users', icon: Users }] : [])].map((item) => {
-              const active = location.pathname === item.path;
+              const active = wsActivePath === item.path;
               const chatGlow = item.path === '/chat' && chatUnread > 0 && !active;
               return (
-                <Link
+                <button
                   key={item.path}
-                  to={item.path}
+                  type="button"
+                  onClick={() => openInActivePane(item.path)}
                   data-tour={`nav-${item.path}`}
                   data-share-route={item.path}
                   data-share-focus={`nav:${item.path}`}
                   data-share-label={item.name}
                   title={item.name}
-                  className={`relative flex flex-col items-center justify-center gap-1 py-2 rounded-xl transition-all ${
+                  className={`relative flex flex-col items-center justify-center gap-1 py-2 rounded-xl transition-all cursor-pointer ${
                     active
                       ? 'bg-emerald-600 text-white shadow-sm'
                       : chatGlow
@@ -372,7 +381,7 @@ export default function Layout() {
                   {item.path === '/chat' && chatUnread > 0 && (
                     <span className="absolute top-1 right-2 min-w-4 h-4 px-1 rounded-full bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center">{chatUnread}</span>
                   )}
-                </Link>
+                </button>
               );
             })}
           </nav>
@@ -413,7 +422,7 @@ export default function Layout() {
 
                   {/* Все настройки перенесены в раздел «Настройки» (левая панель) */}
                   <button
-                    onClick={() => { setIsProfileMenuOpen(false); navigate('/settings'); }}
+                    onClick={() => { setIsProfileMenuOpen(false); openInActivePane('/settings'); }}
                     className="flex w-full items-center justify-center gap-1.5 px-2 py-2 text-xs font-bold text-slate-700 dark:text-dark-text-main bg-slate-100 dark:bg-dark-surface hover:bg-slate-200 dark:hover:bg-dark-panel border border-slate-200 dark:border-dark-border rounded-lg transition-all cursor-pointer"
                   >
                     <Settings className="w-3.5 h-3.5 text-emerald-600" />
@@ -436,20 +445,21 @@ export default function Layout() {
           )}
 
           {/* Настройки программы — над профилем (перенесены из окна профиля) */}
-          <Link
-            to="/settings"
+          <button
+            type="button"
+            onClick={() => openInActivePane('/settings')}
             data-share-route="/settings"
             data-share-label="Настройки"
             title="Настройки программы"
             className={`w-full flex flex-col items-center gap-1 p-2 mb-1.5 rounded-xl transition-all cursor-pointer select-none ${
-              location.pathname === '/settings'
+              wsActivePath === '/settings'
                 ? 'bg-emerald-600 text-white shadow-sm'
                 : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-panel hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             <Settings className="w-5 h-5 shrink-0" />
             <span className="text-[10px] font-semibold leading-tight">Настройки</span>
-          </Link>
+          </button>
 
           {/* Interactive Profile Clickable Button (Trigger) */}
           <button
@@ -470,9 +480,12 @@ export default function Layout() {
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-gradient-to-br from-slate-100 to-slate-200/70 dark:from-dark-bg dark:to-dark-surface relative transition-colors duration-250">
-
-        <div className={`flex-1 flex flex-col min-h-0 ${location.pathname === '/registry' || location.pathname === '/chat' || location.pathname === '/directory' ? 'overflow-hidden h-full' : 'overflow-y-auto'} p-6`}>
-          <Outlet />
+        {/* Управление раскладкой рабочего стола: одно окно / 2 / 4 панели + вынос */}
+        <div className="absolute top-2 right-3 z-30">
+          <WorkspaceToolbar />
+        </div>
+        <div className="flex-1 min-h-0">
+          <Workspace />
         </div>
       </main>
 
