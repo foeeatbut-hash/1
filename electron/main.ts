@@ -263,14 +263,50 @@ app.whenReady().then(() => {
   }
 
   // --- DATABASE FILE DIALOG HANDLER ---
-  // Управление окном (кастомный заголовок, frame:false)
-  ipcMain.on('window:minimize', () => { mainWindow?.minimize(); });
-  ipcMain.on('window:maximize', () => {
-    if (!mainWindow) return;
-    if (mainWindow.isMaximized()) mainWindow.unmaximize(); else mainWindow.maximize();
+  // Управление окном (кастомный заголовок, frame:false). Кнопки заголовка
+  // действуют на то окно, откуда пришли (главное или вынесенное) — поэтому
+  // берём окно отправителя, а не единственный mainWindow.
+  const senderWin = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) =>
+    BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  ipcMain.on('window:minimize', (event) => { senderWin(event)?.minimize(); });
+  ipcMain.on('window:maximize', (event) => {
+    const w = senderWin(event);
+    if (!w) return;
+    if (w.isMaximized()) w.unmaximize(); else w.maximize();
   });
-  ipcMain.on('window:close', () => { mainWindow?.close(); });
-  ipcMain.handle('window:is-maximized', () => !!mainWindow?.isMaximized());
+  ipcMain.on('window:close', (event) => { senderWin(event)?.close(); });
+  ipcMain.handle('window:is-maximized', (event) => !!senderWin(event)?.isMaximized());
+
+  // Вынести раздел в отдельное окно (мультимонитор): полноценное главное окно,
+  // открытое на нужном разделе. Своё меню, свои панели, тоже делится на панели.
+  ipcMain.on('window:open-main', (_event, route: string) => {
+    const win = new BrowserWindow({
+      width: 1280,
+      height: 800,
+      minWidth: 960,
+      minHeight: 620,
+      backgroundColor: '#0f172a',
+      autoHideMenuBar: true,
+      frame: false,
+      titleBarStyle: 'hidden',
+      show: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        preload: path.join(__dirname, 'preload.js'),
+      },
+    });
+    const hash = `#${route && route.startsWith('/') ? route : '/' + (route || '')}`;
+    if (app.isPackaged) {
+      win.loadURL(`file://${path.join(__dirname, '../dist/index.html')}${hash}`);
+    } else {
+      win.loadURL(`http://localhost:3000/${hash}`);
+    }
+    win.once('ready-to-show', () => win.show());
+    setTimeout(() => { try { win.show(); } catch (_) {} }, 10000);
+    win.on('maximize', () => win.webContents.send('window:maximized-changed', true));
+    win.on('unmaximize', () => win.webContents.send('window:maximized-changed', false));
+  });
 
   ipcMain.handle('database:select-file', async () => {
     const { dialog } = require('electron');

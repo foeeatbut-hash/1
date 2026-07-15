@@ -47,6 +47,8 @@ contextBridge.exposeInMainWorld('electron', {
     maximize: () => ipcRenderer.send('window:maximize'),
     close: () => ipcRenderer.send('window:close'),
     isMaximized: () => ipcRenderer.invoke('window:is-maximized'),
+    // Вынести раздел в отдельное окно ОС (мультимонитор)
+    openWindow: (route: string) => ipcRenderer.send('window:open-main', route),
     onMaximizedChange: (callback: (val: boolean) => void) => {
       const subscription = (_event: any, val: boolean) => callback(val);
       ipcRenderer.on('window:maximized-changed', subscription);
