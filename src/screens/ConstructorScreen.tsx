@@ -11,6 +11,7 @@ import {
   Boxes, RefreshCw, Unlink, AlertTriangle, Printer, History, FileText
 } from 'lucide-react';
 import TextDocEditor from './TextDocEditor';
+import TitleTemplateEditor from './TitleTemplateEditor';
 
 // ── Конструктор: сборка своих таблиц из данных проекта ──
 // Дизайн: docs/constructor-design-v0.25*.md. Реализация MVP (Фаза 1):
@@ -1288,6 +1289,9 @@ function EditorGate({ docId, knownKind, autoRefresh, onClose }: {
   if (!kind) {
     return <div className="h-full flex items-center justify-center text-slate-400"><Loader2 className="w-6 h-6 animate-spin" /></div>;
   }
+  if (kind === 'TITLE') {
+    return <TitleTemplateEditor docId={docId} onClose={onClose} />;
+  }
   if (kind === 'TEXT' || kind === 'NOTE') {
     return <TextDocEditor docId={docId} onClose={onClose} />;
   }
@@ -1337,8 +1341,9 @@ export default function ConstructorScreen() {
   // Фильтр по вкладке: sheet = таблицы (DOC), text = текстовые документы (TEXT)
   const matchesTab = (d: DocMeta) =>
     tab === 'all' ? true : tab === 'sheet' ? d.kind === 'DOC' : d.kind === 'TEXT';
-  const alive = docs.filter(d => !d.deletedAt && (d.kind === 'TEMPLATE' || matchesTab(d)));
+  const alive = docs.filter(d => !d.deletedAt && (d.kind === 'TEMPLATE' || d.kind === 'TITLE' || matchesTab(d)));
   const templates = alive.filter(d => d.kind === 'TEMPLATE');
+  const titleTemplates = alive.filter(d => d.kind === 'TITLE');
   const recents = useMemo(() => {
     if (!me) return [] as DocMeta[];
     try {
@@ -1347,12 +1352,13 @@ export default function ConstructorScreen() {
     } catch (_) { return []; }
   }, [docs, me]);
   // «Мои» — по авторству, а не только по приватности (часть III §1)
-  const myDocs = alive.filter(d => d.kind !== 'TEMPLATE' && (d.scope === 'PERSONAL' ? d.ownerId === me : d.createdById === me));
-  const sharedDocs = alive.filter(d => d.kind !== 'TEMPLATE' && d.scope === 'SHARED');
+  const isLibraryTemplate = (d: DocMeta) => d.kind === 'TEMPLATE' || d.kind === 'TITLE';
+  const myDocs = alive.filter(d => !isLibraryTemplate(d) && (d.scope === 'PERSONAL' ? d.ownerId === me : d.createdById === me));
+  const sharedDocs = alive.filter(d => !isLibraryTemplate(d) && d.scope === 'SHARED');
   const trash = docs.filter(d => d.deletedAt);
 
-  // Создание: таблица (DOC) или текстовый документ (TEXT)
-  const createDoc = async (kind: 'DOC' | 'TEXT' = 'DOC') => {
+  // Создание: таблица (DOC), документ (TEXT) или шаблон титула (TITLE)
+  const createDoc = async (kind: 'DOC' | 'TEXT' | 'TITLE' = 'DOC') => {
     const res = await fetch('/api/constructor/docs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectId, ...(kind !== 'DOC' ? { kind } : {}) }),
@@ -1407,10 +1413,12 @@ export default function ConstructorScreen() {
     <div className="group bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 hover:border-emerald-400 dark:hover:border-emerald-700 hover:shadow-md transition-all cursor-pointer"
       onClick={() => !inTrash && setActiveDocId(d.id)}>
       <div className="flex items-start justify-between gap-2">
-        {/* Тип видно по иконке: таблица — изумруд, документ — синий */}
+        {/* Тип видно по иконке: таблица — изумруд, документ — синий, титул — рамка */}
         {d.kind === 'TEXT'
           ? <FileText className="w-5 h-5 text-sky-600 dark:text-sky-500 shrink-0 mt-0.5" />
-          : <Table2 className="w-5 h-5 text-emerald-600 dark:text-emerald-500 shrink-0 mt-0.5" />}
+          : d.kind === 'TITLE'
+            ? <FileText className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
+            : <Table2 className="w-5 h-5 text-emerald-600 dark:text-emerald-500 shrink-0 mt-0.5" />}
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
           {!inTrash && (
             <>
@@ -1433,7 +1441,8 @@ export default function ConstructorScreen() {
       <div className="mt-1 text-[11px] text-slate-400 flex items-center gap-2">
         <span>{fmtDate(d.updatedAt)}</span>
         {d.kind === 'TEMPLATE' && <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-bold">ШАБЛОН</span>}
-        {!d.named && d.kind !== 'TEMPLATE' && <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 font-bold">ЧЕРНОВИК</span>}
+        {d.kind === 'TITLE' && <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-bold">ТИТУЛ</span>}
+        {!d.named && d.kind !== 'TEMPLATE' && d.kind !== 'TITLE' && <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 font-bold">ЧЕРНОВИК</span>}
       </div>
       {d.kind === 'TEMPLATE' && !inTrash && (
         <button
@@ -1477,6 +1486,9 @@ export default function ConstructorScreen() {
             <button onClick={() => createDoc('TEXT')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новый текстовый документ: страницы, стили, списки — как в Word">
               <FileText className="w-4 h-4" /> Документ
             </button>
+            <button onClick={() => createDoc('TITLE')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white dark:bg-slate-950 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-sm font-bold shadow-sm cursor-pointer" title="Конструктор титула: ссылки на данные и формулы, присваивается документам">
+              <FileText className="w-4 h-4" /> Шаблон титула
+            </button>
           </div>
         </div>
         {/* Вкладки типов */}
@@ -1506,6 +1518,7 @@ export default function ConstructorScreen() {
           <Section title="Мои файлы" icon={Lock} items={myDocs} />
           <Section title="Общие файлы" icon={Users2} items={sharedDocs.filter(d => d.createdById !== me)} />
           {templates.length > 0 && <Section title="Шаблоны" icon={Copy} items={templates} />}
+          {titleTemplates.length > 0 && <Section title="Шаблоны титула" icon={FileText} items={titleTemplates} />}
 
           {trash.length > 0 && (
             <div>

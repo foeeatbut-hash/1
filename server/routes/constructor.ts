@@ -335,8 +335,9 @@ export function registerConstructorRoutes(app: Express): void {
       const projectId = await resolveProjectId(String(req.body?.projectId || ''));
       const now = new Date();
       const autoName = `Без названия — ${now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}`;
-      // kind: DOC — таблица (Эксель), TEXT — текстовый документ (Ворд), TEMPLATE — шаблон
-      const kind = ['TEMPLATE', 'TEXT', 'NOTE'].includes(String(req.body?.kind || '')) ? String(req.body.kind) : 'DOC';
+      // kind: DOC — таблица (Эксель), TEXT — документ (Ворд), TEMPLATE — шаблон
+      // таблицы, TITLE — шаблон титульного листа (конструктор титула)
+      const kind = ['TEMPLATE', 'TEXT', 'NOTE', 'TITLE'].includes(String(req.body?.kind || '')) ? String(req.body.kind) : 'DOC';
       const doc = await getPrisma().constructorDoc.create({
         data: {
           projectId,
@@ -865,6 +866,63 @@ export function registerConstructorRoutes(app: Express): void {
         } catch (_) { results.push('#ОШИБКА'); }
       }
       res.json({ results });
+    } catch (err: any) { sendError(res, err); }
+  });
+
+  // ── Шаблоны титула: список для присвоения документу ──
+  // Шаблон титула — документ kind=TEMPLATE с bindings.subtype='title'.
+  app.get('/api/constructor/title/templates', async (req: Request, res: Response) => {
+    try {
+      const projectId = await resolveProjectId(String(req.query.projectId || ''));
+      const me = authUserOf(req);
+      const docs = await getPrisma().constructorDoc.findMany({
+        where: { ...visibleWhere(projectId, me?.id || null), kind: 'TITLE', deletedAt: null },
+        orderBy: { updatedAt: 'desc' },
+        select: { id: true, name: true, updatedAt: true },
+      });
+      res.json({ templates: docs });
+    } catch (err: any) { sendError(res, err); }
+  });
+
+  // ── Контекст титула для конкретного документа ──
+  // Значения именно этого документа + проекта + дата/автор. Формулы и поля
+  // подставляются на клиенте (см. src/screens/titleTemplate.ts).
+  app.get('/api/constructor/title/context', async (req: Request, res: Response) => {
+    try {
+      const me = authUserOf(req);
+      const prisma = getPrisma();
+      const doc = await prisma.constructorDoc.findUnique({ where: { id: String(req.query.docId || '') } });
+      if (!doc) return res.status(404).json({ error: 'Документ не найден' });
+      if (doc.scope === 'PERSONAL' && doc.ownerId !== me?.id) {
+        return res.status(403).json({ error: 'Личный документ другого пользователя' });
+      }
+      let settings: any = {}; try { settings = JSON.parse(doc.settings || '{}'); } catch { settings = {}; }
+      const dm = settings.docMeta || {};
+      const project = await prisma.project.findUnique({ where: { id: doc.projectId } });
+      let author = '';
+      if (doc.createdById) {
+        const u = await prisma.user.findUnique({ where: { id: doc.createdById }, select: { name: true, symbol: true } });
+        author = u?.name || u?.symbol || '';
+      }
+      const now = new Date();
+      res.json({
+        context: {
+          'doc.name': doc.name || '',
+          'doc.code': dm.code || '',
+          'doc.revision': dm.revision || '',
+          'doc.title': dm.title || doc.name || '',
+          'project.code': (project as any)?.code || '',
+          'project.name': project?.name || '',
+          'project.customer': (project as any)?.customer || '',
+          'project.contractor': (project as any)?.contractor || '',
+          author,
+          date: now.toLocaleDateString('ru-RU'),
+          dateTime: now.toLocaleString('ru-RU'),
+          year: String(now.getFullYear()),
+          // page/pages подставляет печать (CSS-счётчики), тут плейсхолдеры
+          page: '1', pages: '1',
+        },
+      });
     } catch (err: any) { sendError(res, err); }
   });
 
