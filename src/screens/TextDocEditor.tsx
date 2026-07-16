@@ -324,19 +324,33 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         setDoc(loaded);
         try { setSettings(loaded.settings ? JSON.parse(loaded.settings) : {}); } catch (_) { setSettings({}); }
 
-        const [{ createUniver, LocaleType, mergeLocales, defaultTheme }, docsPreset, ruRU] = await Promise.all([
+        // Ядро документов + гиперссылки + картинки (drawing) — ближе к Ворду
+        const pick = (m: any) => m.default ?? m;
+        const [{ createUniver, LocaleType, mergeLocales, defaultTheme }, docsPreset, linkP, drawP, ruRU, linkRu, drawRu] = await Promise.all([
           import('@univerjs/presets'),
           import('@univerjs/presets/preset-docs-core'),
+          import('@univerjs/presets/preset-docs-hyper-link'),
+          import('@univerjs/presets/preset-docs-drawing'),
           import('@univerjs/presets/preset-docs-core/locales/ru-RU'),
+          import('@univerjs/presets/preset-docs-hyper-link/locales/ru-RU'),
+          import('@univerjs/presets/preset-docs-drawing/locales/ru-RU'),
         ]);
-        await import('@univerjs/presets/lib/styles/preset-docs-core.css');
+        await Promise.all([
+          import('@univerjs/presets/lib/styles/preset-docs-core.css'),
+          import('@univerjs/presets/lib/styles/preset-docs-hyper-link.css'),
+          import('@univerjs/presets/lib/styles/preset-docs-drawing.css'),
+        ]);
         if (disposed || !containerRef.current) return;
 
         const { univer, univerAPI } = createUniver({
           locale: LocaleType.RU_RU,
-          locales: { [LocaleType.RU_RU]: mergeLocales((ruRU as any).default ?? ruRU) },
+          locales: { [LocaleType.RU_RU]: mergeLocales(pick(ruRU), pick(linkRu), pick(drawRu)) },
           theme: defaultTheme,
-          presets: [(docsPreset as any).UniverDocsCorePreset({ container: containerRef.current })],
+          presets: [
+            (docsPreset as any).UniverDocsCorePreset({ container: containerRef.current }),
+            (linkP as any).UniverDocsHyperLinkPreset(),
+            (drawP as any).UniverDocsDrawingPreset(),
+          ],
         });
         univerRef.current = { univer, univerAPI };
 

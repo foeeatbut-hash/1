@@ -485,26 +485,55 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           setStaleMap(st);
         });
 
-        // Движок подгружается лениво — тяжёлый бандл не попадает в общий чанк
-        const [{ createUniver, LocaleType, mergeLocales, defaultTheme }, corePreset, ruRU] = await Promise.all([
+        // Движок подгружается лениво — тяжёлый бандл не попадает в общий чанк.
+        // Офис-набор: ядро + фильтр, сортировка, условное форматирование,
+        // поиск-замена (как в настольном Экселе).
+        const pick = (m: any) => m.default ?? m;
+        const [{ createUniver, LocaleType, mergeLocales, defaultTheme }, corePreset, filterP, sortP, cfP, frP, ruRU, fRu, sRu, cfRu, frRu] = await Promise.all([
           import('@univerjs/presets'),
           import('@univerjs/presets/preset-sheets-core'),
+          import('@univerjs/presets/preset-sheets-filter'),
+          import('@univerjs/presets/preset-sheets-sort'),
+          import('@univerjs/presets/preset-sheets-conditional-formatting'),
+          import('@univerjs/presets/preset-sheets-find-replace'),
           import('@univerjs/presets/preset-sheets-core/locales/ru-RU'),
+          import('@univerjs/presets/preset-sheets-filter/locales/ru-RU'),
+          import('@univerjs/presets/preset-sheets-sort/locales/ru-RU'),
+          import('@univerjs/presets/preset-sheets-conditional-formatting/locales/ru-RU'),
+          import('@univerjs/presets/preset-sheets-find-replace/locales/ru-RU'),
         ]);
-        await import('@univerjs/presets/lib/styles/preset-sheets-core.css');
+        await Promise.all([
+          import('@univerjs/presets/lib/styles/preset-sheets-core.css'),
+          import('@univerjs/presets/lib/styles/preset-sheets-filter.css'),
+          import('@univerjs/presets/lib/styles/preset-sheets-sort.css'),
+          import('@univerjs/presets/lib/styles/preset-sheets-conditional-formatting.css'),
+          import('@univerjs/presets/lib/styles/preset-sheets-find-replace.css'),
+        ]);
         if (disposed || !containerRef.current) return;
 
         const { univer, univerAPI } = createUniver({
           locale: LocaleType.RU_RU,
-          locales: { [LocaleType.RU_RU]: mergeLocales((ruRU as any).default ?? ruRU) },
+          locales: { [LocaleType.RU_RU]: mergeLocales(pick(ruRU), pick(fRu), pick(sRu), pick(cfRu), pick(frRu)) },
           theme: defaultTheme,
-          presets: [(corePreset as any).UniverSheetsCorePreset({ container: containerRef.current })],
+          presets: [
+            (corePreset as any).UniverSheetsCorePreset({ container: containerRef.current }),
+            (filterP as any).UniverSheetsFilterPreset(),
+            (sortP as any).UniverSheetsSortPreset(),
+            (cfP as any).UniverSheetsConditionalFormattingPreset(),
+            (frP as any).UniverSheetsFindReplacePreset(),
+          ],
         });
         univerRef.current = { univer, univerAPI };
 
         let snapshot: any = null;
         try { snapshot = loaded.workbook ? JSON.parse(loaded.workbook) : null; } catch (_) {}
-        univerAPI.createWorkbook(snapshot || { id: loaded.id, name: loaded.name });
+        // Новая книга: большая сетка сразу (5000×200), расширяется дальше сама
+        univerAPI.createWorkbook(snapshot || {
+          id: loaded.id,
+          name: loaded.name,
+          sheetOrder: ['sheet-1'],
+          sheets: { 'sheet-1': { id: 'sheet-1', name: 'Лист1', rowCount: 5000, columnCount: 200 } },
+        });
         lastSavedRef.current = loaded.workbook || '';
 
         // ── Формульные функции с данными проекта (часть I §7, MVP) ──

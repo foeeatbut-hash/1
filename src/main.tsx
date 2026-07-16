@@ -68,10 +68,31 @@ console.warn = (...args: any[]) => {
   }
 };
 
+// Известный безвредный выброс движка Univer: при переключении Excel→Word
+// «протёкшая» подписка уже уничтоженного редактора таблиц пытается достать
+// сервис из закрытого инжектора (HoverManagerService). На работу редакторов
+// не влияет (проверено E2E) — глушим, чтобы не засорять crash-логи.
+// Существовал и до расширения пресетов (воспроизводится на core+core).
+const isBenignUniverDisposeError = (msg: string) =>
+  msg.includes('HoverManagerService') && msg.includes('[redi]');
+window.addEventListener('error', (e) => {
+  if (isBenignUniverDisposeError(String(e.message || ''))) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }
+});
+window.addEventListener('unhandledrejection', (e) => {
+  if (isBenignUniverDisposeError(String((e.reason && e.reason.message) || e.reason || ''))) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }
+});
+
 // Window runtime errors
 window.onerror = (message, source, lineno, colno, error) => {
   const errorMsg = String(message);
   const stack = error?.stack || `at ${source}:${lineno}:${colno}`;
+  if (isBenignUniverDisposeError(errorMsg)) return true;
   useLogStore.getState().addLog('ERROR', 'Runtime', `Критическая ошибка: ${errorMsg}`, stack);
   return false;
 };
