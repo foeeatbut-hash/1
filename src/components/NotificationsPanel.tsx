@@ -1,9 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../store/store';
 import { useNotificationStore } from '../store/notificationStore';
 import { dataService, SystemChangeLog } from '../services/dataService';
 import { useNavigate } from 'react-router-dom';
 import { Bell, X, Globe, UserCircle, Clock } from 'lucide-react';
+
+// Правая панель уведомлений: две вкладки.
+//  «Общие»  — события по программе/проекту (журнал изменений), группировка по дням.
+//  «Личные» — адресованные лично мне, подразделы по категориям
+//             (Мои документы, Чат, Доступ, Система…).
 
 const catColor: Record<string, string> = {
   СИСТЕМА: 'text-slate-500',
@@ -11,24 +16,35 @@ const catColor: Record<string, string> = {
   ЧАТ: 'text-indigo-500',
   ПРОЕКТЫ: 'text-amber-600',
   ДОСТУП: 'text-rose-600',
+  ДОКУМЕНТЫ: 'text-sky-600',
 };
+
+// Порядок и названия подразделов вкладки «Личные»
+const PERSONAL_GROUPS: { key: string; title: string }[] = [
+  { key: 'ДОКУМЕНТЫ', title: 'Мои документы' },
+  { key: 'ЧАТ', title: 'Чат' },
+  { key: 'ДОСТУП', title: 'Доступ' },
+  { key: 'ПРОЕКТЫ', title: 'Проекты' },
+  { key: 'ОБОРУДОВАНИЕ', title: 'Оборудование' },
+  { key: 'СИСТЕМА', title: 'Система' },
+];
 
 export default function NotificationsPanel() {
   const { user } = useStore();
   const { panelOpen, setPanelOpen, personal, fetch, markAllRead } = useNotificationStore();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<'global' | 'mine'>('global');
+  const [tab, setTab] = useState<'shared' | 'personal'>('shared');
   const [logs, setLogs] = useState<SystemChangeLog[]>([]);
 
   useEffect(() => {
     if (!panelOpen) return;
-    dataService.getLogs().then(l => setLogs(l.slice(0, 50))).catch(() => {});
+    dataService.getLogs().then(l => setLogs(l.slice(0, 60))).catch(() => {});
     if (user?.id) fetch(user.id);
   }, [panelOpen]);
 
-  // При открытии вкладки «Мои» помечаем прочитанными
+  // При открытии вкладки «Личные» помечаем прочитанными
   useEffect(() => {
-    if (panelOpen && tab === 'mine' && user?.id) {
+    if (panelOpen && tab === 'personal' && user?.id) {
       const t = setTimeout(() => markAllRead(user.id), 800);
       return () => clearTimeout(t);
     }
@@ -43,6 +59,34 @@ export default function NotificationsPanel() {
   const go = (route?: string) => {
     if (route && route !== '#') { navigate(route); setPanelOpen(false); }
   };
+
+  // «Общие»: журнал по дням (Сегодня / Вчера / дата)
+  const logsByDay = useMemo(() => {
+    const groups: { title: string; items: SystemChangeLog[] }[] = [];
+    const today = new Date().toDateString();
+    const yesterday = new Date(Date.now() - 86400000).toDateString();
+    for (const l of logs) {
+      const d = l.createdAt ? new Date(l.createdAt) : null;
+      const key = !d ? 'Ранее' : d.toDateString() === today ? 'Сегодня' : d.toDateString() === yesterday ? 'Вчера'
+        : d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+      const g = groups.find(x => x.title === key);
+      if (g) g.items.push(l); else groups.push({ title: key, items: [l] });
+    }
+    return groups;
+  }, [logs]);
+
+  // «Личные»: подразделы по категориям (пустые не показываем)
+  const personalGroups = useMemo(() => {
+    const known = new Set(PERSONAL_GROUPS.map(g => g.key));
+    const groups = PERSONAL_GROUPS
+      .map(g => ({ ...g, items: personal.filter(n => n.category === g.key) }))
+      .filter(g => g.items.length > 0);
+    const other = personal.filter(n => !known.has(n.category));
+    if (other.length) groups.push({ key: 'ПРОЧЕЕ', title: 'Прочее', items: other });
+    return groups;
+  }, [personal]);
+
+  const unreadOf = (items: { isRead: boolean }[]) => items.filter(x => !x.isRead).length;
 
   return (
     <aside className={`${panelOpen ? 'w-[360px] opacity-100' : 'w-0 opacity-0 pointer-events-none'} shrink-0 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col transition-all duration-300 overflow-hidden`}>
@@ -60,43 +104,59 @@ export default function NotificationsPanel() {
           </button>
         </div>
 
-        {/* Вкладки */}
+        {/* Вкладки: Общие | Личные */}
         <div className="flex p-1.5 gap-1 border-b border-slate-100 dark:border-slate-800 shrink-0">
-          <button onClick={() => setTab('global')} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${tab === 'global' ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
-            <Globe className="w-3.5 h-3.5" /> По программе
+          <button onClick={() => setTab('shared')} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${tab === 'shared' ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
+            <Globe className="w-3.5 h-3.5" /> Общие
           </button>
-          <button onClick={() => setTab('mine')} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${tab === 'mine' ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
-            <UserCircle className="w-3.5 h-3.5" /> Мои
+          <button onClick={() => setTab('personal')} className={`relative flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${tab === 'personal' ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
+            <UserCircle className="w-3.5 h-3.5" /> Личные
+            {unreadOf(personal) > 0 && (
+              <span className="min-w-4 h-4 px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center">{unreadOf(personal)}</span>
+            )}
           </button>
         </div>
 
         {/* Список */}
         <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-1.5">
-          {tab === 'global' ? (
-            logs.length === 0 ? (
+          {tab === 'shared' ? (
+            logsByDay.length === 0 ? (
               <Empty text="Изменений пока нет" />
-            ) : logs.map(l => (
-              <button key={l.id} onClick={() => go(l.targetRoute)} className="w-full text-left p-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-850 transition-colors border border-transparent hover:border-slate-200 dark:hover:border-slate-800 cursor-pointer">
-                <div className="text-xs text-slate-800 dark:text-slate-200 leading-snug">{l.description}</div>
-                <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-400">
-                  <span className="font-semibold text-slate-500 dark:text-slate-400">{l.userName}</span>
-                  <span className="flex items-center gap-0.5"><Clock className="w-2.5 h-2.5" />{fmt(l.createdAt)}</span>
-                </div>
-              </button>
+            ) : logsByDay.map(day => (
+              <div key={day.title}>
+                <div className="px-2 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 sticky top-0 bg-white dark:bg-slate-900">{day.title}</div>
+                {day.items.map(l => (
+                  <button key={l.id} onClick={() => go(l.targetRoute)} className="w-full text-left p-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-850 transition-colors border border-transparent hover:border-slate-200 dark:hover:border-slate-800 cursor-pointer">
+                    <div className="text-xs text-slate-800 dark:text-slate-200 leading-snug">{l.description}</div>
+                    <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-400">
+                      <span className="font-semibold text-slate-500 dark:text-slate-400">{l.userName}</span>
+                      <span className="flex items-center gap-0.5"><Clock className="w-2.5 h-2.5" />{fmt(l.createdAt)}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
             ))
           ) : (
-            personal.length === 0 ? (
+            personalGroups.length === 0 ? (
               <Empty text="Личных уведомлений нет" />
-            ) : personal.map(n => (
-              <button key={n.id} onClick={() => go(n.targetRoute)} className={`w-full text-left p-2.5 rounded-lg transition-colors border cursor-pointer ${n.isRead ? 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-850' : 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40'}`}>
-                <div className="flex items-center gap-1.5">
-                  <span className={`text-[10px] font-bold uppercase tracking-wider ${catColor[n.category] || 'text-slate-500'}`}>{n.category}</span>
-                  {!n.isRead && <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />}
+            ) : personalGroups.map(g => (
+              <div key={g.key}>
+                <div className="px-2 pt-2 pb-1 flex items-center gap-1.5 sticky top-0 bg-white dark:bg-slate-900">
+                  <span className={`text-[10px] font-bold uppercase tracking-wider ${catColor[g.key] || 'text-slate-400'}`}>{g.title}</span>
+                  {unreadOf(g.items) > 0 && <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />}
+                  <span className="text-[10px] text-slate-300 dark:text-slate-600">{g.items.length}</span>
                 </div>
-                <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 mt-0.5 leading-snug">{n.title}</div>
-                {n.body && <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">{n.body}</div>}
-                <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-0.5"><Clock className="w-2.5 h-2.5" />{fmt(n.createdAt)}</div>
-              </button>
+                {g.items.map(n => (
+                  <button key={n.id} onClick={() => go(n.targetRoute)} className={`w-full text-left p-2.5 rounded-lg transition-colors border cursor-pointer ${n.isRead ? 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-850' : 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40'}`}>
+                    <div className="flex items-center gap-1.5">
+                      <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 leading-snug flex-1">{n.title}</div>
+                      {!n.isRead && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />}
+                    </div>
+                    {n.body && <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">{n.body}</div>}
+                    <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-0.5"><Clock className="w-2.5 h-2.5" />{fmt(n.createdAt)}</div>
+                  </button>
+                ))}
+              </div>
             ))
           )}
         </div>
