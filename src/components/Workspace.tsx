@@ -4,7 +4,7 @@
  * Ключевая механика keep-alive: каждый когда-либо открытый в панели раздел
  * остаётся смонтированным — мы лишь скрываем его (display:none). Чтобы скрытые
  * разделы не реагировали на смену глобального URL, каждый экземпляр обёрнут в
- * собственный низкоуровневый <Router> с «замороженным» location. Активный
+ * собственные контексты react-router с «замороженным» location. Активный
  * раздел активной панели — «живой»: его location = глобальный URL, а его
  * навигация уходит в общий navigate (deep-link, кнопка назад, восстановление).
  */
@@ -18,10 +18,11 @@ import {
   UNSAFE_NavigationContext,
 } from 'react-router-dom';
 import type { Location, To } from 'react-router-dom';
-import { X, SquareSplitHorizontal, Grid2x2, Square, ExternalLink } from 'lucide-react';
-import { useWorkspaceStore } from '../store/workspaceStore';
+import { X, SquareSplitHorizontal, SquareSplitVertical, Grid2x2, Square, ExternalLink, XCircle } from 'lucide-react';
+import { useWorkspaceStore, paneCountFor, openSectionWindow } from '../store/workspaceStore';
 import { SECTIONS, sectionForPath, isKnownSection } from '../workspace/sections';
 import { useStore } from '../store/store';
+import ContextMenu, { MenuItem } from './ContextMenu';
 
 const iconFor = (path: string) => SECTIONS.find((s) => s.path === path);
 
@@ -38,12 +39,14 @@ function makeLocation(to: To, state: any = null): Location {
 
 // Один смонтированный экземпляр раздела в панели: замороженный или живой роутер
 function SectionFrame({
+  paneId,
   path,
   isLive,
   visible,
   liveLocation,
   globalNavigate,
 }: {
+  paneId: string;
   path: string;
   isLive: boolean;
   visible: boolean;
@@ -52,12 +55,17 @@ function SectionFrame({
 }) {
   const def = sectionForPath(path);
   const user = useStore((s) => s.user);
-  const [frozenLoc, setFrozenLoc] = React.useState<Location>(() => makeLocation(path));
+  const setFrozenHref = useWorkspaceStore((s) => s.setFrozenHref);
+  const initialHref = useWorkspaceStore.getState().frozenHrefs[`${paneId}::${path}`];
+  const [frozenLoc, setFrozenLoc] = React.useState<Location>(() => makeLocation(initialHref || path));
 
   // Пока раздел живой — запоминаем его location, чтобы при возврате открыть там же
   React.useEffect(() => {
-    if (isLive && liveLocation.pathname === path) setFrozenLoc(liveLocation);
-  }, [isLive, liveLocation, path]);
+    if (isLive && liveLocation.pathname === path) {
+      setFrozenLoc(liveLocation);
+      setFrozenHref(paneId, path, asHref(liveLocation));
+    }
+  }, [isLive, liveLocation, path, paneId, setFrozenHref]);
 
   const location = isLive ? liveLocation : frozenLoc;
 
@@ -108,14 +116,22 @@ function PaneView({ paneId }: { paneId: string }) {
   const setActivePane = useWorkspaceStore((s) => s.setActivePane);
   const openInPane = useWorkspaceStore((s) => s.openInPane);
   const closeInPane = useWorkspaceStore((s) => s.closeInPane);
+  const closeOthersInPane = useWorkspaceStore((s) => s.closeOthersInPane);
   const location = useLocation();
   const navigate = useNavigate();
+  const [menu, setMenu] = React.useState<{ x: number; y: number; path: string } | null>(null);
 
   if (!pane) return null;
   const activePath = pane.stack[pane.stack.length - 1];
   const isActivePane = paneId === activePaneId;
   // Вкладки внутри панели показываем, когда открыто больше одного раздела
   const showTabs = pane.stack.length > 1;
+
+  const menuItems: MenuItem[] = menu ? [
+    { label: 'Закрыть вкладку', icon: <X className="w-3.5 h-3.5" />, onClick: () => closeInPane(paneId, menu.path) },
+    { label: 'Закрыть остальные', icon: <XCircle className="w-3.5 h-3.5" />, disabled: pane.stack.length < 2, onClick: () => closeOthersInPane(paneId, menu.path) },
+    { label: 'Вынести в отдельное окно', icon: <ExternalLink className="w-3.5 h-3.5" />, onClick: () => { openSectionWindow(useWorkspaceStore.getState().frozenHrefs[`${paneId}::${menu.path}`] || menu.path); closeInPane(paneId, menu.path); } },
+  ] : [];
 
   return (
     <div
@@ -133,7 +149,8 @@ function PaneView({ paneId }: { paneId: string }) {
             return (
               <div
                 key={p}
-                onMouseDown={(e) => { e.stopPropagation(); setActivePane(paneId); openInPane(paneId, p); }}
+                onMouseDown={(e) => { if (e.button !== 0) return; e.stopPropagation(); setActivePane(paneId); openInPane(paneId, p); }}
+                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, path: p }); }}
                 className={`group flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-t-lg text-xs font-semibold cursor-pointer select-none ${
                   active ? 'bg-slate-100 dark:bg-dark-bg text-slate-900 dark:text-white' : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100/60 dark:hover:bg-dark-bg/50'
                 }`}
@@ -155,6 +172,7 @@ function PaneView({ paneId }: { paneId: string }) {
         {pane.stack.map((p) => (
           <SectionFrame
             key={p}
+            paneId={paneId}
             path={p}
             visible={p === activePath}
             isLive={isActivePane && p === activePath}
@@ -163,6 +181,7 @@ function PaneView({ paneId }: { paneId: string }) {
           />
         ))}
       </div>
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
     </div>
   );
 }
@@ -171,42 +190,37 @@ export default function Workspace() {
   const location = useLocation();
   const navigate = useNavigate();
   const layout = useWorkspaceStore((s) => s.layout);
-  const panes = useWorkspaceStore((s) => s.panes);
+  const allPanes = useWorkspaceStore((s) => s.panes);
+  // Видимые панели считаем через useMemo: селектор, возвращающий новый массив,
+  // зациклил бы useSyncExternalStore (getSnapshot должен быть стабильным)
+  const panes = React.useMemo(() => allPanes.slice(0, paneCountFor(layout)), [allPanes, layout]);
   const activePaneId = useWorkspaceStore((s) => s.activePaneId);
   const activePath = useWorkspaceStore((s) => {
     const p = s.panes.find((x) => x.id === s.activePaneId);
     return p ? p.stack[p.stack.length - 1] : '/';
   });
-  const frozen = React.useRef<Map<string, Location>>(new Map());
 
   // URL → активная панель: внешняя навигация (deep-link, «назад», ассистент)
   React.useEffect(() => {
     if (!isKnownSection(location.pathname)) return;
     const st = useWorkspaceStore.getState();
     const ap = st.activePathOf(st.activePaneId);
-    const key = `${st.activePaneId}::${location.pathname}`;
-    if (location.pathname === ap) {
-      frozen.current.set(key, location); // в синхроне — запоминаем живой location
-      return;
-    }
-    frozen.current.set(key, location); // подхватываем с учётом ?search= из ссылки
-    st.openInPane(st.activePaneId, location.pathname);
+    st.setFrozenHref(st.activePaneId, location.pathname, asHref(location));
+    if (location.pathname !== ap) st.openInPane(st.activePaneId, location.pathname);
   }, [location]);
 
   // Активная панель → URL: клик по меню сменил активный раздел — двигаем URL
   React.useEffect(() => {
     if (location.pathname === activePath) return;
-    const key = `${activePaneId}::${activePath}`;
-    const remembered = frozen.current.get(key);
-    navigate(remembered ? asHref(remembered) : activePath);
+    const remembered = useWorkspaceStore.getState().frozenHrefs[`${activePaneId}::${activePath}`];
+    navigate(remembered || activePath);
   }, [activePaneId, activePath]);
 
   const gridClass =
-    layout === 'single'
-      ? 'grid-cols-1 grid-rows-1'
-      : layout === 'dual'
-        ? 'grid-cols-2 grid-rows-1'
-        : 'grid-cols-2 grid-rows-2';
+    layout === 'single' ? 'grid-cols-1 grid-rows-1'
+      : layout === 'dual' ? 'grid-cols-2 grid-rows-1'
+        : layout === 'dualh' ? 'grid-cols-1 grid-rows-2'
+          : 'grid-cols-2 grid-rows-2';
 
   return (
     <div className={`w-full h-full grid ${gridClass} ${layout === 'single' ? '' : 'gap-2 p-2'}`}>
@@ -217,9 +231,9 @@ export default function Workspace() {
   );
 }
 
-// Панель управления раскладкой (кнопки 1/2/4 и вынос в отдельное окно).
-// Выносим отдельным компонентом, чтобы разместить в шапке main.
-export function WorkspaceToolbar() {
+// Кнопки раскладки: 1 / 2 столбца / 2 строки / 4 + вынос активного раздела в
+// отдельное окно. Живут в правом рельсе (RightRail) — ничего не перекрывают.
+export function WorkspaceRailControls() {
   const layout = useWorkspaceStore((s) => s.layout);
   const setLayout = useWorkspaceStore((s) => s.setLayout);
   const activePath = useWorkspaceStore((s) => {
@@ -228,17 +242,16 @@ export function WorkspaceToolbar() {
   });
 
   const popOut = () => {
-    const wc = (window as any).electron?.windowControls;
-    if (wc?.openWindow) wc.openWindow(activePath);
-    else window.open(`${window.location.origin}${window.location.pathname}#${activePath}`, '_blank', 'width=1280,height=800');
+    const st = useWorkspaceStore.getState();
+    openSectionWindow(st.frozenHrefs[`${st.activePaneId}::${activePath}`] || activePath);
   };
 
   const Btn = ({ mode, title, children }: { mode: any; title: string; children: React.ReactNode }) => (
     <button
       onClick={() => setLayout(mode)}
       title={title}
-      className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${
-        layout === mode ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-200/70 dark:hover:bg-dark-panel'
+      className={`w-9 h-8 flex items-center justify-center rounded-lg transition-colors cursor-pointer ${
+        layout === mode ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
       }`}
     >
       {children}
@@ -246,12 +259,12 @@ export function WorkspaceToolbar() {
   );
 
   return (
-    <div className="flex items-center gap-0.5 px-1 py-0.5 rounded-xl bg-white/70 dark:bg-dark-surface/70 border border-slate-200 dark:border-dark-border shadow-sm">
+    <div className="flex flex-col items-center gap-0.5">
       <Btn mode="single" title="Одно окно"><Square className="w-4 h-4" /></Btn>
-      <Btn mode="dual" title="Две панели"><SquareSplitHorizontal className="w-4 h-4" /></Btn>
+      <Btn mode="dual" title="Две панели рядом"><SquareSplitHorizontal className="w-4 h-4" /></Btn>
+      <Btn mode="dualh" title="Две панели одна над другой"><SquareSplitVertical className="w-4 h-4" /></Btn>
       <Btn mode="quad" title="Четыре панели"><Grid2x2 className="w-4 h-4" /></Btn>
-      <div className="w-px h-4 bg-slate-200 dark:bg-dark-border mx-0.5" />
-      <button onClick={popOut} title="Вынести раздел в отдельное окно" className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-200/70 dark:hover:bg-dark-panel">
+      <button onClick={popOut} title="Вынести раздел в отдельное окно" className="w-9 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
         <ExternalLink className="w-4 h-4" />
       </button>
     </div>

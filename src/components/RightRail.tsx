@@ -3,8 +3,10 @@ import { useStore } from '../store/store';
 import { useAssistantStore } from '../store/assistantStore';
 import { useNotificationStore } from '../store/notificationStore';
 import { Bell, Sparkles } from 'lucide-react';
+import { WorkspaceRailControls } from './Workspace';
 
-// Тонкая правая панель-рельс (зеркало левого меню): разделы Уведомления и ИИ-чат.
+// Тонкая правая панель-рельс (зеркало левого меню): Уведомления, ИИ-чат,
+// внизу — управление раскладкой рабочего стола (1/2/4 панели, вынос в окно).
 export default function RightRail() {
   const { user } = useStore();
   const assistantOpen = useAssistantStore(s => s.isOpen);
@@ -37,6 +39,9 @@ export default function RightRail() {
       <button onClick={openAI} className={btn(assistantOpen)} title="ИИ-чат (Помощник)" data-tour="assistant-btn">
         <Sparkles className="w-5 h-5" />
       </button>
+      <div className="mt-auto pt-2 border-t border-slate-200 dark:border-slate-800 w-full flex justify-center">
+        <WorkspaceRailControls />
+      </div>
     </aside>
   );
 }

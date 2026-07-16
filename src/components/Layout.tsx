@@ -15,8 +15,9 @@ import RightRail from './RightRail';
 import ShareLayer from './ShareLayer';
 import FluxLogo from './FluxLogo';
 import { useNotificationStore } from '../store/notificationStore';
-import Workspace, { WorkspaceToolbar } from './Workspace';
-import { useWorkspaceStore } from '../store/workspaceStore';
+import Workspace from './Workspace';
+import ContextMenu, { MenuItem } from './ContextMenu';
+import { useWorkspaceStore, visiblePanes, openSectionWindow } from '../store/workspaceStore';
 
 export default function Layout() {
   const { user, setUser, activeProject, theme, toggleTheme, syncStatus } = useStore();
@@ -30,6 +31,12 @@ export default function Layout() {
     return p ? p.stack[p.stack.length - 1] : '/';
   });
   const openInActivePane = useWorkspaceStore((s) => s.openInActivePane);
+  // ПКМ по разделу в меню: открыть в конкретной панели / в отдельном окне
+  const [navMenu, setNavMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+  // Вход пользователя: восстанавливаем его сохранённую раскладку рабочего стола
+  React.useEffect(() => {
+    useWorkspaceStore.getState().bindUser(user?.id || null);
+  }, [user?.id]);
   // На Главной (/) в режиме одного окна левой панели нет; иначе она закреплена
   const sidebarHidden = wsLayout === 'single' && wsActivePath === '/';
   const chatUnread = useNotificationStore((s) => s.chatUnread);
@@ -363,6 +370,7 @@ export default function Layout() {
                   key={item.path}
                   type="button"
                   onClick={() => openInActivePane(item.path)}
+                  onContextMenu={(e) => { e.preventDefault(); setNavMenu({ x: e.clientX, y: e.clientY, path: item.path }); }}
                   data-tour={`nav-${item.path}`}
                   data-share-route={item.path}
                   data-share-focus={`nav:${item.path}`}
@@ -480,14 +488,27 @@ export default function Layout() {
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-gradient-to-br from-slate-100 to-slate-200/70 dark:from-dark-bg dark:to-dark-surface relative transition-colors duration-250">
-        {/* Управление раскладкой рабочего стола: одно окно / 2 / 4 панели + вынос */}
-        <div className="absolute top-2 right-3 z-30">
-          <WorkspaceToolbar />
-        </div>
         <div className="flex-1 min-h-0">
           <Workspace />
         </div>
       </main>
+
+      {/* ПКМ по разделу в левом меню */}
+      {navMenu && (
+        <ContextMenu
+          x={navMenu.x}
+          y={navMenu.y}
+          onClose={() => setNavMenu(null)}
+          items={[
+            { label: 'Открыть', onClick: () => openInActivePane(navMenu.path) },
+            ...visiblePanes(useWorkspaceStore.getState()).map((p, i): MenuItem => ({
+              label: `Открыть в панели ${i + 1}`,
+              onClick: () => useWorkspaceStore.getState().openInPane(p.id, navMenu.path),
+            })).filter((_, __, arr) => arr.length > 1),
+            { label: 'Открыть в отдельном окне', onClick: () => openSectionWindow(navMenu.path) },
+          ]}
+        />
+      )}
 
       {/* Раздвижные панели справа (сдвигают контент) + тонкий правый рельс */}
       <NotificationsPanel />
