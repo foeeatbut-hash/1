@@ -6,7 +6,7 @@ import { useToastStore } from '../store/toastStore';
 import {
   ArrowLeft, Loader2, Download, FolderOpen, Printer, History, X, FileText, Database, StickyNote, Stamp,
 } from 'lucide-react';
-import { renderTitleHtml } from './titleTemplate';
+import TitlePanel, { fetchTitlePageHtml, buildPageTemplates, TitleSettings } from './TitlePanel';
 
 // ── Текстовый документ (Ворд) — редактор студии Конструктора ──
 // Тот же движок Univer, что и у таблиц, но документный пресет: страницы А4,
@@ -246,8 +246,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   const [dataOpen, setDataOpen] = useState(false); // панель «Данные» (умные поля)
   // ── Титул: присвоенный шаблон + реквизиты именно этого документа ──
   const [titleOpen, setTitleOpen] = useState(false);
-  const [titleTemplates, setTitleTemplates] = useState<{ id: string; name: string }[]>([]);
-  const [settings, setSettings] = useState<{ titleTemplateId?: string; docMeta?: { code?: string; revision?: string; title?: string } }>({});
+  const [settings, setSettings] = useState<TitleSettings>({});
 
   // ── Совместное редактирование (как у таблиц): комната документа ──
   interface Peer { socketId: string; userId: string; name: string; color: string }
@@ -454,35 +453,6 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     setReloadTick(t => t + 1);
   };
 
-  // ── Титул: список шаблонов, сохранение реквизитов, отрисовка ──
-  const loadTitleTemplates = async () => {
-    try {
-      const r = await fetch(`/api/constructor/title/templates?projectId=${activeProject?.id || 'default'}`);
-      if (r.ok) setTitleTemplates((await r.json()).templates || []);
-    } catch (_) {}
-  };
-  const saveTitleSettings = (next: typeof settings) => {
-    setSettings(next);
-    saveNow({ settings: JSON.stringify(next) });
-  };
-  // Титульный лист именно этого документа: шаблон + контекст → готовый HTML
-  const renderTitlePage = async (): Promise<string> => {
-    const tId = settings.titleTemplateId;
-    if (!tId) return '';
-    try {
-      const [tplRes, ctxRes] = await Promise.all([
-        fetch(`/api/constructor/docs/${tId}`),
-        fetch(`/api/constructor/title/context?docId=${docId}`),
-      ]);
-      if (!tplRes.ok || !ctxRes.ok) return '';
-      const tpl = (await tplRes.json()).doc;
-      const ctx = (await ctxRes.json()).context;
-      let html = ''; try { html = JSON.parse(tpl.bindings || '{}')?.html || ''; } catch (_) {}
-      if (!html) return '';
-      return `<div style="page-break-after:always;padding:10mm 0">${renderTitleHtml(html, ctx)}</div>`;
-    } catch (_) { return ''; }
-  };
-
   // ── Печать / PDF / экспорт ──
   const buildHtml = () => {
     const snap = JSON.parse(takeSnapshot() || '{}');
@@ -491,7 +461,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   // Полный HTML на печать: титульный лист (если присвоен) + тело документа
   const buildFullHtml = async (): Promise<string> => {
     const base = buildHtml();
-    const title = await renderTitlePage();
+    const title = await fetchTitlePageHtml(docId, settings.titleTemplateId);
     return title ? base.replace('<body>', `<body>${title}`) : base;
   };
 
@@ -510,7 +480,8 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     try {
       const win = window as any;
       if (win.electron?.ipcRenderer?.invoke) {
-        const r = await win.electron.ipcRenderer.invoke('print:to-pdf', { html: await buildFullHtml(), title: doc?.name || 'Документ' });
+        const hf = await buildPageTemplates(docId, settings);
+        const r = await win.electron.ipcRenderer.invoke('print:to-pdf', { html: await buildFullHtml(), title: doc?.name || 'Документ', ...hf });
         if (r?.success) addToast('PDF сохранён', 'success');
         else if (!r?.canceled) addToast(r?.error || 'Не удалось сохранить PDF', 'error');
       } else handlePrint();
@@ -601,7 +572,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
           <Database className="w-3.5 h-3.5" /> Данные
         </button>
         {doc?.kind !== 'NOTE' && (
-          <button onClick={() => { setTitleOpen(v => !v); if (!titleOpen) loadTitleTemplates(); }}
+          <button onClick={() => setTitleOpen(v => !v)}
             title="Присвоить шаблон титульного листа — заполнится данными этого документа"
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${settings.titleTemplateId ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
             <Stamp className="w-3.5 h-3.5" /> Титул
@@ -640,41 +611,12 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
 
       {/* Панель «Титул»: выбор шаблона + реквизиты этого документа */}
       {titleOpen && (
-        <div className="absolute right-4 top-14 z-40 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-800">
-            <span className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-1.5"><Stamp className="w-4 h-4 text-emerald-600" /> Титульный лист</span>
-            <button onClick={() => setTitleOpen(false)} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
-          </div>
-          <div className="p-4 space-y-3">
-            <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Шаблон титула</label>
-              <select
-                value={settings.titleTemplateId || ''}
-                onChange={e => saveTitleSettings({ ...settings, titleTemplateId: e.target.value || undefined })}
-                className="w-full px-2.5 py-1.5 text-sm border border-slate-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950 text-slate-800 dark:text-white cursor-pointer">
-                <option value="">— без титула —</option>
-                {titleTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-              {titleTemplates.length === 0 && (
-                <p className="text-[11px] text-slate-400 mt-1">Шаблоны титула создаются в Конструкторе кнопкой «Шаблон титула».</p>
-              )}
-            </div>
-            <div className="pt-1 border-t border-slate-100 dark:border-slate-850 space-y-2">
-              <p className="text-[11px] text-slate-400">Реквизиты этого документа — подставятся в титул:</p>
-              {([['code', 'Номер / шифр'], ['revision', 'Ревизия'], ['title', 'Наименование']] as const).map(([k, label]) => (
-                <div key={k}>
-                  <label className="block text-[11px] font-bold text-slate-500 uppercase">{label}</label>
-                  <input
-                    value={settings.docMeta?.[k] || ''}
-                    onChange={e => setSettings(s => ({ ...s, docMeta: { ...s.docMeta, [k]: e.target.value } }))}
-                    onBlur={() => saveTitleSettings(settings)}
-                    className="w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500" />
-                </div>
-              ))}
-            </div>
-            <p className="text-[11px] text-slate-400 leading-snug">Титул добавится первой страницей при печати и экспорте в PDF.</p>
-          </div>
-        </div>
+        <TitlePanel
+          projectId={activeProject?.id || 'default'}
+          settings={settings}
+          onChange={(next, persist) => { setSettings(next); if (persist) saveNow({ settings: JSON.stringify(next) }); }}
+          onClose={() => setTitleOpen(false)}
+        />
       )}
 
       {/* Панель «Данные»: живые поля проекта, тегов, дата/автор */}

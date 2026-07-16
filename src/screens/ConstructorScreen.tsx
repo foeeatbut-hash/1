@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import TextDocEditor from './TextDocEditor';
 import TitleTemplateEditor from './TitleTemplateEditor';
+import TitlePanel, { fetchTitlePageHtml, buildPageTemplates, TitleSettings } from './TitlePanel';
+import { Stamp } from 'lucide-react';
 
 // ── Конструктор: сборка своих таблиц из данных проекта ──
 // Дизайн: docs/constructor-design-v0.25*.md. Реализация MVP (Фаза 1):
@@ -372,6 +374,9 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   const [blocksOpen, setBlocksOpen] = useState(false);
   // История версий: автоснимки перед обновлением данных + ручные + откат
   const [versionsOpen, setVersionsOpen] = useState(false);
+  // Титул: присвоенный шаблон + реквизиты этого документа (как у Ворда)
+  const [titleOpen, setTitleOpen] = useState(false);
+  const [titleSettings, setTitleSettings] = useState<TitleSettings>({});
   const [versions, setVersions] = useState<{ id: string; version: number; comment: string; createdAt: string }[]>([]);
   const [reloadTick, setReloadTick] = useState(0); // откат = переинициализация движка
   const [staleMap, setStaleMap] = useState<Record<string, boolean>>({});
@@ -464,6 +469,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         const { doc: loaded } = await res.json();
         if (disposed) return;
         setDoc(loaded);
+        try { setTitleSettings(loaded.settings ? JSON.parse(loaded.settings) : {}); } catch (_) { setTitleSettings({}); }
         if (user) pushRecent(user.id, docId);
         try {
           const parsedB = loaded.bindings ? JSON.parse(loaded.bindings) : null;
@@ -941,9 +947,16 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       <table>${rowsHtml}</table></body></html>`;
   };
 
-  const handlePrint = () => {
+  // Печатный HTML с титульным листом первой страницей (если присвоен)
+  const buildFullPrintHtml = async (): Promise<string> => {
+    const base = buildPrintHtml();
+    const title = await fetchTitlePageHtml(docId, titleSettings.titleTemplateId);
+    return title ? base.replace('<body>', `<body>${title}`) : base;
+  };
+
+  const handlePrint = async () => {
     try {
-      const html = buildPrintHtml();
+      const html = await buildFullPrintHtml();
       const w = window.open('', '_blank');
       if (!w) { addToast('Всплывающее окно заблокировано', 'error'); return; }
       w.document.write(html);
@@ -954,10 +967,11 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
 
   const handlePdf = async () => {
     try {
-      const html = buildPrintHtml();
+      const html = await buildFullPrintHtml();
       const win = window as any;
       if (win.electron?.ipcRenderer?.invoke) {
-        const r = await win.electron.ipcRenderer.invoke('print:to-pdf', { html, title: doc?.name || 'Документ' });
+        const hf = await buildPageTemplates(docId, titleSettings);
+        const r = await win.electron.ipcRenderer.invoke('print:to-pdf', { html, title: doc?.name || 'Документ', ...hf });
         if (r?.success) addToast('PDF сохранён', 'success');
         else if (!r?.canceled) addToast(r?.error || 'Не удалось сохранить PDF', 'error');
       } else {
@@ -1077,6 +1091,11 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
           <Copy className="w-3.5 h-3.5" /> Как шаблон
         </button>
+        <button onClick={() => setTitleOpen(v => !v)}
+          title="Присвоить шаблон титульного листа — заполнится данными этого документа"
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${titleSettings.titleTemplateId ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
+          <Stamp className="w-3.5 h-3.5" /> Титул
+        </button>
         <button onClick={handlePrint} title="Печать активного листа" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
           <Printer className="w-3.5 h-3.5" /> Печать
         </button>
@@ -1114,6 +1133,16 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
 
       {wizardOpen && (
         <DataWizard projectId={activeProject?.id || 'default'} onInsert={handleInsert} onClose={() => setWizardOpen(false)} />
+      )}
+
+      {/* Панель «Титул»: шаблон + реквизиты этого документа */}
+      {titleOpen && (
+        <TitlePanel
+          projectId={activeProject?.id || 'default'}
+          settings={titleSettings}
+          onChange={(next, persist) => { setTitleSettings(next); if (persist) saveNow({ settings: JSON.stringify(next) }); }}
+          onClose={() => setTitleOpen(false)}
+        />
       )}
 
       {/* Панель истории версий: автоснимки и ручные, откат */}

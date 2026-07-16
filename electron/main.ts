@@ -477,12 +477,27 @@ app.whenReady().then(() => {
 
   // PDF из готового HTML (печатный вид Конструктора): скрытое окно →
   // printToPDF → диалог сохранения. Векторный PDF без внешних зависимостей.
-  ipcMain.handle('print:to-pdf', async (_event, { html, title, landscape }: { html: string; title?: string; landscape?: boolean }) => {
+  // headerTemplate/footerTemplate — колонтитулы Chromium: спаны с классами
+  // pageNumber/totalPages дают настоящую нумерацию страниц («Стр. 3 из 12»).
+  ipcMain.handle('print:to-pdf', async (_event, { html, title, landscape, headerTemplate, footerTemplate }: {
+    html: string; title?: string; landscape?: boolean; headerTemplate?: string; footerTemplate?: string;
+  }) => {
     const { dialog } = require('electron');
     const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
     try {
       await pdfWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(String(html || '')));
-      const pdf = await pdfWin.webContents.printToPDF({ landscape: !!landscape, printBackground: true });
+      const hasHf = !!(headerTemplate || footerTemplate);
+      const pdf = await pdfWin.webContents.printToPDF({
+        landscape: !!landscape,
+        printBackground: true,
+        ...(hasHf ? {
+          displayHeaderFooter: true,
+          headerTemplate: String(headerTemplate || '<span></span>'),
+          footerTemplate: String(footerTemplate || '<span></span>'),
+          // Поля, чтобы колонтитулы не наезжали на текст
+          margins: { top: 0.6, bottom: 0.6, left: 0.4, right: 0.4 },
+        } : {}),
+      });
       const result = await dialog.showSaveDialog({
         title: 'Сохранить PDF',
         defaultPath: `${String(title || 'Документ').replace(/[\\/:*?"<>|]/g, '_')}.pdf`,

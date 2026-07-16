@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Loader2, Save, Bold, Italic, AlignLeft, AlignCenter, AlignRight, Eye, Sigma, X } from 'lucide-react';
+import { ArrowLeft, Loader2, Save, Bold, Italic, AlignLeft, AlignCenter, AlignRight, Eye, Sigma, X, Image as ImageIcon, Table } from 'lucide-react';
 import { useToastStore } from '../store/toastStore';
 import { TITLE_FIELDS, fieldChipHtml, formulaChipHtml, renderTitleHtml } from './titleTemplate';
 
@@ -83,6 +83,38 @@ export default function TitleTemplateEditor({ docId, onClose }: { docId: string;
 
   const cmd = (c: string, v?: string) => { editorRef.current?.focus(); document.execCommand(c, false, v); rememberCaret(); };
 
+  // Размер в pt: execCommand умеет только шкалу 1-7 — ставим 7 как маркер,
+  // затем меняем созданные <font size="7"> на точный размер в пунктах
+  const setFontSizePt = (pt: string) => {
+    const el = editorRef.current;
+    if (!el) return;
+    el.focus();
+    document.execCommand('fontSize', false, '7');
+    el.querySelectorAll('font[size="7"]').forEach((f) => {
+      const span = document.createElement('span');
+      span.style.fontSize = `${pt}pt`;
+      span.innerHTML = (f as HTMLElement).innerHTML;
+      f.replaceWith(span);
+    });
+    rememberCaret();
+  };
+
+  // Логотип/картинка: файл → base64 внутрь шаблона (самодостаточный HTML)
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const insertImage = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => insertHtmlAtCaret(`<img src="${reader.result}" style="max-width:55%;height:auto;" alt="" />`);
+    reader.readAsDataURL(file);
+  };
+
+  // Штамп (основная надпись): таблица с ссылками внизу титула
+  const insertStamp = () => {
+    const el = editorRef.current;
+    if (!el) return;
+    el.insertAdjacentHTML('beforeend', stampTemplate());
+    rememberCaret();
+  };
+
   const save = async () => {
     if (!preview && editorRef.current) htmlRef.current = editorRef.current.innerHTML;
     const html = htmlRef.current || '';
@@ -118,14 +150,22 @@ export default function TitleTemplateEditor({ docId, onClose }: { docId: string;
         <div className="flex-1" />
         {/* Форматирование */}
         <div className="flex items-center gap-0.5">
+          <select onMouseDown={rememberCaret} onChange={(e) => cmd('fontName', e.target.value)} defaultValue="Times New Roman"
+            className="h-8 px-1 max-w-36 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300 text-xs cursor-pointer" title="Шрифт">
+            {['Times New Roman', 'Arial', 'Calibri', 'Georgia', 'Verdana', 'Courier New'].map((f) => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
+          </select>
+          <select onMouseDown={rememberCaret} onChange={(e) => setFontSizePt(e.target.value)} defaultValue="12"
+            className="h-8 px-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300 text-xs cursor-pointer" title="Размер, pt">
+            {['9', '10', '11', '12', '14', '16', '18', '20', '24', '28', '36', '48'].map((s) => <option key={s} value={s}>{s} pt</option>)}
+          </select>
           <button onMouseDown={(e) => { e.preventDefault(); cmd('bold'); }} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer" title="Жирный"><Bold className="w-4 h-4" /></button>
           <button onMouseDown={(e) => { e.preventDefault(); cmd('italic'); }} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer" title="Курсив"><Italic className="w-4 h-4" /></button>
-          <select onMouseDown={rememberCaret} onChange={(e) => cmd('fontSize', e.target.value)} defaultValue="3" className="h-8 px-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300 text-xs cursor-pointer" title="Размер">
-            {[['2', 'мелкий'], ['3', 'обычный'], ['5', 'крупный'], ['7', 'заголовок']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
           <button onMouseDown={(e) => { e.preventDefault(); cmd('justifyLeft'); }} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer" title="Слева"><AlignLeft className="w-4 h-4" /></button>
           <button onMouseDown={(e) => { e.preventDefault(); cmd('justifyCenter'); }} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer" title="По центру"><AlignCenter className="w-4 h-4" /></button>
           <button onMouseDown={(e) => { e.preventDefault(); cmd('justifyRight'); }} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer" title="Справа"><AlignRight className="w-4 h-4" /></button>
+          <button onMouseDown={(e) => { e.preventDefault(); fileInputRef.current?.click(); }} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer" title="Вставить логотип/картинку"><ImageIcon className="w-4 h-4" /></button>
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) insertImage(f); e.target.value = ''; }} />
         </div>
         <button onClick={togglePreview} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${preview ? 'bg-emerald-600 text-white' : 'border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
           <Eye className="w-3.5 h-3.5" /> Предпросмотр
@@ -153,7 +193,10 @@ export default function TitleTemplateEditor({ docId, onClose }: { docId: string;
                 </div>
               </div>
             ))}
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
+              <button onMouseDown={(e) => { e.preventDefault(); insertStamp(); }} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer" title="Таблица основной надписи внизу титула">
+                <Table className="w-3.5 h-3.5" /> Вставить штамп
+              </button>
               <button onClick={() => setFxOpen((v) => !v)} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-400 text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-950/60 cursor-pointer">
                 <Sigma className="w-3.5 h-3.5" /> Вставить формулу
               </button>
@@ -173,7 +216,8 @@ export default function TitleTemplateEditor({ docId, onClose }: { docId: string;
         {/* A4-полотно */}
         <div className="flex-1 min-h-0 overflow-auto bg-slate-100 dark:bg-slate-950 p-6 flex justify-center">
           <style>{`
-            .tt-a4 { width: 210mm; min-height: 297mm; background: #fff; color: #0f172a; padding: 25mm 20mm; box-shadow: 0 8px 30px rgba(0,0,0,.12); }
+            .tt-a4 { width: 210mm; min-height: 297mm; background: #fff; color: #0f172a; padding: 25mm 20mm; box-shadow: 0 8px 30px rgba(0,0,0,.12); font-family: 'Times New Roman', serif; }
+            .tt-a4 img { max-width: 100%; }
             .tt-a4 .tt-chip { display: inline-block; padding: 0 5px; margin: 0 1px; border-radius: 5px; background: #d1fae5; color: #047857; font-weight: 600; font-size: .95em; }
             .tt-a4 .tt-chip-fx { background: #e0e7ff; color: #4338ca; }
             .tt-a4:focus { outline: none; }
@@ -192,7 +236,7 @@ export default function TitleTemplateEditor({ docId, onClose }: { docId: string;
 }
 
 function defaultTemplate(): string {
-  return `<div style="text-align:center">
+  return `<div style="text-align:center;font-family:'Times New Roman',serif">
     <p style="font-size:12pt">${fieldChipHtml('project.customer')}</p>
     <p style="margin-top:60px;font-size:20pt;font-weight:bold">${fieldChipHtml('doc.title')}</p>
     <p style="margin-top:20px;font-size:12pt">Шифр: ${fieldChipHtml('doc.code')} · Ревизия: ${fieldChipHtml('doc.revision')}</p>
@@ -200,4 +244,31 @@ function defaultTemplate(): string {
     <p style="font-size:11pt">Разработал: ${fieldChipHtml('author')}</p>
     <p style="margin-top:40px;font-size:11pt">${fieldChipHtml('year')}</p>
   </div>`;
+}
+
+// Основная надпись (упрощённый штамп в духе ГОСТ 21.1101): таблица с ссылками.
+// Ячейки редактируются как обычный текст — размеры/подписи можно править.
+function stampTemplate(): string {
+  const td = 'border:0.5pt solid #0f172a;padding:2px 6px;font-size:9pt;vertical-align:middle';
+  return `<table contenteditable="true" style="width:100%;border-collapse:collapse;margin-top:24px;font-family:'Times New Roman',serif;color:#0f172a">
+    <tr>
+      <td style="${td};width:18%">Шифр</td>
+      <td style="${td};width:22%;text-align:center">${fieldChipHtml('doc.code')}</td>
+      <td style="${td};width:36%;text-align:center" rowspan="3">${fieldChipHtml('doc.title')}</td>
+      <td style="${td};width:12%">Рев.</td>
+      <td style="${td};width:12%;text-align:center">${fieldChipHtml('doc.revision')}</td>
+    </tr>
+    <tr>
+      <td style="${td}">Разработал</td>
+      <td style="${td};text-align:center">${fieldChipHtml('author')}</td>
+      <td style="${td}">Дата</td>
+      <td style="${td};text-align:center">${fieldChipHtml('date')}</td>
+    </tr>
+    <tr>
+      <td style="${td}">Проект</td>
+      <td style="${td};text-align:center">${fieldChipHtml('project.code')}</td>
+      <td style="${td}">Лист</td>
+      <td style="${td};text-align:center">${fieldChipHtml('page')} / ${fieldChipHtml('pages')}</td>
+    </tr>
+  </table>`;
 }
