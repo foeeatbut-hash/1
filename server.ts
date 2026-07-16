@@ -13,9 +13,10 @@ import fs from 'fs';
 import { exec, execSync } from 'child_process';
 import os from 'os';
 import crypto from 'crypto';
-import { setPrisma, upsertSetting } from './server/context.js';
+import { setPrisma, setNotifier, upsertSetting } from './server/context.js';
 import { registerNoteRoutes } from './server/routes/notes.js';
 import { registerConstructorRoutes } from './server/routes/constructor.js';
+import { registerVdrRoutes } from './server/routes/vdr.js';
 import { registerLogRoutes } from './server/routes/logs.js';
 import { registerSettingsRoutes } from './server/routes/settings.js';
 import { initBackups } from './server/backup.js';
@@ -330,6 +331,49 @@ function ensureSchemaColumns(dbPath: string) {
         CONSTRAINT "ConstructorDocVersion_docId_fkey" FOREIGN KEY ("docId") REFERENCES "ConstructorDoc" ("id") ON DELETE CASCADE ON UPDATE CASCADE
       )`);
       db.exec('CREATE INDEX IF NOT EXISTS "ConstructorDocVersion_docId_version_idx" ON "ConstructorDocVersion"("docId", "version")');
+
+      // ВДР: реестр документации поставщика (docs/vdr-docflow-design.md §1)
+      db.exec(`CREATE TABLE IF NOT EXISTS "DocRegister" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "projectId" TEXT NOT NULL,
+        "name" TEXT NOT NULL DEFAULT 'ВДР',
+        "vendor" TEXT NOT NULL DEFAULT '',
+        "contractor" TEXT NOT NULL DEFAULT '',
+        "owner" TEXT NOT NULL DEFAULT '',
+        "poNumber" TEXT NOT NULL DEFAULT '',
+        "managerId" TEXT,
+        "createdById" TEXT,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS "DocRegister_projectId_idx" ON "DocRegister"("projectId")');
+      db.exec(`CREATE TABLE IF NOT EXISTS "DocRegisterItem" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "registerId" TEXT NOT NULL,
+        "projectId" TEXT NOT NULL,
+        "contractorNo" TEXT NOT NULL DEFAULT '',
+        "ownerNo" TEXT NOT NULL DEFAULT '',
+        "vendorNo" TEXT NOT NULL DEFAULT '',
+        "titleEn" TEXT NOT NULL DEFAULT '',
+        "titleRu" TEXT NOT NULL DEFAULT '',
+        "vdrCode" TEXT NOT NULL DEFAULT '',
+        "revision" TEXT NOT NULL DEFAULT 'A',
+        "issueDate" DATETIME,
+        "reasonForIssue" TEXT NOT NULL DEFAULT '',
+        "language" TEXT NOT NULL DEFAULT '',
+        "equipmentTags" TEXT NOT NULL DEFAULT '[]',
+        "status" TEXT NOT NULL DEFAULT 'DRAFT',
+        "docId" TEXT,
+        "fileNodeId" TEXT,
+        "assigneeId" TEXT,
+        "remarks" TEXT NOT NULL DEFAULT '',
+        "meta" TEXT NOT NULL DEFAULT '{}',
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "DocRegisterItem_registerId_fkey" FOREIGN KEY ("registerId") REFERENCES "DocRegister" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS "DocRegisterItem_registerId_idx" ON "DocRegisterItem"("registerId")');
+      db.exec('CREATE INDEX IF NOT EXISTS "DocRegisterItem_projectId_status_idx" ON "DocRegisterItem"("projectId", "status")');
 
       const tagCols = db.prepare('PRAGMA table_info("Tag")').all() as Array<{ name: string }>;
       if (tagCols.length > 0 && !tagCols.find(c => c.name === 'updatedAt')) {
@@ -1976,6 +2020,7 @@ async function notify(userId: string, category: string, title: string, body = ''
     console.warn('[notify] err:', err?.message);
   }
 }
+setNotifier(notify); // вынесенные роуты (ВДР и др.) шлют уведомления через контекст
 
 app.get('/api/notifications', async (req: Request, res: Response) => {
   try {
@@ -2808,6 +2853,7 @@ app.post('/api/tags/generate', async (req: Request, res: Response) => {
 registerNoteRoutes(app);
 registerLogRoutes(app);
 registerConstructorRoutes(app);
+registerVdrRoutes(app);
 
 // Резервные копии: суточный «Архив» (БД + файлы Проводника в родных форматах
 // + данные в Excel), страховочные копии базы при старте, API и расписание

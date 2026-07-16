@@ -29,6 +29,15 @@ export function sendError(res: Response, err: any, code = 500): void {
   res.status(code).json({ error: err?.message || String(err) });
 }
 
+// Личное уведомление пользователю (реализация живёт в server.ts — там же
+// socket-рассылка). Вынесенные роуты зовут notifyUser() лениво.
+type Notifier = (userId: string, category: string, title: string, body?: string, targetRoute?: string) => Promise<void>;
+let _notifier: Notifier | null = null;
+export function setNotifier(fn: Notifier): void { _notifier = fn; }
+export async function notifyUser(userId: string, category: string, title: string, body = '', targetRoute = ''): Promise<void> {
+  try { if (_notifier && userId) await _notifier(userId, category, title, body, targetRoute); } catch (_) {}
+}
+
 // Настройка приложения: глобальная (userId=null) или персональная.
 // Используется и в server.ts, и в вынесенных роутах — живёт здесь, чтобы не
 // дублироваться.

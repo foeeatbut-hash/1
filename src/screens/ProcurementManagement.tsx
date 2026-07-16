@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import VdrPanel from './VdrPanel';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { dataService } from '../services/dataService';
@@ -93,7 +94,35 @@ interface Row {
   qtyNum: number;
 }
 
+// Раздел «Менеджмент»: вкладки Закупки | ВДР (реестр документации)
 export default function ProcurementManagement() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  // deep-link: /management?vdr=… или ?tab=vdr открывает вкладку ВДР
+  const tab = searchParams.get('tab') === 'vdr' || searchParams.get('vdr') ? 'vdr' : 'procurement';
+  const setTab = (t: 'procurement' | 'vdr') => {
+    const next = new URLSearchParams(searchParams);
+    if (t === 'vdr') next.set('tab', 'vdr');
+    else { next.delete('tab'); next.delete('vdr'); next.delete('item'); }
+    setSearchParams(next, { replace: true });
+  };
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-1.5">
+        {([['procurement', 'Закупки'], ['vdr', 'ВДР']] as const).map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)}
+            className={`px-4 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-all ${tab === id
+              ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-800 dark:border-slate-100'
+              : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:border-slate-400'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === 'vdr' ? <VdrPanel /> : <ProcurementTab />}
+    </div>
+  );
+}
+
+function ProcurementTab() {
   const { activeProject, user } = useStore();
   const { addToast } = useToastStore();
   const navigate = useNavigate();
