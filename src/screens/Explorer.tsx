@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
+import VdrItemPicker from '../components/VdrItemPicker';
 import { useModalStore } from '../store/modalStore';
 import { 
   Folder, File as FileIcon, ChevronRight, ChevronDown, Plus, Upload, 
@@ -129,6 +130,8 @@ export default function Explorer() {
 
   // Context Menu
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, targetId?: string, isFile?: boolean, isContainer?: boolean, isSection?: boolean } | null>(null);
+  // «Прикрепить к строке ВДР»: файл (замечания/выпуск) привязывается к документу реестра
+  const [vdrAttachFileId, setVdrAttachFileId] = useState<string | null>(null);
 
   // Clipboard (for Copy/Paste within app)
   const [clipboard, setClipboard] = useState<{ ids: string[], type: 'copy' | 'cut' } | null>(null);
@@ -1531,6 +1534,7 @@ export default function Explorer() {
                     />
                   )}
                   <MenuItem icon={<Boxes />} label="В оборудование…" onClick={() => { openImportPicker(contextMenu.targetId!); setContextMenu(null); }} />
+                  <MenuItem icon={<Grid3X3 />} label="Прикрепить к строке ВДР…" onClick={() => { setVdrAttachFileId(contextMenu.targetId!); setContextMenu(null); }} />
                   <div className="h-px bg-slate-300 dark:bg-dark-border my-1 mx-2" />
                   <MenuItem icon={<Download />} label="Скачать" onClick={() => { handleDownload(contextMenu.targetId!, false); setContextMenu(null); }} />
                   <MenuItem icon={<Tag />} label="Назначить теги..." onClick={() => { handleAssignTag(contextMenu.targetId!); setContextMenu(null); }} />
@@ -1861,6 +1865,26 @@ export default function Explorer() {
             </div>
           </motion.div>
         </div>
+      )}
+
+      {/* Прикрепить файл к строке ВДР: файл замечаний/выпуска у документа реестра */}
+      {vdrAttachFileId && (
+        <VdrItemPicker
+          projectId={activeProject?.id || 'default'}
+          title="Прикрепить файл к строке ВДР"
+          onClose={() => setVdrAttachFileId(null)}
+          onPick={async (it) => {
+            try {
+              const r = await fetch(`/api/vdr/items/${it.id}`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ fileNodeId: vdrAttachFileId }),
+              });
+              if (r.ok) addToast(`Файл прикреплён к «${it.contractorNo || it.titleRu}»`, 'success');
+              else addToast('Не удалось прикрепить', 'error');
+            } catch (_) { addToast('Ошибка сети', 'error'); }
+            setVdrAttachFileId(null);
+          }}
+        />
       )}
     </motion.div>
   );

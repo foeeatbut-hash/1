@@ -660,6 +660,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
       {/* Панель «Титул»: выбор шаблона + реквизиты этого документа */}
       {titleOpen && (
         <TitlePanel
+          docId={docId}
           projectId={activeProject?.id || 'default'}
           settings={settings}
           onChange={(next, persist) => { setSettings(next); if (persist) saveNow({ settings: JSON.stringify(next) }); }}

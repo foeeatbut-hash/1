@@ -474,6 +474,88 @@ export function registerVdrRoutes(app: Express): void {
     } catch (err: any) { sendError(res, err); }
   });
 
+  // ── Поиск строк по проекту (привязка документа/файла из других разделов) ──
+  app.get('/api/vdr/items/search', async (req: Request, res: Response) => {
+    try {
+      const projectId = await resolveProjectId(String(req.query.projectId || ''));
+      const q = String(req.query.q || '').trim().toLowerCase();
+      const prisma = getPrisma();
+      const items = await prisma.docRegisterItem.findMany({
+        where: { projectId }, orderBy: [{ vdrCode: 'asc' }, { contractorNo: 'asc' }],
+      });
+      const registers = await prisma.docRegister.findMany({ where: { projectId }, select: { id: true, name: true } });
+      const regName = new Map(registers.map((r: any) => [r.id, r.name]));
+      const match = (i: any) => !q || [i.contractorNo, i.ownerNo, i.titleRu, i.titleEn, i.vdrCode]
+        .some((v: any) => String(v || '').toLowerCase().includes(q));
+      res.json({
+        items: items.filter(match).slice(0, 25).map((i: any) => ({
+          id: i.id, registerId: i.registerId, registerName: regName.get(i.registerId) || '',
+          contractorNo: i.contractorNo, titleRu: i.titleRu, titleEn: i.titleEn,
+          vdrCode: i.vdrCode, revision: i.revision, status: i.status, docId: i.docId,
+        })),
+      });
+    } catch (err: any) { sendError(res, err); }
+  });
+
+  // ── Документы по тегу: карточка тега показывает свои документы ВДР ──
+  app.get('/api/vdr/items/by-tag', async (req: Request, res: Response) => {
+    try {
+      const projectId = await resolveProjectId(String(req.query.projectId || ''));
+      const tag = String(req.query.tag || '').trim().toLowerCase();
+      if (!tag) return res.json({ items: [] });
+      const items = await getPrisma().docRegisterItem.findMany({
+        where: { projectId }, orderBy: [{ vdrCode: 'asc' }],
+      });
+      const out = items.filter((i: any) => {
+        const tags = parseJson(i.equipmentTags, []);
+        return tags.some((t: any) => String(t).toLowerCase() === tag || String(t).toLowerCase() === 'all items');
+      }).map((i: any) => ({
+        id: i.id, registerId: i.registerId, contractorNo: i.contractorNo,
+        titleRu: i.titleRu, titleEn: i.titleEn, vdrCode: i.vdrCode,
+        revision: i.revision, status: i.status, docId: i.docId, dueDate: i.dueDate,
+      }));
+      res.json({ items: out });
+    } catch (err: any) { sendError(res, err); }
+  });
+
+  // ── Привязка/отвязка документа Конструктора к строке (обе стороны сразу) ──
+  app.post('/api/vdr/items/:id/link-doc', async (req: Request, res: Response) => {
+    try {
+      const prisma = getPrisma();
+      const item = await prisma.docRegisterItem.findUnique({ where: { id: req.params.id } });
+      if (!item) return res.status(404).json({ error: 'Строка реестра не найдена' });
+      const docId = req.body?.docId ? String(req.body.docId) : null;
+
+      // Отвязать старый документ строки
+      if (item.docId && item.docId !== docId) {
+        try {
+          const old = await prisma.constructorDoc.findUnique({ where: { id: item.docId } });
+          if (old) {
+            const st = parseJson(old.settings, {});
+            delete st.vdrItemId;
+            await prisma.constructorDoc.update({ where: { id: old.id }, data: { settings: JSON.stringify(st) } });
+          }
+        } catch (_) {}
+      }
+
+      if (docId) {
+        const doc = await prisma.constructorDoc.findUnique({ where: { id: docId } });
+        if (!doc) return res.status(404).json({ error: 'Документ не найден' });
+        const st = parseJson(doc.settings, {});
+        st.vdrItemId = item.id;
+        st.docMeta = {
+          ...st.docMeta,
+          code: item.contractorNo || item.ownerNo,
+          revision: item.revision,
+          title: item.titleRu || item.titleEn || st.docMeta?.title,
+        };
+        await prisma.constructorDoc.update({ where: { id: doc.id }, data: { settings: JSON.stringify(st) } });
+      }
+      const updated = await prisma.docRegisterItem.update({ where: { id: item.id }, data: { docId } });
+      res.json({ item: { ...updated, extra: parseJson(updated.extra, {}) } });
+    } catch (err: any) { sendError(res, err); }
+  });
+
   // ── История ревизий строки (лист «Учёт ревизий» документа) ──
   app.get('/api/vdr/items/:id/revisions', async (req: Request, res: Response) => {
     try {

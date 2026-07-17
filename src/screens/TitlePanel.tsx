@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Stamp, X } from 'lucide-react';
+import { Stamp, X, FileSpreadsheet, Unlink } from 'lucide-react';
 import { renderTitleHtml } from './titleTemplate';
+import VdrItemPicker from '../components/VdrItemPicker';
 
 // ── Панель «Титул» (общая для Ворда и таблиц) ──
 // Выбор шаблона титульного листа + реквизиты конкретного документа.
@@ -95,13 +96,46 @@ export async function fetchRevisionsSheetHtml(settings: TitleSettings): Promise<
   } catch (_) { return ''; }
 }
 
-export default function TitlePanel({ projectId, settings, onChange, onClose }: {
+export default function TitlePanel({ projectId, settings, onChange, onClose, docId }: {
   projectId: string;
   settings: TitleSettings;
   onChange: (next: TitleSettings, persist: boolean) => void;
   onClose: () => void;
+  docId?: string; // текущий документ — для привязки к строке ВДР
 }) {
   const [templates, setTemplates] = useState<{ id: string; name: string }[]>([]);
+  const [vdrPickerOpen, setVdrPickerOpen] = useState(false);
+
+  // Привязка документа к строке ВДР: сервер связывает обе стороны и кладёт
+  // реквизиты строки в docMeta — здесь только синхронизируем локальное состояние
+  const linkVdr = async (itemId: string | null, picked?: any) => {
+    if (!docId) return;
+    if (!itemId && settings.vdrItemId) {
+      await fetch(`/api/vdr/items/${settings.vdrItemId}/link-doc`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ docId: null }),
+      }).catch(() => {});
+      const next = { ...settings };
+      delete next.vdrItemId;
+      onChange(next, true);
+      return;
+    }
+    if (!itemId) return;
+    const r = await fetch(`/api/vdr/items/${itemId}/link-doc`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ docId }),
+    });
+    if (r.ok) {
+      onChange({
+        ...settings,
+        vdrItemId: itemId,
+        docMeta: {
+          ...settings.docMeta,
+          code: picked?.contractorNo || settings.docMeta?.code,
+          revision: picked?.revision || settings.docMeta?.revision,
+          title: picked?.titleRu || picked?.titleEn || settings.docMeta?.title,
+        },
+      }, true);
+    }
+  };
 
   useEffect(() => {
     fetch(`/api/constructor/title/templates?projectId=${projectId}`)
@@ -172,8 +206,34 @@ export default function TitlePanel({ projectId, settings, onChange, onClose }: {
             Нумерация страниц (Стр. N из M)
           </label>
         </div>
+        {docId && (
+          <div className="pt-1 border-t border-slate-100 dark:border-slate-850">
+            {settings.vdrItemId ? (
+              <div className="flex items-center gap-2">
+                <span className="flex-1 text-xs text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-500" /> Привязан к строке ВДР
+                </span>
+                <button onClick={() => linkVdr(null)} title="Отвязать от строки ВДР"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 cursor-pointer"><Unlink className="w-3.5 h-3.5" /></button>
+              </div>
+            ) : (
+              <button onClick={() => setVdrPickerOpen(true)}
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-300 dark:border-indigo-800 text-indigo-700 dark:text-indigo-400 text-xs font-bold hover:bg-indigo-50 dark:hover:bg-indigo-950/30 cursor-pointer">
+                <FileSpreadsheet className="w-3.5 h-3.5" /> Привязать к строке ВДР…
+              </button>
+            )}
+          </div>
+        )}
         <p className="text-[11px] text-slate-400 leading-snug">Титул добавится первой страницей при печати и экспорте в PDF.</p>
       </div>
+      {vdrPickerOpen && (
+        <VdrItemPicker
+          projectId={projectId}
+          title="Привязать документ к строке ВДР"
+          onClose={() => setVdrPickerOpen(false)}
+          onPick={(it) => { setVdrPickerOpen(false); linkVdr(it.id, it); }}
+        />
+      )}
     </div>
   );
 }

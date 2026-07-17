@@ -564,6 +564,12 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
             <label className="block text-[11px] font-bold text-slate-500 uppercase">Замечания</label>
             <textarea value={f.remarks} onChange={e => setF(s => ({ ...s, remarks: e.target.value }))} rows={2} className={inputCls} />
           </div>
+          {f.fileNodeId && (
+            <button onClick={() => { window.location.hash = `#/explorer?file=${f.fileNodeId}`; }}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-400 text-xs font-bold hover:bg-amber-50 dark:hover:bg-amber-950/30 cursor-pointer">
+              <FileText className="w-3.5 h-3.5" /> Прикреплённый файл — открыть в Проводнике
+            </button>
+          )}
 
           <Sect title="Главные теги (оборудование документа)" />
           <div className="flex flex-wrap gap-1.5">

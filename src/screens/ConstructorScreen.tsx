@@ -1171,6 +1171,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       {/* Панель «Титул»: шаблон + реквизиты этого документа */}
       {titleOpen && (
         <TitlePanel
+          docId={docId}
           projectId={activeProject?.id || 'default'}
           settings={titleSettings}
           onChange={(next, persist) => { setTitleSettings(next); if (persist) saveNow({ settings: JSON.stringify(next) }); }}

@@ -193,6 +193,7 @@ export default function Dashboard() {
             { name: 'Оборудование', path: '/equipment', icon: Fan },
             { name: 'Справочник', path: '/directory', icon: BookOpen },
             { name: 'Менеджмент', path: '/management', icon: Briefcase },
+            { name: 'ВДР', path: '/management?tab=vdr', icon: Briefcase },
             { name: 'Проводник', path: '/explorer', icon: FolderOpen },
             { name: 'Конструктор', path: '/constructor', icon: Table2 },
             { name: 'Блокнот', path: '/notes', icon: NotebookPen },
