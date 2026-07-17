@@ -6,7 +6,7 @@ import { useToastStore } from '../store/toastStore';
 import {
   ArrowLeft, Loader2, Download, FolderOpen, Printer, History, X, FileText, Database, StickyNote, Stamp,
 } from 'lucide-react';
-import TitlePanel, { fetchTitlePageHtml, buildPageTemplates, TitleSettings } from './TitlePanel';
+import TitlePanel, { fetchTitlePageHtml, buildPageTemplates, fetchRevisionsSheetHtml, TitleSettings } from './TitlePanel';
 
 // ── Текстовый документ (Ворд) — редактор студии Конструктора ──
 // Тот же движок Univer, что и у таблиц, но документный пресет: страницы А4,
@@ -247,6 +247,29 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   // ── Титул: присвоенный шаблон + реквизиты именно этого документа ──
   const [titleOpen, setTitleOpen] = useState(false);
   const [settings, setSettings] = useState<TitleSettings>({});
+  // «Выпустить ревизию» — для документов, привязанных к строке ВДР
+  const [revDialog, setRevDialog] = useState(false);
+  const [revPlace, setRevPlace] = useState('');
+  const [revDesc, setRevDesc] = useState('');
+  const [revBusy, setRevBusy] = useState(false);
+
+  const issueRevision = async (kind: 'next' | 'certify') => {
+    if (!settings.vdrItemId) return;
+    setRevBusy(true);
+    try {
+      const r = await fetch(`/api/vdr/items/${settings.vdrItemId}/issue-revision`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, place: revPlace, description: revDesc }),
+      });
+      if (!r.ok) { addToast('Не удалось выпустить ревизию', 'error'); return; }
+      const d = await r.json();
+      setSettings(s => ({ ...s, docMeta: { ...s.docMeta, revision: d.item.revision } }));
+      addToast(`Выпущена ревизия ${d.item.revision}`, 'success');
+      setRevDialog(false); setRevPlace(''); setRevDesc('');
+      // Снимок версии документа — ревизия зафиксирована и в истории Конструктора
+      makeVersion(`ревизия ${d.item.revision}`);
+    } finally { setRevBusy(false); }
+  };
 
   // ── Совместное редактирование (как у таблиц): комната документа ──
   interface Peer { socketId: string; userId: string; name: string; color: string }
@@ -475,8 +498,12 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   // Полный HTML на печать: титульный лист (если присвоен) + тело документа
   const buildFullHtml = async (): Promise<string> => {
     const base = buildHtml();
-    const title = await fetchTitlePageHtml(docId, settings.titleTemplateId);
-    return title ? base.replace('<body>', `<body>${title}`) : base;
+    const [title, revSheet] = await Promise.all([
+      fetchTitlePageHtml(docId, settings.titleTemplateId),
+      fetchRevisionsSheetHtml(settings),
+    ]);
+    const front = (title || '') + (revSheet || '');
+    return front ? base.replace('<body>', `<body>${front}`) : base;
   };
 
   const handlePrint = async () => {
@@ -592,6 +619,13 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
             <Stamp className="w-3.5 h-3.5" /> Титул
           </button>
         )}
+        {settings.vdrItemId && (
+          <button onClick={() => setRevDialog(true)}
+            title={`Выпустить новую ревизию (текущая: ${settings.docMeta?.revision || '—'}) — обновит ВДР, титул и лист ревизий`}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer">
+            Рев. {settings.docMeta?.revision || '—'} ↑
+          </button>
+        )}
         <button onClick={() => { setVersionsOpen(v => !v); if (!versionsOpen) loadVersions(); }}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
           <History className="w-3.5 h-3.5" /> История
@@ -675,6 +709,38 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
             {versions.length === 0 && (
               <div className="px-4 py-6 text-center text-xs text-slate-400">Версий пока нет. Нажмите «Сохранить версию» перед важными правками.</div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Выпуск ревизии: место и описание изменения → ВДР + лист ревизий */}
+      {revDialog && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6" onClick={() => setRevDialog(false)}>
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5 space-y-3" onClick={e => e.stopPropagation()}>
+            <h3 className="font-bold text-slate-800 dark:text-white">Выпустить ревизию (текущая: {settings.docMeta?.revision || '—'})</h3>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase">Место изменения</label>
+              <input value={revPlace} onChange={e => setRevPlace(e.target.value)} placeholder="напр. Разд. 3, лист 2"
+                className="w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500" />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase">Описание изменения</label>
+              <textarea value={revDesc} onChange={e => setRevDesc(e.target.value)} rows={2} placeholder="что изменено"
+                className="w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500" />
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <button onClick={() => setRevDialog(false)} className="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Отмена</button>
+              {/^[A-Za-zА-Яа-я]$/.test(settings.docMeta?.revision || '') && (
+                <button onClick={() => issueRevision('certify')} disabled={revBusy}
+                  className="px-3.5 py-2 rounded-lg border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 text-xs font-bold hover:bg-emerald-50 dark:hover:bg-emerald-950/30 cursor-pointer disabled:opacity-50">
+                  Утвердить (→0)
+                </button>
+              )}
+              <button onClick={() => issueRevision('next')} disabled={revBusy}
+                className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">
+                Следующая ревизия
+              </button>
+            </div>
           </div>
         </div>
       )}

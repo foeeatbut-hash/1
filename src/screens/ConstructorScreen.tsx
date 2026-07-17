@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import TextDocEditor from './TextDocEditor';
 import TitleTemplateEditor from './TitleTemplateEditor';
-import TitlePanel, { fetchTitlePageHtml, buildPageTemplates, TitleSettings } from './TitlePanel';
+import TitlePanel, { fetchTitlePageHtml, buildPageTemplates, fetchRevisionsSheetHtml, TitleSettings } from './TitlePanel';
 import { Stamp } from 'lucide-react';
 
 // ── Конструктор: сборка своих таблиц из данных проекта ──
@@ -979,8 +979,12 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   // Печатный HTML с титульным листом первой страницей (если присвоен)
   const buildFullPrintHtml = async (): Promise<string> => {
     const base = buildPrintHtml();
-    const title = await fetchTitlePageHtml(docId, titleSettings.titleTemplateId);
-    return title ? base.replace('<body>', `<body>${title}`) : base;
+    const [title, revSheet] = await Promise.all([
+      fetchTitlePageHtml(docId, titleSettings.titleTemplateId),
+      fetchRevisionsSheetHtml(titleSettings),
+    ]);
+    const front = (title || '') + (revSheet || '');
+    return front ? base.replace('<body>', `<body>${front}`) : base;
   };
 
   const handlePrint = async () => {

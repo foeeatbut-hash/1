@@ -65,6 +65,36 @@ export async function fetchTitlePageHtml(docId: string, templateId?: string): Pr
   } catch (_) { return ''; }
 }
 
+// «Второй лист» документа — RECORD OF REVISIONS / Учёт ревизий.
+// Собирается из истории ревизий строки ВДР (settings.vdrItemId); вставляется
+// отдельной страницей после титула при печати/PDF. Пустая история → ''.
+export async function fetchRevisionsSheetHtml(settings: TitleSettings): Promise<string> {
+  const itemId = settings?.vdrItemId;
+  if (!itemId) return '';
+  try {
+    const r = await fetch(`/api/vdr/items/${itemId}/revisions`);
+    if (!r.ok) return '';
+    const revisions: any[] = (await r.json()).revisions || [];
+    if (!revisions.length) return '';
+    const esc = (x: any) => String(x ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const fmtD = (d: any) => { const x = d ? new Date(d) : null; return x && !isNaN(x.getTime()) ? x.toLocaleDateString('ru-RU') : ''; };
+    const td = 'border:0.5pt solid #0f172a;padding:3px 8px;font-size:9pt;vertical-align:top';
+    const rows = revisions.map(v =>
+      `<tr><td style="${td};text-align:center;font-weight:bold">${esc(v.revision)}</td><td style="${td};text-align:center">${fmtD(v.date)}</td><td style="${td}">${esc(v.place)}</td><td style="${td}">${esc(v.description || v.reason)}</td></tr>`).join('');
+    return `<div style="page-break-after:always;font-family:'Times New Roman',serif;color:#0f172a;padding:10mm 0">
+      <p style="text-align:center;font-size:13pt;font-weight:bold;margin:0 0 4px">RECORD OF REVISIONS</p>
+      <p style="text-align:center;font-size:12pt;font-weight:bold;margin:0 0 14px">УЧЁТ РЕВИЗИЙ</p>
+      <table style="width:100%;border-collapse:collapse">
+        <tr>
+          <th style="${td};width:12%;background:#f1f5f9">Rev. /<br>Ревизия</th>
+          <th style="${td};width:16%;background:#f1f5f9">Date /<br>Дата</th>
+          <th style="${td};width:28%;background:#f1f5f9">Location of Change /<br>Место изменения</th>
+          <th style="${td};background:#f1f5f9">Change description /<br>Описание изменения</th>
+        </tr>${rows}
+      </table></div>`;
+  } catch (_) { return ''; }
+}
+
 export default function TitlePanel({ projectId, settings, onChange, onClose }: {
   projectId: string;
   settings: TitleSettings;
