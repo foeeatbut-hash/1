@@ -375,6 +375,47 @@ function ensureSchemaColumns(dbPath: string) {
       db.exec('CREATE INDEX IF NOT EXISTS "DocRegisterItem_registerId_idx" ON "DocRegisterItem"("registerId")');
       db.exec('CREATE INDEX IF NOT EXISTS "DocRegisterItem_projectId_status_idx" ON "DocRegisterItem"("projectId", "status")');
 
+      // Стандарты документооборота (глобальные шаблоны) + история ревизий строк ВДР
+      db.exec(`CREATE TABLE IF NOT EXISTS "DocStandard" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "name" TEXT NOT NULL DEFAULT 'Стандарт',
+        "config" TEXT NOT NULL DEFAULT '{}',
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+      db.exec(`CREATE TABLE IF NOT EXISTS "DocRegisterItemRevision" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "itemId" TEXT NOT NULL,
+        "revision" TEXT NOT NULL,
+        "date" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "reason" TEXT NOT NULL DEFAULT '',
+        "place" TEXT NOT NULL DEFAULT '',
+        "description" TEXT NOT NULL DEFAULT '',
+        "authorId" TEXT,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS "DocRegisterItemRevision_itemId_idx" ON "DocRegisterItemRevision"("itemId")');
+      // Новые колонки существующих таблиц ВДР (для баз, созданных ранней версией)
+      const regCols = db.prepare('PRAGMA table_info("DocRegister")').all() as Array<{ name: string }>;
+      const regAdd: Array<[string, string]> = [
+        ['standardId', 'TEXT'], ['ownerProjectNo', "TEXT NOT NULL DEFAULT ''"], ['contractorProjectNo', "TEXT NOT NULL DEFAULT ''"],
+        ['materialRequisition', "TEXT NOT NULL DEFAULT ''"], ['equipmentTitle', "TEXT NOT NULL DEFAULT ''"],
+        ['contractorDocNo', "TEXT NOT NULL DEFAULT ''"], ['ownerDocNo', "TEXT NOT NULL DEFAULT ''"], ['vendorDocNo', "TEXT NOT NULL DEFAULT ''"],
+        ['revision', "TEXT NOT NULL DEFAULT 'A'"], ['revisions', "TEXT NOT NULL DEFAULT '[]'"],
+        ['preparedBy', "TEXT NOT NULL DEFAULT ''"], ['checkedBy', "TEXT NOT NULL DEFAULT ''"], ['approvedBy', "TEXT NOT NULL DEFAULT ''"],
+        ['columnsConfig', "TEXT NOT NULL DEFAULT '[]'"],
+      ];
+      for (const [col, type] of regAdd) {
+        if (regCols.length > 0 && !regCols.find(c => c.name === col)) db.exec(`ALTER TABLE "DocRegister" ADD COLUMN "${col}" ${type}`);
+      }
+      const itCols = db.prepare('PRAGMA table_info("DocRegisterItem")').all() as Array<{ name: string }>;
+      const itAdd: Array<[string, string]> = [
+        ['reviewCode', "TEXT NOT NULL DEFAULT ''"], ['dueDate', 'DATETIME'], ['extra', "TEXT NOT NULL DEFAULT '{}'"],
+      ];
+      for (const [col, type] of itAdd) {
+        if (itCols.length > 0 && !itCols.find(c => c.name === col)) db.exec(`ALTER TABLE "DocRegisterItem" ADD COLUMN "${col}" ${type}`);
+      }
+
       const tagCols = db.prepare('PRAGMA table_info("Tag")').all() as Array<{ name: string }>;
       if (tagCols.length > 0 && !tagCols.find(c => c.name === 'updatedAt')) {
         db.exec('ALTER TABLE "Tag" ADD COLUMN "updatedAt" DATETIME');
