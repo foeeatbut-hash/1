@@ -168,7 +168,7 @@ function DataFieldsPanel({ projectId, projectName, userName, onInsert, onClose }
       <div className="p-4 space-y-2.5 max-h-96 overflow-auto">
         {tab === 'project' && (
           <>
-            <p className="text-[11px] text-slate-400">Текущий проект: <b>{projectName || '—'}</b>. Нажмите — значение вставится в текст.</p>
+            <p className="text-[11px] text-slate-400">Проект: <b>{projectName || '—'}</b></p>
             {[['name', 'Название'], ['code', 'Код проекта'], ['customer', 'Заказчик'], ['contractor', 'Подрядчик'], ['description', 'Описание']].map(([f, label]) => (
               <button key={f} disabled={busy} onClick={() => insertProject(f)}
                 className="w-full text-left px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/20 text-sm text-slate-700 dark:text-slate-200 cursor-pointer disabled:opacity-50">

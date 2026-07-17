@@ -161,11 +161,10 @@ export default function TitlePanel({ projectId, settings, onChange, onClose, doc
             {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
           {templates.length === 0 && (
-            <p className="text-[11px] text-slate-400 mt-1">Шаблоны титула создаются в Конструкторе кнопкой «Шаблон титула».</p>
+            <p className="text-[11px] text-slate-400 mt-1">Создаются в Конструкторе → «Шаблон титула»</p>
           )}
         </div>
         <div className="pt-1 border-t border-slate-100 dark:border-slate-850 space-y-2">
-          <p className="text-[11px] text-slate-400">Реквизиты этого документа — подставятся в титул:</p>
           {([['code', 'Номер / шифр'], ['revision', 'Ревизия'], ['title', 'Наименование']] as const).map(([k, label]) => (
             <div key={k}>
               <label className="block text-[11px] font-bold text-slate-500 uppercase">{label}</label>
@@ -178,7 +177,7 @@ export default function TitlePanel({ projectId, settings, onChange, onClose, doc
           ))}
         </div>
         <div className="pt-1 border-t border-slate-100 dark:border-slate-850 space-y-2">
-          <p className="text-[11px] text-slate-400">Колонтитулы (PDF). Подстановки: {'{page} {pages} {date} {doc.code} {doc.revision} {project.code}'}</p>
+          <p className="text-[10px] text-slate-400 font-mono">{'{page} {pages} {date} {doc.code} {doc.revision} {project.code}'}</p>
           <div>
             <label className="block text-[11px] font-bold text-slate-500 uppercase">Верхний колонтитул</label>
             <input
@@ -224,7 +223,6 @@ export default function TitlePanel({ projectId, settings, onChange, onClose, doc
             )}
           </div>
         )}
-        <p className="text-[11px] text-slate-400 leading-snug">Титул добавится первой страницей при печати и экспорте в PDF.</p>
       </div>
       {vdrPickerOpen && (
         <VdrItemPicker

@@ -753,13 +753,12 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
             ))}
           </div>
           <div className="flex gap-2">
-            <input value={newCol} onChange={e => setNewCol(e.target.value)} placeholder="Название новой колонки (своя категория информации)"
+            <input value={newCol} onChange={e => setNewCol(e.target.value)} placeholder="Новая колонка"
               onKeyDown={e => { if (e.key === 'Enter' && newCol.trim()) { setCols(cs => [...cs, { key: `custom_${Date.now().toString(36)}`, title: newCol.trim(), titleRu: newCol.trim(), source: 'custom' }]); setNewCol(''); } }}
               className={inputCls + ' flex-1'} />
             <button onClick={() => { if (newCol.trim()) { setCols(cs => [...cs, { key: `custom_${Date.now().toString(36)}`, title: newCol.trim(), titleRu: newCol.trim(), source: 'custom' }]); setNewCol(''); } }}
               className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer shrink-0">+ Добавить</button>
           </div>
-          <p className="text-[11px] text-slate-400 mt-1">Своя колонка появляется в карточке строки и уходит в выгрузку Excel. Импортированные колонки удаляются только переимпортом.</p>
         </div>
 
         <div className="flex items-center justify-end gap-2 pt-1">
