@@ -91,6 +91,103 @@ model ConstructorDocVersion {
 }
 
 
+// ── ВДР (Vendor Document Register): реестр документации поставщика ──
+// Дизайн: docs/vdr-docflow-design.md §1. Реестр первичен: строка живёт и без
+// документа; документ Конструктора привязывается через docId.
+model DocRegister {
+  id          String   @id @default(uuid())
+  projectId   String
+  name        String   @default("ВДР")
+  vendor      String   @default("")
+  contractor  String   @default("")
+  owner       String   @default("")
+  poNumber    String   @default("")
+  standardId  String?  // применённый стандарт документооборота (DocStandard)
+  ownerProjectNo      String @default("")
+  contractorProjectNo String @default("")
+  materialRequisition String @default("")
+  equipmentTitle      String @default("")
+  contractorDocNo     String @default("") // номер самого ВДР у трёх сторон
+  ownerDocNo          String @default("")
+  vendorDocNo         String @default("")
+  revision            String @default("A")  // текущая ревизия самого ВДР
+  revisions           String @default("[]") // история ревизий ВДР (JSON)
+  preparedBy          String @default("")
+  checkedBy           String @default("")
+  approvedBy          String @default("")
+  columnsConfig       String @default("[]") // JSON: колонки реестра (импортированные + свои)
+  managerId   String?  // ответственный менеджер (получает «документ готов»)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items       DocRegisterItem[]
+  @@index([projectId])
+}
+
+model DocRegisterItem {
+  id             String    @id @default(uuid())
+  registerId     String
+  projectId      String
+  contractorNo   String    @default("")
+  ownerNo        String    @default("")
+  vendorNo       String    @default("")
+  titleEn        String    @default("")
+  titleRu        String    @default("")
+  vdrCode        String    @default("") // тип: C01, E02, K32…
+  revision       String    @default("A") // буквы = черновые, цифры = утверждённые
+  issueDate      DateTime?
+  reasonForIssue String    @default("") // IFR | IFI | CEF
+  language       String    @default("")
+  equipmentTags  String    @default("[]") // JSON: идентификаторы тегов
+  status         String    @default("DRAFT") // DRAFT | READY | REMARKS | ACCEPTED
+  docId          String?   // ConstructorDoc сформированного документа
+  fileNodeId     String?   // файл замечаний в Проводнике
+  assigneeId     String?   // инженер-исполнитель (получает «замечания»)
+  remarks        String    @default("")
+  reviewCode     String    @default("") // код рассмотрения заказчика (A/B/C/D/Q…)
+  dueDate        DateTime? // срок следующей ревизии (по коду и дедлайнам стандарта)
+  extra          String    @default("{}") // значения нестандартных колонок (columnsConfig)
+  meta           String    @default("{}")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  register       DocRegister @relation(fields: [registerId], references: [id], onDelete: Cascade)
+  @@index([registerId])
+  @@index([projectId, status])
+}
+
+
+// ── Стандарт документооборота — ГЛОБАЛЬНЫЙ шаблон программы ──
+// Профиль заказчика/проекта: коды рассмотрения с дедлайнами, причины выпуска,
+// правила ревизий (буквенные/цифровые, V/S), маски нумерации документов и
+// имён файлов, каталог типов документов (VDR-коды). Хранится один раз,
+// применяется к реестрам любых проектов (DocRegister.standardId).
+model DocStandard {
+  id        String   @id @default(uuid())
+  name      String   @default("Стандарт")
+  config    String   @default("{}") // JSON: reviewCodes, reasons, revisionRules, masks, vdrTypes, columns
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// История ревизий строки ВДР (документа): лист «Учёт ревизий» документа
+// и лист Accounting for revisions при экспорте собираются отсюда.
+model DocRegisterItemRevision {
+  id          String   @id @default(uuid())
+  itemId      String
+  revision    String
+  date        DateTime @default(now())
+  reason      String   @default("") // IFR | IFI | IFU | CEF | VOID | SUPERSEDED
+  place       String   @default("") // место изменения
+  description String   @default("") // описание изменения
+  authorId    String?
+  createdAt   DateTime @default(now())
+
+  @@index([itemId])
+}
+
+
 model Dictionary {
   id        String   @id @default(uuid())
   projectId String

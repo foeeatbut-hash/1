@@ -499,6 +499,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
     } else if (action.kind === 'find-duplicates' && action.code && navigateFn) {
       navigateFn(`/registry?dup=${encodeURIComponent(action.code)}`);
     } else if (action.kind === 'create-note' && navigateFn) {
+      // Заметки теперь в студии (Конструктор → вкладка «Заметки»)
       navigateFn(`/notes?new=${encodeURIComponent(action.noteTitle || 'Новая заметка')}`);
     }
   },
@@ -553,6 +554,7 @@ const ROUTE_WORDS: { stems: string[]; route: string; name: string }[] = [
   { stems: ['оборудован'], route: '/equipment', name: 'Оборудование' },
   { stems: ['проводник', 'файл'], route: '/explorer', name: 'Проводник' },
   { stems: ['блокнот', 'заметк'], route: '/notes', name: 'Блокнот' },
+  { stems: ['конструктор', 'таблиц', 'документ', 'ворд', 'эксел'], route: '/constructor', name: 'Конструктор' },
   { stems: ['справочник', 'словар'], route: '/directory', name: 'Справочник' },
   { stems: ['чат', 'переписк'], route: '/chat', name: 'Рабочий чат' },
   { stems: ['проект'], route: '/projects', name: 'Проекты' },
@@ -917,7 +919,7 @@ export async function resolveQuery(
       const found = data.notes.filter(n => fieldMatchesStems(n.title, q));
       if (found.length === 0) return msg('Заметок по этому запросу не нашёл. Поиск идёт по заголовкам — уточните слово.');
       return msg(`Нашёл заметок: ${found.length}.\n${found.slice(0, 8).map(n => `• ${n.title}`).join('\n')}`, {
-        actions: [{ label: 'Открыть блокнот', kind: 'open-section', route: '/notes' }],
+        actions: [{ label: 'Открыть заметки', kind: 'open-section', route: '/notes' }],
       });
     }
 

@@ -8,8 +8,12 @@ import * as XLSX from 'xlsx';
 import {
   Table2, Plus, ArrowLeft, Loader2, Download, FolderOpen, Copy, Trash2,
   RotateCcw, Lock, Users2, Search, ChevronRight, Database, X, CheckCircle2,
-  Boxes, RefreshCw, Unlink, AlertTriangle, Printer, History
+  Boxes, RefreshCw, Unlink, AlertTriangle, Printer, History, FileText
 } from 'lucide-react';
+import TextDocEditor from './TextDocEditor';
+import TitleTemplateEditor from './TitleTemplateEditor';
+import TitlePanel, { fetchTitlePageHtml, buildPageTemplates, fetchRevisionsSheetHtml, TitleSettings } from './TitlePanel';
+import { Stamp } from 'lucide-react';
 
 // ── Конструктор: сборка своих таблиц из данных проекта ──
 // Дизайн: docs/constructor-design-v0.25*.md. Реализация MVP (Фаза 1):
@@ -370,6 +374,9 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   const [blocksOpen, setBlocksOpen] = useState(false);
   // История версий: автоснимки перед обновлением данных + ручные + откат
   const [versionsOpen, setVersionsOpen] = useState(false);
+  // Титул: присвоенный шаблон + реквизиты этого документа (как у Ворда)
+  const [titleOpen, setTitleOpen] = useState(false);
+  const [titleSettings, setTitleSettings] = useState<TitleSettings>({});
   const [versions, setVersions] = useState<{ id: string; version: number; comment: string; createdAt: string }[]>([]);
   const [reloadTick, setReloadTick] = useState(0); // откат = переинициализация движка
   const [staleMap, setStaleMap] = useState<Record<string, boolean>>({});
@@ -422,6 +429,31 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
     } catch (_) { setSaveState('idle'); }
   };
 
+  // Страховка от вылета/закрытия окна: несохранённый снапшот уходит запросом
+  // с keepalive — браузер дошлёт его даже после закрытия страницы. Вместе с
+  // автосейвом раз в 2.5 с потеря правок сводится к нулю.
+  useEffect(() => {
+    const flushOnClose = () => {
+      try {
+        const snapshot = takeSnapshot();
+        if (!snapshot || snapshot === lastSavedRef.current) return;
+        fetch(`/api/constructor/docs/${docId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workbook: snapshot }),
+          keepalive: true,
+        }).catch(() => {});
+        lastSavedRef.current = snapshot;
+      } catch (_) {}
+    };
+    window.addEventListener('beforeunload', flushOnClose);
+    window.addEventListener('pagehide', flushOnClose);
+    return () => {
+      window.removeEventListener('beforeunload', flushOnClose);
+      window.removeEventListener('pagehide', flushOnClose);
+    };
+  }, [docId]);
+
   // Инициализация движка: загрузка документа → createUniver → книга из снапшота
   useEffect(() => {
     let disposed = false;
@@ -437,6 +469,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         const { doc: loaded } = await res.json();
         if (disposed) return;
         setDoc(loaded);
+        try { setTitleSettings(loaded.settings ? JSON.parse(loaded.settings) : {}); } catch (_) { setTitleSettings({}); }
         if (user) pushRecent(user.id, docId);
         try {
           const parsedB = loaded.bindings ? JSON.parse(loaded.bindings) : null;
@@ -452,26 +485,55 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           setStaleMap(st);
         });
 
-        // Движок подгружается лениво — тяжёлый бандл не попадает в общий чанк
-        const [{ createUniver, LocaleType, mergeLocales, defaultTheme }, corePreset, ruRU] = await Promise.all([
+        // Движок подгружается лениво — тяжёлый бандл не попадает в общий чанк.
+        // Офис-набор: ядро + фильтр, сортировка, условное форматирование,
+        // поиск-замена (как в настольном Экселе).
+        const pick = (m: any) => m.default ?? m;
+        const [{ createUniver, LocaleType, mergeLocales, defaultTheme }, corePreset, filterP, sortP, cfP, frP, ruRU, fRu, sRu, cfRu, frRu] = await Promise.all([
           import('@univerjs/presets'),
           import('@univerjs/presets/preset-sheets-core'),
+          import('@univerjs/presets/preset-sheets-filter'),
+          import('@univerjs/presets/preset-sheets-sort'),
+          import('@univerjs/presets/preset-sheets-conditional-formatting'),
+          import('@univerjs/presets/preset-sheets-find-replace'),
           import('@univerjs/presets/preset-sheets-core/locales/ru-RU'),
+          import('@univerjs/presets/preset-sheets-filter/locales/ru-RU'),
+          import('@univerjs/presets/preset-sheets-sort/locales/ru-RU'),
+          import('@univerjs/presets/preset-sheets-conditional-formatting/locales/ru-RU'),
+          import('@univerjs/presets/preset-sheets-find-replace/locales/ru-RU'),
         ]);
-        await import('@univerjs/presets/lib/styles/preset-sheets-core.css');
+        await Promise.all([
+          import('@univerjs/presets/lib/styles/preset-sheets-core.css'),
+          import('@univerjs/presets/lib/styles/preset-sheets-filter.css'),
+          import('@univerjs/presets/lib/styles/preset-sheets-sort.css'),
+          import('@univerjs/presets/lib/styles/preset-sheets-conditional-formatting.css'),
+          import('@univerjs/presets/lib/styles/preset-sheets-find-replace.css'),
+        ]);
         if (disposed || !containerRef.current) return;
 
         const { univer, univerAPI } = createUniver({
           locale: LocaleType.RU_RU,
-          locales: { [LocaleType.RU_RU]: mergeLocales((ruRU as any).default ?? ruRU) },
+          locales: { [LocaleType.RU_RU]: mergeLocales(pick(ruRU), pick(fRu), pick(sRu), pick(cfRu), pick(frRu)) },
           theme: defaultTheme,
-          presets: [(corePreset as any).UniverSheetsCorePreset({ container: containerRef.current })],
+          presets: [
+            (corePreset as any).UniverSheetsCorePreset({ container: containerRef.current }),
+            (filterP as any).UniverSheetsFilterPreset(),
+            (sortP as any).UniverSheetsSortPreset(),
+            (cfP as any).UniverSheetsConditionalFormattingPreset(),
+            (frP as any).UniverSheetsFindReplacePreset(),
+          ],
         });
         univerRef.current = { univer, univerAPI };
 
         let snapshot: any = null;
         try { snapshot = loaded.workbook ? JSON.parse(loaded.workbook) : null; } catch (_) {}
-        univerAPI.createWorkbook(snapshot || { id: loaded.id, name: loaded.name });
+        // Новая книга: большая сетка сразу (5000×200), расширяется дальше сама
+        univerAPI.createWorkbook(snapshot || {
+          id: loaded.id,
+          name: loaded.name,
+          sheetOrder: ['sheet-1'],
+          sheets: { 'sheet-1': { id: 'sheet-1', name: 'Лист1', rowCount: 5000, columnCount: 200 } },
+        });
         lastSavedRef.current = loaded.workbook || '';
 
         // ── Формульные функции с данными проекта (часть I §7, MVP) ──
@@ -914,9 +976,20 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       <table>${rowsHtml}</table></body></html>`;
   };
 
-  const handlePrint = () => {
+  // Печатный HTML с титульным листом первой страницей (если присвоен)
+  const buildFullPrintHtml = async (): Promise<string> => {
+    const base = buildPrintHtml();
+    const [title, revSheet] = await Promise.all([
+      fetchTitlePageHtml(docId, titleSettings.titleTemplateId),
+      fetchRevisionsSheetHtml(titleSettings),
+    ]);
+    const front = (title || '') + (revSheet || '');
+    return front ? base.replace('<body>', `<body>${front}`) : base;
+  };
+
+  const handlePrint = async () => {
     try {
-      const html = buildPrintHtml();
+      const html = await buildFullPrintHtml();
       const w = window.open('', '_blank');
       if (!w) { addToast('Всплывающее окно заблокировано', 'error'); return; }
       w.document.write(html);
@@ -927,10 +1000,11 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
 
   const handlePdf = async () => {
     try {
-      const html = buildPrintHtml();
+      const html = await buildFullPrintHtml();
       const win = window as any;
       if (win.electron?.ipcRenderer?.invoke) {
-        const r = await win.electron.ipcRenderer.invoke('print:to-pdf', { html, title: doc?.name || 'Документ' });
+        const hf = await buildPageTemplates(docId, titleSettings);
+        const r = await win.electron.ipcRenderer.invoke('print:to-pdf', { html, title: doc?.name || 'Документ', ...hf });
         if (r?.success) addToast('PDF сохранён', 'success');
         else if (!r?.canceled) addToast(r?.error || 'Не удалось сохранить PDF', 'error');
       } else {
@@ -1050,6 +1124,11 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
           <Copy className="w-3.5 h-3.5" /> Как шаблон
         </button>
+        <button onClick={() => setTitleOpen(v => !v)}
+          title="Присвоить шаблон титульного листа — заполнится данными этого документа"
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${titleSettings.titleTemplateId ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
+          <Stamp className="w-3.5 h-3.5" /> Титул
+        </button>
         <button onClick={handlePrint} title="Печать активного листа" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
           <Printer className="w-3.5 h-3.5" /> Печать
         </button>
@@ -1087,6 +1166,17 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
 
       {wizardOpen && (
         <DataWizard projectId={activeProject?.id || 'default'} onInsert={handleInsert} onClose={() => setWizardOpen(false)} />
+      )}
+
+      {/* Панель «Титул»: шаблон + реквизиты этого документа */}
+      {titleOpen && (
+        <TitlePanel
+          docId={docId}
+          projectId={activeProject?.id || 'default'}
+          settings={titleSettings}
+          onChange={(next, persist) => { setTitleSettings(next); if (persist) saveNow({ settings: JSON.stringify(next) }); }}
+          onClose={() => setTitleOpen(false)}
+        />
       )}
 
       {/* Панель истории версий: автоснимки и ручные, откат */}
@@ -1240,6 +1330,37 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   );
 }
 
+// ═══════════════════════ Выбор редактора по типу документа ═══════════════════════
+// Таблица (DOC/TEMPLATE) → редактор Univer Sheets; текст (TEXT) → Univer Docs.
+// При глубокой ссылке (/constructor?doc=…) тип берётся лёгким запросом meta.
+function EditorGate({ docId, knownKind, autoRefresh, onClose }: {
+  docId: string; knownKind?: string; autoRefresh?: boolean; onClose: () => void;
+}) {
+  const [kind, setKind] = useState<string | null>(knownKind || null);
+  const { addToast } = useToastStore();
+
+  useEffect(() => {
+    if (kind) return;
+    let alive = true;
+    fetch(`/api/constructor/docs/${docId}/meta`)
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(d => { if (alive) setKind(d?.doc?.kind || 'DOC'); })
+      .catch(() => { if (alive) { addToast('Не удалось открыть документ', 'error'); onClose(); } });
+    return () => { alive = false; };
+  }, [docId, kind]);
+
+  if (!kind) {
+    return <div className="h-full flex items-center justify-center text-slate-400"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+  }
+  if (kind === 'TITLE') {
+    return <TitleTemplateEditor docId={docId} onClose={onClose} />;
+  }
+  if (kind === 'TEXT' || kind === 'NOTE') {
+    return <TextDocEditor docId={docId} onClose={onClose} />;
+  }
+  return <DocEditor docId={docId} autoRefresh={autoRefresh} onClose={onClose} />;
+}
+
 // ═══════════════════════ Библиотека ═══════════════════════
 
 export default function ConstructorScreen() {
@@ -1254,8 +1375,17 @@ export default function ConstructorScreen() {
     setActiveDocIdRaw(id);
     setSearchParams(id ? { doc: id } : {}, { replace: true });
   };
+  // Переход на /constructor?doc=… из Проводника/уведомлений меняет URL уже после
+  // монтирования — синхронизируем открытый документ с параметром
+  useEffect(() => {
+    const fromUrl = searchParams.get('doc');
+    if (fromUrl !== activeDocId) setActiveDocIdRaw(fromUrl);
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
   const [trashOpen, setTrashOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Вкладки студии: все / таблицы (Эксель) / документы (Ворд). Заметки — в
+  // отдельном разделе «Блокнот», в Конструкторе их нет.
+  const [tab, setTab] = useState<'all' | 'sheet' | 'text'>('all');
   const autoRefreshRef = useRef(false); // открыть следующий документ с обновлением блоков
 
   const projectId = activeProject?.id || 'default';
@@ -1271,8 +1401,12 @@ export default function ConstructorScreen() {
   useEffect(() => { setLoading(true); loadDocs(); }, [activeProject?.id, activeDocId]);
 
   const me = user?.id;
-  const alive = docs.filter(d => !d.deletedAt);
+  // Фильтр по вкладке: sheet = таблицы (DOC), text = текстовые документы (TEXT)
+  const matchesTab = (d: DocMeta) =>
+    tab === 'all' ? true : tab === 'sheet' ? d.kind === 'DOC' : d.kind === 'TEXT';
+  const alive = docs.filter(d => !d.deletedAt && (d.kind === 'TEMPLATE' || d.kind === 'TITLE' || matchesTab(d)));
   const templates = alive.filter(d => d.kind === 'TEMPLATE');
+  const titleTemplates = alive.filter(d => d.kind === 'TITLE');
   const recents = useMemo(() => {
     if (!me) return [] as DocMeta[];
     try {
@@ -1281,17 +1415,20 @@ export default function ConstructorScreen() {
     } catch (_) { return []; }
   }, [docs, me]);
   // «Мои» — по авторству, а не только по приватности (часть III §1)
-  const myDocs = alive.filter(d => d.kind !== 'TEMPLATE' && (d.scope === 'PERSONAL' ? d.ownerId === me : d.createdById === me));
-  const sharedDocs = alive.filter(d => d.kind !== 'TEMPLATE' && d.scope === 'SHARED');
+  const isLibraryTemplate = (d: DocMeta) => d.kind === 'TEMPLATE' || d.kind === 'TITLE';
+  const myDocs = alive.filter(d => !isLibraryTemplate(d) && (d.scope === 'PERSONAL' ? d.ownerId === me : d.createdById === me));
+  const sharedDocs = alive.filter(d => !isLibraryTemplate(d) && d.scope === 'SHARED');
   const trash = docs.filter(d => d.deletedAt);
 
-  const createDoc = async () => {
+  // Создание: таблица (DOC), документ (TEXT) или шаблон титула (TITLE)
+  const createDoc = async (kind: 'DOC' | 'TEXT' | 'TITLE' = 'DOC') => {
     const res = await fetch('/api/constructor/docs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId }),
+      body: JSON.stringify({ projectId, ...(kind !== 'DOC' ? { kind } : {}) }),
     });
     if (res.ok) {
       const { doc } = await res.json();
+      loadDocs(); // список знает kind нового документа до открытия
       setActiveDocId(doc.id);
     } else addToast('Не удалось создать документ', 'error');
   };
@@ -1332,14 +1469,19 @@ export default function ConstructorScreen() {
   if (activeDocId) {
     const ar = autoRefreshRef.current;
     autoRefreshRef.current = false;
-    return <DocEditor docId={activeDocId} autoRefresh={ar} onClose={() => setActiveDocId(null)} />;
+    return <EditorGate docId={activeDocId} knownKind={docs.find(d => d.id === activeDocId)?.kind} autoRefresh={ar} onClose={() => { setActiveDocId(null); loadDocs(); }} />;
   }
 
   const Card = ({ d, inTrash }: { d: DocMeta; inTrash?: boolean }) => (
     <div className="group bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 hover:border-emerald-400 dark:hover:border-emerald-700 hover:shadow-md transition-all cursor-pointer"
       onClick={() => !inTrash && setActiveDocId(d.id)}>
       <div className="flex items-start justify-between gap-2">
-        <Table2 className="w-5 h-5 text-emerald-600 dark:text-emerald-500 shrink-0 mt-0.5" />
+        {/* Тип видно по иконке: таблица — изумруд, документ — синий, титул — рамка */}
+        {d.kind === 'TEXT'
+          ? <FileText className="w-5 h-5 text-sky-600 dark:text-sky-500 shrink-0 mt-0.5" />
+          : d.kind === 'TITLE'
+            ? <FileText className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
+            : <Table2 className="w-5 h-5 text-emerald-600 dark:text-emerald-500 shrink-0 mt-0.5" />}
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
           {!inTrash && (
             <>
@@ -1362,7 +1504,8 @@ export default function ConstructorScreen() {
       <div className="mt-1 text-[11px] text-slate-400 flex items-center gap-2">
         <span>{fmtDate(d.updatedAt)}</span>
         {d.kind === 'TEMPLATE' && <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-bold">ШАБЛОН</span>}
-        {!d.named && d.kind !== 'TEMPLATE' && <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 font-bold">ЧЕРНОВИК</span>}
+        {d.kind === 'TITLE' && <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-bold">ТИТУЛ</span>}
+        {!d.named && d.kind !== 'TEMPLATE' && d.kind !== 'TITLE' && <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 font-bold">ЧЕРНОВИК</span>}
       </div>
       {d.kind === 'TEMPLATE' && !inTrash && (
         <button
@@ -1391,16 +1534,41 @@ export default function ConstructorScreen() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
-      <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-6 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5">
-            <Table2 className="w-6 h-6 text-emerald-600" /> Конструктор
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Собирайте свои таблицы и документы из данных проекта</p>
+      <div className="flex flex-col gap-4 bg-white dark:bg-slate-900 p-6 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5">
+              <Table2 className="w-6 h-6 text-emerald-600" /> Конструктор
+            </h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Таблицы и текстовые документы из данных проекта — в одном месте</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => createDoc('DOC')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новая таблица: формулы, данные проекта, умные блоки">
+              <Table2 className="w-4 h-4" /> Таблица
+            </button>
+            <button onClick={() => createDoc('TEXT')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новый текстовый документ: страницы, стили, списки — как в Word">
+              <FileText className="w-4 h-4" /> Документ
+            </button>
+            <button onClick={() => createDoc('TITLE')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white dark:bg-slate-950 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-sm font-bold shadow-sm cursor-pointer" title="Конструктор титула: ссылки на данные и формулы, присваивается документам">
+              <FileText className="w-4 h-4" /> Шаблон титула
+            </button>
+          </div>
         </div>
-        <button onClick={createDoc} className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm cursor-pointer">
-          <Plus className="w-4 h-4" /> Новый документ
-        </button>
+        {/* Вкладки типов */}
+        <div className="flex items-center gap-1.5">
+          {([
+            { id: 'all' as const, label: 'Все' },
+            { id: 'sheet' as const, label: 'Таблицы' },
+            { id: 'text' as const, label: 'Документы' },
+          ]).map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-all ${tab === t.id
+                ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-800 dark:border-slate-100'
+                : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:border-slate-400'}`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {loading ? (
@@ -1413,6 +1581,7 @@ export default function ConstructorScreen() {
           <Section title="Мои файлы" icon={Lock} items={myDocs} />
           <Section title="Общие файлы" icon={Users2} items={sharedDocs.filter(d => d.createdById !== me)} />
           {templates.length > 0 && <Section title="Шаблоны" icon={Copy} items={templates} />}
+          {titleTemplates.length > 0 && <Section title="Шаблоны титула" icon={FileText} items={titleTemplates} />}
 
           {trash.length > 0 && (
             <div>

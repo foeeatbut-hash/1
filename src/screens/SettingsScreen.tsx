@@ -11,7 +11,7 @@ import { ENV_CONFIG } from '../config/env';
 import {
   Settings, Sun, Moon, Database, Terminal, Bell, Briefcase, Fan, DownloadCloud,
   Plus, Trash2, ChevronUp, ChevronDown, RotateCcw, Loader2, Check,
-  Tag, MousePointerClick, Link2
+  Tag, MousePointerClick, Link2, Archive, PlayCircle, FolderOpen, FileSpreadsheet, X
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import {
@@ -25,15 +25,17 @@ import {
 // Windows/iOS), содержимое выбранной категории справа. Сюда перенесены
 // настройки из профиля и из отдельных разделов.
 
-type SectionId = 'general' | 'management' | 'equipment' | 'tags' | 'notifications' | 'database' | 'logs' | 'updates';
+type SectionId = 'general' | 'management' | 'docflow' | 'equipment' | 'tags' | 'notifications' | 'database' | 'backup' | 'logs' | 'updates';
 
 const SECTIONS: Array<{ id: SectionId; label: string; icon: any; desc: string }> = [
   { id: 'general', label: 'Общие', icon: Settings, desc: 'Тема интерфейса' },
   { id: 'management', label: 'Менеджмент', icon: Briefcase, desc: 'Этапы закупки: названия, значки, цвета' },
+  { id: 'docflow', label: 'Документооборот', icon: FileSpreadsheet, desc: 'Стандарты ВДР: коды, сроки, ревизии, типы' },
   { id: 'equipment', label: 'Оборудование', icon: Fan, desc: 'Категории и поведение при новой ревизии' },
   { id: 'tags', label: 'Теги', icon: Tag, desc: 'Холст связей: способ создания связей' },
   { id: 'notifications', label: 'Уведомления', icon: Bell, desc: 'Какие события показывать' },
   { id: 'database', label: 'База данных', icon: Database, desc: 'Локальная SQLite или сетевой PostgreSQL' },
+  { id: 'backup', label: 'Резервные копии', icon: Archive, desc: 'Ежедневный архив базы, файлов и данных' },
   { id: 'logs', label: 'Crash-логи', icon: Terminal, desc: 'Папка аварийных журналов' },
   { id: 'updates', label: 'Обновления', icon: DownloadCloud, desc: 'Версия программы и обновления' },
 ];
@@ -106,6 +108,7 @@ export default function SettingsScreen() {
         {section === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} />}
         {section === 'management' && <ManagementSection isAdmin={isAdmin} addToast={addToast} />}
         {section === 'equipment' && <EquipmentSection isAdmin={isAdmin} addToast={addToast} />}
+        {section === 'docflow' && <DocflowSection isAdmin={isAdmin} addToast={addToast} />}
         {section === 'tags' && <TagsSection addToast={addToast} />}
         {section === 'notifications' && (
           <SectionShell title="Уведомления" desc="Какие события показывать в панели уведомлений и как оповещать.">
@@ -113,6 +116,7 @@ export default function SettingsScreen() {
           </SectionShell>
         )}
         {section === 'database' && <DatabaseSection addToast={addToast} />}
+        {section === 'backup' && <BackupSection isAdmin={isAdmin} addToast={addToast} />}
         {section === 'logs' && <CrashLogsSection addLog={addLog} />}
         {section === 'updates' && (
           <SectionShell title="Обновления" desc="Текущая версия программы и установка обновлений.">
@@ -521,6 +525,165 @@ function ManagementSection({ isAdmin, addToast }: any) {
   );
 }
 
+// ── Резервные копии ────────────────────────────────────────────────────────────
+// Ежедневный «Архив»: копия базы + все файлы Проводника в родных форматах по
+// папкам + данные проектов в Excel. Если всё полетит — папка с датой читается
+// без программы. Плюс страховочные копии базы при каждом запуске.
+function BackupSection({ isAdmin, addToast }: any) {
+  const [status, setStatus] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [runningNow, setRunningNow] = useState(false);
+
+  const load = async () => {
+    try {
+      const r = await fetch('/api/backup/status');
+      const d = await r.json();
+      if (r.ok) setStatus(d);
+    } catch (_) {}
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const runNow = async () => {
+    setRunningNow(true);
+    try {
+      const r = await fetch('/api/backup/run', { method: 'POST' });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || `Сервер ответил ${r.status}`);
+      addToast(`Архив создан: файлов Проводника — ${d.explorerFiles}, книг данных — ${d.dataWorkbooks}`, 'success');
+      load();
+    } catch (e: any) {
+      addToast(`Не удалось создать архив: ${e.message}`, 'error');
+    } finally {
+      setRunningNow(false);
+    }
+  };
+
+  const saveSettings = async (patch: any) => {
+    try {
+      const r = await fetch('/api/backup/settings', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'ошибка');
+      setStatus((prev: any) => prev ? { ...prev, settings: d.settings } : prev);
+      addToast('Настройки резервных копий сохранены', 'success');
+      load();
+    } catch (e: any) {
+      addToast(`Не удалось сохранить: ${e.message}`, 'error');
+    }
+  };
+
+  const fmtSize = (bytes: number) => {
+    if (!bytes) return '—';
+    const mb = bytes / (1024 * 1024);
+    return mb >= 1 ? `${mb.toFixed(1)} МБ` : `${Math.round(bytes / 1024)} КБ`;
+  };
+
+  if (loading) return <SectionShell title="Резервные копии" desc="Загрузка…"><Loader2 className="w-5 h-5 animate-spin text-emerald-600" /></SectionShell>;
+
+  const settings = status?.settings || { enabled: true, dir: '', keep: 14 };
+  const backups = status?.backups || [];
+
+  return (
+    <SectionShell title="Резервные копии" desc="Программа каждый день сохраняет полный архив: копию базы, все файлы Проводника в исходных форматах по папкам и данные каждого проекта в Excel. Архив читается обычным Проводником Windows — даже без программы.">
+      <div className="space-y-5">
+        {/* Статус и ручной запуск */}
+        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30 space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-400">Папка архивов</div>
+              <div className="text-xs font-mono mt-1 text-slate-600 dark:text-slate-300 select-all break-all">{status?.dir || '—'}</div>
+            </div>
+            {isAdmin && (
+              <button
+                onClick={runNow}
+                disabled={runningNow || status?.running}
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold cursor-pointer"
+              >
+                {runningNow ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+                {runningNow ? 'Создание архива…' : 'Создать архив сейчас'}
+              </button>
+            )}
+          </div>
+          <div className="text-[11px] text-slate-400 leading-relaxed">
+            Внутри каждого архива: <span className="font-mono">database.sqlite</span> (вся база),
+            папка <span className="font-mono">Проводник</span> (файлы как есть, по проектам и папкам),
+            папка <span className="font-mono">Данные</span> (Excel-книги: теги, закупки, оборудование).
+            Дополнительно при каждом запуске программы делается быстрая страховочная копия базы (хранятся 5 последних).
+          </div>
+        </div>
+
+        {/* Настройки */}
+        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30 space-y-3">
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-400">Расписание</div>
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              disabled={!isAdmin}
+              checked={!!settings.enabled}
+              onChange={(e) => saveSettings({ enabled: e.target.checked })}
+              className="w-4 h-4 accent-emerald-500 cursor-pointer"
+            />
+            Делать архив автоматически каждый день
+          </label>
+          <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+            <span>Хранить архивов:</span>
+            <input
+              type="number" min={1} max={90}
+              disabled={!isAdmin}
+              defaultValue={settings.keep}
+              onBlur={(e) => { const v = Number(e.target.value); if (v && v !== settings.keep) saveSettings({ keep: v }); }}
+              className="w-20 px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-center"
+            />
+            <span className="text-slate-400">(старые удаляются сами)</span>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+            <span className="shrink-0">Своя папка:</span>
+            <input
+              type="text"
+              disabled={!isAdmin}
+              defaultValue={settings.dir || ''}
+              placeholder="пусто = стандартная в папке данных программы"
+              onBlur={(e) => { const v = e.target.value.trim(); if (v !== (settings.dir || '')) saveSettings({ dir: v }); }}
+              className="flex-1 px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono"
+            />
+          </div>
+          <p className="text-[10px] text-amber-600 dark:text-amber-400">
+            Совет: укажите папку на другом диске или сетевом хранилище — тогда архив переживёт даже поломку диска с программой.
+          </p>
+        </div>
+
+        {/* Список архивов */}
+        <div>
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5">
+            <FolderOpen className="w-3.5 h-3.5" /> Существующие архивы ({backups.length})
+          </div>
+          {backups.length === 0 ? (
+            <p className="text-xs text-slate-400">Архивов ещё нет — первый создастся автоматически в течение часа, или нажмите «Создать архив сейчас».</p>
+          ) : (
+            <div className="space-y-1 max-h-64 overflow-y-auto">
+              {backups.map((b: any) => (
+                <div key={b.name} className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-850 text-xs">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Archive className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span className="font-mono font-bold truncate">{b.name}</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-slate-400 shrink-0">
+                    {b.manifest && <span title={`Файлов Проводника: ${b.manifest.explorerFiles}, книг данных: ${b.manifest.dataWorkbooks}`}>{b.manifest.explorerFiles} файлов</span>}
+                    <span>{fmtSize(b.size)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </SectionShell>
+  );
+}
+
 // ── Оборудование ───────────────────────────────────────────────────────────────
 function EquipmentSection({ isAdmin, addToast }: any) {
   const [conflictMode, setConflictMode] = useState<'immediate' | 'wait'>('wait');
@@ -862,6 +1025,173 @@ function CrashLogsSection({ addLog }: any) {
           <button onClick={pickDir} className="py-2 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">Выбрать папку…</button>
           <button onClick={() => save('')} className="py-2 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">По умолчанию</button>
         </div>
+      </div>
+    </SectionShell>
+  );
+}
+
+// ── Документооборот: глобальные стандарты ВДР ──
+// Хранятся в программе один раз, применяются к реестрам любых проектов
+// (выбор — в реквизитах реестра). Здесь правятся коды рассмотрения со сроками,
+// причины выпуска, спец-ревизии и каталог типов документов.
+function DocflowSection({ isAdmin, addToast }: any) {
+  const [standards, setStandards] = React.useState<any[]>([]);
+  const [selId, setSelId] = React.useState('');
+  const [cfg, setCfg] = React.useState<any>(null);
+  const [name, setName] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+
+  const load = async () => {
+    try {
+      const r = await fetch('/api/vdr/standards');
+      if (!r.ok) return;
+      const list = (await r.json()).standards || [];
+      setStandards(list);
+      const sel = list.find((s: any) => s.id === selId) || list[0];
+      if (sel) { setSelId(sel.id); setCfg(JSON.parse(JSON.stringify(sel.config || {}))); setName(sel.name); }
+    } catch (_) {}
+  };
+  React.useEffect(() => { load(); }, []);
+
+  const pick = (id: string) => {
+    const s = standards.find((x: any) => x.id === id);
+    if (s) { setSelId(id); setCfg(JSON.parse(JSON.stringify(s.config || {}))); setName(s.name); }
+  };
+
+  const save = async () => {
+    if (!selId) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/vdr/standards/${selId}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, config: cfg }),
+      });
+      if (r.ok) { addToast('Стандарт сохранён', 'success'); load(); }
+      else addToast('Ошибка сохранения', 'error');
+    } finally { setBusy(false); }
+  };
+
+  const createStd = async () => {
+    const n = window.prompt('Название нового стандарта (например, имя заказчика):', 'Новый стандарт');
+    if (!n) return;
+    const r = await fetch('/api/vdr/standards', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: n, config: cfg || undefined }),
+    });
+    if (r.ok) { const d = await r.json(); await load(); pick(d.standard.id); addToast('Стандарт создан (копия текущего)', 'success'); }
+  };
+
+  const removeStd = async () => {
+    if (!selId || !window.confirm(`Удалить стандарт «${name}»? Реестры перейдут на стандарт по умолчанию.`)) return;
+    const r = await fetch(`/api/vdr/standards/${selId}`, { method: 'DELETE' });
+    if (r.ok) { setSelId(''); load(); } else addToast('Удалять может администратор', 'error');
+  };
+
+  const upd = (path: string, idx: number, key: string, val: any) => {
+    setCfg((c: any) => {
+      const next = { ...c, [path]: [...(c[path] || [])] };
+      next[path][idx] = { ...next[path][idx], [key]: val };
+      return next;
+    });
+  };
+  const addRow = (path: string, row: any) => setCfg((c: any) => ({ ...c, [path]: [...(c[path] || []), row] }));
+  const delRow = (path: string, idx: number) => setCfg((c: any) => ({ ...c, [path]: (c[path] || []).filter((_: any, i: number) => i !== idx) }));
+
+  const inp = 'px-2 py-1 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500';
+
+  if (!cfg) return <SectionShell title="Документооборот" desc="Стандарты ВДР."><div className="text-sm text-slate-400">Загрузка…</div></SectionShell>;
+
+  return (
+    <SectionShell title="Документооборот" desc="Глобальные стандарты ВДР: применяются к реестрам любых проектов (выбор — в реквизитах реестра).">
+      <div className="space-y-4 max-w-3xl">
+        <div className="flex items-center gap-2">
+          <select value={selId} onChange={e => pick(e.target.value)} className={inp + ' cursor-pointer font-semibold'}>
+            {standards.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          <input value={name} onChange={e => setName(e.target.value)} className={inp + ' flex-1'} placeholder="Название стандарта" />
+          <button onClick={createStd} className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer">+ Новый</button>
+          {isAdmin && <button onClick={removeStd} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>}
+        </div>
+
+        {/* Коды рассмотрения */}
+        <div>
+          <div className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5">Коды рассмотрения заказчика (действие и срок новой ревизии)</div>
+          <div className="space-y-1">
+            {(cfg.reviewCodes || []).map((c: any, i: number) => (
+              <div key={i} className="flex items-center gap-1.5">
+                <input value={c.code} onChange={e => upd('reviewCodes', i, 'code', e.target.value)} className={inp + ' w-12 text-center font-bold'} />
+                <input value={c.label} onChange={e => upd('reviewCodes', i, 'label', e.target.value)} className={inp + ' flex-1'} />
+                <select value={c.action} onChange={e => upd('reviewCodes', i, 'action', e.target.value)} className={inp + ' cursor-pointer'}>
+                  <option value="accept">принят</option>
+                  <option value="revise">замечания</option>
+                </select>
+                <input type="number" value={c.deadlineDays ?? ''} onChange={e => upd('reviewCodes', i, 'deadlineDays', Number(e.target.value) || 0)} className={inp + ' w-16 text-center'} title="Срок новой ревизии, дней" />
+                <span className="text-[10px] text-slate-400">дн.</span>
+                <button onClick={() => delRow('reviewCodes', i)} className="p-1 text-slate-300 hover:text-rose-500 cursor-pointer"><X className="w-3 h-3" /></button>
+              </div>
+            ))}
+          </div>
+          <button onClick={() => addRow('reviewCodes', { code: '', label: '', action: 'revise', deadlineDays: 7 })} className="mt-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-700 cursor-pointer">+ код</button>
+        </div>
+
+        {/* Причины выпуска */}
+        <div>
+          <div className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5">Причины выпуска (буквенные/цифровые ревизии)</div>
+          <div className="space-y-1">
+            {(cfg.reasons || []).map((r: any, i: number) => (
+              <div key={i} className="flex items-center gap-1.5">
+                <input value={r.code} onChange={e => upd('reasons', i, 'code', e.target.value)} className={inp + ' w-16 text-center font-bold'} />
+                <input value={r.label} onChange={e => upd('reasons', i, 'label', e.target.value)} className={inp + ' flex-1'} />
+                <select value={r.revKind} onChange={e => upd('reasons', i, 'revKind', e.target.value)} className={inp + ' cursor-pointer'}>
+                  <option value="letter">A, B, C…</option>
+                  <option value="digit">0, 1, 2…</option>
+                </select>
+                <button onClick={() => delRow('reasons', i)} className="p-1 text-slate-300 hover:text-rose-500 cursor-pointer"><X className="w-3 h-3" /></button>
+              </div>
+            ))}
+          </div>
+          <button onClick={() => addRow('reasons', { code: '', label: '', revKind: 'letter' })} className="mt-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-700 cursor-pointer">+ причина</button>
+        </div>
+
+        {/* Маски и спец-ревизии */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <div className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Маска имени файла</div>
+            <input value={cfg.fileNameMask || ''} onChange={e => setCfg((c: any) => ({ ...c, fileNameMask: e.target.value }))} className={inp + ' w-full'} placeholder="{docNo}_{rev}_{lang}" />
+          </div>
+          <div>
+            <div className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Маска номера документа</div>
+            <input value={cfg.docNumberMask || ''} onChange={e => setCfg((c: any) => ({ ...c, docNumberMask: e.target.value }))} className={inp + ' w-full'} placeholder="{contract}-{wbs}-{po}-{type}-{seq}" />
+          </div>
+          <div>
+            <div className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Ревизия «аннулирован»</div>
+            <input value={cfg.specialRevisions?.void || 'V'} onChange={e => setCfg((c: any) => ({ ...c, specialRevisions: { ...c.specialRevisions, void: e.target.value } }))} className={inp + ' w-16 text-center font-bold'} />
+          </div>
+          <div>
+            <div className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Ревизия «заменён»</div>
+            <input value={cfg.specialRevisions?.superseded || 'S'} onChange={e => setCfg((c: any) => ({ ...c, specialRevisions: { ...c.specialRevisions, superseded: e.target.value } }))} className={inp + ' w-16 text-center font-bold'} />
+          </div>
+        </div>
+
+        {/* Каталог типов */}
+        <div>
+          <div className="text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5">Каталог типов документов (VDR-коды)</div>
+          <div className="space-y-1 max-h-56 overflow-auto pr-1">
+            {(cfg.vdrTypes || []).map((t: any, i: number) => (
+              <div key={i} className="flex items-center gap-1.5">
+                <input value={t.code} onChange={e => upd('vdrTypes', i, 'code', e.target.value)} className={inp + ' w-16 text-center font-bold'} />
+                <input value={t.titleEn} onChange={e => upd('vdrTypes', i, 'titleEn', e.target.value)} className={inp + ' flex-1'} placeholder="English title" />
+                <input value={t.titleRu} onChange={e => upd('vdrTypes', i, 'titleRu', e.target.value)} className={inp + ' flex-1'} placeholder="Название" />
+                <button onClick={() => delRow('vdrTypes', i)} className="p-1 text-slate-300 hover:text-rose-500 cursor-pointer"><X className="w-3 h-3" /></button>
+              </div>
+            ))}
+          </div>
+          <button onClick={() => addRow('vdrTypes', { code: '', titleEn: '', titleRu: '' })} className="mt-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-700 cursor-pointer">+ тип</button>
+        </div>
+
+        <button onClick={save} disabled={busy} className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">
+          {busy ? 'Сохраняю…' : 'Сохранить стандарт'}
+        </button>
       </div>
     </SectionShell>
   );

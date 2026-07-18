@@ -1,7 +1,7 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "0.25.0",
+  "version": "0.28.0",
   "type": "commonjs",
   "main": "dist-electron/main.cjs",
   "scripts": {
@@ -49,7 +49,7 @@
     "electron": "41.7.2",
     "electron-builder": "^26.8.1",
     "esbuild": "^0.25.0",
-    "mammoth": "^1.12.0",
+    "mammoth": "^1.11.0",
     "pdfjs-dist": "^6.1.200",
     "prisma": "^7.8.0",
     "tailwindcss": "^4.1.14",

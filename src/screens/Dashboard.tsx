@@ -11,7 +11,7 @@ import {
   Home, Clock, History, FileText, ArrowRight, ExternalLink,
   ChevronRight, Calendar, User, Database, BookmarkCheck,
   Layers, CheckSquare, Square, FolderPlus, Plus,
-  MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Tag, Fan, BookOpen, Users, Briefcase
+  MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Tag, Fan, BookOpen, Users, Briefcase, Table2
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -188,14 +188,16 @@ export default function Dashboard() {
         </h2>
         <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-8 gap-2.5">
           {[
-            { name: 'Чат', path: '/chat', icon: MessagesSquare },
-            { name: 'Блокнот', path: '/notes', icon: NotebookPen },
             { name: 'Проекты', path: '/projects', icon: FolderKanban },
-            { name: 'Проводник', path: '/explorer', icon: FolderOpen },
             { name: 'Теги', path: '/registry', icon: Tag },
-            { name: 'Менеджмент', path: '/management', icon: Briefcase },
             { name: 'Оборудование', path: '/equipment', icon: Fan },
             { name: 'Справочник', path: '/directory', icon: BookOpen },
+            { name: 'Менеджмент', path: '/management', icon: Briefcase },
+            { name: 'ВДР', path: '/management?tab=vdr', icon: Briefcase },
+            { name: 'Проводник', path: '/explorer', icon: FolderOpen },
+            { name: 'Конструктор', path: '/constructor', icon: Table2 },
+            { name: 'Блокнот', path: '/notes', icon: NotebookPen },
+            { name: 'Чат', path: '/chat', icon: MessagesSquare },
             ...(user?.role === 'ADMIN' ? [{ name: 'Сотрудники', path: '/users', icon: Users }] : []),
           ].map((s) => (
             <button

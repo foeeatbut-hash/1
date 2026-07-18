@@ -2,12 +2,14 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
+import VdrItemPicker from '../components/VdrItemPicker';
 import { useModalStore } from '../store/modalStore';
 import { 
   Folder, File as FileIcon, ChevronRight, ChevronDown, Plus, Upload, 
   Search, MoreVertical, Copy, Edit2, Trash2, FolderPlus, RefreshCw, 
   ArrowLeft, ArrowRight, ArrowUp, Tag, Shield, PanelRight, LayoutGrid, List,
-  Download, Image as ImageIcon, FileText, FileCode, FileSpreadsheet, Info, Boxes, Scissors, ClipboardPaste
+  Download, Image as ImageIcon, FileText, FileCode, FileSpreadsheet, Info, Boxes, Scissors, ClipboardPaste,
+  Grid3X3
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
@@ -128,6 +130,8 @@ export default function Explorer() {
 
   // Context Menu
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, targetId?: string, isFile?: boolean, isContainer?: boolean, isSection?: boolean } | null>(null);
+  // «Прикрепить к строке ВДР»: файл (замечания/выпуск) привязывается к документу реестра
+  const [vdrAttachFileId, setVdrAttachFileId] = useState<string | null>(null);
 
   // Clipboard (for Copy/Paste within app)
   const [clipboard, setClipboard] = useState<{ ids: string[], type: 'copy' | 'cut' } | null>(null);
@@ -506,6 +510,45 @@ export default function Explorer() {
      });
      fetchData();
   };
+
+  // «Создать → Таблицу/Документ»: новый документ Конструктора нужного типа
+  // и сразу в его редактор. Зеркало в Проводнике появится после именования.
+  const createConstructorDoc = async (kind: 'DOC' | 'TEXT') => {
+    try {
+      const res = await fetch('/api/constructor/docs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: activeProject?.id || '', ...(kind !== 'DOC' ? { kind } : {}) }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.doc?.id) throw new Error(data?.error || 'Не удалось создать документ');
+      navigate(`/constructor?doc=${data.doc.id}`);
+    } catch (e: any) {
+      addToast(`Не удалось создать документ: ${e.message}`, 'error');
+    }
+  };
+  const createConstructorSheet = () => createConstructorDoc('DOC');
+
+  // «Редактировать копию в Конструкторе»: xlsx/csv → таблица, txt/md/docx → текст.
+  // Исходный файл не меняется — редактируется копия-документ студии.
+  const editCopyInConstructor = async (fileId: string) => {
+    try {
+      const res = await fetch('/api/constructor/docs/import-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId, projectId: activeProject?.id || '' }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.doc?.id) throw new Error(data?.error || 'Не удалось открыть файл');
+      addToast('Создана редактируемая копия — исходный файл не изменён', 'success');
+      navigate(`/constructor?doc=${data.doc.id}`);
+    } catch (e: any) {
+      addToast(String(e.message || e), 'error');
+    }
+  };
+
+  // Файл можно открыть в Конструкторе? (по расширению)
+  const canEditInConstructor = (name: string) => /\.(xlsx|xlsm|xls|csv|txt|md|log|json|docx)$/i.test(name || '');
 
   // Тело запроса перемещения/копирования с учётом виртуальных разделов:
   // при переносе в корень раздела передаём его область видимости
@@ -1463,10 +1506,14 @@ export default function Explorer() {
             </>
           ) : contextMenu.isContainer ? (
             <>
-              <MenuItem icon={<FolderPlus />} label="Новая папка" onClick={() => { createFolder(); setContextMenu(null); }} />
-              <MenuItem icon={<FileIcon />} label="Новый текстовый документ" onClick={() => { createEmptyFile("Новый документ.txt", "TXT", ""); setContextMenu(null); }} />
-              <MenuItem icon={<Upload />} label="Загрузить" onClick={() => { fileInputRef.current?.click(); setContextMenu(null); }} />
+              {/* «Создать» — как в Windows: правый клик по пустому месту */}
+              <div className="px-6 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 select-none">Создать</div>
+              <MenuItem icon={<FolderPlus />} label="Папку" onClick={() => { createFolder(); setContextMenu(null); }} />
+              <MenuItem icon={<Grid3X3 />} label="Таблицу (Excel)" onClick={() => { createConstructorDoc('DOC'); setContextMenu(null); }} />
+              <MenuItem icon={<FileText />} label="Документ (Word)" onClick={() => { createConstructorDoc('TEXT'); setContextMenu(null); }} />
+              <MenuItem icon={<FileIcon />} label="Текстовый файл (.txt)" onClick={() => { createEmptyFile("Новый документ.txt", "TXT", ""); setContextMenu(null); }} />
               <div className="h-px bg-slate-300 dark:bg-dark-border my-1 mx-2" />
+              <MenuItem icon={<Upload />} label="Загрузить" onClick={() => { fileInputRef.current?.click(); setContextMenu(null); }} />
               {clipboard && (
                  <MenuItem icon={<Copy />} label="Вставить" onClick={() => { handlePaste(); setContextMenu(null); }} />
               )}
@@ -1479,7 +1526,15 @@ export default function Explorer() {
               )}
               {contextMenu.isFile && (
                 <>
+                  {canEditInConstructor(allCurrentItems.find(i => i.id === contextMenu.targetId)?.name || '') && (
+                    <MenuItem
+                      icon={<Grid3X3 />}
+                      label="Редактировать копию в Конструкторе"
+                      onClick={() => { editCopyInConstructor(contextMenu.targetId!); setContextMenu(null); }}
+                    />
+                  )}
                   <MenuItem icon={<Boxes />} label="В оборудование…" onClick={() => { openImportPicker(contextMenu.targetId!); setContextMenu(null); }} />
+                  <MenuItem icon={<Grid3X3 />} label="Прикрепить к строке ВДР…" onClick={() => { setVdrAttachFileId(contextMenu.targetId!); setContextMenu(null); }} />
                   <div className="h-px bg-slate-300 dark:bg-dark-border my-1 mx-2" />
                   <MenuItem icon={<Download />} label="Скачать" onClick={() => { handleDownload(contextMenu.targetId!, false); setContextMenu(null); }} />
                   <MenuItem icon={<Tag />} label="Назначить теги..." onClick={() => { handleAssignTag(contextMenu.targetId!); setContextMenu(null); }} />
@@ -1810,6 +1865,26 @@ export default function Explorer() {
             </div>
           </motion.div>
         </div>
+      )}
+
+      {/* Прикрепить файл к строке ВДР: файл замечаний/выпуска у документа реестра */}
+      {vdrAttachFileId && (
+        <VdrItemPicker
+          projectId={activeProject?.id || 'default'}
+          title="Прикрепить файл к строке ВДР"
+          onClose={() => setVdrAttachFileId(null)}
+          onPick={async (it) => {
+            try {
+              const r = await fetch(`/api/vdr/items/${it.id}`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ fileNodeId: vdrAttachFileId }),
+              });
+              if (r.ok) addToast(`Файл прикреплён к «${it.contractorNo || it.titleRu}»`, 'success');
+              else addToast('Не удалось прикрепить', 'error');
+            } catch (_) { addToast('Ошибка сети', 'error'); }
+            setVdrAttachFileId(null);
+          }}
+        />
       )}
     </motion.div>
   );
