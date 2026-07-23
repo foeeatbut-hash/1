@@ -1,0 +1,428 @@
+// Схема для MariaDB 10+ (провайдер mysql). Отличие от PostgreSQL-версии —
+// явные типы для длинных полей: в MySQL/MariaDB String по умолчанию VARCHAR(191),
+// поэтому контент, JSON и длинные названия размечены @db.Text / @db.LongText.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../prisma-clients/client-mysql"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model User {
+  id               String        @id @default(uuid())
+  symbol           String        @unique // Табельный номер сотрудника, используемый как логин
+  password         String        @default("password") // Пароль доступа (scrypt-хэш)
+  name             String        // ФИО сотрудника
+  role             String        @default("ENGINEER_VENT") // "ADMIN", "MANAGER", "ENGINEER_VENT", "ENGINEER_AUTO"
+  isActive         Boolean       @default(true) // Профиль включен администратором
+  validUntil       DateTime?     // Срок действия профиля; null = бессрочно
+  permissions      String?       @db.Text // JSON персональных прав
+  createdAt        DateTime      @default(now())
+  createdFiles     FileNode[]    @relation("FileCreator")
+  updatedFiles     FileNode[]    @relation("FileUpdater")
+  sentMessages     ChatMessage[] @relation("SentMessages")
+  receivedMessages ChatMessage[] @relation("ReceivedMessages")
+  chatGroups       ChatGroup[]   @relation("GroupMembers")
+}
+
+model Project {
+  id           String        @id @default(uuid())
+  name         String
+  code         String        @default("")
+  customer     String        @default("")
+  contractor   String        @default("")
+  description  String        @default("")
+  info         String        @default("")
+  status       String        @default("ACTIVE")
+  createdAt    DateTime      @default(now())
+
+  folders          Folder[]
+  tags             Tag[]
+  dictionaries     Dictionary[]
+  tagTemplate      TagTemplate?
+  equipmentSystems EquipmentSystem[]
+  chatMessages     ChatMessage[]     @relation("LinkedProject")
+  chatGroups       ChatGroup[]       @relation("ProjectGroups")
+  constructorDocs  ConstructorDoc[]
+}
+
+// Документ Конструктора: книга-таблица, собираемая из данных проекта
+model ConstructorDoc {
+  id          String    @id @default(uuid())
+  projectId   String
+  name        String    @default("Без названия")
+  kind        String    @default("DOC")    // "DOC" | "TEMPLATE"
+  scope       String    @default("SHARED") // "SHARED" | "PERSONAL"
+  ownerId     String?   // владелец личного документа (= createdById)
+  named       Boolean   @default(false)    // имя дано человеком (гасит диалог при закрытии)
+  description String    @default("")
+  workbook    String    @default("") @db.LongText // JSON-снапшот книги
+  bindings    String    @default("[]") @db.Text // JSON: умные блоки
+  settings    String    @default("{}") @db.Text // JSON: печать/ориентация и т.п.
+  createdById String?
+  updatedById String?
+  deletedAt   DateTime? // корзина (мягкое удаление)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions    ConstructorDocVersion[]
+  @@index([projectId, kind])
+}
+
+// Версия документа Конструктора
+model ConstructorDocVersion {
+  id        String   @id @default(uuid())
+  docId     String
+  version   Int      // порядковый номер в документе
+  workbook  String   @default("") @db.LongText
+  bindings  String   @default("[]") @db.Text
+  comment   String   @default("") // «перед обновлением данных», «ручное сохранение»…
+  authorId  String?
+  createdAt DateTime @default(now())
+
+  doc       ConstructorDoc @relation(fields: [docId], references: [id], onDelete: Cascade)
+  @@index([docId, version])
+}
+
+// ── ВДР (Vendor Document Register): реестр документации поставщика ──
+model DocRegister {
+  id          String   @id @default(uuid())
+  projectId   String
+  name        String   @default("ВДР")
+  vendor      String   @default("")
+  contractor  String   @default("")
+  owner       String   @default("")
+  poNumber    String   @default("")
+  standardId  String?  // применённый стандарт документооборота (DocStandard)
+  ownerProjectNo      String @default("")
+  contractorProjectNo String @default("")
+  materialRequisition String @default("")
+  equipmentTitle      String @default("")
+  contractorDocNo     String @default("") // номер самого ВДР у трёх сторон
+  ownerDocNo          String @default("")
+  vendorDocNo         String @default("")
+  revision            String @default("A")  // текущая ревизия самого ВДР
+  revisions           String @default("[]") @db.Text // история ревизий ВДР (JSON)
+  preparedBy          String @default("")
+  checkedBy           String @default("")
+  approvedBy          String @default("")
+  columnsConfig       String @default("[]") @db.LongText // JSON: колонки реестра (импортированные + свои)
+  managerId   String?  // ответственный менеджер (получает «документ готов»)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items       DocRegisterItem[]
+  @@index([projectId])
+}
+
+model DocRegisterItem {
+  id             String    @id @default(uuid())
+  registerId     String
+  projectId      String
+  contractorNo   String    @default("")
+  ownerNo        String    @default("")
+  vendorNo       String    @default("")
+  titleEn        String    @default("") @db.Text
+  titleRu        String    @default("") @db.Text
+  vdrCode        String    @default("") // тип: C01, E02, K32…
+  revision       String    @default("A") // буквы = черновые, цифры = утверждённые
+  issueDate      DateTime?
+  reasonForIssue String    @default("") // IFR | IFI | CEF
+  language       String    @default("")
+  equipmentTags  String    @default("[]") @db.Text // JSON: идентификаторы тегов
+  status         String    @default("DRAFT") // DRAFT | READY | REMARKS | ACCEPTED
+  docId          String?   // ConstructorDoc сформированного документа
+  fileNodeId     String?   // файл замечаний в Проводнике
+  assigneeId     String?   // инженер-исполнитель (получает «замечания»)
+  remarks        String    @default("") @db.Text
+  reviewCode     String    @default("") // код рассмотрения заказчика (A/B/C/D/Q…)
+  dueDate        DateTime? // срок следующей ревизии (по коду и дедлайнам стандарта)
+  extra          String    @default("{}") @db.LongText // значения нестандартных колонок (columnsConfig)
+  meta           String    @default("{}") @db.Text
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  register       DocRegister @relation(fields: [registerId], references: [id], onDelete: Cascade)
+  @@index([registerId])
+  @@index([projectId, status])
+}
+
+// ── Стандарт документооборота — ГЛОБАЛЬНЫЙ шаблон программы ──
+model DocStandard {
+  id        String   @id @default(uuid())
+  name      String   @default("Стандарт")
+  config    String   @default("{}") @db.LongText // JSON: reviewCodes, reasons, revisionRules, masks, vdrTypes
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// История ревизий строки ВДР (документа)
+model DocRegisterItemRevision {
+  id          String   @id @default(uuid())
+  itemId      String
+  revision    String
+  date        DateTime @default(now())
+  reason      String   @default("") // IFR | IFI | IFU | CEF | VOID | SUPERSEDED
+  place       String   @default("") // место изменения
+  description String   @default("") @db.Text // описание изменения
+  authorId    String?
+  createdAt   DateTime @default(now())
+
+  @@index([itemId])
+}
+
+model Dictionary {
+  id        String   @id @default(uuid())
+  projectId String
+  name      String
+  items     DictionaryItem[]
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model DictionaryItem {
+  id           String           @id @default(uuid())
+  dictionaryId String
+  code         String
+  nameRu       String
+  parentId     String?
+  parent       DictionaryItem?  @relation("HierarchicalItems", fields: [parentId], references: [id], onDelete: Cascade)
+  children     DictionaryItem[] @relation("HierarchicalItems")
+
+  dictionary   Dictionary @relation(fields: [dictionaryId], references: [id], onDelete: Cascade)
+}
+
+model TagTemplate {
+  id         String   @id @default(uuid())
+  projectId  String   @unique
+  schemaJson String   @db.LongText
+
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model Folder {
+  id          String   @id @default(uuid())
+  name        String
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scope       String   @default("SHARED") // "SHARED" — общий раздел, "PERSONAL" — личный раздел
+  ownerId     String?  // Владелец личной папки (User.id); null для общих
+  system      Boolean  @default(false) // Системная папка: нельзя удалить/переименовать
+
+  parentId    String?
+  parent      Folder?  @relation("FolderToFolder", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Folder[] @relation("FolderToFolder")
+
+  files       FileNode[]
+  updatedAt   DateTime @default(now()) @updatedAt
+}
+
+model FileNode {
+  id          String   @id @default(uuid())
+  name        String
+  filePath    String   @db.Text
+  size        Int      @default(0)
+  type        String   @default("FILE")
+  department  String?
+  statusCode  String   @default("D")
+  revision    String   @default("1")
+  scope       String   @default("SHARED") // "SHARED" | "PERSONAL" (для файлов в корне раздела)
+  ownerId     String?  // Владелец личного файла (User.id); null для общих
+  createdAt   DateTime @default(now())
+  createdById String?
+  createdBy   User?    @relation("FileCreator", fields: [createdById], references: [id])
+  updatedById String?
+  updatedBy   User?    @relation("FileUpdater", fields: [updatedById], references: [id])
+  updatedAt   DateTime @default(now()) @updatedAt
+  content     String?  @db.LongText
+  refId       String?  // Ссылка на сущность программы (type="CONSTRUCTOR" → ConstructorDoc.id)
+
+  folderId    String?
+  folder      Folder?   @relation(fields: [folderId], references: [id], onDelete: Cascade)
+
+  mainTags        Tag[]    @relation("FileMainTags")
+  additionalTags  Tag[]    @relation("FileAdditionalTags")
+}
+
+model Equipment {
+  id          String   @id @default(uuid())
+  type        String   // "VALVE", "FAN", "AHU", "CONTROL_PANEL"
+  description String?  @db.Text
+  tags        Tag[]
+}
+
+model Tag {
+  id           String      @id @default(uuid())
+  identifier   String      // e.g. AHU-2
+  brand        String?     // Марка
+  department   String?
+  wbs          String?
+  fluid        String?
+  projectId    String
+  equipmentId  String?
+  metadata     String?     @db.Text
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime?   @updatedAt // для индикатора «данные изменились» в Конструкторе
+
+  project      Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  equipment    Equipment?  @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
+  mainFiles        FileNode[]  @relation("FileMainTags")
+  additionalFiles  FileNode[]  @relation("FileAdditionalTags")
+  componentElements ComponentElement[]
+}
+
+model EquipmentSystem {
+  id            String          @id @default(uuid())
+  name          String          // e.g. "у1"
+  projectId     String
+  category      String          @default("AHU") // "AHU", "FAN", "VALVE", "CURTAIN"
+  fileName      String?         // Added to keep different imported files separate
+  project       Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  monoblocks    Monoblock[]
+  createdAt     DateTime        @default(now())
+}
+
+model Monoblock {
+  id                String             @id @default(uuid())
+  name              String             // e.g. "мн1"
+  systemId          String
+  system            EquipmentSystem    @relation(fields: [systemId], references: [id], onDelete: Cascade)
+  components        ComponentElement[]
+  createdAt         DateTime           @default(now())
+}
+
+model ComponentElement {
+  id            String             @id @default(uuid())
+  name          String             // e.g. "бл2.1"
+  itemCode      String             // Stable unique business code (e.g., "бл2.1")
+  monoblockId   String
+  monoblock     Monoblock          @relation(fields: [monoblockId], references: [id], onDelete: Cascade)
+  specs         String?            @db.LongText // JSON: { groups: [...] }
+  equipType     String             @default("ПРОЧЕЕ") // КЛАПАН/ФИЛЬТР/НАГРЕВАТЕЛЬ/...
+  overrides     String?            @db.LongText // JSON: ручные переопределения значений
+  paramConflicts String?           @db.LongText // JSON: конфликтные параметры последней ревизии
+  tags          Tag[]
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @default(now())
+  status        String             @default("OK") // e.g., "OK", "CONFLICT"
+  hasConflict   Boolean            @default(false)
+  conflictType  String?            // "ORPHANED_TAG", "TYPE_MISMATCH"
+  conflictLog   String?            @db.Text
+  version       Int                @default(1)
+  history       EquipmentHistory[]
+  chatMessages  ChatMessage[]      @relation("LinkedElement")
+}
+
+model EquipmentHistory {
+  id          String           @id @default(uuid())
+  elementId   String
+  element     ComponentElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+  version     Int
+  changedAt   DateTime         @default(now())
+  oldSpecs    String?          @db.LongText
+  newSpecs    String?          @db.LongText
+  changeType  String           // "UPDATE", "DELETE", "CREATE"
+}
+
+model UserNote {
+  id          String   @id @default(uuid())
+  title       String   @default("Новая заметка")
+  content     String   @db.LongText // HTML-строка или JSON-дерево Rich-text редактора
+  color       String   @default("bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200")
+  equipmentId String?  // Опциональная привязка к тегу/оборудованию
+  groupName   String?  // Пользовательская группа заметок в блокноте
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SystemChangeLog {
+  id          String   @id @default(uuid())
+  userName    String   // Кто изменил
+  userSymbol  String   // Символ/ID
+  description String   @db.Text // Что изменено
+  targetRoute String   @db.Text // Маршрут для сквозного перехода
+  createdAt   DateTime @default(now())
+}
+
+model ChatGroup {
+  id        String        @id @default(uuid())
+  name      String
+  type      String        @default("PROJECT") // "DIRECT" | "PROJECT" | "CUSTOM" | "CHANNEL"
+  description String      @default("")
+  color     String        @default("indigo")
+  ownerId   String?       // владелец группы/канала
+  projectId String?
+  project   Project?      @relation("ProjectGroups", fields: [projectId], references: [id], onDelete: Cascade)
+  members   User[]        @relation("GroupMembers")
+  messages  ChatMessage[] @relation("GroupMessages")
+  createdAt DateTime      @default(now())
+}
+
+model ChatMessage {
+  id              String            @id @default(uuid())
+  content         String            @db.LongText
+  createdAt       DateTime          @default(now())
+  senderId        String
+  sender          User              @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId      String?
+  receiver        User?             @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  chatGroupId     String?
+  chatGroup       ChatGroup?        @relation("GroupMessages", fields: [chatGroupId], references: [id], onDelete: Cascade)
+  linkedElementId String?
+  linkedElement   ComponentElement? @relation("LinkedElement", fields: [linkedElementId], references: [id], onDelete: SetNull)
+  linkedProjectId String?
+  linkedProject   Project?          @relation("LinkedProject", fields: [linkedProjectId], references: [id], onDelete: SetNull)
+  attachments     ChatAttachment[]
+  replyToId       String?           // Ответ на сообщение (цитата)
+  replyTo         ChatMessage?      @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies         ChatMessage[]     @relation("MessageReplies")
+  editedAt        DateTime?         // Когда сообщение было отредактировано
+  reactions       String?           @db.Text // JSON: { "👍": ["userId", ...], ... }
+  pinned          Boolean           @default(false)
+  forwardedFrom   String?           // имя исходного отправителя при пересылке
+}
+
+model ChatAttachment {
+  id        String      @id @default(uuid())
+  messageId String
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  fileName  String
+  filePath  String      @db.Text
+  fileSize  Int         @default(0)
+}
+
+model AppSetting {
+  id        String   @id @default(uuid())
+  key       String   // напр. equip_visibility, equip_conflict_mode
+  userId    String?  // null = глобальная (админ) настройка; иначе персональная
+  value     String   @db.LongText // JSON
+  updatedAt DateTime @updatedAt @default(now())
+
+  @@unique([key, userId])
+}
+
+model AppUpdate {
+  id        String   @id @default(uuid())
+  version   String   @unique
+  changelog String   @db.Text
+  fileUrl   String   @db.Text
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  userId      String
+  category    String   @default("СИСТЕМА")
+  title       String   @db.Text
+  body        String   @default("") @db.Text
+  targetRoute String   @default("") @db.Text
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([userId, isRead])
+}

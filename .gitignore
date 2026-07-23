@@ -19,3 +19,5 @@ prisma-clients/**
 !prisma-clients/client-sqlite/package.json
 !prisma-clients/client-pg/
 !prisma-clients/client-pg/package.json
+!prisma-clients/client-mysql/
+!prisma-clients/client-mysql/package.json

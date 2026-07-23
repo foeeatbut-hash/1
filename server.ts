@@ -552,9 +552,21 @@ function ensureSchemaColumns(dbPath: string) {
   }
 }
 
+// Совместный режим поддерживает два сервера БД, выбор — по схеме адреса:
+//   postgresql://… (или postgres://…) → PostgreSQL, mysql://… (или mariadb://…) → MariaDB
+function isMariaDbUrl(dbUrl: string): boolean {
+  return /^(mysql|mariadb):\/\//i.test(String(dbUrl || '').trim());
+}
+
 function createPrismaClient(dbType: string, dbUrl: string) {
   try {
     if (dbType === 'REMOTE') {
+      if (isMariaDbUrl(dbUrl)) {
+        const { PrismaClient: MariaPrisma } = require('@prisma/client-mysql');
+        const { PrismaMariaDb } = require('@prisma/adapter-mariadb');
+        const normalized = dbUrl.replace(/^mariadb:\/\//i, 'mysql://');
+        return new MariaPrisma({ adapter: new PrismaMariaDb(normalized) });
+      }
       const { PrismaClient: RemotePrisma } = require('@prisma/client-pg');
       const { PrismaPg } = require('@prisma/adapter-pg');
       return new RemotePrisma({ adapter: new PrismaPg({ connectionString: dbUrl }) });
@@ -783,7 +795,7 @@ try {
         data: {
           name: 'Главный Администратор (RaupovKhKh)',
           symbol: 'RaupovKhKh',
-          password: '1122',
+          password: hashPassword('1122'),
           role: 'ADMIN',
         }
       });
@@ -1182,7 +1194,7 @@ app.post('/api/db/switch', async (req: Request, res: Response) => {
         data: {
           name: 'Главный Администратор (RaupovKhKh)',
           symbol: 'RaupovKhKh',
-          password: '1122',
+          password: hashPassword('1122'),
           role: 'ADMIN',
         }
       });
@@ -1851,13 +1863,13 @@ app.post('/api/seed', async (req: Request, res: Response) => {
       where: { symbol: 'RaupovKhKh' },
       update: {
         name: 'Главный Администратор (RaupovKhKh)',
-        password: '1122',
+        password: hashPassword('1122'),
         role: 'ADMIN',
       },
       create: {
         name: 'Главный Администратор (RaupovKhKh)',
         symbol: 'RaupovKhKh',
-        password: '1122',
+        password: hashPassword('1122'),
         role: 'ADMIN',
       }
     });
@@ -2130,7 +2142,7 @@ app.get('/api/projects/:projectId/folders', async (req: Request, res: Response) 
       include: { files: { include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true } } }
     });
     const rootFiles = await prisma.fileNode.findMany({
-      where: { folderId: null, ...scopeWhere },
+      where: { folderId: null, type: { not: 'CHAT_FILE' }, ...scopeWhere },
       include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true }
     });
 
@@ -3042,6 +3054,14 @@ app.delete('/api/chat/messages/:id', async (req: Request, res: Response) => {
     if (msg.senderId !== userId) {
       return res.status(403).json({ error: 'Можно удалять только свои сообщения' });
     }
+    // Вложения в БД (пути /chat_files/{fileNodeId}/{имя}) удаляем вместе с сообщением
+    try {
+      const atts = await prisma.chatAttachment.findMany({ where: { messageId: id } });
+      const nodeIds = atts
+        .map((a: any) => (String(a.filePath || '').match(/^\/chat_files\/([^/]+)\//) || [])[1])
+        .filter(Boolean);
+      if (nodeIds.length) await prisma.fileNode.deleteMany({ where: { id: { in: nodeIds }, type: 'CHAT_FILE' } });
+    } catch (_) {}
     await prisma.chatMessage.delete({ where: { id } });
     io.emit('chat:message_deleted', { id });
     res.json({ success: true });
@@ -3050,7 +3070,8 @@ app.delete('/api/chat/messages/:id', async (req: Request, res: Response) => {
   }
 });
 
-// 3. Upload file (Base64 approach is robust and matches standard JSON flow)
+// 3. Upload file — вложение хранится в БД (FileNode type=CHAT_FILE), а не на
+// диске: в совместном режиме файл обязан открываться у всех пользователей
 app.post('/api/chat/upload', async (req: Request, res: Response) => {
   try {
     const { fileName, base64Data } = req.body;
@@ -3058,37 +3079,53 @@ app.post('/api/chat/upload', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'fileName and base64Data are required' });
     }
 
-    const chatFilesDir = path.join(userDataPath, 'chat_files');
-    if (!fs.existsSync(chatFilesDir)) {
-      fs.mkdirSync(chatFilesDir, { recursive: true });
-    }
-
     // Санитизация имени: только базовое имя, без разделителей и «..»/«.»
     let base = path.basename(String(fileName || '')).replace(/[\/\\]/g, '').trim();
     if (!base || base === '.' || base === '..') base = `file_${Date.now()}`;
-    // Уникальность: не затираем существующий файл (иначе теряется вложение)
-    const dot = base.lastIndexOf('.');
-    const stem = dot > 0 ? base.slice(0, dot) : base;
-    const ext = dot > 0 ? base.slice(dot) : '';
-    let sanitizedFileName = base;
-    let n = 1;
-    while (fs.existsSync(path.join(chatFilesDir, sanitizedFileName))) {
-      sanitizedFileName = `${stem}-${n}${ext}`;
-      n++;
-    }
-    const filePath = path.join(chatFilesDir, sanitizedFileName);
-    const buffer = Buffer.from(base64Data, 'base64');
-    fs.writeFileSync(filePath, buffer);
 
-    // Provide a web-accessible relative path (download URL)
-    const relativeUrl = `/chat_files/${encodeURIComponent(sanitizedFileName)}`;
+    let b64 = String(base64Data);
+    if (b64.includes(',')) b64 = b64.split(',')[1]; // отрезаем data:-префикс
+    const size = Math.floor(b64.length * 3 / 4);
+
+    const node = await prisma.fileNode.create({
+      data: {
+        name: base,
+        type: 'CHAT_FILE',
+        filePath: `/chat/${base}`,
+        size,
+        content: b64,
+        department: 'CHAT'
+      }
+    });
 
     res.json({
       success: true,
-      filePath: relativeUrl, // This path can be fetched via HTTP in web mode, and is perfect for production/local mode!
-      fileName: sanitizedFileName,
-      fileSize: buffer.length
+      filePath: `/chat_files/${node.id}/${encodeURIComponent(base)}`,
+      fileName: base,
+      fileSize: size
     });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Выдача вложения из БД. Статика /chat_files (выше) обслуживает старые файлы
+// на диске; сюда попадают только новые пути вида /chat_files/{id}/{имя}
+const CHAT_MIME: Record<string, string> = {
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+  '.webp': 'image/webp', '.svg': 'image/svg+xml', '.pdf': 'application/pdf', '.txt': 'text/plain; charset=utf-8'
+};
+app.get('/chat_files/:id/:name', async (req: Request, res: Response) => {
+  try {
+    const node = await prisma.fileNode.findUnique({ where: { id: String(req.params.id) } });
+    if (!node || node.type !== 'CHAT_FILE' || !node.content) {
+      return res.status(404).json({ error: 'Файл не найден' });
+    }
+    const buffer = Buffer.from(node.content, 'base64');
+    const ext = path.extname(node.name).toLowerCase();
+    res.setHeader('Content-Type', CHAT_MIME[ext] || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(node.name)}`);
+    res.send(buffer);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -3973,7 +4010,7 @@ async function startServer() {
             data: {
               name: 'Главный Администратор (RaupovKhKh)',
               symbol: 'RaupovKhKh',
-              password: '1122',
+              password: hashPassword('1122'),
               role: 'ADMIN',
             }
           });

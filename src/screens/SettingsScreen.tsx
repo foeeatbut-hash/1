@@ -950,9 +950,10 @@ function DatabaseSection({ addToast }: any) {
               type="text"
               value={remoteUrl}
               onChange={(e) => setRemoteUrl(e.target.value)}
-              placeholder="postgresql://user:password@host:5432/dbname"
+              placeholder="mysql://user:password@host:3306/flux или postgresql://user:password@host:5432/flux"
               className="w-full font-mono text-xs bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 p-2.5 border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:border-emerald-500"
             />
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">MariaDB/MySQL — адрес mysql://…, PostgreSQL — postgresql://…</p>
             <div className="grid grid-cols-2 gap-2">
               <button disabled={isTesting} onClick={handleTest} className="py-2 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer disabled:opacity-50">
                 {isTesting ? 'Проверка…' : 'Тестировать'}
