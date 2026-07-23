@@ -234,6 +234,7 @@ CREATE TABLE "Equipment" (
 CREATE TABLE "Tag" (
     "id" TEXT NOT NULL,
     "identifier" TEXT NOT NULL,
+    "brand" TEXT,
     "department" TEXT,
     "wbs" TEXT,
     "fluid" TEXT,
@@ -251,6 +252,7 @@ CREATE TABLE "EquipmentSystem" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "projectId" TEXT NOT NULL,
+    "category" TEXT NOT NULL DEFAULT 'AHU',
     "fileName" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -279,7 +281,7 @@ CREATE TABLE "ComponentElement" (
     "paramConflicts" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "status" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'OK',
     "hasConflict" BOOLEAN NOT NULL DEFAULT false,
     "conflictType" TEXT,
     "conflictLog" TEXT,
