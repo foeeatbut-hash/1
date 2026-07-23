@@ -14,6 +14,7 @@ import { exec, execSync } from 'child_process';
 import os from 'os';
 import crypto from 'crypto';
 import { setPrisma, setNotifier, upsertSetting } from './server/context.js';
+import { ensureRemoteSchema } from './server/schema-sync.js';
 import { registerNoteRoutes } from './server/routes/notes.js';
 import { registerConstructorRoutes } from './server/routes/constructor.js';
 import { registerVdrRoutes } from './server/routes/vdr.js';
@@ -558,6 +559,38 @@ function isMariaDbUrl(dbUrl: string): boolean {
   return /^(mysql|mariadb):\/\//i.test(String(dbUrl || '').trim());
 }
 
+// Находит файл схемы Prisma для активного движка общей базы (для автомиграции).
+// В упакованном приложении папка prisma лежит в resources (extraResources).
+function findRemoteSchemaFile(dialect: 'postgresql' | 'mysql'): string {
+  const file = dialect === 'mysql' ? 'schema.mariadb.prisma' : 'schema.postgresql.prisma';
+  const candidates = [
+    path.join(process.cwd(), 'prisma', file),
+    path.join(__dirname, 'prisma', file),
+    path.join(__dirname, '..', 'prisma', file),
+    path.join((process as any).resourcesPath || '', 'prisma', file),
+  ];
+  for (const p of candidates) {
+    try { if (fs.existsSync(p)) return p; } catch (_) {}
+  }
+  return '';
+}
+
+// Приводит общую базу (PG/MariaDB) к схеме программы. Безопасно (только добавляет).
+async function syncRemoteSchema(client: any, dbUrl: string): Promise<void> {
+  try {
+    const dialect: 'postgresql' | 'mysql' = isMariaDbUrl(dbUrl) ? 'mysql' : 'postgresql';
+    const schemaFile = findRemoteSchemaFile(dialect);
+    if (!schemaFile) {
+      logInit('[Schema Sync] Файл схемы не найден — автомиграция общей базы пропущена.');
+      return;
+    }
+    const schemaText = fs.readFileSync(schemaFile, 'utf-8');
+    await ensureRemoteSchema(client, dialect, schemaText, logInit);
+  } catch (err: any) {
+    logInit(`[Schema Sync] Автомиграция общей базы не выполнена: ${err.message}`);
+  }
+}
+
 function createPrismaClient(dbType: string, dbUrl: string) {
   try {
     if (dbType === 'REMOTE') {
@@ -786,6 +819,12 @@ try {
       }
     }
     
+    // Общая база: до первых запросов приводим схему к версии программы
+    if (appConfig.current_db_type === 'REMOTE') {
+      logInit('[Schema Sync] Проверка схемы общей базы при старте...');
+      await syncRemoteSchema(prisma, startupDbUrl);
+    }
+
     logInit('[Startup DB Feed Check] Verifying records in User table...');
     const userCount = await prisma.user.count();
     logInit(`[Startup DB Feed Check] Found ${userCount} users registered.`);
@@ -1177,6 +1216,12 @@ app.post('/api/db/switch', async (req: Request, res: Response) => {
 
     // Try a test query
     await prisma.$queryRawUnsafe('SELECT 1;');
+
+    // Общая база: приводим схему к версии программы (создаёт недостающие
+    // таблицы/колонки) до автозаполнения и первых запросов
+    if (current_db_type === 'REMOTE') {
+      await syncRemoteSchema(prisma, targetDbUrl);
+    }
 
     // Save configuration settings
     saveAppConfig({
