@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, Menu, utilityProcess } from 'electron';
 import path from 'path';
+import { licenseStatus, activateLicense } from './license';
 
 const additionalData = { myKey: 'pdm-system' };
 const gotTheLock = app.requestSingleInstanceLock(additionalData);
@@ -146,6 +147,17 @@ app.whenReady().then(() => {
     }
   });
   ipcMain.handle('app:get-server-url', () => readAppConfig().remoteServerUrl);
+
+  // Лицензия: авторитетная проверка в главном процессе (отпечаток именно этой
+  // машины). Папка пользователя — стандартная userData этого приложения.
+  ipcMain.handle('license:status', () => {
+    try { return licenseStatus(app.getPath('userData')); }
+    catch (e: any) { return { licensed: false, machineId: '', expiresAt: null, daysLeft: null, reason: 'none', error: e?.message }; }
+  });
+  ipcMain.handle('license:activate', (_event, code: string) => {
+    try { return activateLicense(app.getPath('userData'), String(code || '')); }
+    catch (e: any) { return { licensed: false, machineId: '', expiresAt: null, daysLeft: null, reason: 'invalid', error: e?.message }; }
+  });
 
   const resolveLocalDbPath = (localDbPathSetting: string) => {
     const custom = String(localDbPathSetting || '').trim();

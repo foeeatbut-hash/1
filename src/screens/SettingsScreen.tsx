@@ -839,6 +839,8 @@ function TagsSection({ addToast }: any) {
 
 // ── База данных (перенесено из профиля) ────────────────────────────────────────
 function DatabaseSection({ addToast }: any) {
+  const { user } = useStore();
+  const isAdmin = user?.role === 'ADMIN';
   const [dbLocation, setDbLocation] = useState('');
   const [dbDisplayLocation, setDbDisplayLocation] = useState('');
   const [dbType, setDbType] = useState<'LOCAL' | 'REMOTE' | string>('LOCAL');
@@ -846,7 +848,23 @@ function DatabaseSection({ addToast }: any) {
   const [remoteUrl, setRemoteUrl] = useState('');
   const [isTesting, setIsTesting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string; success: boolean } | null>(null);
+
+  const handleSyncSchema = async () => {
+    setIsSyncing(true);
+    setStatusMessage(null);
+    try {
+      const resp = await fetch(`${ENV_CONFIG.apiUrl}/admin/sync-schema`, { method: 'POST' });
+      const d = await resp.json();
+      if (resp.ok) setStatusMessage({ text: d.message || 'Готово', success: true });
+      else setStatusMessage({ text: d.error || 'Не удалось проверить структуру', success: false });
+    } catch (e: any) {
+      setStatusMessage({ text: e?.message || 'Ошибка', success: false });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const refresh = async () => {
     try {
@@ -968,6 +986,15 @@ function DatabaseSection({ addToast }: any) {
         {statusMessage && (
           <div className={`p-2 text-xs font-bold text-center rounded-lg ${statusMessage.success ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600' : 'bg-rose-50 dark:bg-rose-950/20 text-rose-600'}`}>
             {statusMessage.text}
+          </div>
+        )}
+
+        {isAdmin && (
+          <div className="pt-3 mt-1 border-t border-slate-200 dark:border-slate-800 space-y-1.5">
+            <button disabled={isSyncing} onClick={handleSyncSchema} className="w-full py-2.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer disabled:opacity-50">
+              {isSyncing ? 'Проверка…' : 'Проверить / обновить структуру базы'}
+            </button>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">Достраивает недостающие таблицы и колонки в общей базе после обновления программы. Обычно выполняется автоматически при запуске.</p>
           </div>
         )}
       </div>

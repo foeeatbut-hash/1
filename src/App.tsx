@@ -14,6 +14,7 @@ const StickerWindow = lazy(() => import('./screens/StickerWindow'));
 
 import { SocketProvider } from './components/SocketProvider';
 import { ServerGate } from './components/BootSplash';
+import LicenseGate from './screens/LicenseGate';
 import ActionLogWidget from './components/ActionLogWidget';
 import AssistantSpotlight from './components/AssistantSpotlight';
 import { setAssistantNavigator, setAssistantProjectGetter, useAssistantStore } from './store/assistantStore';
@@ -165,7 +166,9 @@ export default function App() {
           <div className="flex-1 min-h-0 overflow-hidden relative">
             {/* Пока встроенный сервер поднимается — анимированная заставка вместо пустого экрана */}
             <ServerGate>
-              <AnimatedRoutes />
+              <LicenseGate>
+                <AnimatedRoutes />
+              </LicenseGate>
             </ServerGate>
           </div>
         </div>

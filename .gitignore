@@ -21,3 +21,7 @@ prisma-clients/**
 !prisma-clients/client-pg/package.json
 !prisma-clients/client-mysql/
 !prisma-clients/client-mysql/package.json
+
+# Офлайн-генератор лицензий содержит приватный ключ — никогда не коммитить
+license-generator.html
+**/license-generator.html

@@ -15,6 +15,7 @@ import os from 'os';
 import crypto from 'crypto';
 import { setPrisma, setNotifier, upsertSetting } from './server/context.js';
 import { ensureRemoteSchema } from './server/schema-sync.js';
+import { computeMachineId, licenseStatus, activateLicense } from './electron/license.js';
 import { registerNoteRoutes } from './server/routes/notes.js';
 import { registerConstructorRoutes } from './server/routes/constructor.js';
 import { registerVdrRoutes } from './server/routes/vdr.js';
@@ -576,18 +577,20 @@ function findRemoteSchemaFile(dialect: 'postgresql' | 'mysql'): string {
 }
 
 // Приводит общую базу (PG/MariaDB) к схеме программы. Безопасно (только добавляет).
-async function syncRemoteSchema(client: any, dbUrl: string): Promise<void> {
+// Возвращает список выполненных изменений (пусто = база уже актуальна).
+async function syncRemoteSchema(client: any, dbUrl: string): Promise<string[]> {
   try {
     const dialect: 'postgresql' | 'mysql' = isMariaDbUrl(dbUrl) ? 'mysql' : 'postgresql';
     const schemaFile = findRemoteSchemaFile(dialect);
     if (!schemaFile) {
       logInit('[Schema Sync] Файл схемы не найден — автомиграция общей базы пропущена.');
-      return;
+      return [];
     }
     const schemaText = fs.readFileSync(schemaFile, 'utf-8');
-    await ensureRemoteSchema(client, dialect, schemaText, logInit);
+    return await ensureRemoteSchema(client, dialect, schemaText, logInit);
   } catch (err: any) {
     logInit(`[Schema Sync] Автомиграция общей базы не выполнена: ${err.message}`);
+    return [];
   }
 }
 
@@ -1030,7 +1033,7 @@ app.use('/chat_files', express.static(path.join(userDataPath, 'chat_files')));
 // Открыты только вход, проверка готовности и конфиг БД для экрана входа.
 // Настройка БД (/api/db/*) до входа разрешена только с самой машины сервера —
 // это функция встроенного режима, по сети её дергать нельзя.
-const AUTH_EXEMPT = new Set(['/api/health', '/api/login', '/api/db/config']);
+const AUTH_EXEMPT = new Set(['/api/health', '/api/login', '/api/db/config', '/api/license/status', '/api/license/activate']);
 const isLoopbackRequest = (req: Request) => {
   const ip = String(req.ip || req.socket?.remoteAddress || '');
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
@@ -1083,6 +1086,60 @@ app.use(async (req: Request, res: Response, next) => {
 // так что успешный ответ = приложение полностью готово (для стартовой заставки)
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ ok: true, uptime: Math.round(process.uptime()) });
+});
+
+// ── Лицензия ──
+// Резервный путь для рендерера, когда IPC Electron недоступен (dev/браузер,
+// локальный режим). В упакованном приложении основной путь — IPC главного
+// процесса (он считает отпечаток именно клиентской машины). Здесь папка
+// пользователя = папка встроенного сервера (на машине клиента в локальном режиме).
+app.get('/api/license/status', (_req: Request, res: Response) => {
+  try {
+    res.json(licenseStatus(ventAppDataPath));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message, machineId: (() => { try { return computeMachineId(); } catch { return ''; } })() });
+  }
+});
+
+app.post('/api/license/activate', (req: Request, res: Response) => {
+  try {
+    const code = String(req.body?.code || '');
+    if (!code) return res.status(400).json({ error: 'Код не указан' });
+    res.json(activateLicense(ventAppDataPath, code));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Ручная проверка/обновление структуры базы (только администратор). Проходит
+// обычную авторизацию (путь НЕ /api/db/, поэтому loopback-исключение не действует).
+app.post('/api/admin/sync-schema', async (req: Request, res: Response) => {
+  const user = (req as any).authUser;
+  if (!user || user.role !== 'ADMIN') {
+    return res.status(403).json({ error: 'Доступно только администратору' });
+  }
+  try {
+    const cfg = loadAppConfig();
+    if (cfg.current_db_type === 'REMOTE') {
+      const applied = await syncRemoteSchema(prisma, cfg.database_url || process.env.DATABASE_URL || '');
+      return res.json({
+        mode: 'REMOTE',
+        applied,
+        message: applied.length
+          ? `Структура обновлена: ${applied.join(', ')}`
+          : 'Структура общей базы уже соответствует программе — изменений нет.',
+      });
+    }
+    // Локальная база догоняет схему при каждом запуске; повторяем догон колонок
+    try { ensureSchemaColumns(resolveLocalDbPath(cfg)); } catch (_) {}
+    return res.json({
+      mode: 'LOCAL',
+      applied: [],
+      message: 'Локальная база синхронизируется автоматически при каждом запуске.',
+    });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
 });
 
 // Database Routing
