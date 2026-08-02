@@ -35,8 +35,12 @@ export interface PlaceholderDef {
   resolve: (ctx: Required<Pick<PlaceholderContext, 'now'>> & PlaceholderContext) => string;
 }
 
+// Родительный падеж — для дат («2 августа 2026 г.»)
 const MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
   'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+// Именительный — для штампов и шапок («август 2026»)
+const MONTHS_NOM = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
+  'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
 
 const two = (n: number) => String(n).padStart(2, '0');
 
@@ -71,15 +75,15 @@ export const PLACEHOLDERS: PlaceholderDef[] = [
     resolve: (c) => c.projectCode || '' },
 
   // ── Дата ──
-  { key: 'дата.сегодня', group: 'Дата', label: 'Сегодня (12.05.2026)',
+  { key: 'дата.сегодня', group: 'Дата', label: 'Сегодня, цифрами',
     hint: 'Подставится дата, когда обновляли подстановки',
     resolve: (c) => `${two(c.now.getDate())}.${two(c.now.getMonth() + 1)}.${c.now.getFullYear()}` },
   { key: 'дата.прописью', group: 'Дата', label: 'Сегодня прописью',
-    hint: '«12 мая 2026 г.» — для титулов и писем',
+    hint: 'Для титулов и писем',
     resolve: (c) => `${c.now.getDate()} ${MONTHS[c.now.getMonth()]} ${c.now.getFullYear()} г.` },
   { key: 'дата.месяц', group: 'Дата', label: 'Месяц и год',
-    hint: '«май 2026» — для штампов',
-    resolve: (c) => `${MONTHS[c.now.getMonth()].replace(/я$/, 'й')} ${c.now.getFullYear()}` },
+    hint: 'Для штампов основной надписи',
+    resolve: (c) => `${MONTHS_NOM[c.now.getMonth()]} ${c.now.getFullYear()}` },
   { key: 'дата.год', group: 'Дата', label: 'Год',
     hint: 'Четыре цифры',
     resolve: (c) => String(c.now.getFullYear()) },

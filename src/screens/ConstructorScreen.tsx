@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import { ENV_CONFIG, getAuthToken } from '../config/env';
 import { useStore } from '../store/store';
-import { PLACEHOLDERS, placeholderToken, fillSnapshot } from '../lib/docPlaceholders';
+import { PLACEHOLDERS, placeholderToken, fillSnapshot, countTokens } from '../lib/docPlaceholders';
 import { useToastStore } from '../store/toastStore';
 import * as XLSX from 'xlsx';
 import {
@@ -384,6 +384,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   const [titleOpen, setTitleOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [phOpen, setPhOpen] = useState(false);
+  const [phCount, setPhCount] = useState(0);
   const [titleSettings, setTitleSettings] = useState<TitleSettings>({});
   const [versions, setVersions] = useState<{ id: string; version: number; comment: string; createdAt: string }[]>([]);
   const [reloadTick, setReloadTick] = useState(0); // откат = переинициализация движка
@@ -427,23 +428,61 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   // Вставить метку туда, где стоит курсор. Для таблицы это активная
   // ячейка; если движок не отдаёт выделение, кладём метку в буфер обмена,
   // чтобы человек всё равно мог вставить её сам.
-  const insertPlaceholder = (key: string) => {
+  const insertPlaceholder = async (key: string) => {
     const token = placeholderToken(key);
+    const api = univerRef.current?.univerAPI;
+    // Таблица: метка ложится в активную ячейку.
     try {
-      const api = univerRef.current?.univerAPI;
       const range = api?.getActiveWorkbook?.()?.getActiveSheet?.()?.getActiveRange?.();
       if (range?.setValue) {
         range.setValue(token);
         addToast(`Метка вставлена: ${token}`, 'success');
+        setPhCount(c => c + 1); // счётчик незаполненных обновляем сразу
         void saveNow();
         return;
       }
-    } catch (_) { /* ниже — запасной путь через буфер обмена */ }
+    } catch (_) { /* ниже — текстовый документ, затем буфер обмена */ }
+    // Текстовый документ: метка встаёт туда, где стоит курсор. Без этого
+    // в Word-режиме лента работала только через буфер обмена.
+    try {
+      const activeDoc = api?.getActiveDocument?.();
+      if (activeDoc?.insertText) {
+        const ok = await activeDoc.insertText(token);
+        if (ok) {
+          addToast(`Метка вставлена: ${token}`, 'success');
+          setPhCount(c => c + 1);
+          void saveNow();
+          return;
+        }
+      }
+    } catch (_) { /* остаётся буфер обмена */ }
     navigator.clipboard?.writeText(token).then(
-      () => addToast(`Метка ${token} скопирована — вставьте в нужное место`, 'info'),
+      () => addToast(`Метка ${token} скопирована — вставьте в нужное место (Ctrl+V)`, 'info'),
       () => addToast(`Впишите вручную: ${token}`, 'info'),
     );
   };
+
+  // Пересчитываем метки при открытии ленты: человек должен видеть, есть
+  // ли в документе что заполнять, до нажатия кнопки.
+  useEffect(() => {
+    if (!phOpen) return;
+    try {
+      const raw = takeSnapshot();
+      setPhCount(raw ? countTokens(JSON.parse(raw)) : 0);
+    } catch (_) { setPhCount(0); }
+  }, [phOpen, reloadTick]);
+
+  // Что подставится прямо сейчас — считаем на момент открытия ленты,
+  // чтобы дата не «прыгала» на каждой перерисовке.
+  const phPreview = useMemo(() => {
+    if (!phOpen) return {} as Record<string, string>;
+    const ctx = placeholderCtx();
+    const out: Record<string, string> = {};
+    for (const ph of PLACEHOLDERS) {
+      try { out[ph.key] = ph.resolve(ctx as any); } catch (_) { out[ph.key] = ''; }
+    }
+    return out;
+  }, [phOpen, doc?.name, titleSettings, activeProject?.id, user?.id]);
 
   const fillPlaceholders = async () => {
     const raw = takeSnapshot();
@@ -461,6 +500,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
     lastSavedRef.current = JSON.stringify(result);
     setSaveState('saved');
     addToast(`Заполнено меток: ${replaced}`, 'success');
+    setPhCount(0);
     setPhOpen(false);
     setLoading(true);
     setReloadTick(t => t + 1); // редактор перечитывает документ уже с данными
@@ -1265,18 +1305,36 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
               <div key={group} className="min-w-0">
                 <div className="text-2xs font-mono uppercase tracking-wider text-slate-400 mb-1">{group}</div>
                 <div className="flex items-center gap-1 flex-wrap">
-                  {PLACEHOLDERS.filter(ph => ph.group === group).map((ph) => (
-                    <button
-                      key={ph.key}
-                      type="button"
-                      onClick={() => insertPlaceholder(ph.key)}
-                      title={`${ph.hint}. Вставится как ${placeholderToken(ph.key)}`}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-emerald-600 dark:hover:border-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-ui cursor-pointer"
-                    >
-                      <span className="w-1.5 h-1.5 rounded-sm bg-emerald-500 shrink-0" />
-                      {ph.label}
-                    </button>
-                  ))}
+                  {PLACEHOLDERS.filter(ph => ph.group === group).map((ph) => {
+                    // Показываем не только название метки, но и то, что
+                    // подставится прямо сейчас: человек видит данные своей
+                    // программы и сразу замечает, если чего-то не хватает
+                    // (не задан код проекта, нет номера документа).
+                    const value = phPreview[ph.key] || '';
+                    const empty = !value;
+                    return (
+                      <button
+                        key={ph.key}
+                        type="button"
+                        onClick={() => insertPlaceholder(ph.key)}
+                        title={empty
+                          ? `${ph.hint}. Сейчас данных нет — метка ${placeholderToken(ph.key)} останется пустой до заполнения`
+                          : `${ph.hint}. Сейчас подставится: ${value}`}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border bg-white dark:bg-slate-900 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-ui cursor-pointer ${
+                          empty
+                            ? 'border-amber-300 dark:border-amber-800 hover:border-amber-500'
+                            : 'border-slate-200 dark:border-slate-800 hover:border-emerald-600 dark:hover:border-emerald-400'}`}
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-sm shrink-0 ${empty ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                        <span className="min-w-0 text-left">
+                          {ph.label}
+                          <span className={`block text-2xs font-normal truncate max-w-[11rem] ${empty ? 'text-amber-600 dark:text-amber-500' : 'text-slate-400'}`}>
+                            {empty ? 'нет данных' : value}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             ))}
@@ -1285,6 +1343,11 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
               <span className="text-2xs text-slate-400 max-w-[16rem] hidden xl:block">
                 Кнопка вставляет метку в выбранную ячейку. Когда шаблон готов — «Заполнить данными».
               </span>
+              {phCount > 0 && (
+                <span className="text-2xs font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-1 rounded-lg">
+                  незаполненных меток: {phCount}
+                </span>
+              )}
               <button type="button" onClick={fillPlaceholders}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition-ui cursor-pointer">
                 <RefreshCw className="w-3.5 h-3.5" /> Заполнить данными

@@ -1720,6 +1720,10 @@ app.get('/api/assistant/data', async (req: Request, res: Response) => {
       const proc = meta.procurement || {};
       let stageIdx = proc.stage ? stageIds.indexOf(proc.stage) : 0;
       if (stageIdx < 0) stageIdx = 0;
+      // Дата, с которой позиция стоит на текущем этапе: по ней помощник
+      // отвечает на «что зависло» — это главный вопрос по закупкам.
+      const curStageId = stages[stageIdx]?.id;
+      const stageRec = curStageId ? (proc.stageLog || {})[curStageId] : null;
       return {
         id: t.id, identifier: t.identifier, brand: t.brand,
         department: t.department, wbs: t.wbs, fluid: t.fluid,
@@ -1727,6 +1731,8 @@ app.get('/api/assistant/data', async (req: Request, res: Response) => {
         actuality: actualityOf(meta),
         stageId: stages[stageIdx]?.id || 'added',
         stageLabel: stages[stageIdx]?.label || 'Добавлен',
+        stageSince: stageRec?.at || t.createdAt || null,
+        stageIsFinal: stageIdx >= stages.length - 1,
         supplier: proc.supplier || '', qty: proc.qty || '',
       };
     });

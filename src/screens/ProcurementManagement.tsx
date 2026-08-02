@@ -6,7 +6,7 @@ import { useToastStore } from '../store/toastStore';
 import { dataService } from '../services/dataService';
 import {
   Briefcase, Search, RefreshCw, Database, AlertTriangle, X, ChevronDown, ChevronUp,
-  ChevronRight, Filter, List, FolderTree, Settings2, CheckSquare
+  ChevronRight, Filter, List, FolderTree, Settings2, CheckSquare, Download
 } from 'lucide-react';
 import CustomSelect from '../components/CustomSelect';
 import {
@@ -153,6 +153,7 @@ function ProcurementTab() {
   const [deptFilter, setDeptFilter] = useState<string>('');
   const [onlyDuplicates, setOnlyDuplicates] = useState(false);
   const [onlyCritical, setOnlyCritical] = useState(false);
+  const [onlyStuck, setOnlyStuck] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'tree'>('list');
   const [sortKey, setSortKey] = useState<'identifier' | 'stage' | 'lastDate' | 'brand' | 'qty'>('identifier');
   const [sortAsc, setSortAsc] = useState(true);
@@ -260,11 +261,30 @@ function ProcurementTab() {
     return cards;
   }, [stages, templates, counts]);
 
+  // ── «Зависшие» позиции ──────────────────────────────────────────────────────
+  // Закупка ломается не там, где что-то отменили, а там, где ничего не
+  // происходит: позицию завели и забыли. Считаем, сколько дней позиция стоит
+  // на текущем этапе, и отдельно показываем те, что стоят слишком долго.
+  // Позиция на последнем этапе не «зависла» — она закрыта.
+  const stuckAfterDays = 14;
+  const daysAtStage = useCallback((r: Row): number => {
+    const cur = r.stages[r.stageIdx];
+    const rec = cur ? r.proc.stageLog?.[cur.id] : null;
+    const at = rec?.at || r.tag.createdAt;
+    const ms = at ? new Date(at).getTime() : 0;
+    if (!ms) return 0;
+    return Math.max(0, Math.floor((Date.now() - ms) / 86400000));
+  }, []);
+  const isStuck = useCallback((r: Row): boolean =>
+    r.stageIdx < r.stages.length - 1 && daysAtStage(r) >= stuckAfterDays, [daysAtStage]);
+  const stuckCount = useMemo(() => rows.filter(isStuck).length, [rows, isStuck]);
+
   const rowMatchesFilters = useCallback((r: Row): boolean => {
     if (stageFilter !== 'all' && r.stages[r.stageIdx]?.id !== stageFilter) return false;
     if (deptFilter && r.tag.department !== deptFilter) return false;
     if (onlyDuplicates && !r.isDup) return false;
     if (onlyCritical && r.actuality !== 'critical' && r.actuality !== 'warning') return false;
+    if (onlyStuck && !isStuck(r)) return false; // eslint-disable-line
     const q = debouncedSearch.trim().toLowerCase();
     if (q) {
       const hit = (r.tag.identifier || '').toLowerCase().includes(q) ||
@@ -275,12 +295,12 @@ function ProcurementTab() {
       if (!hit) return false;
     }
     return true;
-  }, [stageFilter, deptFilter, onlyDuplicates, onlyCritical, debouncedSearch]);
+  }, [stageFilter, deptFilter, onlyDuplicates, onlyCritical, onlyStuck, isStuck, debouncedSearch]);
 
   // Смена фильтров возвращает прокрутку списка к началу
   useEffect(() => {
     scrollEl?.scrollTo({ top: 0 });
-  }, [stageFilter, deptFilter, onlyDuplicates, onlyCritical, debouncedSearch, viewMode]);
+  }, [stageFilter, deptFilter, onlyDuplicates, onlyCritical, onlyStuck, debouncedSearch, viewMode]);
 
   const lastDateOf = (r: Row): number => {
     let max = new Date(r.tag.createdAt || 0).getTime();
@@ -483,6 +503,43 @@ function ProcurementTab() {
     });
   };
 
+  // Выгрузка в Excel того, что человек видит: фильтры, поиск и порядок
+  // уже применены. Выгружать «всё подряд» бесполезно — отчёт всегда
+  // делается по срезу.
+  const exportToExcel = async () => {
+    if (!filtered.length) { addToast('Нечего выгружать: под фильтры не попала ни одна позиция', 'info'); return; }
+    const XLSX = await import('xlsx');
+    const rows = filtered.map((r) => {
+      const cur = r.stages[r.stageIdx];
+      const rec = cur ? r.proc.stageLog?.[cur.id] : null;
+      return {
+        'Позиция': r.tag.identifier || '',
+        'Наименование': r.name || '',
+        'Марка': r.tag.brand || '',
+        'Отдел': r.tag.department || '',
+        'Этап закупки': cur?.label || '',
+        'Дата этапа': rec?.at ? fmtDate(rec.at) : '',
+        'Кто отметил': rec?.by || '',
+        'Дней на этапе': daysAtStage(r),
+        'Поставщик': r.proc.supplier || '',
+        'Количество': r.proc.qty || '',
+        'Примечание': r.proc.note || '',
+      };
+    });
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    // Ширины колонок: без них выгрузка открывается «лесенкой» из решёток.
+    (sheet as any)['!cols'] = [
+      { wch: 16 }, { wch: 32 }, { wch: 16 }, { wch: 10 }, { wch: 16 },
+      { wch: 12 }, { wch: 20 }, { wch: 13 }, { wch: 20 }, { wch: 12 }, { wch: 40 },
+    ];
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, 'Закупки');
+    const stamp = new Date().toISOString().slice(0, 10);
+    const projectPart = String(activeProject?.name || 'проект').replace(/[\\/:*?"<>|]/g, '-').slice(0, 40);
+    XLSX.writeFile(book, `Закупки — ${projectPart} — ${stamp}.xlsx`);
+    addToast(`Выгружено строк: ${filtered.length}`, 'success');
+  };
+
   const allVisibleSelected = filtered.length > 0 && filtered.every(r => selectedIds.has(r.tag.id));
 
   // Прокручивается не сама таблица, а контейнер раздела рабочего стола
@@ -617,6 +674,16 @@ function ProcurementTab() {
           </div>
           <div className="text-2xs font-bold mt-1 text-slate-500 dark:text-slate-400">
             {row.stages[row.stageIdx]?.label || '—'}
+            {/* Сколько дней позиция стоит на этом этапе — видно сразу, без
+                разбора дат: именно это и есть настоящая проблема закупки. */}
+            {isStuck(row) && (
+              <span
+                className="ml-1.5 px-1.5 py-px rounded-full bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-900/50 font-bold normal-case"
+                title={`Позиция стоит на этапе «${row.stages[row.stageIdx]?.label}» уже ${daysAtStage(row)} дн. — движения нет`}
+              >
+                {daysAtStage(row)} дн.
+              </span>
+            )}
             {row.template && (
               <span
                 className="ml-1.5 px-1.5 py-px rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-500 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900/50 font-semibold normal-case"
@@ -746,6 +813,13 @@ function ProcurementTab() {
             <Settings2 className="w-3.5 h-3.5" /> Этапы
           </button>
           <button type="button"
+            onClick={exportToExcel}
+            title="Выгрузить то, что сейчас на экране: с учётом фильтров, поиска и порядка"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5" /> В Excel
+          </button>
+          <button type="button"
             onClick={loadAll}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer"
           >
@@ -815,6 +889,17 @@ function ProcurementTab() {
         <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer select-none px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900">
           <input type="checkbox" checked={onlyCritical} onChange={(e) => setOnlyCritical(e.target.checked)} className="accent-amber-500" />
           Требуют внимания
+        </label>
+        <label
+          className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer select-none px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900 ${
+            stuckCount > 0 ? 'text-orange-700 dark:text-orange-400' : 'text-slate-600 dark:text-slate-300'}`}
+          title={`Позиции, которые стоят на одном этапе дольше ${stuckAfterDays} дней и ещё не закрыты`}
+        >
+          <input type="checkbox" checked={onlyStuck} onChange={(e) => setOnlyStuck(e.target.checked)} className="accent-orange-500" />
+          Зависшие
+          {stuckCount > 0 && (
+            <span className="px-1.5 py-px rounded-full bg-orange-100 dark:bg-orange-950/50 text-orange-700 dark:text-orange-300 text-2xs font-bold">{stuckCount}</span>
+          )}
         </label>
         <span className="text-xs text-slate-400 flex items-center gap-1"><Filter className="w-3.5 h-3.5" /> Показано: {filtered.length}</span>
       </div>

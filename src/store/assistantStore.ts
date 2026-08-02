@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import * as XLSX from 'xlsx';
 import { ENV_CONFIG } from '../config/env';
-import { findKnowledge } from '../assistant/knowledge';
-import { TOURS, findTourByText, findBestTour, Tour } from '../assistant/tours';
+import { findKnowledge, matchKnowledge } from '../assistant/knowledge';
+import { TOURS, findBestTour, Tour } from '../assistant/tours';
 import { getSection } from '../assistant/sections';
 import { parse, hasIntent, fieldMatchesStems, Parsed } from '../assistant/nlp';
 import { matchLabel, fieldByUniqueUnit, FIELDS, FieldDef } from '../import/dictionary';
@@ -56,7 +56,7 @@ type PendingInput =
 interface AssistantData {
   projectId: string;
   projects: { id: string; name: string; status: string }[];
-  tags: { id: string; identifier: string; brand?: string; department?: string; wbs?: string; fluid?: string; mainName?: string; actuality?: string; stageId?: string; stageLabel?: string; supplier?: string; qty?: string }[];
+  tags: { id: string; identifier: string; brand?: string; department?: string; wbs?: string; fluid?: string; mainName?: string; actuality?: string; stageId?: string; stageLabel?: string; stageSince?: string | null; stageIsFinal?: boolean; supplier?: string; qty?: string }[];
   components: { id: string; name: string; itemCode: string; systemName: string; category: string; monoblockName: string; status: string; hasConflict: boolean; tags: string[]; specs?: { key: string; value: string; unit: string; group: string }[] }[];
   stages: { id: string; label: string }[];
   duplicates: { code: string; count: number; ids: string[] }[];
@@ -646,7 +646,11 @@ export function repairTypos(text: string): string {
     let best: string | null = null, bestD = 3;
     for (const v of REPAIR_CACHE!) {
       if (Math.abs(v.length - w.length) > 2) continue;
+      // Две ошибки правим только когда слово начинается одинаково: иначе
+      // «подсказать» «чинится» в «показать», а это другое слово и другой
+      // ответ. Опечатки в первых буквах редки — там смотрит глаз.
       const d = editDistance(w, v, 2);
+      if (d >= 2 && w.slice(0, 3) !== v.slice(0, 3)) continue;
       if (d < bestD) { bestD = d; best = v; }
     }
     return bestD <= 2 && best ? best : chunk;
@@ -686,14 +690,39 @@ export function stripPoliteness(text: string): string {
   const drop = (body: string, tail = '[,\\s]*') =>
     new RegExp(`${W}(?:${body})${E}${tail}`, 'giu');
   return text
-    .replace(drop('слушай|слушайте|скажи|скажите|подскажи|подскажите|будь добр|будьте добры|плиз'), '')
+    // Формы «подсказать», «подскажешь», «подскажи-ка» пишут не реже
+    // повелительного «подскажи», поэтому убираем корень целиком.
+    .replace(drop('слушай(?:те)?|скажи(?:те)?|подскаж[а-яё]*|подсказ[а-яё]*|будь добр[а-яё]*|будьте добры|плиз'), '')
     .replace(drop('а\\s+(?:можешь|можете|мог бы|могли бы)'), '')
     .replace(drop('можешь|можете|не мог бы ты|не могли бы вы|мог бы ты|могли бы вы'), '')
-    .replace(drop('пожалуйста'), '')
+    .replace(drop('пожалуйста|будьте любезны|очень нужно|хотел[аи]? бы узнать|хочу узнать'), '')
     .replace(/^[\s,]+/, '')
     .replace(/\s*,\s*$/, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
+}
+
+/**
+ * Служебные слова запроса: домен («тег», «оборудование»), команда («покажи»),
+ * название среза («дубли», «закупки»). Фильтром поиска они быть не могут —
+ * иначе «покажи все теги» ищет теги, в названии которых есть слово «тег».
+ *
+ * Сравниваем по началу слова, а не на равенство: стеммер оставляет короткие
+ * слова как есть, поэтому «теги» так и остаётся «теги» и мимо списка из
+ * точных совпадений проходило насквозь.
+ */
+const SERVICE_WORDS = [
+  'тег', 'оборудован', 'компонент', 'покажи', 'показ', 'список', 'найд', 'сколько', 'выгруз',
+  'критичн', 'внимани', 'проблем', 'конфликт', 'дубл', 'закупк', 'этап', 'поставщик',
+  'заметк', 'запис', 'истори', 'изменени', 'изменил', 'сводк', 'статус',
+  'позици', 'позиц', 'штук', 'заказан', 'куплен', 'закуплен', 'утвержд', 'добавлен',
+  'осталось', 'просроч', 'требует', 'требуют', 'экспорт', 'вывед', 'собер',
+  // форматы выгрузки: «выгрузи в эксель» — это про формат, а не про то,
+  // что искать; иначе помощник отвечал «по запросу „эксел“ теги не найдены»
+  'эксел', 'ексел', 'excel', 'xlsx', 'ворд', 'word', 'docx', 'pdf',
+];
+function isServiceWord(s: string): boolean {
+  return SERVICE_WORDS.some(w => s.startsWith(w) || w.startsWith(s));
 }
 
 // --- Распознавание запроса (полностью локальное) ---
@@ -704,11 +733,12 @@ export async function resolveQuery(
 ): Promise<Resolved> {
   // Живая речь: убираем вежливые обороты, чиним опечатки, отвечаем на
   // разговорное — и только потом разбираем как запрос к данным.
-  const polite = stripPoliteness(text);
-  const repaired = repairTypos(polite);
-  const lower = repaired.toLowerCase().replace(/ё/g, 'е');
   const talk = smallTalkAnswer(text.toLowerCase());
   if (talk) return msg(talk);
+  // Дальше по всей функции работаем с очищенным текстом: иначе разбор
+  // спотыкается о «слушай», «а можешь», «пожалуйста» — их пишут постоянно.
+  text = repairTypos(stripPoliteness(text));
+  const lower = text.toLowerCase().replace(/ё/g, 'е');
   const p = parse(text);
   const getData = () => injectedData ? Promise.resolve(injectedData) : fetchAssistantData();
 
@@ -737,7 +767,9 @@ export async function resolveQuery(
 
   // B. Команда «создай заметку [про X]»
   if (/(создай|создать|新)\s*(заметк|запис)/.test(lower) || /(заметк|запис).*(создай|добав|нов)/.test(lower)) {
-    const about = text.replace(/.*(заметк\w*|запис\w*)\s*(про|о|об)?\s*/i, '').trim();
+    // \w в JavaScript не включает кириллицу: с ним «заметку про П1» давало
+    // заголовок «у про П1» — окончание слова оставалось в тексте заметки.
+    const about = text.replace(/^.*?(?:заметк[а-яё]*|запис[а-яё]*)\s*(?:про|об|о)?\s*/i, '').trim();
     const title = about && about.length < 60 ? about : 'Новая заметка';
     return msg(`Создаю заметку${about ? ` «${title}»` : ''} в блокноте.`, {
       actions: [{ label: 'Открыть блокнот', kind: 'create-note', noteTitle: title }],
@@ -754,8 +786,24 @@ export async function resolveQuery(
   const wantsTour = /(^|[^а-яёa-z])как([^а-яёa-z]|$)/i.test(lower)
     || /(демонстрац|научи|инструкц|покажи как|пошагов)/.test(lower);
   if (wantsTour) {
-    const tour = findTourByText(lower);
-    if (tour) return msg(tour.intro, { actions: [{ label: '▶ Показать демонстрацию', kind: 'tour', tourId: tour.id }] });
+    const tourM = findBestTour(lower);
+    const knowM = matchKnowledge(lower);
+    // Демонстрация подбирается по пересечению слов, и одного общего слова
+    // хватало, чтобы перебить справку: на «как вернуть удалённый файл»
+    // открывался показ загрузки файлов — просто потому, что там есть
+    // слово «файл». Поэтому когда статья справки зацепилась за длинное
+    // конкретное слово, демонстрация должна быть увереннее обычного.
+    const strongKnowledge = !!knowM && knowM.score >= 6;
+    const need = strongKnowledge ? 3 : 1.5;
+    if (tourM && tourM.score >= need) {
+      return msg(tourM.tour.intro, { actions: [{ label: '▶ Показать демонстрацию', kind: 'tour', tourId: tourM.tour.id }] });
+    }
+    if (strongKnowledge) {
+      // Демонстрацию не теряем — предлагаем её кнопкой рядом с ответом.
+      const extra: AssistantAction[] = tourM && tourM.score >= 1.5
+        ? [{ label: '▶ Показать демонстрацию', kind: 'tour', tourId: tourM.tour.id }] : [];
+      return msg(knowM!.answer, { actions: extra });
+    }
   }
 
   // D2. Переименование тега: «переименуй 3700-A», «смени код 3700-A на 3700-B»,
@@ -908,24 +956,29 @@ export async function resolveQuery(
     return msg(`В предыдущем списке «${lastResult.label}»: ${lastResult.ids.length}.`);
   }
 
+  // F2. Вопрос про саму программу: «где корзина», «куда делся файл»,
+  // «почему не вижу подборки». Такие вопросы перехватывал поиск по данным
+  // и отвечал «по запросу „корзи“ теги не найдены» — человек спрашивал про
+  // раздел, а получал пустой список. Поэтому справку с уверенным
+  // совпадением спрашиваем до поиска, но только если в вопросе нет кода
+  // тега (тогда это точно запрос к данным).
+  if (p.codes.length === 0
+      && /(^|[^а-яе])(где|куда|откуда|почему|зачем|что делать|не могу найти|не нахожу|не вижу|не работает)([^а-яе]|$)/u.test(lower)) {
+    const k = matchKnowledge(lower);
+    if (k && k.score >= 6) return msg(k.answer);
+  }
+
   // G. Домены данных
-  const wantsData = /(покажи|показать|список|сколько|количеств|выгруз|экспорт|найд|дай|выведи|собери|все|всё|скольк)/.test(lower)
+  const wantsData =/(покажи|показать|список|сколько|количеств|выгруз|экспорт|найд|дай|выведи|собери|все|всё|скольк)/.test(lower)
     || hasIntent(p, ['тег', 'оборудован', 'компонент', 'вентилятор', 'установк', 'клапан', 'проект', 'систем', 'дубл', 'закупк', 'критичн', 'внимани', 'проблем', 'заметк', 'этап', 'поставщик'])
-    || /не заказан|не куплен|куплен|закуплен|заказан|утвержд|просроч|что изменилос|кто менял|что менял|последн.*(действ|измен|запис)|что требует|требует внимани|конфликт ревиз/.test(lower);
+    || /не заказан|не куплен|куплен|закуплен|заказан|утвержд|просроч|что изменилос|кто менял|что менял|последн.*(действ|измен|запис)|что требует|требует внимани|конфликт ревиз|завис|застря|не двига|без движ|дольше \d+|больше \d+ дн|на этапе/.test(lower);
   if (wantsData) {
     const data = await getData();
     const c = data.counts;
 
     // Остаточные стемы — то, что осталось после служебных/доменных слов.
     // Позволяют пересекать фильтры: «критичные ВЕНТИЛЯТОРЫ», «не заказаны КЛАПАНЫ».
-    const filterStems = p.stems.filter(s => ![
-      'тег', 'оборудован', 'компонент', 'покажи', 'список', 'найд', 'сколько', 'выгруз',
-      'критичн', 'внимани', 'проблем', 'конфликт', 'дубл', 'закупк', 'этап', 'поставщик',
-      'заметк', 'запис', 'истори', 'изменени', 'изменил', 'сводк', 'статус',
-      // общие слова и слова-этапы — не считаем их фильтром-термином
-      'позици', 'позиц', 'штук', 'заказан', 'куплен', 'закуплен', 'утвержд', 'добавлен',
-      'осталось', 'просроч', 'требует', 'требуют',
-    ].includes(s));
+    const filterStems = p.stems.filter(s => !isServiceWord(s));
     const tagTextMatch = (t: AssistantData['tags'][number], stems: string[]) =>
       fieldMatchesStems(t.identifier, stems) || fieldMatchesStems(t.brand, stems)
       || fieldMatchesStems(t.mainName, stems) || fieldMatchesStems(t.department, stems)
@@ -999,6 +1052,36 @@ export async function resolveQuery(
       };
     }
 
+    // G3.5. Зависшие закупки: позиция стоит на одном этапе слишком долго.
+    // Самый частый вопрос снабженца — «что стоит», и раньше на него не было
+    // ответа: список этапов показывал, где позиция, но не как давно.
+    if (/завис|застря|не двига|без движ|ничего не происходит|дольше \d+|больше \d+ дн/.test(lower)) {
+      const data = await getData();
+      const days = Number(lower.match(/(\d+)\s*дн/)?.[1] || 14);
+      const cut = Date.now() - days * 86400000;
+      const stuck = data.tags
+        .filter(t => !t.stageIsFinal && t.stageSince && new Date(t.stageSince).getTime() <= cut)
+        .map(t => ({ t, days: Math.floor((Date.now() - new Date(t.stageSince as string).getTime()) / 86400000) }))
+        .sort((a, b) => b.days - a.days);
+      if (stuck.length === 0) {
+        return msg(`Позиций, застрявших на этапе дольше ${days} дн., нет — по закупкам всё движется. 👍`);
+      }
+      const table: AssistantTable = {
+        title: `Зависли дольше ${days} дн.`,
+        columns: ['Тег', 'Наименование', 'Этап', 'Дней на этапе', 'Поставщик'],
+        rows: stuck.map(s => [s.t.identifier || '', s.t.mainName || '', s.t.stageLabel || '', String(s.days), s.t.supplier || '']),
+      };
+      return {
+        message: {
+          id: uid(), role: 'assistant',
+          text: `Застряли на этапе дольше ${days} дн.: ${stuck.length}. Дольше всех — «${stuck[0].t.identifier}» (${stuck[0].days} дн. на этапе «${stuck[0].t.stageLabel}»).`,
+          table,
+          actions: [{ label: 'Открыть Менеджмент', kind: 'open-section', route: '/management' }, ...EXPORT_ACTIONS],
+        },
+        result: { kind: 'tags', ids: stuck.map(s => s.t.id), label: `зависли дольше ${days} дн.` },
+      };
+    }
+
     // G4. Закупки / этапы
     if (hasIntent(p, ['закупк', 'этап', 'поставщик']) || /не заказан|не куплен|заказан|куплен|утвержд/.test(lower)) {
       let sel = data.tags;
@@ -1025,9 +1108,20 @@ export async function resolveQuery(
     }
 
     // G5. Поиск по заметкам
-    if (hasIntent(p, ['заметк', 'запис']) && p.stems.some(s => !['заметк', 'запис', 'блокнот'].includes(s))) {
-      const q = p.stems.filter(s => !['заметк', 'запис', 'блокнот', 'найд', 'поиск'].includes(s));
-      const found = data.notes.filter(n => fieldMatchesStems(n.title, q));
+    if (hasIntent(p, ['заметк', 'запис'])) {
+      const q = p.stems.filter(s => !['заметк', 'запис', 'блокнот', 'найд', 'поиск'].includes(s) && !isServiceWord(s));
+      // Слово в запросе есть, но короткое («заметки П1») — стеммер отбрасывает
+      // слова короче трёх букв, поэтому ищем ещё и по исходным словам.
+      const words = q.length ? q : p.tokens.filter(t => !['заметки', 'заметку', 'заметка', 'заметок', 'блокнот', 'найди', 'поиск'].includes(t));
+      // Просто «покажи заметки» — показываем последние, а не уходим в теги.
+      if (words.length === 0) {
+        if (!data.notes.length) return msg('Заметок пока нет. Раздел «Блокнот» — там их создают.');
+        return msg(`Последние заметки (${data.notes.length}):\n${data.notes.slice(0, 8).map(n => `• ${n.title}`).join('\n')}`, {
+          actions: [{ label: 'Открыть блокнот', kind: 'open-section', route: '/notes' }],
+        });
+      }
+      const found = data.notes.filter(n => fieldMatchesStems(n.title, words)
+        || words.some(w => (n.title || '').toLowerCase().includes(w)));
       if (found.length === 0) return msg('Заметок по этому запросу не нашёл. Поиск идёт по заголовкам — уточните слово.');
       return msg(`Нашёл заметок: ${found.length}.\n${found.slice(0, 8).map(n => `• ${n.title}`).join('\n')}`, {
         actions: [{ label: 'Открыть заметки', kind: 'open-section', route: '/notes' }],
@@ -1041,8 +1135,37 @@ export async function resolveQuery(
       return msg(`Последние изменения:\n${items.join('\n')}`);
     }
 
+    // G6.5. Запрос с указанием поля: «теги отдела ОВ», «марка Вентилятор»,
+    // «среда вода». Обычный поиск по стемам такое не берёт: сокращения вроде
+    // «ОВ» короче трёх букв, и стеммер их выбрасывает. Здесь берём слово
+    // после названия поля как есть.
+    const FIELD_QUERIES: { re: RegExp; field: 'department' | 'brand' | 'fluid'; name: string }[] = [
+      { re: /(?:отдел|департамент)[а-я]*\s+([^\s,.;]+)/u, field: 'department', name: 'отдел' },
+      { re: /(?:марк|бренд)[а-я]*\s+([^\s,.;]+)/u, field: 'brand', name: 'марка' },
+      { re: /(?:сред|теплоносител|жидкост)[а-я]*\s+([^\s,.;]+)/u, field: 'fluid', name: 'среда' },
+    ];
+    for (const fq of FIELD_QUERIES) {
+      const m = lower.match(fq.re);
+      const value = m?.[1]?.trim();
+      if (!value || value.length < 2) continue;
+      const sel = data.tags.filter(t => (t[fq.field] || '').toLowerCase().replace(/ё/g, 'е').includes(value));
+      if (sel.length === 0) {
+        const known = [...new Set(data.tags.map(t => t[fq.field]).filter(Boolean))].slice(0, 12);
+        return msg(`Тегов с параметром «${fq.name}: ${value}» не нашёл.${known.length ? `\nВ проекте встречаются: ${known.join(', ')}.` : ''}`);
+      }
+      const table: AssistantTable = {
+        title: `Теги · ${fq.name}: ${value}`,
+        columns: ['Тег', 'Марка', 'Отдел', 'Среда', 'Этап'],
+        rows: sel.map(t => [t.identifier || '', t.brand || '', t.department || '', t.fluid || '', t.stageLabel || '']),
+      };
+      return {
+        message: { id: uid(), role: 'assistant', text: `Нашёл тегов: ${sel.length} (${fq.name}: ${value}).`, table, actions: [...EXPORT_ACTIONS] },
+        result: { kind: 'tags', ids: sel.map(t => t.id), label: `${fq.name} ${value}` },
+      };
+    }
+
     // G7. Поиск тегов/оборудования (по стемам с синонимами)
-    const stems = p.stems.filter(s => !['тег', 'оборудован', 'компонент', 'покажи', 'список', 'найд'].includes(s));
+    const stems = p.stems.filter(s => !isServiceWord(s));
     const mentionsEquip = hasIntent(p, ['оборудован', 'компонент', 'систем', 'моноблок']);
     const mentionsTag = hasIntent(p, ['тег']);
 
