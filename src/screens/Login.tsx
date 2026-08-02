@@ -163,7 +163,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
         setTimeout(() => {
           setUser(data.user);
           setIsLoading(false);
-          addToast('Вход выполнен успешно!', 'success');
+          
         }, 400);
       } else {
         const errorMsg = data.message || 'Ошибка входа. Проверьте правильность ввода логина и пароля!';
@@ -172,9 +172,14 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
         setIsLoading(false);
       }
     } catch (err: any) {
-      const errorMsg = err.message || 'Ошибка подключения к серверу';
-      setError(errorMsg);
-      addToast(errorMsg, 'error');
+      // Сервер отвечает содержательно («неверный пароль», «профиль отключён»)
+      // — такие сообщения показываем как есть. Своё, про связь, добавляем
+      // только когда ответа не было вовсе.
+      const raw = (err?.message || '').trim();
+      const looksNetwork = !raw || /failed to fetch|networkerror|load failed|ecconn|timeout/i.test(raw);
+      setError(looksNetwork
+        ? 'Нет связи с сервером. Проверьте подключение и повторите.'
+        : raw.replace(/!+$/, ''));
       setIsLoading(false);
     }
   };
@@ -233,6 +238,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
                 <input
                   id="login-input"
                   type="text"
+                  autoFocus
                   value={login}
                   onChange={(e) => setLogin(e.target.value)}
                   className="w-full pl-9 pr-3 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-450 dark:placeholder-slate-650 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui font-sans"

@@ -17,12 +17,22 @@ import ProjectFormModal from '../components/ProjectFormModal';
 import { dataService, UserNote, SystemChangeLog, Project, ProjectInput } from '../services/dataService';
 import { useWorkspaceStore, sectionUses, recentSections } from '../store/workspaceStore';
 import { useShareStore } from '../store/shareStore';
+import { useNotificationStore } from '../store/notificationStore';
 import { SECTIONS } from '../workspace/sections';
+import { countOf } from '../lib/plural';
 import { motion } from 'motion/react';
 import {
   Search, History, ExternalLink, ArrowRight, Plus, Check,
   FolderKanban, NotebookPen, CornerDownLeft, X, Clock,
+  AlertTriangle, CalendarClock, MessageSquareWarning, Bell,
 } from 'lucide-react';
+
+type Attention = {
+  overdue: number;
+  soon: number;
+  remarks: number;
+  items: { id: string; kind: string; code: string; title: string; revision: string; dueDate: string | null }[];
+};
 
 type Hit = {
   kind: 'section' | 'project' | 'note' | 'tag';
@@ -57,6 +67,9 @@ export default function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [attention, setAttention] = useState<Attention | null>(null);
+  const chatUnread = useNotificationStore((s) => s.chatUnread);
+  const unreadNotifications = useNotificationStore((s) => s.unread);
 
   // ── Данные экрана ──────────────────────────────────────────────────────────
   const load = async () => {
@@ -74,6 +87,22 @@ export default function Dashboard() {
 
   useEffect(() => { load(); }, []);
 
+  // Сводка «требует внимания» по документам проекта — одним запросом.
+  useEffect(() => {
+    let alive = true;
+    if (!activeProject?.id) { setAttention(null); return; }
+    fetch(`/api/vdr/attention?projectId=${activeProject.id}&userId=${user?.id || ''}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d && !d.error) setAttention(d as Attention); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [activeProject?.id, user?.id]);
+
+  // Состав открытых разделов: меняется при любой навигации. Главный экран
+  // остаётся смонтированным, поэтому списки пересобираем по нему — иначе
+  // они показывали бы то, что было при первом входе.
+  const panes = useWorkspaceStore((s) => s.panes);
+
   // ── Разделы: порядок по частоте использования ──────────────────────────────
   const sections = useMemo(() => {
     const uses = sectionUses();
@@ -81,14 +110,14 @@ export default function Dashboard() {
       .filter((s) => s.path !== '/' && s.path !== '/logs' && s.path !== '/generator')
       .filter((s) => !s.adminOnly || user?.role === 'ADMIN');
     return [...list].sort((a, b) => (uses[b.path] || 0) - (uses[a.path] || 0));
-  }, [user?.role, loading]);
+  }, [user?.role, loading, panes]);
 
   const recent = useMemo(() => {
     return recentSections()
       .map((path) => SECTIONS.find((s) => s.path === path))
       .filter((s): s is (typeof SECTIONS)[number] => !!s && s.path !== '/')
       .slice(0, 4);
-  }, [loading]);
+  }, [loading, panes]);
 
   // ── Поиск по всему сразу ───────────────────────────────────────────────────
   const [query, setQuery] = useState('');
@@ -284,6 +313,82 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* ── Требует внимания: показывается, только если есть о чём сказать ── */}
+      {(() => {
+        const rows: { key: string; tone: 'crit' | 'warn' | 'info'; icon: any; text: string; action: string; go: () => void }[] = [];
+        if (attention?.overdue) rows.push({
+          key: 'overdue', tone: 'crit', icon: AlertTriangle,
+          text: `Просрочен срок: ${countOf(attention.overdue, 'документ')}`,
+          action: 'Открыть ВДР', go: () => open('/management'),
+        });
+        if (attention?.remarks) rows.push({
+          key: 'remarks', tone: 'crit', icon: MessageSquareWarning,
+          text: `Замечания на вас: ${countOf(attention.remarks, 'документ')}`,
+          action: 'Посмотреть', go: () => open('/management'),
+        });
+        if (attention?.soon) rows.push({
+          key: 'soon', tone: 'warn', icon: CalendarClock,
+          text: `Срок в ближайшую неделю: ${countOf(attention.soon, 'документ')}`,
+          action: 'Открыть ВДР', go: () => open('/management'),
+        });
+        if (chatUnread) rows.push({
+          key: 'chat', tone: 'info', icon: MessageSquareWarning,
+          text: `Новые сообщения: ${countOf(chatUnread, 'диалог')}`,
+          action: 'Открыть чат', go: () => open('/chat'),
+        });
+        if (unreadNotifications && !chatUnread) rows.push({
+          key: 'notif', tone: 'info', icon: Bell,
+          text: `Непрочитанные уведомления: ${unreadNotifications}`,
+          action: 'Показать', go: () => open('/logs'),
+        });
+        if (!rows.length) return null;
+
+        const tones: Record<string, string> = {
+          crit: 'border-rose-300 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300',
+          warn: 'border-amber-300 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-300',
+          info: 'border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface text-slate-700 dark:text-dark-text-main',
+        };
+        return (
+          <section aria-label="Требует внимания">
+            <h2 className="text-2xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">Требует внимания</h2>
+            <div className="flex flex-col gap-1.5">
+              {rows.map((r) => {
+                const Icon = r.icon;
+                return (
+                  <div key={r.key} className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border ${tones[r.tone]}`}>
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span className="text-sm font-semibold flex-1 min-w-0 truncate">{r.text}</span>
+                    <button type="button" onClick={r.go}
+                      className="text-xs font-bold underline underline-offset-2 hover:no-underline cursor-pointer shrink-0">
+                      {r.action}
+                    </button>
+                  </div>
+                );
+              })}
+              {!!attention?.items?.length && (
+                <ul className="mt-0.5 flex flex-col gap-0.5 pl-1">
+                  {attention.items.slice(0, 4).map((it) => (
+                    <li key={it.id}>
+                      <button type="button" onClick={() => open('/management')}
+                        className="w-full text-left text-xs text-slate-500 dark:text-dark-text-muted hover:text-slate-800 dark:hover:text-white cursor-pointer truncate">
+                        <span className="font-mono font-semibold">{it.code || '—'}</span>
+                        <span className="mx-1.5">·</span>
+                        {it.title || 'Без наименования'}
+                        {it.dueDate && (
+                          <span className={`ml-1.5 ${it.kind === 'overdue' ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-slate-400'}`}>
+                            {it.kind === 'overdue' ? 'просрочен ' : 'до '}{new Date(it.dueDate).toLocaleDateString('ru-RU')}
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+        );
+      })()}
 
       {/* ── Продолжить: где человек был в прошлый раз ── */}
       {recent.length > 0 && (

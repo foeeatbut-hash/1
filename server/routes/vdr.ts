@@ -475,6 +475,65 @@ export function registerVdrRoutes(app: Express): void {
   });
 
   // ── Поиск строк по проекту (привязка документа/файла из других разделов) ──
+  // Сводка «требует внимания» по проекту: одним запросом вместо обхода
+  // всех реестров. Нужна главному экрану, чтобы показать просроченное и
+  // адресованные пользователю замечания без N+1.
+  app.get('/api/vdr/attention', async (req: Request, res: Response) => {
+    try {
+      const projectId = String(req.query.projectId || '');
+      const userId = String(req.query.userId || '');
+      if (!projectId) return res.json({ overdue: 0, soon: 0, remarks: 0, items: [] });
+
+      const now = new Date();
+      const soonEdge = new Date(now.getTime() + 7 * 24 * 3600 * 1000);
+      const prisma = getPrisma();
+
+      const open = { projectId, status: { not: 'ACCEPTED' } } as any;
+      const [overdueItems, soonItems, remarkItems] = await Promise.all([
+        prisma.docRegisterItem.findMany({
+          where: { ...open, dueDate: { lt: now } },
+          orderBy: { dueDate: 'asc' }, take: 50,
+        }),
+        prisma.docRegisterItem.findMany({
+          where: { ...open, dueDate: { gte: now, lte: soonEdge } },
+          orderBy: { dueDate: 'asc' }, take: 50,
+        }),
+        userId
+          ? prisma.docRegisterItem.findMany({
+              where: { projectId, status: 'REMARKS', assigneeId: userId },
+              orderBy: { updatedAt: 'desc' }, take: 50,
+            })
+          : Promise.resolve([] as any[]),
+      ]);
+
+      const brief = (i: any, kind: string) => ({
+        id: i.id, registerId: i.registerId, kind,
+        code: i.vdrCode || '', title: i.titleRu || i.titleEn || '',
+        revision: i.revision || '', dueDate: i.dueDate,
+      });
+
+      res.json({
+        overdue: overdueItems.length,
+        soon: soonItems.length,
+        remarks: remarkItems.length,
+        // Один документ может попасть сразу в две выборки (например,
+        // с замечаниями и с близким сроком) — в списке показываем один раз.
+        items: (() => {
+          const seen = new Set<string>();
+          const out: any[] = [];
+          for (const [list, kind] of [[overdueItems, 'overdue'], [remarkItems, 'remarks'], [soonItems, 'soon']] as const) {
+            for (const i of list as any[]) {
+              if (seen.has(i.id) || out.length >= 5) continue;
+              seen.add(i.id);
+              out.push(brief(i, kind));
+            }
+          }
+          return out;
+        })(),
+      });
+    } catch (err: any) { sendError(res, err); }
+  });
+
   app.get('/api/vdr/items/search', async (req: Request, res: Response) => {
     try {
       const projectId = await resolveProjectId(String(req.query.projectId || ''));
