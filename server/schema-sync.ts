@@ -9,7 +9,7 @@
 // не удаляет и не меняет типы, поэтому данные в безопасности. Источник истины —
 // файл prisma/schema.<движок>.prisma, который едет внутри обновления программы.
 
-type Dialect = 'postgresql' | 'mysql';
+type Dialect = 'postgresql' | 'mysql' | 'sqlite';
 
 interface Column {
   name: string;
@@ -31,12 +31,24 @@ function quoteId(dialect: Dialect, id: string): string {
   return dialect === 'mysql' ? `\`${id}\`` : `"${id}"`;
 }
 
+// SQLite хранит всё в пяти типах и не поддерживает information_schema —
+// поэтому у него свои ветки в типах, дефолтах и чтении текущей структуры.
+function sqliteType(base: string): string {
+  switch (base) {
+    case 'Int': case 'BigInt': case 'Boolean': return 'INTEGER';
+    case 'Float': case 'Decimal': return 'REAL';
+    case 'DateTime': return 'DATETIME';
+    default: return 'TEXT';
+  }
+}
+
 function quoteStr(s: string): string {
   return `'${s.replace(/'/g, "''")}'`;
 }
 
 // Тип колонки в SQL для конкретного движка
 function sqlType(dialect: Dialect, base: string, dbAttr: string | null): string {
+  if (dialect === 'sqlite') return sqliteType(base);
   if (dbAttr) {
     const m = dbAttr.match(/^(\w+)(\([^)]*\))?$/);
     const t = (m?.[1] || '').toLowerCase();
@@ -65,9 +77,9 @@ function defaultSql(dialect: Dialect, base: string, raw: string | null): string 
   if (raw == null) return null;
   const v = raw.trim();
   if (/^(uuid|cuid|autoincrement|dbgenerated)\s*\(/.test(v)) return null;
-  if (/^now\s*\(/.test(v)) return dialect === 'mysql' ? 'CURRENT_TIMESTAMP(3)' : 'CURRENT_TIMESTAMP(3)';
-  if (v === 'true') return dialect === 'mysql' ? '1' : 'true';
-  if (v === 'false') return dialect === 'mysql' ? '0' : 'false';
+  if (/^now\s*\(/.test(v)) return dialect === 'sqlite' ? "(datetime('now'))" : 'CURRENT_TIMESTAMP(3)';
+  if (v === 'true') return dialect === 'postgresql' ? 'true' : '1';
+  if (v === 'false') return dialect === 'postgresql' ? 'false' : '0';
   if (/^-?\d+(\.\d+)?$/.test(v)) return v;
   const str = v.match(/^"([\s\S]*)"$/);
   if (str) return quoteStr(str[1]);
@@ -79,8 +91,8 @@ function defaultSql(dialect: Dialect, base: string, raw: string | null): string 
 function fallbackDefault(dialect: Dialect, base: string): string {
   switch (base) {
     case 'Int': case 'Float': case 'BigInt': case 'Decimal': return '0';
-    case 'Boolean': return dialect === 'mysql' ? '0' : 'false';
-    case 'DateTime': return 'CURRENT_TIMESTAMP(3)';
+    case 'Boolean': return dialect === 'postgresql' ? 'false' : '0';
+    case 'DateTime': return dialect === 'sqlite' ? "(datetime('now'))" : 'CURRENT_TIMESTAMP(3)';
     default: return quoteStr('');
   }
 }
@@ -136,6 +148,12 @@ function columnDdl(dialect: Dialect, c: Column): string {
 }
 
 async function existingTables(prisma: any, dialect: Dialect): Promise<Set<string>> {
+  if (dialect === 'sqlite') {
+    const rows: any[] = await prisma.$queryRawUnsafe(
+      "SELECT name AS t FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+    );
+    return new Set(rows.map(r => String(r.t)));
+  }
   const where = dialect === 'mysql'
     ? "table_schema = DATABASE()"
     : "table_schema = current_schema()";
@@ -146,6 +164,10 @@ async function existingTables(prisma: any, dialect: Dialect): Promise<Set<string
 }
 
 async function existingColumns(prisma: any, dialect: Dialect, table: string): Promise<Set<string>> {
+  if (dialect === 'sqlite') {
+    const rows: any[] = await prisma.$queryRawUnsafe(`PRAGMA table_info(${quoteId(dialect, table)})`);
+    return new Set(rows.map((r: any) => String(r.name)));
+  }
   const where = dialect === 'mysql'
     ? "table_schema = DATABASE()"
     : "table_schema = current_schema()";
@@ -218,7 +240,7 @@ export async function ensureRemoteSchema(
     }
   }
 
-  if (applied.length) log(`[Schema Sync] Общая база приведена к схеме: ${applied.join(', ')}`);
+  if (applied.length) log(`[Schema Sync] База приведена к схеме: ${applied.join(', ')}`);
   else log('[Schema Sync] Общая база уже соответствует схеме — изменений нет.');
   return applied;
 }

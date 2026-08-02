@@ -562,8 +562,10 @@ function isMariaDbUrl(dbUrl: string): boolean {
 
 // Находит файл схемы Prisma для активного движка общей базы (для автомиграции).
 // В упакованном приложении папка prisma лежит в resources (extraResources).
-function findRemoteSchemaFile(dialect: 'postgresql' | 'mysql'): string {
-  const file = dialect === 'mysql' ? 'schema.mariadb.prisma' : 'schema.postgresql.prisma';
+function findRemoteSchemaFile(dialect: 'postgresql' | 'mysql' | 'sqlite'): string {
+  const file = dialect === 'mysql' ? 'schema.mariadb.prisma'
+    : dialect === 'sqlite' ? 'schema.prisma'
+    : 'schema.postgresql.prisma';
   const candidates = [
     path.join(process.cwd(), 'prisma', file),
     path.join(__dirname, 'prisma', file),
@@ -576,11 +578,15 @@ function findRemoteSchemaFile(dialect: 'postgresql' | 'mysql'): string {
   return '';
 }
 
-// Приводит общую базу (PG/MariaDB) к схеме программы. Безопасно (только добавляет).
+// Приводит базу к схеме программы. Безопасно (только добавляет недостающее).
 // Возвращает список выполненных изменений (пусто = база уже актуальна).
-async function syncRemoteSchema(client: any, dbUrl: string): Promise<string[]> {
+// Работает и для общей базы (PostgreSQL/MariaDB), и для локальной SQLite:
+// база пользователя, созданная старой версией, догоняет схему сама.
+async function syncRemoteSchema(client: any, dbUrl: string, forceDialect?: 'sqlite'): Promise<string[]> {
   try {
-    const dialect: 'postgresql' | 'mysql' = isMariaDbUrl(dbUrl) ? 'mysql' : 'postgresql';
+    const dialect: 'postgresql' | 'mysql' | 'sqlite' = forceDialect
+      ? forceDialect
+      : isMariaDbUrl(dbUrl) ? 'mysql' : 'postgresql';
     const schemaFile = findRemoteSchemaFile(dialect);
     if (!schemaFile) {
       logInit('[Schema Sync] Файл схемы не найден — автомиграция общей базы пропущена.');
@@ -822,10 +828,17 @@ try {
       }
     }
     
-    // Общая база: до первых запросов приводим схему к версии программы
+    // До первых запросов приводим схему базы к версии программы.
+    // Локальную проверяем тоже: база, созданная прежней версией (или из
+    // устаревшего шаблона), иначе падала на первом же запросе с
+    // «столбца не существует».
     if (appConfig.current_db_type === 'REMOTE') {
       logInit('[Schema Sync] Проверка схемы общей базы при старте...');
       await syncRemoteSchema(prisma, startupDbUrl);
+    } else {
+      logInit('[Schema Sync] Проверка схемы локальной базы при старте...');
+      const applied = await syncRemoteSchema(prisma, startupDbUrl, 'sqlite');
+      if (applied.length) logInit(`[Schema Sync] Локальная база дополнена: ${applied.join('; ')}`);
     }
 
     logInit('[Startup DB Feed Check] Verifying records in User table...');
