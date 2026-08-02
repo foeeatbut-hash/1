@@ -732,10 +732,11 @@ function ProcurementTab() {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
         <button type="button"
           onClick={() => setStageFilter('all')}
-          className={`p-3 rounded-xl border text-left transition-ui cursor-pointer ${stageFilter === 'all' ? 'bg-indigo-600 border-indigo-700 text-white shadow-md' : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 hover:border-indigo-300'}`}
+          aria-pressed={stageFilter === 'all'}
+          className={`p-3 rounded-xl border text-left transition-ui cursor-pointer ${stageFilter === 'all' ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-600 dark:border-emerald-500 text-emerald-900 dark:text-emerald-200' : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 hover:border-emerald-400'}`}
         >
           <div className="text-2xl font-black leading-none">{rows.length}</div>
-          <div className={`text-xs font-bold mt-1 ${stageFilter === 'all' ? 'text-indigo-100' : 'text-slate-400'}`}>Все позиции</div>
+          <div className={`text-xs font-bold mt-1 ${stageFilter === 'all' ? 'text-emerald-800 dark:text-emerald-300' : 'text-slate-400'}`}>Все позиции</div>
         </button>
         {stageCards.map(({ stage: s, templateName }) => {
           const Icon = stageIcon(s.icon);
