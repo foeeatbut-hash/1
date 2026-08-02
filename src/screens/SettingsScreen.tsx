@@ -28,20 +28,20 @@ import {
 type SectionId = 'general' | 'management' | 'docflow' | 'equipment' | 'tags' | 'notifications' | 'database' | 'backup' | 'logs' | 'updates';
 
 const SECTIONS: Array<{ id: SectionId; label: string; icon: any; desc: string }> = [
-  { id: 'general', label: 'Общие', icon: Settings, desc: 'Тема интерфейса' },
-  { id: 'management', label: 'Менеджмент', icon: Briefcase, desc: 'Этапы закупки: названия, значки, цвета' },
-  { id: 'docflow', label: 'Документооборот', icon: FileSpreadsheet, desc: 'Стандарты ВДР: коды, сроки, ревизии, типы' },
-  { id: 'equipment', label: 'Оборудование', icon: Fan, desc: 'Категории и поведение при новой ревизии' },
-  { id: 'tags', label: 'Теги', icon: Tag, desc: 'Холст связей: способ создания связей' },
+  { id: 'general', label: 'Общие', icon: Settings, desc: 'Тема и плотность' },
+  { id: 'management', label: 'Менеджмент', icon: Briefcase, desc: 'Этапы закупки' },
+  { id: 'docflow', label: 'Документооборот', icon: FileSpreadsheet, desc: 'Стандарты ВДР' },
+  { id: 'equipment', label: 'Оборудование', icon: Fan, desc: 'Категории оборудования' },
+  { id: 'tags', label: 'Теги', icon: Tag, desc: 'Холст связей' },
   { id: 'notifications', label: 'Уведомления', icon: Bell, desc: 'Какие события показывать' },
-  { id: 'database', label: 'База данных', icon: Database, desc: 'Локальная SQLite или сетевой PostgreSQL' },
-  { id: 'backup', label: 'Резервные копии', icon: Archive, desc: 'Ежедневный архив базы, файлов и данных' },
-  { id: 'logs', label: 'Crash-логи', icon: Terminal, desc: 'Папка аварийных журналов' },
-  { id: 'updates', label: 'Обновления', icon: DownloadCloud, desc: 'Версия программы и обновления' },
+  { id: 'database', label: 'База данных', icon: Database, desc: 'На этом компьютере или на сервере' },
+  { id: 'backup', label: 'Резервные копии', icon: Archive, desc: 'Ежедневный архив данных' },
+  { id: 'logs', label: 'Crash-логи', icon: Terminal, desc: 'Журналы сбоев' },
+  { id: 'updates', label: 'Обновления', icon: DownloadCloud, desc: 'Версия и обновления' },
 ];
 
 export default function SettingsScreen() {
-  const { user, theme, toggleTheme } = useStore();
+  const { user, theme, toggleTheme, density, setDensity } = useStore();
   const { addToast } = useToastStore();
   const addLog = useLogStore((s) => s.addLog);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -105,7 +105,7 @@ export default function SettingsScreen() {
 
       {/* Содержимое категории */}
       <div className="flex-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-2xl shadow-xs overflow-y-auto p-6">
-        {section === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} />}
+        {section === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} density={density} setDensity={setDensity} />}
         {section === 'management' && <ManagementSection isAdmin={isAdmin} addToast={addToast} />}
         {section === 'equipment' && <EquipmentSection isAdmin={isAdmin} addToast={addToast} />}
         {section === 'docflow' && <DocflowSection isAdmin={isAdmin} addToast={addToast} />}
@@ -139,29 +139,61 @@ function SectionShell({ title, desc, children }: { title: string; desc: string; 
 }
 
 // ── Общие ──────────────────────────────────────────────────────────────────────
-function GeneralSection({ theme, toggleTheme }: any) {
+function GeneralSection({ theme, toggleTheme, density, setDensity }: any) {
   return (
     <SectionShell title="Общие" desc="Внешний вид программы.">
       <div className="space-y-4">
         <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
           <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Тема интерфейса</div>
-          <div className="grid grid-cols-2 gap-2 max-w-md">
+          {/* Переключатель, а не две залитые кнопки: выбранное состояние
+              показывается плашкой, а не полным фирменным цветом. */}
+          <div className="inline-flex p-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
             <button
+              type="button"
               onClick={() => { if (theme === 'dark') toggleTheme(); }}
-              className={`py-3 px-4 rounded-xl border text-sm font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
-                theme !== 'dark' ? 'bg-emerald-600 text-white border-emerald-700' : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-50'
+              aria-pressed={theme !== 'dark'}
+              className={`py-2 px-4 rounded-lg text-sm font-semibold transition-colors duration-[120ms] flex items-center justify-center gap-2 cursor-pointer ${
+                theme !== 'dark' ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
               }`}
             >
-              <Sun className="w-4 h-4 text-amber-400" /> Светлая
+              <Sun className="w-4 h-4" /> Светлая
             </button>
             <button
+              type="button"
               onClick={() => { if (theme !== 'dark') toggleTheme(); }}
-              className={`py-3 px-4 rounded-xl border text-sm font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
-                theme === 'dark' ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-50'
+              aria-pressed={theme === 'dark'}
+              className={`py-2 px-4 rounded-lg text-sm font-semibold transition-colors duration-[120ms] flex items-center justify-center gap-2 cursor-pointer ${
+                theme === 'dark' ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
               }`}
             >
-              <Moon className="w-4 h-4 text-emerald-400" /> Тёмная
+              <Moon className="w-4 h-4" /> Тёмная
             </button>
+          </div>
+        </div>
+
+        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Плотность</div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+            Сколько строк помещается на экране. Влияет на таблицы и списки во всех разделах.
+          </p>
+          <div className="inline-flex p-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
+            {([
+              { key: 'comfortable', label: 'Просторно' },
+              { key: 'standard', label: 'Стандарт' },
+              { key: 'compact', label: 'Компактно' },
+            ] as const).map((opt) => (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => setDensity(opt.key)}
+                aria-pressed={density === opt.key}
+                className={`py-2 px-4 rounded-lg text-sm font-semibold transition-colors duration-[120ms] cursor-pointer ${
+                  density === opt.key ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
         </div>
 

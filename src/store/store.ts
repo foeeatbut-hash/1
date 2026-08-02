@@ -33,6 +33,26 @@ interface AppState {
   // Sync Status
   syncStatus: 'idle' | 'saving' | 'success' | 'error';
   setSyncStatus: (status: 'idle' | 'saving' | 'success' | 'error') => void;
+  // Внешний вид рабочего места
+  density: Density;
+  setDensity: (d: Density) => void;
+  sidebarCompact: boolean;
+  toggleSidebarCompact: () => void;
+}
+
+// Плотность рабочего места: инженеру нужно видеть больше строк на экране,
+// но не всем и не всегда. Класс вешается на <html>, конкретные размеры
+// живут в index.css рядом с остальными переменными оформления.
+export type Density = 'compact' | 'standard' | 'comfortable';
+
+const DENSITY_KEY = 'flux_density';
+const SIDEBAR_KEY = 'flux_sidebar_compact';
+
+export function applyDensity(d: Density) {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  root.classList.remove('density-compact', 'density-standard', 'density-comfortable');
+  root.classList.add(`density-${d}`);
 }
 
 let syncTimeoutId: any = null;
@@ -47,6 +67,10 @@ export const useStore = create<AppState>((set, get) => {
       document.documentElement.classList.remove('dark');
     }
   }
+
+  const initialDensity = ((typeof window !== 'undefined' && localStorage.getItem(DENSITY_KEY)) || 'standard') as Density;
+  applyDensity(initialDensity);
+  const initialSidebarCompact = typeof window !== 'undefined' && localStorage.getItem(SIDEBAR_KEY) === '1';
 
   // Восстанавливаем сессию: окна-стикеры и перезапуск не должны требовать повторного входа
   let initialUser: User | null = null;
@@ -135,6 +159,20 @@ export const useStore = create<AppState>((set, get) => {
         document.documentElement.classList.remove('dark');
       }
       set({ theme: nextTheme });
+    },
+
+    density: initialDensity,
+    setDensity: (d) => {
+      localStorage.setItem(DENSITY_KEY, d);
+      applyDensity(d);
+      set({ density: d });
+    },
+
+    sidebarCompact: initialSidebarCompact,
+    toggleSidebarCompact: () => {
+      const next = !get().sidebarCompact;
+      localStorage.setItem(SIDEBAR_KEY, next ? '1' : '0');
+      set({ sidebarCompact: next });
     },
 
     explorerHistory: [null],

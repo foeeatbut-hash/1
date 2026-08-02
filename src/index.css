@@ -339,6 +339,35 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   border-radius: var(--flux-radius-sm);
 }
 
+/* ─────────────────────────────────────────────────────────────
+   Плотность рабочего места. Класс ставится на <html> из настроек.
+   Таблицы и списки берут высоту строки и внутренние отступы отсюда,
+   поэтому «просторно / стандарт / компактно» меняет всю программу
+   разом, а не по одному экрану.
+   ───────────────────────────────────────────────────────────── */
+:root, .density-standard {
+  --flux-row-h: 34px;
+  --flux-cell-py: 6px;
+  --flux-cell-px: 10px;
+  --flux-control-h: 32px;
+}
+.density-compact {
+  --flux-row-h: 28px;
+  --flux-cell-py: 3px;
+  --flux-cell-px: 8px;
+  --flux-control-h: 28px;
+}
+.density-comfortable {
+  --flux-row-h: 42px;
+  --flux-cell-py: 10px;
+  --flux-cell-px: 14px;
+  --flux-control-h: 38px;
+}
+
+/* Табличная строка и ячейка: единая геометрия для всех разделов */
+.flux-row { height: var(--flux-row-h); }
+.flux-cell { padding: var(--flux-cell-py) var(--flux-cell-px); }
+
 /* Цифры в колонках должны стоять друг под другом */
 .nums, table {
   font-variant-numeric: tabular-nums;

@@ -142,23 +142,45 @@ function PaneView({ paneId }: { paneId: string }) {
       }`}
     >
       {showTabs && (
-        <div className="shrink-0 flex items-stretch gap-1 px-2 pt-1.5 overflow-x-auto scrollbar-none bg-white/40 dark:bg-dark-surface/40">
+        <div
+          role="tablist"
+          aria-label="Открытые разделы"
+          className="shrink-0 flex items-stretch gap-px px-1.5 pt-1 overflow-x-auto scrollbar-none border-b border-slate-200 dark:border-dark-border bg-white/60 dark:bg-dark-surface/50"
+        >
           {pane.stack.map((p) => {
             const def = iconFor(p);
             const active = p === activePath;
+            const Icon = def?.icon as any;
             return (
               <div
                 key={p}
-                onMouseDown={(e) => { if (e.button !== 0) return; e.stopPropagation(); setActivePane(paneId); openInPane(paneId, p); }}
+                role="tab"
+                aria-selected={active}
+                onMouseDown={(e) => {
+                  // Средняя кнопка мыши закрывает вкладку — привычка из браузера
+                  if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeInPane(paneId, p); return; }
+                  if (e.button !== 0) return;
+                  e.stopPropagation(); setActivePane(paneId); openInPane(paneId, p);
+                }}
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, path: p }); }}
-                className={`group flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-t-lg text-xs font-semibold cursor-pointer select-none ${
-                  active ? 'bg-slate-100 dark:bg-dark-bg text-slate-900 dark:text-white' : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100/60 dark:hover:bg-dark-bg/50'
+                title={def?.title || p}
+                className={`group relative flex items-center gap-1.5 pl-2.5 pr-1 py-1.5 rounded-t-lg text-xs cursor-pointer select-none max-w-[190px] transition-colors duration-[120ms] ${
+                  active
+                    // Активная вкладка — поверхность содержимого плюс зелёная
+                    // метка сверху: раньше она отличалась только жирностью.
+                    ? 'bg-slate-100 dark:bg-dark-bg text-slate-900 dark:text-white font-semibold after:absolute after:left-1.5 after:right-1.5 after:top-0 after:h-0.5 after:rounded-b after:bg-emerald-600 dark:after:bg-emerald-400'
+                    : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100/70 dark:hover:bg-dark-bg/50 hover:text-slate-800 dark:hover:text-white'
                 }`}
               >
-                <span>{def?.title || p}</span>
+                {Icon && <Icon className="w-3.5 h-3.5 shrink-0 opacity-70" />}
+                <span className="truncate">{def?.title || p}</span>
                 <button
+                  type="button"
                   onMouseDown={(e) => { e.stopPropagation(); closeInPane(paneId, p); }}
-                  className="w-4 h-4 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-slate-300 dark:hover:bg-dark-border"
+                  aria-label={`Закрыть вкладку «${def?.title || p}»`}
+                  className={`w-4 h-4 shrink-0 rounded flex items-center justify-center hover:bg-slate-300 dark:hover:bg-dark-border cursor-pointer ${
+                    active ? 'opacity-70 hover:opacity-100' : 'opacity-0 group-hover:opacity-100'
+                  }`}
                   title="Закрыть вкладку"
                 >
                   <X className="w-3 h-3" />
