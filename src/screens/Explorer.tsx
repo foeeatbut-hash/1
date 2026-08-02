@@ -137,7 +137,56 @@ export default function Explorer() {
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [showPreviewPane, setShowPreviewPane] = useState(false);
+  // Панель свойств открыта по умолчанию: клик по файлу должен сразу
+  // показывать, что это за файл. Выбор запоминается.
+  // Фильтр по статусу документа: в архиве постоянно нужно «покажи только
+  // черновики» или «что уже выдано».
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+
+  // Ширины колонок таблицы: тянутся за границу заголовка и запоминаются.
+  // В архиве у одних длинные имена файлов, у других — длинные названия
+  // отделов; одна раскладка на всех не подходит.
+  const COL_KEYS = ['name', 'updatedAt', 'statusCode', 'size', 'tags', 'department'] as const;
+  const DEFAULT_COL_W: Record<string, number> = { name: 320, updatedAt: 150, statusCode: 120, size: 90, tags: 130, department: 120 };
+  const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('flux_explorer_cols') || '{}');
+      return { ...DEFAULT_COL_W, ...saved };
+    } catch (_) { return { ...DEFAULT_COL_W }; }
+  });
+  const resizeRef = useRef<{ key: string; startX: number; startW: number } | null>(null);
+
+  const startColResize = (key: string) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizeRef.current = { key, startX: e.clientX, startW: colWidths[key] || DEFAULT_COL_W[key] || 120 };
+    const onMove = (ev: MouseEvent) => {
+      const r = resizeRef.current;
+      if (!r) return;
+      const next = Math.max(60, r.startW + (ev.clientX - r.startX));
+      setColWidths((prev) => ({ ...prev, [r.key]: next }));
+    };
+    const onUp = () => {
+      resizeRef.current = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      setColWidths((prev) => {
+        try { localStorage.setItem('flux_explorer_cols', JSON.stringify(prev)); } catch (_) {}
+        return prev;
+      });
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  const colStyle = (key: string) => ({ width: colWidths[key] || DEFAULT_COL_W[key], minWidth: 60 });
+  const [showPreviewPane, setShowPreviewPaneState] = useState<boolean>(() => {
+    try { return localStorage.getItem('flux_explorer_details') !== '0'; } catch (_) { return true; }
+  });
+  const setShowPreviewPane = (v: boolean) => {
+    try { localStorage.setItem('flux_explorer_details', v ? '1' : '0'); } catch (_) {}
+    setShowPreviewPaneState(v);
+  };
 
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
 
@@ -846,7 +895,10 @@ export default function Explorer() {
       ).map((f: any) => ({ ...f, isFolder: false }))
     ];
 
-    items.sort((a, b) => {
+    const filtered = statusFilter
+      ? items.filter((i: any) => i.isFolder || (i.statusCode || 'D') === statusFilter)
+      : items;
+    filtered.sort((a, b) => {
       if (a.isFolder && !b.isFolder) return -1;
       if (!a.isFolder && b.isFolder) return 1;
 
@@ -863,8 +915,8 @@ export default function Explorer() {
       return 0;
     });
 
-    return items;
-  }, [folders, rootFiles, currentFolderId, currentSectionId, sections, searchQuery, sortConfig]);
+    return filtered;
+  }, [folders, rootFiles, currentFolderId, currentSectionId, sections, searchQuery, sortConfig, statusFilter]);
 
   useEffect(() => { allCurrentItemsRef.current = allCurrentItems; }, [allCurrentItems]);
 
@@ -1248,6 +1300,44 @@ export default function Explorer() {
            />
           </div>
         </div>
+
+        {/* Фильтр по статусу документа */}
+        <div className="flex items-center gap-1.5 px-3 pb-2">
+          <span className="text-2xs font-mono uppercase tracking-wider text-slate-400 mr-1">Статус</span>
+          <button
+            type="button"
+            onClick={() => setStatusFilter(null)}
+            aria-pressed={statusFilter === null}
+            className={`px-2 py-0.5 rounded-full text-2xs font-semibold transition-ui cursor-pointer ${
+              statusFilter === null
+                ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 ring-1 ring-emerald-600/40'
+                : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-panel'
+            }`}
+          >
+            Все
+          </button>
+          {STATUS_ORDER.map((code) => {
+            const st = FILE_STATUSES[code];
+            const active = statusFilter === code;
+            return (
+              <button
+                key={code}
+                type="button"
+                onClick={() => setStatusFilter(active ? null : code)}
+                aria-pressed={active}
+                title={`Показать только «${st.label}»`}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-2xs font-semibold transition-ui cursor-pointer ${
+                  active ? `${st.chip} ring-1 ring-slate-400/40` : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-panel'
+                }`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} /> {st.label}
+              </button>
+            );
+          })}
+          {statusFilter && (
+            <span className="text-2xs text-slate-400 ml-1">показаны только «{FILE_STATUSES[statusFilter].label}»</span>
+          )}
+        </div>
       </div>
 
 
@@ -1346,7 +1436,7 @@ export default function Explorer() {
         {/* Main Pane - Table View */}
         <div 
           ref={mainPaneRef}
-          className={`flex-1 overflow-y-auto bg-white dark:bg-dark-bg relative select-none scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-850 ${isDragging ? 'bg-emerald-50/10' : ''}`}
+          className={`flex-1 overflow-y-auto overflow-x-auto bg-white dark:bg-dark-bg relative select-none scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-850 ${isDragging ? 'bg-emerald-50/10' : ''}`}
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           onDragOver={handleDragOver}
           onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
@@ -1440,7 +1530,7 @@ export default function Explorer() {
               {isLoading ? (
                 <motion.table
                   key="skeleton"
-                  className="w-full text-left border-collapse select-none"
+                  className="w-full text-left border-collapse select-none table-fixed"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
@@ -1466,24 +1556,36 @@ export default function Explorer() {
               ) : viewMode === 'list' ? (
                 <motion.table 
                   key="list"
-                  className="w-full text-left border-collapse"
+                  className="w-full text-left border-collapse table-fixed"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
                 >
                   <thead className="sticky top-0 bg-white dark:bg-dark-surface shadow-xs border-b border-slate-200 dark:border-dark-border z-10 text-xs text-slate-500 dark:text-dark-text-muted font-medium">
                     <tr>
-                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('name')}>
+                      <th className="relative flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('name')} style={colStyle('name')}>
                         Имя {sortConfig.key === 'name' && (sortConfig.direction==='asc'?'↑':'↓')}
+                      
+                        <span onMouseDown={startColResize('name')} onClick={(e) => e.stopPropagation()}
+                          className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-emerald-400/60" title="Потянуть — изменить ширину колонки" />
                       </th>
-                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('updatedAt')}>
+                      <th className="relative flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('updatedAt')} style={colStyle('updatedAt')}>
                         Дата изменения {sortConfig.key === 'updatedAt' && (sortConfig.direction==='asc'?'↑':'↓')}
+                      
+                        <span onMouseDown={startColResize('updatedAt')} onClick={(e) => e.stopPropagation()}
+                          className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-emerald-400/60" title="Потянуть — изменить ширину колонки" />
                       </th>
-                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('statusCode')}>
+                      <th className="relative flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('statusCode')} style={colStyle('statusCode')}>
                         Статус {sortConfig.key === 'statusCode' && (sortConfig.direction==='asc'?'↑':'↓')}
+                      
+                        <span onMouseDown={startColResize('statusCode')} onClick={(e) => e.stopPropagation()}
+                          className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-emerald-400/60" title="Потянуть — изменить ширину колонки" />
                       </th>
-                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('size')}>
+                      <th className="relative flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('size')} style={colStyle('size')}>
                         Размер {sortConfig.key === 'size' && (sortConfig.direction==='asc'?'↑':'↓')}
+                      
+                        <span onMouseDown={startColResize('size')} onClick={(e) => e.stopPropagation()}
+                          className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-emerald-400/60" title="Потянуть — изменить ширину колонки" />
                       </th>
                       <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel">Теги</th>
                       <th className="flux-cell font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel">Отдел</th>
@@ -1730,6 +1832,40 @@ export default function Explorer() {
                          </div>
                        </div>
                        )}
+                       {/* Кто и когда: в общем архиве это первый вопрос к чужому файлу */}
+                       {(item.updatedBy?.name || item.createdBy?.name) && (
+                         <div className="flex justify-between border-b border-slate-100 dark:border-dark-border pb-1">
+                           <span className="text-slate-500 dark:text-dark-text-muted">Изменил</span>
+                           <span className="text-slate-800 dark:text-dark-text-main truncate ml-2">{(item.updatedBy?.name || item.createdBy?.name || '').replace(/\s*\(.*\)$/, '')}</span>
+                         </div>
+                       )}
+                       {item.createdAt && (
+                         <div className="flex justify-between border-b border-slate-100 dark:border-dark-border pb-1">
+                           <span className="text-slate-500 dark:text-dark-text-muted">Создан</span>
+                           <span className="text-slate-800 dark:text-dark-text-main">{format(new Date(item.createdAt), 'dd.MM.yyyy HH:mm')}</span>
+                         </div>
+                       )}
+                     </div>
+
+                     {/* Действия над файлом — закреплены внизу панели: на экране
+                         ноутбука они иначе уходят ниже видимой части. */}
+                     <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-1 bg-slate-50 dark:bg-dark-surface border-t border-slate-200 dark:border-dark-border grid grid-cols-2 gap-1.5 mt-3">
+                       <button type="button" onClick={() => handleDownload(item.id, false)}
+                         className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-2xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition-ui cursor-pointer">
+                         <Download className="w-3.5 h-3.5" /> Скачать
+                       </button>
+                       <button type="button" onClick={() => handleAssignTag(item.id)}
+                         className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-2xs font-semibold border border-slate-200 dark:border-dark-border hover:bg-white dark:hover:bg-dark-panel transition-ui cursor-pointer">
+                         <Tag className="w-3.5 h-3.5 text-amber-500" /> Теги
+                       </button>
+                       <button type="button" onClick={() => { setRenamingId(item.id); setRenameValue(item.name); }}
+                         className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-2xs font-semibold border border-slate-200 dark:border-dark-border hover:bg-white dark:hover:bg-dark-panel transition-ui cursor-pointer">
+                         <Edit2 className="w-3.5 h-3.5" /> Переименовать
+                       </button>
+                       <button type="button" onClick={() => handleDelete(item.id, true)}
+                         className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-2xs font-semibold text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-ui cursor-pointer">
+                         <Trash2 className="w-3.5 h-3.5" /> Удалить
+                       </button>
                      </div>
                   </div>
                 );
