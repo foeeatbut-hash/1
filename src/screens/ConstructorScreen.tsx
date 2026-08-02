@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx';
 import {
   Table2, Plus, ArrowLeft, Loader2, Download, FolderOpen, Copy, Trash2,
   RotateCcw, Lock, Users2, Search, ChevronRight, Database, X, CheckCircle2,
-  Boxes, RefreshCw, Unlink, AlertTriangle, Printer, History, FileText
+  Boxes, RefreshCw, Unlink, AlertTriangle, Printer, History, FileText, ChevronDown
 } from 'lucide-react';
 import TextDocEditor from './TextDocEditor';
 import TitleTemplateEditor from './TitleTemplateEditor';
@@ -381,6 +381,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   const [versionsOpen, setVersionsOpen] = useState(false);
   // Титул: присвоенный шаблон + реквизиты этого документа (как у Ворда)
   const [titleOpen, setTitleOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [titleSettings, setTitleSettings] = useState<TitleSettings>({});
   const [versions, setVersions] = useState<{ id: string; version: number; comment: string; createdAt: string }[]>([]);
   const [reloadTick, setReloadTick] = useState(0); // откат = переинициализация движка
@@ -1080,6 +1081,11 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
             <option value="PERSONAL">Личный</option>
           </select>
         )}
+        {/* Состояние сохранения держим рядом с названием: у правого края
+            оно уезжало за границу панели на ноутбуке. */}
+        <span className={`text-xs w-24 shrink-0 ${saveState === 'saving' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
+          {saveState === 'saving' ? 'сохраняю…' : saveState === 'saved' ? 'сохранено' : ''}
+        </span>
         <div className="flex-1" />
         {peers.length > 0 && (
           <div className="flex items-center mr-1" title={`В документе: ${peers.map(pp => pp.name).join(', ')}`}>
@@ -1134,21 +1140,45 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${titleSettings.titleTemplateId ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
           <Stamp className="w-3.5 h-3.5" /> Титул
         </button>
-        <button type="button" onClick={handlePrint} title="Печать активного листа" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
-          <Printer className="w-3.5 h-3.5" /> Печать
-        </button>
-        <button type="button" onClick={handlePdf} title="Сохранить активный лист в PDF" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
-          PDF
-        </button>
-        <button type="button" onClick={exportDownload} title="Скачать XLSX" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
-          <Download className="w-3.5 h-3.5" /> XLSX
-        </button>
-        <button type="button" onClick={exportToExplorer} title="Сохранить XLSX в Проводник программы" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
-          <FolderOpen className="w-3.5 h-3.5" /> В Проводник
-        </button>
-        <span className="text-xs text-slate-400 w-24 text-right">
-          {saveState === 'saving' ? 'сохраняю…' : saveState === 'saved' ? `сохранено` : ''}
-        </span>
+        {/* Выгрузка одной кнопкой: раньше четыре отдельные кнопки не
+            помещались в панель на ноутбуке, и индикатор сохранения уезжал
+            за край экрана. */}
+        <div className="relative">
+          <button type="button" onClick={() => setExportOpen(v => !v)}
+            aria-haspopup="menu" aria-expanded={exportOpen}
+            title="Печать, PDF, XLSX и сохранение в Проводник"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs font-bold cursor-pointer">
+            <Download className="w-3.5 h-3.5" /> Выгрузить
+            <ChevronDown className="w-3 h-3 opacity-60" />
+          </button>
+          {exportOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setExportOpen(false)} />
+              <div role="menu" className="absolute right-0 top-full mt-1 z-50 w-56 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-lg overflow-hidden">
+                {[
+                  { label: 'Печать листа', icon: Printer, hint: 'Активный лист на принтер', run: handlePrint },
+                  { label: 'Сохранить в PDF', icon: FileText, hint: 'Активный лист файлом PDF', run: handlePdf },
+                  { label: 'Скачать XLSX', icon: Download, hint: 'Книга целиком для Excel', run: exportDownload },
+                  { label: 'Сохранить в Проводник', icon: FolderOpen, hint: 'XLSX в архив программы', run: exportToExplorer },
+                ].map((it) => {
+                  const Icon = it.icon as any;
+                  return (
+                    <button key={it.label} type="button" role="menuitem"
+                      onClick={() => { setExportOpen(false); it.run(); }}
+                      className="w-full flex items-start gap-2.5 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-900 cursor-pointer">
+                      <Icon className="w-3.5 h-3.5 mt-0.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <span className="min-w-0">
+                        <span className="block text-xs font-semibold">{it.label}</span>
+                        <span className="block text-2xs text-slate-400">{it.hint}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+
       </div>
 
       {/* Полотно движка */}
@@ -1278,7 +1308,12 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
                     <span className="px-2 py-1 rounded bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 font-mono text-xs">моё: {String(item.userValue)}</span>
                     <span className="text-slate-400">против</span>
                     <span className="px-2 py-1 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 font-mono text-xs">из проекта: {String(item.liveValue)}</span>
-                    <div className="flex-1" />
+                    {/* Состояние сохранения держим рядом с названием: у правого края
+            оно уезжало за границу панели на ноутбуке. */}
+        <span className={`text-xs w-24 shrink-0 ${saveState === 'saving' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
+          {saveState === 'saving' ? 'сохраняю…' : saveState === 'saved' ? 'сохранено' : ''}
+        </span>
+        <div className="flex-1" />
                     <button type="button" onClick={() => resolveConflict(item, 'mine')} className="text-xs font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Моё</button>
                     <button type="button" onClick={() => resolveConflict(item, 'live')} className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer">Из проекта</button>
                   </div>
@@ -1532,7 +1567,25 @@ export default function ConstructorScreen() {
           {items.map((d: DocMeta) => <Card key={d.id} d={d} inTrash={inTrash} />)}
         </div>
       ) : (
-        <div className="text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl px-4 py-6 text-center">Пока пусто</div>
+        <div className="border border-dashed border-slate-200 dark:border-slate-800 rounded-xl px-4 py-7 text-center">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            {inTrash
+              ? 'В корзине пусто.'
+              : 'Здесь появятся ваши таблицы и документы. Таблица собирается из данных проекта — теги, оборудование, закупки подтягиваются сами.'}
+          </p>
+          {!inTrash && (
+            <div className="flex items-center justify-center gap-2 mt-3">
+              <button type="button" onClick={() => createDoc('DOC')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition-ui cursor-pointer">
+                <Table2 className="w-3.5 h-3.5" /> Создать таблицу
+              </button>
+              <button type="button" onClick={() => createDoc('TEXT')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-200 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-900 transition-ui cursor-pointer">
+                <FileText className="w-3.5 h-3.5" /> Создать документ
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -1551,7 +1604,7 @@ export default function ConstructorScreen() {
             <button type="button" onClick={() => createDoc('DOC')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новая таблица: формулы, данные проекта, умные блоки">
               <Table2 className="w-4 h-4" /> Таблица
             </button>
-            <button type="button" onClick={() => createDoc('TEXT')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новый текстовый документ: страницы, стили, списки — как в Word">
+            <button type="button" onClick={() => createDoc('TEXT')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-800 text-sm font-bold shadow-sm cursor-pointer" title="Новый текстовый документ: страницы, стили, списки — как в Word">
               <FileText className="w-4 h-4" /> Документ
             </button>
             <button type="button" onClick={() => createDoc('TITLE')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white dark:bg-slate-950 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-sm font-bold shadow-sm cursor-pointer" title="Конструктор титула: ссылки на данные и формулы, присваивается документам">
