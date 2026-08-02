@@ -314,21 +314,21 @@ export default function VdrPanel() {
               <table className="w-full text-xs">
                 <thead className="bg-slate-50 dark:bg-slate-900 sticky top-0 z-10">
                   <tr className="text-left text-slate-500 dark:text-slate-400">
-                    <th className="px-2 py-2 w-8">
+                    <th className="flux-cell w-8">
                       <input type="checkbox" className="w-3.5 h-3.5 accent-indigo-500 cursor-pointer"
                         checked={selected.size > 0 && selected.size === filtered.length}
                         onChange={e => setSelected(e.target.checked ? new Set(filtered.map(i => i.id)) : new Set())} />
                     </th>
-                    <th className="px-3 py-2 font-bold whitespace-nowrap">№ документа</th>
-                    <th className="px-3 py-2 font-bold">Наименование</th>
-                    <th className="px-3 py-2 font-bold">Тип</th>
-                    <th className="px-3 py-2 font-bold">Рев.</th>
-                    <th className="px-3 py-2 font-bold whitespace-nowrap">Срок</th>
-                    <th className="px-3 py-2 font-bold">Код</th>
-                    <th className="px-3 py-2 font-bold">Статус</th>
-                    <th className="px-3 py-2 font-bold">Теги</th>
-                    <th className="px-3 py-2 font-bold">Исполнитель</th>
-                    <th className="px-3 py-2 font-bold text-right">Действия</th>
+                    <th className="flux-cell font-bold whitespace-nowrap">№ документа</th>
+                    <th className="flux-cell font-bold">Наименование</th>
+                    <th className="flux-cell font-bold">Тип</th>
+                    <th className="flux-cell font-bold">Рев.</th>
+                    <th className="flux-cell font-bold whitespace-nowrap">Срок</th>
+                    <th className="flux-cell font-bold">Код</th>
+                    <th className="flux-cell font-bold">Статус</th>
+                    <th className="flux-cell font-bold">Теги</th>
+                    <th className="flux-cell font-bold">Исполнитель</th>
+                    <th className="flux-cell font-bold text-right">Действия</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-900">
@@ -336,21 +336,21 @@ export default function VdrPanel() {
                     <tr key={it.id}
                       onClick={() => setCardItem(it)}
                       className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/60 ${focusItemId === it.id ? 'bg-indigo-50 dark:bg-indigo-950/30' : ''}`}>
-                      <td className="px-2 py-1.5" onClick={e => e.stopPropagation()}>
+                      <td className="flux-cell" onClick={e => e.stopPropagation()}>
                         <input type="checkbox" className="w-3.5 h-3.5 accent-indigo-500 cursor-pointer"
                           checked={selected.has(it.id)}
                           onChange={e => setSelected(s => { const n = new Set(s); e.target.checked ? n.add(it.id) : n.delete(it.id); return n; })} />
                       </td>
-                      <td className="px-3 py-1.5 font-semibold whitespace-nowrap">{it.contractorNo || it.ownerNo || '—'}</td>
-                      <td className="px-3 py-1.5 max-w-80"><div className="truncate" title={`${it.titleRu}\n${it.titleEn}`}>{it.titleRu || it.titleEn}</div></td>
-                      <td className="px-3 py-1.5 whitespace-nowrap">{it.vdrCode}</td>
-                      <td className="px-3 py-1.5 font-bold">{it.revision}</td>
-                      <td className={`px-3 py-1.5 whitespace-nowrap ${overdue(it.dueDate) ? 'text-rose-600 font-bold' : 'text-slate-500'}`}>{fmtD(it.dueDate)}</td>
-                      <td className="px-3 py-1.5 font-bold">{it.reviewCode}</td>
-                      <td className="px-3 py-1.5"><span className={`px-2 py-0.5 rounded-md font-bold whitespace-nowrap ${STATUS_META[it.status]?.cls || ''}`}>{STATUS_META[it.status]?.label || it.status}</span></td>
-                      <td className="px-3 py-1.5 max-w-36"><div className="truncate text-slate-500" title={tagsOf(it).join('; ')}>{tagsOf(it).slice(0, 2).join('; ')}{tagsOf(it).length > 2 ? '…' : ''}</div></td>
-                      <td className="px-3 py-1.5 whitespace-nowrap text-slate-500">{users.find(u => u.id === it.assigneeId)?.name?.split(' ')[0] || '—'}</td>
-                      <td className="px-2 py-1.5" onClick={e => e.stopPropagation()}>
+                      <td className="flux-cell font-semibold whitespace-nowrap">{it.contractorNo || it.ownerNo || '—'}</td>
+                      <td className="flux-cell max-w-80"><div className="truncate" title={`${it.titleRu}\n${it.titleEn}`}>{it.titleRu || it.titleEn}</div></td>
+                      <td className="flux-cell whitespace-nowrap">{it.vdrCode}</td>
+                      <td className="flux-cell font-bold">{it.revision}</td>
+                      <td className={`flux-cell whitespace-nowrap ${overdue(it.dueDate) ? 'text-rose-600 font-bold' : 'text-slate-500'}`}>{fmtD(it.dueDate)}</td>
+                      <td className="flux-cell font-bold">{it.reviewCode}</td>
+                      <td className="flux-cell"><span className={`px-2 py-0.5 rounded-md font-bold whitespace-nowrap ${STATUS_META[it.status]?.cls || ''}`}>{STATUS_META[it.status]?.label || it.status}</span></td>
+                      <td className="flux-cell max-w-36"><div className="truncate text-slate-500" title={tagsOf(it).join('; ')}>{tagsOf(it).slice(0, 2).join('; ')}{tagsOf(it).length > 2 ? '…' : ''}</div></td>
+                      <td className="flux-cell whitespace-nowrap text-slate-500">{users.find(u => u.id === it.assigneeId)?.name?.split(' ')[0] || '—'}</td>
+                      <td className="flux-cell" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-0.5">
                           {it.docId ? (
                             <button type="button" title="Открыть документ" onClick={() => navigate(`/constructor?doc=${it.docId}`)}

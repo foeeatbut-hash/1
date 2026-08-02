@@ -136,7 +136,7 @@ export default function DictionaryEditor() {
     if (activeProject) {
       fetchDictionaries();
     }
-  }, [activeProject]);
+  }, [activeProject?.id]); // по идентификатору, а не по объекту: иначе перезапрос при каждой смене ссылки
 
   const runAutoSeed = async (existingDicts: any[]) => {
     try {
@@ -2035,16 +2035,16 @@ export default function DictionaryEditor() {
                 <table className="w-full text-sm text-left">
                   <thead className="bg-white dark:bg-slate-900 text-slate-500 border-b border-slate-200 dark:border-slate-800 shadow-sm z-10 sticky top-0">
                     <tr>
-                      <th className="px-4 py-3 font-medium text-slate-700 dark:text-slate-300">
+                      <th className="flux-cell font-medium text-slate-700 dark:text-slate-300">
                         Код (A)
                       </th>
-                      <th className="px-4 py-3 font-medium text-slate-700 dark:text-slate-300">
+                      <th className="flux-cell font-medium text-slate-700 dark:text-slate-300">
                         Наименование (B)
                       </th>
-                      <th className="px-4 py-3 font-medium text-slate-700 dark:text-slate-300">
+                      <th className="flux-cell font-medium text-slate-700 dark:text-slate-300">
                         Родительская категория
                       </th>
-                      <th className="px-4 py-3 font-medium w-24 text-right text-slate-700 dark:text-slate-300">
+                      <th className="flux-cell font-medium w-24 text-right text-slate-700 dark:text-slate-300">
                         Действия
                       </th>
                     </tr>
@@ -2052,7 +2052,7 @@ export default function DictionaryEditor() {
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/40">
                     {isAdding && (
                       <tr className="bg-emerald-500/5">
-                        <td className="px-4 py-2">
+                        <td className="flux-cell">
                           <input
                             autoFocus
                             type="text"
@@ -2064,7 +2064,7 @@ export default function DictionaryEditor() {
                             placeholder="Код..."
                           />
                         </td>
-                        <td className="px-4 py-2">
+                        <td className="flux-cell">
                           <input
                             type="text"
                             value={addForm.nameRu}
@@ -2075,7 +2075,7 @@ export default function DictionaryEditor() {
                             placeholder="Наименование..."
                           />
                         </td>
-                        <td className="px-4 py-2">
+                        <td className="flux-cell">
                           <CustomSelect
                             value={addForm.parentId}
                             onChange={(val) =>
@@ -2093,7 +2093,7 @@ export default function DictionaryEditor() {
                             ]}
                           />
                         </td>
-                        <td className="px-4 py-2 text-right">
+                        <td className="flux-cell text-right">
                           <div className="flex items-center justify-end gap-2">
                             <button type="button"
                               onClick={handleAddItem}
@@ -2125,7 +2125,7 @@ export default function DictionaryEditor() {
                       if (isEditing) {
                         return (
                           <tr key={item.id} className="bg-emerald-500/5">
-                            <td className="px-4 py-2">
+                            <td className="flux-cell">
                               <input
                                 autoFocus
                                 type="text"
@@ -2139,7 +2139,7 @@ export default function DictionaryEditor() {
                                 className="w-full px-2 py-1 text-sm border border-emerald-300 dark:border-emerald-800 rounded focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                               />
                             </td>
-                            <td className="px-4 py-2">
+                            <td className="flux-cell">
                               <input
                                 type="text"
                                 value={editForm.nameRu}
@@ -2152,7 +2152,7 @@ export default function DictionaryEditor() {
                                 className="w-full px-2 py-1 text-sm border border-emerald-300 dark:border-emerald-800 rounded focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                               />
                             </td>
-                            <td className="px-4 py-2">
+                            <td className="flux-cell">
                               <CustomSelect
                                 value={editForm.parentId}
                                 onChange={(val) =>
@@ -2172,7 +2172,7 @@ export default function DictionaryEditor() {
                                 ]}
                               />
                             </td>
-                            <td className="px-4 py-2 text-right">
+                            <td className="flux-cell text-right">
                               <div className="flex items-center justify-end gap-2">
                                 <button type="button"
                                   onClick={() => handleSaveItem(item.id)}
@@ -2202,7 +2202,7 @@ export default function DictionaryEditor() {
                           className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors group"
                         >
                           <td
-                            className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200 font-mono text-xs flex items-center shadow-none border-none outline-none"
+                            className="flux-cell font-semibold text-slate-800 dark:text-slate-200 font-mono text-xs flex items-center shadow-none border-none outline-none"
                             style={{ paddingLeft: `${depth * 24 + 16}px` }}
                           >
                             {depth > 0 && (
@@ -2212,10 +2212,10 @@ export default function DictionaryEditor() {
                             )}
                             {item.code}
                           </td>
-                          <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
+                          <td className="flux-cell text-slate-600 dark:text-slate-400">
                             {item.nameRu}
                           </td>
-                          <td className="px-4 py-3 text-slate-500 font-sans text-xs">
+                          <td className="flux-cell text-slate-500 font-sans text-xs">
                             {parentItem ? (
                               <span className="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-350 border border-slate-200 dark:border-slate-800 text-xs font-mono">
                                 {parentItem.code} ({parentItem.nameRu})
@@ -2226,7 +2226,7 @@ export default function DictionaryEditor() {
                               </span>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-right font-sans">
+                          <td className="flux-cell text-right font-sans">
                             <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                               <button type="button"
                                 onClick={() => {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import VdrPanel from './VdrPanel';
 import { useStore } from '../store/store';
@@ -14,6 +14,7 @@ import {
   resolveTemplate, stageIcon, stageColor, DEFAULT_TEMPLATE_ID
 } from '../lib/procurementStages';
 import { countOf } from '../lib/plural';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import NoProject from '../components/NoProject';
 
 // ── Раздел «Менеджмент» ────────────────────────────────────────────────────────
@@ -141,7 +142,13 @@ function ProcurementTab() {
     return () => clearTimeout(t);
   }, [search]);
   // Порционный рендер: DOM из тысяч строк тормозил прокрутку — рисуем частями
-  const [renderLimit, setRenderLimit] = useState(120);
+  // Виртуализация списка позиций: на реальном проекте их тысячи, а раньше
+  // экран рисовал их все подряд (около 70 узлов разметки на строку) и
+  // прокрутка проседала. Рисуем только то, что видно.
+  const tableRef = useRef<HTMLTableElement>(null);
+  // Элемент прокрутки держим в состоянии, а не в ref: виртуализатору нужен
+  // повторный расчёт после того, как контейнер найден.
+  const [scrollEl, setScrollEl] = useState<HTMLElement | null>(null);
   const [stageFilter, setStageFilter] = useState<string>('all');
   const [deptFilter, setDeptFilter] = useState<string>('');
   const [onlyDuplicates, setOnlyDuplicates] = useState(false);
@@ -173,7 +180,7 @@ function ProcurementTab() {
     } finally {
       setIsLoading(false);
     }
-  }, [activeProject]);
+  }, [activeProject?.id]); // по идентификатору, а не по объекту: иначе перезапрос при каждой смене ссылки
 
   useEffect(() => {
     loadAll();
@@ -270,9 +277,9 @@ function ProcurementTab() {
     return true;
   }, [stageFilter, deptFilter, onlyDuplicates, onlyCritical, debouncedSearch]);
 
-  // Смена фильтров возвращает порционный рендер к началу
+  // Смена фильтров возвращает прокрутку списка к началу
   useEffect(() => {
-    setRenderLimit(120);
+    scrollEl?.scrollTo({ top: 0 });
   }, [stageFilter, deptFilter, onlyDuplicates, onlyCritical, debouncedSearch, viewMode]);
 
   const lastDateOf = (r: Row): number => {
@@ -478,6 +485,23 @@ function ProcurementTab() {
 
   const allVisibleSelected = filtered.length > 0 && filtered.every(r => selectedIds.has(r.tag.id));
 
+  // Прокручивается не сама таблица, а контейнер раздела рабочего стола
+  useEffect(() => {
+    const el = (tableRef.current?.closest('.overflow-y-auto') as HTMLElement) || null;
+    setScrollEl((prev) => (prev === el ? prev : el));
+  }, [viewMode, filtered.length]);
+
+  const rowVirtualizer = useVirtualizer({
+    count: viewMode === 'list' ? filtered.length : 0,
+    getScrollElement: () => scrollEl,
+    estimateSize: () => 100,
+    overscan: 4,
+    // Реальная высота строки зависит от содержимого: измеряем, иначе
+    // виртуализатор постоянно пересчитывает раскладку при прокрутке.
+    measureElement: (el) => el.getBoundingClientRect().height,
+  });
+  const virtualRows = rowVirtualizer.getVirtualItems();
+
   if (!activeProject) {
     return (
       <NoProject what="Закупки" />
@@ -485,12 +509,14 @@ function ProcurementTab() {
   }
 
   // ── Строка позиции (общая для списка и дерева) ──────────────────────────────
-  const renderRow = (row: Row, treeLevel: number | null, treeHasChildren?: boolean, treeExpanded?: boolean, onTreeToggle?: () => void) => {
+  const renderRow = (row: Row, treeLevel: number | null, treeHasChildren?: boolean, treeExpanded?: boolean, onTreeToggle?: () => void, measureRef?: (el: HTMLElement | null) => void, vIndex?: number) => {
     const act = ACTUALITY_LABELS[row.actuality] || ACTUALITY_LABELS.draft;
     const isSelected = selectedIds.has(row.tag.id);
     return (
       <tr
         key={row.tag.id}
+        ref={measureRef}
+        data-index={vIndex}
         data-share-route="/management"
         data-share-focus={`ptag:${row.tag.id}`}
         data-share-label={row.tag.identifier}
@@ -509,7 +535,7 @@ function ProcurementTab() {
         }`}
       >
         {/* Галочка мультивыбора */}
-        <td className="px-3 py-3 align-top w-8">
+        <td className="flux-cell align-top w-8">
           <input
             type="checkbox"
             checked={isSelected}
@@ -521,7 +547,7 @@ function ProcurementTab() {
         </td>
 
         {/* Позиция */}
-        <td className="px-4 py-3 align-top">
+        <td className="flux-cell align-top">
           <div className="flex items-center gap-1.5" style={treeLevel !== null ? { paddingLeft: `${treeLevel * 22}px` } : undefined}>
             {treeLevel !== null && (
               treeHasChildren ? (
@@ -548,7 +574,7 @@ function ProcurementTab() {
         </td>
 
         {/* Марка */}
-        <td className="px-4 py-3 align-top">
+        <td className="flux-cell align-top">
           {row.tag.brand ? (
             <span className="font-mono text-xs font-semibold px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 inline-block max-w-[150px] truncate" title={row.tag.brand}>
               {row.tag.brand}
@@ -557,7 +583,7 @@ function ProcurementTab() {
         </td>
 
         {/* Актуальность */}
-        <td className="px-4 py-3 align-top">
+        <td className="flux-cell align-top">
           <span className={`inline-flex items-center gap-1 text-2xs font-bold px-2 py-1 rounded-full border ${act.cls}`}>
             {(row.actuality === 'critical' || row.actuality === 'warning') && <AlertTriangle className="w-3 h-3" />}
             {act.label}
@@ -565,7 +591,7 @@ function ProcurementTab() {
         </td>
 
         {/* Этап закупки: степпер по этапам позиции (стандартным или шаблонным) */}
-        <td className="px-4 py-3 align-top">
+        <td className="flux-cell align-top">
           <div className="flex items-center gap-0.5 flex-wrap">
             {row.stages.map((s, idx) => {
               const Icon = stageIcon(s.icon);
@@ -603,7 +629,7 @@ function ProcurementTab() {
         </td>
 
         {/* Даты этапов */}
-        <td className="px-4 py-3 align-top">
+        <td className="flux-cell align-top">
           <div className="text-2xs font-mono text-slate-500 dark:text-slate-400 space-y-0.5 leading-tight">
             {row.stages.slice(1).map(s => {
               const rec = row.proc.stageLog?.[s.id];
@@ -618,7 +644,7 @@ function ProcurementTab() {
         </td>
 
         {/* Поставщик и количество */}
-        <td className="px-4 py-3 align-top">
+        <td className="flux-cell align-top">
           <input
             type="text"
             defaultValue={row.proc.supplier || ''}
@@ -638,7 +664,7 @@ function ProcurementTab() {
         </td>
 
         {/* Примечание */}
-        <td className="px-4 py-3 align-top min-w-[180px]">
+        <td className="flux-cell align-top min-w-[180px]">
           {editingNoteId === row.tag.id ? (
             <textarea
               autoFocus
@@ -845,10 +871,10 @@ function ProcurementTab() {
 
       {/* Таблица позиций */}
       <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs overflow-x-auto">
-        <table className="w-full text-left border-collapse min-w-[980px]">
+        <table ref={tableRef} className="w-full text-left border-collapse min-w-[980px]">
           <thead className="bg-slate-50 dark:bg-slate-900/60 text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-850">
             <tr>
-              <th className="px-3 py-2.5 w-8">
+              <th className="flux-cell w-8">
                 <input
                   type="checkbox"
                   checked={allVisibleSelected}
@@ -860,23 +886,23 @@ function ProcurementTab() {
                   title="Выбрать все показанные"
                 />
               </th>
-              <th className="px-4 py-2.5 cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('identifier')}>
+              <th className="flux-cell cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('identifier')}>
                 Позиция {sortKey === 'identifier' && (sortAsc ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />)}
               </th>
-              <th className="px-4 py-2.5 cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('brand')}>
+              <th className="flux-cell cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('brand')}>
                 Марка {sortKey === 'brand' && (sortAsc ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />)}
               </th>
-              <th className="px-4 py-2.5">Актуальность</th>
-              <th className="px-4 py-2.5 cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('stage')}>
+              <th className="flux-cell">Актуальность</th>
+              <th className="flux-cell cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('stage')}>
                 Этап закупки {sortKey === 'stage' && (sortAsc ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />)}
               </th>
-              <th className="px-4 py-2.5 cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('lastDate')}>
+              <th className="flux-cell cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('lastDate')}>
                 Даты этапов {sortKey === 'lastDate' && (sortAsc ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />)}
               </th>
-              <th className="px-4 py-2.5 cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('qty')}>
+              <th className="flux-cell cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('qty')}>
                 Поставщик / Кол-во {sortKey === 'qty' && (sortAsc ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />)}
               </th>
-              <th className="px-4 py-2.5">Примечание</th>
+              <th className="flux-cell">Примечание</th>
             </tr>
           </thead>
           <tbody>
@@ -890,21 +916,21 @@ function ProcurementTab() {
                 {rows.length === 0 ? 'В проекте нет позиций. Добавьте теги в разделе «Теги».' : 'Ничего не найдено по заданным фильтрам.'}
               </td></tr>
             ) : viewMode === 'list' ? (
-              filtered.slice(0, renderLimit).map(row => renderRow(row, null))
+              <>
+                {virtualRows.length > 0 && virtualRows[0].start > 0 && (
+                  <tr style={{ height: virtualRows[0].start, border: 'none' }} aria-hidden="true"><td colSpan={8} className="p-0" /></tr>
+                )}
+                {virtualRows.map((v) => (
+                  <React.Fragment key={filtered[v.index].tag.id}>
+                    {renderRow(filtered[v.index], null, undefined, undefined, undefined, rowVirtualizer.measureElement, v.index)}
+                  </React.Fragment>
+                ))}
+                {virtualRows.length > 0 && (
+                  <tr style={{ height: Math.max(0, rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end), border: 'none' }} aria-hidden="true"><td colSpan={8} className="p-0" /></tr>
+                )}
+              </>
             ) : (
               tree.flatMap(({ id, childrenMap, visible }) => renderTreeRows(id, childrenMap, visible, 0, new Set()))
-            )}
-            {viewMode === 'list' && filtered.length > renderLimit && (
-              <tr>
-                <td colSpan={8} className="p-0">
-                  <button type="button"
-                    onClick={() => setRenderLimit(l => l + 300)}
-                    className="w-full py-3 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50/60 dark:hover:bg-indigo-950/20 cursor-pointer"
-                  >
-                    Показать ещё ({countOf(filtered.length - renderLimit, 'позиция')} скрыто)
-                  </button>
-                </td>
-              </tr>
             )}
           </tbody>
         </table>

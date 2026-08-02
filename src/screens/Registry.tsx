@@ -931,7 +931,7 @@ export default function Registry() {
     loadTags();
     loadDictionaries();
     loadSystems();
-  }, [activeProject]);
+  }, [activeProject?.id]); // по идентификатору, а не по объекту: иначе перезапрос при каждой смене ссылки
 
   // ИИ-чат мог переименовать тег — перечитываем список, чтобы холст обновился
   useEffect(() => {
@@ -4699,10 +4699,10 @@ export default function Registry() {
                 <table className="w-full text-sm text-left border-collapse">
                   <thead className="sticky top-0 bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-b border-slate-250 dark:border-slate-850 text-xs font-semibold uppercase tracking-wider z-10 shadow-xs">
                     <tr>
-                      <th className="px-5 py-3.5">Tag Segments (Тег KKS)</th>
-                      <th className="px-5 py-3.5">Mark Segments (Характеристики)</th>
-                      <th className="px-5 py-3.5">Наименование тега (Name)</th>
-                      <th className="px-5 py-3.5 flex items-center justify-between col-span-1">
+                      <th className="flux-cell">Tag Segments (Тег KKS)</th>
+                      <th className="flux-cell">Mark Segments (Характеристики)</th>
+                      <th className="flux-cell">Наименование тега (Name)</th>
+                      <th className="flux-cell flex items-center justify-between col-span-1">
                         <span>Статус / Актуальность (Status)</span>
                         <button
                           type="button"
@@ -4744,7 +4744,7 @@ export default function Registry() {
                           className="hover:bg-slate-50/60 dark:hover:bg-slate-950/40 transition-colors"
                         >
                           {/* COLUMN 1: TAG SEGMENTS (KKS) */}
-                          <td className="px-5 py-4">
+                          <td className="flux-cell">
                             <div className="flex flex-wrap gap-1">
                               {tagParts.map((part, idx) => {
                                 const isMatched = activeTagFilters[idx] && activeTagFilters[idx] !== '*' && activeTagFilters[idx] === part;
@@ -4765,7 +4765,7 @@ export default function Registry() {
                           </td>
 
                           {/* COLUMN 2: MARK SEGMENTS */}
-                          <td className="px-5 py-4">
+                          <td className="flux-cell">
                             <div className="flex flex-wrap gap-1">
                               {markParts.map((part, idx) => {
                                 const isMatched = activeMarkFilters[idx] && activeMarkFilters[idx] !== '*' && activeMarkFilters[idx] === part;
@@ -4794,7 +4794,7 @@ export default function Registry() {
                           </td>
 
                           {/* COLUMN 3: NAME */}
-                          <td className="px-5 py-4 font-semibold text-slate-800 dark:text-slate-200 text-xs">
+                          <td className="flux-cell font-semibold text-slate-800 dark:text-slate-200 text-xs">
                             <p className="font-bold text-slate-900 dark:text-white select-all">
                               {tMeta.mainName || <span className="italic opacity-50">Без наименования</span>}
                             </p>
@@ -4804,7 +4804,7 @@ export default function Registry() {
                           </td>
 
                           {/* COLUMN 4: STATUS / RELEVANCE */}
-                          <td className="px-5 py-4">
+                          <td className="flux-cell">
                             <div className="flex items-center gap-2">
                               <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-bold border uppercase tracking-wider ${statusCfg.bg} ${statusCfg.text} ${statusCfg.border}`}>
                                 {statusCfg.label}
@@ -4875,27 +4875,27 @@ export default function Registry() {
                 <table className="w-full text-sm text-left border-collapse">
                   <thead className="sticky top-0 bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-850 text-xs font-semibold uppercase tracking-wider z-10 shadow-xs">
                     <tr>
-                      <th className="px-5 py-3.5 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('identifier')}>
+                      <th className="flux-cell cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('identifier')}>
                         Тег / Главное наименование {sortConfig.key === 'identifier' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                       </th>
-                      <th className="px-5 py-3.5 cursor-pointer hover:bg-slate-105 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('brand')}>
+                      <th className="flux-cell cursor-pointer hover:bg-slate-105 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('brand')}>
                         Марка {sortConfig.key === 'brand' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                       </th>
                       {showOptionalTableColumns && (
                         <>
-                          <th className="px-5 py-3.5 cursor-pointer hover:bg-slate-105 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('department')}>
+                          <th className="flux-cell cursor-pointer hover:bg-slate-105 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('department')}>
                             Зона / Отдел {sortConfig.key === 'department' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                           </th>
-                          <th className="px-5 py-3.5 cursor-pointer hover:bg-slate-105 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('fluid')}>
+                          <th className="flux-cell cursor-pointer hover:bg-slate-105 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('fluid')}>
                             Тех. Среда {sortConfig.key === 'fluid' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                           </th>
                         </>
                       )}
-                      <th className="px-5 py-3.5 font-bold">Распознанные подописания КИПиА</th>
-                      <th className="px-5 py-3.5 cursor-pointer hover:bg-slate-105 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('createdAt')}>
+                      <th className="flux-cell font-bold">Распознанные подописания КИПиА</th>
+                      <th className="flux-cell cursor-pointer hover:bg-slate-105 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('createdAt')}>
                         Регистрация {sortConfig.key === 'createdAt' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                       </th>
-                      <th className="px-5 py-3.5 font-bold text-right">Управление</th>
+                      <th className="flux-cell font-bold text-right">Управление</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-850">
@@ -4934,7 +4934,7 @@ export default function Registry() {
                           }}
                           className={`transition-colors ${selectedTagIds.has(t.id) ? 'bg-indigo-50 dark:bg-indigo-950/30 ring-1 ring-inset ring-indigo-300 dark:ring-indigo-800' : 'hover:bg-slate-50/60 dark:hover:bg-slate-950/40'}`}
                         >
-                          <td className="px-5 py-4">
+                          <td className="flux-cell">
                             <div className="font-mono font-bold text-slate-900 dark:text-white text-xs select-all">
                               {t.identifier}
                             </div>
@@ -4955,7 +4955,7 @@ export default function Registry() {
                               </div>
                             )}
                           </td>
-                          <td className="px-5 py-4">
+                          <td className="flux-cell">
                             {t.brand ? (
                               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 shadow-xs max-w-[150px] truncate" title={t.brand}>
                                 {t.brand}
@@ -4966,15 +4966,15 @@ export default function Registry() {
                           </td>
                           {showOptionalTableColumns && (
                             <>
-                              <td className="px-5 py-4 text-slate-605 dark:text-slate-300 text-xs font-medium">
+                              <td className="flux-cell text-slate-605 dark:text-slate-300 text-xs font-medium">
                                 {t.department || '-'}
                               </td>
-                              <td className="px-5 py-4 text-slate-605 dark:text-slate-300 text-xs font-mono">
+                              <td className="flux-cell text-slate-605 dark:text-slate-300 text-xs font-mono">
                                 {t.fluid || '-'}
                               </td>
                             </>
                           )}
-                          <td className="px-5 py-4">
+                          <td className="flux-cell">
                             {meta.descriptions.length > 0 ? (
                               <div className="space-y-1">
                                 <button
@@ -5011,10 +5011,10 @@ export default function Registry() {
                               <span className="text-slate-400 italic text-xs">Нет подописаний</span>
                             )}
                           </td>
-                          <td className="px-5 py-4 text-slate-500 font-mono text-xs">
+                          <td className="flux-cell text-slate-500 font-mono text-xs">
                             {t.createdAt ? format(new Date(t.createdAt), 'dd.MM.yyyy HH:mm') : '-'}
                           </td>
-                          <td className="px-5 py-4 text-right">
+                          <td className="flux-cell text-right">
                             <div className="flex justify-end gap-1.5">
                               <button
                                 type="button"

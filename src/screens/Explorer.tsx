@@ -212,7 +212,7 @@ export default function Explorer() {
       }
       setLoadedMap(map);
     } catch (_) { setLoadedMap({}); }
-  }, [activeProject]);
+  }, [activeProject?.id]); // по идентификатору, а не по объекту: иначе перезапрос при каждой смене ссылки
 
   useEffect(() => { loadEquipMap(); }, [loadEquipMap]);
 
@@ -249,7 +249,7 @@ export default function Explorer() {
 
   useEffect(() => {
     fetchData();
-  }, [activeProject]);
+  }, [activeProject?.id]); // по идентификатору, а не по объекту: иначе перезапрос при каждой смене ссылки
 
   useEffect(() => {
     const handleGlobalClick = () => setContextMenu(null);
@@ -1215,12 +1215,12 @@ export default function Explorer() {
                 >
                   <thead className="sticky top-0 bg-white dark:bg-dark-surface shadow-xs border-b border-slate-200 dark:border-dark-border z-10 text-xs text-slate-500 dark:text-dark-text-muted font-medium">
                     <tr>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Имя</th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Дата изменения</th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Статус</th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Размер</th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Теги</th>
-                      <th className="py-2 px-3 font-medium cursor-default">Отдел</th>
+                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Имя</th>
+                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Дата изменения</th>
+                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Статус</th>
+                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Размер</th>
+                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Теги</th>
+                      <th className="flux-cell font-medium cursor-default">Отдел</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1241,20 +1241,20 @@ export default function Explorer() {
                 >
                   <thead className="sticky top-0 bg-white dark:bg-dark-surface shadow-xs border-b border-slate-200 dark:border-dark-border z-10 text-xs text-slate-500 dark:text-dark-text-muted font-medium">
                     <tr>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('name')}>
+                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('name')}>
                         Имя {sortConfig.key === 'name' && (sortConfig.direction==='asc'?'↑':'↓')}
                       </th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('updatedAt')}>
+                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('updatedAt')}>
                         Дата изменения {sortConfig.key === 'updatedAt' && (sortConfig.direction==='asc'?'↑':'↓')}
                       </th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('statusCode')}>
+                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('statusCode')}>
                         Статус {sortConfig.key === 'statusCode' && (sortConfig.direction==='asc'?'↑':'↓')}
                       </th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('size')}>
+                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('size')}>
                         Размер {sortConfig.key === 'size' && (sortConfig.direction==='asc'?'↑':'↓')}
                       </th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel">Теги</th>
-                      <th className="py-2 px-3 font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel">Отдел</th>
+                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel">Теги</th>
+                      <th className="flux-cell font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel">Отдел</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1952,23 +1952,23 @@ const TreeFolder = ({ folder, allFolders, currentFolderId, onSelect, depth = 1, 
 
 const SkeletonRow = () => (
   <tr className="animate-pulse border-b border-slate-100 dark:border-slate-800">
-    <td className="py-2.5 px-3 flex items-center gap-2">
+    <td className="flux-cell flex items-center gap-2">
       <div className="w-5 h-5 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
       <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-40 animate-pulse" />
     </td>
-    <td className="py-2.5 px-3">
+    <td className="flux-cell">
       <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-28 animate-pulse" />
     </td>
-    <td className="py-2.5 px-3">
+    <td className="flux-cell">
       <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-20 animate-pulse" />
     </td>
-    <td className="py-2.5 px-3">
+    <td className="flux-cell">
       <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-16 animate-pulse" />
     </td>
-    <td className="py-2.5 px-3">
+    <td className="flux-cell">
       <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-24 animate-pulse" />
     </td>
-    <td className="py-2.5 px-3">
+    <td className="flux-cell">
       <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-16 animate-pulse" />
     </td>
   </tr>
@@ -2022,7 +2022,7 @@ const FileRowItem = React.memo(({
       onContextMenu={onContextMenu}
       className={`cursor-default transition-colors ${isSelected ? 'bg-emerald-100 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-100' : 'hover:bg-slate-100 dark:hover:bg-dark-panel/65'} ${isCut ? 'opacity-50' : ''}`}
     >
-      <td className="py-1.5 px-3 flex items-center gap-2">
+      <td className="flux-cell flex items-center gap-2">
         <div className="relative shrink-0">
            {getFileIcon(item, "w-5 h-5")}
            {!item.isFolder && item.statusCode && (
@@ -2055,10 +2055,10 @@ const FileRowItem = React.memo(({
           </span>
         )}
       </td>
-      <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted whitespace-nowrap">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : ''}</td>
-      <td className="py-1.5 px-3 text-sm">{!item.isFolder ? <StatusChip code={item.statusCode} onClick={onChangeStatus ? (e) => { e.stopPropagation(); onChangeStatus(item.id); } : undefined} /> : <span className="text-slate-400 text-xs">Папка</span>}</td>
-      <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted text-right whitespace-nowrap">{!item.isFolder ? formatSize(item.size) : ''}</td>
-      <td className="py-1.5 px-3">
+      <td className="flux-cell text-sm text-slate-500 dark:text-dark-text-muted whitespace-nowrap">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : ''}</td>
+      <td className="flux-cell text-sm">{!item.isFolder ? <StatusChip code={item.statusCode} onClick={onChangeStatus ? (e) => { e.stopPropagation(); onChangeStatus(item.id); } : undefined} /> : <span className="text-slate-400 text-xs">Папка</span>}</td>
+      <td className="flux-cell text-sm text-slate-500 dark:text-dark-text-muted text-right whitespace-nowrap">{!item.isFolder ? formatSize(item.size) : ''}</td>
+      <td className="flux-cell">
          <div className="flex flex-wrap gap-1">
            {!item.isFolder && (item.mainTags || []).map((t: any) => (
              <span key={t.id} onClick={onOpenTag ? (e) => { e.stopPropagation(); onOpenTag(t.identifier); } : undefined}
@@ -2069,7 +2069,7 @@ const FileRowItem = React.memo(({
            ))}
          </div>
       </td>
-      <td className="py-1.5 px-3 text-xs text-slate-500 dark:text-dark-text-muted">{!item.isFolder && item.department !== 'Unassigned' ? item.department : ''}</td>
+      <td className="flux-cell text-xs text-slate-500 dark:text-dark-text-muted">{!item.isFolder && item.department !== 'Unassigned' ? item.department : ''}</td>
     </tr>
   );
 });

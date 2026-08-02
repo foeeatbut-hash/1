@@ -35,7 +35,7 @@ export default function UniversalGenerator() {
       fetchDictionaries();
       fetchTemplate();
     }
-  }, [activeProject]);
+  }, [activeProject?.id]); // по идентификатору, а не по объекту: иначе перезапрос при каждой смене ссылки
 
   const fetchDictionaries = async () => {
     try {

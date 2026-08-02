@@ -351,12 +351,12 @@ export default function UsersManagement() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-405 dark:text-slate-500 text-xs font-bold uppercase font-mono tracking-wider bg-slate-50/30 dark:bg-slate-950/10">
-                  <th className="px-6 py-3.5 text-left whitespace-nowrap">ФИО сотрудника</th>
-                  <th className="px-6 py-3.5 text-left whitespace-nowrap">Табельный номер (Логин)</th>
-                  <th className="px-6 py-3.5 text-left whitespace-nowrap">Роль в системе</th>
-                  <th className="px-6 py-3.5 text-left whitespace-nowrap">Доступ</th>
-                  <th className="px-6 py-3.5 text-left whitespace-nowrap">Дата регистрации</th>
-                  <th className="px-6 py-3.5 text-right whitespace-nowrap">Управление</th>
+                  <th className="flux-cell text-left whitespace-nowrap">ФИО сотрудника</th>
+                  <th className="flux-cell text-left whitespace-nowrap">Табельный номер (Логин)</th>
+                  <th className="flux-cell text-left whitespace-nowrap">Роль в системе</th>
+                  <th className="flux-cell text-left whitespace-nowrap">Доступ</th>
+                  <th className="flux-cell text-left whitespace-nowrap">Дата регистрации</th>
+                  <th className="flux-cell text-right whitespace-nowrap">Управление</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-150 dark:divide-slate-850">
@@ -365,21 +365,21 @@ export default function UsersManagement() {
                     key={emp.id}
                     className="hover:bg-slate-50/50 dark:hover:bg-slate-900/50 transition-colors text-slate-800 dark:text-slate-205"
                   >
-                    <td className="px-6 py-4">
+                    <td className="flux-cell">
                       <div className="font-semibold text-slate-900 dark:text-white">
                         {emp.name}
                       </div>
                     </td>
-                    <td className="px-6 py-4 font-mono text-sm font-semibold tracking-wider text-emerald-700 dark:text-emerald-400">
+                    <td className="flux-cell font-mono text-sm font-semibold tracking-wider text-emerald-700 dark:text-emerald-400">
                       {emp.symbol}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="flux-cell">
                       {getRoleBadge(emp.role)}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="flux-cell">
                       {getAccessBadge(emp)}
                     </td>
-                    <td className="px-6 py-4 text-xs text-slate-400 font-mono whitespace-nowrap">
+                    <td className="flux-cell text-xs text-slate-400 font-mono whitespace-nowrap">
                       <span className="inline-flex items-center gap-1.5">
                         <Calendar className="w-3.5 h-3.5 shrink-0" />
                         {new Date(emp.createdAt || Date.now()).toLocaleDateString('ru-RU', {
@@ -389,7 +389,7 @@ export default function UsersManagement() {
                         })}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="flux-cell text-right">
                       <button
                         type="button"
                         onClick={() => openEdit(emp)}
