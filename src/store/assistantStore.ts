@@ -591,13 +591,124 @@ function findComponentByCode(comps: CompData[], code: string): CompData | null {
     || (c.name || '').toLowerCase().includes(lc)) || null;
 }
 
+// ═══════════ Живая речь ═══════════
+// Помощник работает без интернета и без языковой модели: он разбирает
+// запрос правилами. Чтобы это не выглядело общением с автоматом, здесь
+// три вещи: понимание разговорных оборотов, починка опечаток и внятный
+// ответ, когда вопрос действительно не про программу.
+
+/** Расстояние Дамерау—Левенштейна с ранним выходом: опечатки в одно-два касания. */
+function editDistance(a: string, b: string, limit = 2): number {
+  if (a === b) return 0;
+  if (Math.abs(a.length - b.length) > limit) return limit + 1;
+  const prev = new Array(b.length + 1);
+  const cur = new Array(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    cur[0] = i;
+    let best = cur[0];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min(cur[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+      if (cur[j] < best) best = cur[j];
+    }
+    if (best > limit) return limit + 1;
+    for (let j = 0; j <= b.length; j++) prev[j] = cur[j];
+  }
+  return prev[b.length];
+}
+
+/** Словарь, по которому чиним опечатки: разделы, поля, частые глаголы. */
+function repairVocabulary(): string[] {
+  const words = new Set<string>();
+  for (const r of ROUTE_WORDS) for (const st of r.stems) words.add(st);
+  for (const w of ['покажи', 'открой', 'найди', 'выгрузи', 'сколько', 'дубли', 'заказано',
+    'закупки', 'просрочено', 'вентилятор', 'насос', 'расход', 'напор', 'мощность',
+    'ревизия', 'статус', 'отдел', 'проект', 'шаблон', 'подстановки', 'корзина']) words.add(w);
+  try { for (const w of vocabRu()) if (w.length >= 5) words.add(w); } catch (_) {}
+  return [...words];
+}
+let REPAIR_CACHE: string[] | null = null;
+
+/**
+ * Чинит очевидные опечатки: «покожи вентилчторы» → «покажи вентиляторы».
+ * Правим только слова длиннее четырёх букв и только на одну-две ошибки,
+ * иначе можно «исправить» осмысленное слово в чужое.
+ */
+export function repairTypos(text: string): string {
+  if (!REPAIR_CACHE) REPAIR_CACHE = repairVocabulary();
+  return text.split(/(\s+)/).map((chunk) => {
+    const w = chunk.toLowerCase();
+    if (w.length < 5 || !/^[а-яё-]+$/i.test(w)) return chunk;
+    // Известное слово не трогаем: иначе «можешь» превращается в «модель».
+    if (isKnownRu(w) || STOPWORDS.has(w)) return chunk;
+    if (REPAIR_CACHE!.some((v) => w.startsWith(v) || v.startsWith(w))) return chunk;
+    let best: string | null = null, bestD = 3;
+    for (const v of REPAIR_CACHE!) {
+      if (Math.abs(v.length - w.length) > 2) continue;
+      const d = editDistance(w, v, 2);
+      if (d < bestD) { bestD = d; best = v; }
+    }
+    return bestD <= 2 && best ? best : chunk;
+  }).join('');
+}
+
+/** Разговорные обороты, на которые нельзя отвечать «не понял». */
+const SMALL_TALK: { test: RegExp; reply: () => string }[] = [
+  { test: /^(привет|здравств|добрый (день|вечер|утр)|хай)/i,
+    reply: () => 'Здравствуйте. Спрашивайте про данные проекта обычными словами — найду и покажу.' },
+  { test: /(спасиб|благодар|отлично|супер|класс|понятно)/i,
+    reply: () => 'Рад помочь. Если что-то ещё нужно найти — спрашивайте.' },
+  { test: /(как дела|как ты|ты живой|ты человек|кто ты|ты бот|ты робот)/i,
+    reply: () => 'Я помощник внутри программы: работаю на этом компьютере, без интернета. Языковой модели во мне нет — я разбираю вопрос по словам и ищу в данных проекта. Поэтому лучше всего отвечаю на вопросы про теги, оборудование, закупки, документы и файлы.' },
+  { test: /(^пока$|до свидан|всего доброго)/i,
+    reply: () => 'До связи. Помощник всегда под рукой — Ctrl+K.' },
+  { test: /(извин|прости|сорри)/i,
+    reply: () => 'Ничего страшного. Что найти?' },
+  { test: /(ты (можешь|умеешь) (всё|все)|любой вопрос|что угодно)/i,
+    reply: () => 'Отвечу не на всё: я не языковая модель и не выхожу в интернет. Зато знаю данные этого проекта — теги, оборудование, закупки, документы, файлы — и разделы программы. Спросите, например: «что не заказано» или «где 3700-K02».' },
+];
+
+function smallTalkAnswer(lower: string): string | null {
+  for (const st of SMALL_TALK) if (st.test.test(lower)) return st.reply();
+  return null;
+}
+
+/**
+ * Вежливая обёртка вокруг запроса: убираем «а можешь», «слушай»,
+ * «будь добр» — они мешают разбору, но по-человечески их пишут постоянно.
+ */
+export function stripPoliteness(text: string): string {
+  // Границы слова задаём через просмотр назад/вперёд: \b в JavaScript
+  // считает буквой только латиницу, и на кириллице просто не срабатывает.
+  const W = '(?<![\\p{L}])';
+  const E = '(?![\\p{L}])';
+  const drop = (body: string, tail = '[,\\s]*') =>
+    new RegExp(`${W}(?:${body})${E}${tail}`, 'giu');
+  return text
+    .replace(drop('слушай|слушайте|скажи|скажите|подскажи|подскажите|будь добр|будьте добры|плиз'), '')
+    .replace(drop('а\\s+(?:можешь|можете|мог бы|могли бы)'), '')
+    .replace(drop('можешь|можете|не мог бы ты|не могли бы вы|мог бы ты|могли бы вы'), '')
+    .replace(drop('пожалуйста'), '')
+    .replace(/^[\s,]+/, '')
+    .replace(/\s*,\s*$/, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 // --- Распознавание запроса (полностью локальное) ---
 // injectedData — тестовый шов: подставить данные вместо обращения к серверу.
 export async function resolveQuery(
   text: string, demoMode = false, lastResult: LastResult | null = null,
   injectedData?: AssistantData,
 ): Promise<Resolved> {
-  const lower = text.toLowerCase().replace(/ё/g, 'е');
+  // Живая речь: убираем вежливые обороты, чиним опечатки, отвечаем на
+  // разговорное — и только потом разбираем как запрос к данным.
+  const polite = stripPoliteness(text);
+  const repaired = repairTypos(polite);
+  const lower = repaired.toLowerCase().replace(/ё/g, 'е');
+  const talk = smallTalkAnswer(text.toLowerCase());
+  if (talk) return msg(talk);
   const p = parse(text);
   const getData = () => injectedData ? Promise.resolve(injectedData) : fetchAssistantData();
 
@@ -976,9 +1087,15 @@ export async function resolveQuery(
   const knowledge = findKnowledge(lower);
   if (knowledge) return msg(knowledge);
 
-  // I. Честное «не знаю» с тремя кликабельными темами
+  // I. Честное «не знаю»: сначала говорим, что именно поняли из вопроса,
+  // и только потом предлагаем темы. «Не понял» без объяснения — самый
+  // раздражающий ответ, потому что непонятно, как переспросить.
+  const heard = tokensFrom(lower).slice(0, 4);
+  const preface = heard.length
+    ? `Я разобрал слова: ${heard.map(h => `«${h}»`).join(', ')}, но не нашёл по ним ни тегов, ни оборудования, ни закупок в этом проекте. Возможно, стоит спросить иначе — или вот что я точно умею:`
+    : 'Я работаю без интернета и отвечаю по данным этого проекта, а не на общие вопросы. Вот что умею:';
   return msg(
-    'Не понял вопрос. Возможно, вам нужно одно из этого:',
+    preface,
     {
       actions: [
         { label: 'Показать дубли', kind: 'ask', query: 'покажи дубли' },
