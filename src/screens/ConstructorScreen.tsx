@@ -424,6 +424,27 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
     now: new Date(),
   });
 
+  // Вставить метку туда, где стоит курсор. Для таблицы это активная
+  // ячейка; если движок не отдаёт выделение, кладём метку в буфер обмена,
+  // чтобы человек всё равно мог вставить её сам.
+  const insertPlaceholder = (key: string) => {
+    const token = placeholderToken(key);
+    try {
+      const api = univerRef.current?.univerAPI;
+      const range = api?.getActiveWorkbook?.()?.getActiveSheet?.()?.getActiveRange?.();
+      if (range?.setValue) {
+        range.setValue(token);
+        addToast(`Метка вставлена: ${token}`, 'success');
+        void saveNow();
+        return;
+      }
+    } catch (_) { /* ниже — запасной путь через буфер обмена */ }
+    navigator.clipboard?.writeText(token).then(
+      () => addToast(`Метка ${token} скопирована — вставьте в нужное место`, 'info'),
+      () => addToast(`Впишите вручную: ${token}`, 'info'),
+    );
+  };
+
   const fillPlaceholders = async () => {
     const raw = takeSnapshot();
     if (!raw) { addToast('Документ ещё открывается — повторите через секунду', 'info'); return; }
@@ -1179,57 +1200,17 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${titleSettings.titleTemplateId ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
           <Stamp className="w-3.5 h-3.5" /> Титул
         </button>
-        {/* Подстановки шаблона: список меток и заполнение реальными данными */}
-        <div className="relative">
-          <button type="button" onClick={() => setPhOpen(v => !v)}
-            aria-haspopup="menu" aria-expanded={phOpen}
-            title="Метки шаблона: вставить в документ и заполнить данными проекта"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs font-bold cursor-pointer">
-            <Braces className="w-3.5 h-3.5" /> Подстановки
-            <ChevronDown className="w-3 h-3 opacity-60" />
-          </button>
-          {phOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setPhOpen(false)} />
-              <div role="menu" className="absolute right-0 top-full mt-1 z-50 w-[22rem] max-h-[70vh] overflow-y-auto scrollbar-thin rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-lg">
-                <div className="px-3 py-2.5 border-b border-slate-100 dark:border-slate-800">
-                  <p className="text-xs font-bold">Метки шаблона</p>
-                  <p className="text-2xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Впишите метку в ячейку или текст — при заполнении она превратится в данные документа.
-                    Так делается шаблон: один раз расставили, дальше каждый документ подставит своё.
-                  </p>
-                  <button type="button" onClick={fillPlaceholders}
-                    className="mt-2 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition-ui cursor-pointer">
-                    <RefreshCw className="w-3.5 h-3.5" /> Заполнить данными
-                  </button>
-                </div>
-                {['Документ', 'Проект', 'Дата', 'Сотрудник'].map((group) => (
-                  <div key={group}>
-                    <div className="px-3 pt-2 pb-1 text-2xs font-mono uppercase tracking-wider text-slate-400">{group}</div>
-                    {PLACEHOLDERS.filter(ph => ph.group === group).map((ph) => (
-                      <button key={ph.key} type="button"
-                        onClick={() => {
-                          const token = placeholderToken(ph.key);
-                          navigator.clipboard?.writeText(token).then(
-                            () => addToast(`Метка ${token} скопирована — вставьте в документ`, 'success'),
-                            () => addToast(`Впишите вручную: ${token}`, 'info'),
-                          );
-                        }}
-                        title="Скопировать метку"
-                        className="w-full flex items-start gap-2.5 px-3 py-1.5 text-left hover:bg-slate-50 dark:hover:bg-slate-900 cursor-pointer">
-                        <code className="text-2xs font-mono text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5">{placeholderToken(ph.key)}</code>
-                        <span className="min-w-0">
-                          <span className="block text-xs font-semibold">{ph.label}</span>
-                          <span className="block text-2xs text-slate-400">{ph.hint}</span>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+        {/* Подстановки: переключатель отдельной ленты под панелью */}
+        <button type="button" onClick={() => setPhOpen(v => !v)}
+          aria-pressed={phOpen}
+          title="Лента подстановок: кнопки вставляют метку туда, где стоит курсор"
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-ui ${
+            phOpen
+              ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 ring-1 ring-emerald-600/40'
+              : 'border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900'
+          }`}>
+          <Braces className="w-3.5 h-3.5" /> Подстановки
+        </button>
 
         {/* Выгрузка одной кнопкой: раньше четыре отдельные кнопки не
             помещались в панель на ноутбуке, и индикатор сохранения уезжал
@@ -1271,6 +1252,47 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         </div>
 
       </div>
+
+      {/* ═══ Лента подстановок ═══
+          Отдельная полоса под панелью: кнопка = метка. Нажал «Дата
+          прописью» — в активной ячейке появилась метка, при заполнении она
+          станет реальной датой. Так шаблон собирается мышью, без
+          запоминания синтаксиса. */}
+      {phOpen && (
+        <div className="shrink-0 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/60 px-3 py-2">
+          <div className="flex items-start gap-4 flex-wrap">
+            {(['Документ', 'Проект', 'Дата', 'Сотрудник'] as const).map((group) => (
+              <div key={group} className="min-w-0">
+                <div className="text-2xs font-mono uppercase tracking-wider text-slate-400 mb-1">{group}</div>
+                <div className="flex items-center gap-1 flex-wrap">
+                  {PLACEHOLDERS.filter(ph => ph.group === group).map((ph) => (
+                    <button
+                      key={ph.key}
+                      type="button"
+                      onClick={() => insertPlaceholder(ph.key)}
+                      title={`${ph.hint}. Вставится как ${placeholderToken(ph.key)}`}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-emerald-600 dark:hover:border-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-ui cursor-pointer"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-sm bg-emerald-500 shrink-0" />
+                      {ph.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            <div className="ml-auto flex items-center gap-2 self-end">
+              <span className="text-2xs text-slate-400 max-w-[16rem] hidden xl:block">
+                Кнопка вставляет метку в выбранную ячейку. Когда шаблон готов — «Заполнить данными».
+              </span>
+              <button type="button" onClick={fillPlaceholders}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition-ui cursor-pointer">
+                <RefreshCw className="w-3.5 h-3.5" /> Заполнить данными
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Полотно движка */}
       <div className="flex-1 min-h-0 relative bg-white">
