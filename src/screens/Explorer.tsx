@@ -9,7 +9,7 @@ import {
   Search, MoreVertical, Copy, Edit2, Trash2, FolderPlus, RefreshCw, 
   ArrowLeft, ArrowRight, ArrowUp, Tag, Shield, PanelRight, LayoutGrid, List,
   Download, Image as ImageIcon, FileText, FileCode, FileSpreadsheet, Info, Boxes, Scissors, ClipboardPaste,
-  Grid3X3
+  Grid3X3, Clock
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
@@ -24,6 +24,14 @@ const SEC_SHARED = 'sec:shared';
 // явной очистки — в системе документов случайно удалённый чертёж не должен
 // пропадать безвозвратно.
 const TRASH_ID = 'trash:root';
+// Умные подборки: не папки, а срезы по всем файлам проекта. Отвечают на
+// вопросы, которые в инженерном архиве возникают постоянно: «что я трогал
+// последним», «что забыли привязать к оборудованию», «где дубли».
+const SMART_RECENT = 'smart:recent';
+const SMART_UNTAGGED = 'smart:untagged';
+const SMART_DUPES = 'smart:dupes';
+const SMART_IDS = [SMART_RECENT, SMART_UNTAGGED, SMART_DUPES];
+const isSmartId = (id: string | null | undefined): boolean => !!id && SMART_IDS.includes(id);
 const personalSecId = (uid: string) => `sec:personal:${uid}`;
 const isSectionId = (id: string | null | undefined): boolean => !!id && id.startsWith('sec:');
 const parseSection = (id: string): { scope: 'SHARED' | 'PERSONAL'; ownerId: string | null } =>
@@ -784,6 +792,36 @@ export default function Explorer() {
   const allCurrentItems = useMemo(() => {
     const searchLower = searchQuery.toLowerCase();
 
+    // Умные подборки: срез по всем файлам, доступным пользователю
+    if (isSmartId(currentFolderId)) {
+      const folderName = new Map<string, string>(folders.map((f: any) => [f.id, f.name]));
+      const all = [
+        ...rootFiles.map((f: any) => ({ ...f, smartLocation: itemSection(f) === SEC_SHARED ? 'Общий' : 'Личный' })),
+        ...folders.flatMap((f: any) => (f.files || []).map((x: any) => ({ ...x, smartLocation: folderName.get(f.id) || '' }))),
+      ]
+        .filter((f: any) => f.type !== 'CHAT_FILE')
+        .filter((f: any) => !searchQuery || String(f.name || '').toLowerCase().includes(searchLower))
+        .map((f: any) => ({ ...f, isFolder: false }));
+
+      if (currentFolderId === SMART_RECENT) {
+        return [...all]
+          .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime())
+          .slice(0, 100);
+      }
+      if (currentFolderId === SMART_UNTAGGED) {
+        return all.filter((f: any) => !(f.mainTags || []).length && !(f.additionalTags || []).length);
+      }
+      // Дубли: одинаковое имя встречается больше одного раза
+      const byName = new Map<string, number>();
+      for (const f of all) {
+        const k = String(f.name || '').toLowerCase();
+        byName.set(k, (byName.get(k) || 0) + 1);
+      }
+      return all
+        .filter((f: any) => (byName.get(String(f.name || '').toLowerCase()) || 0) > 1)
+        .sort((a, b) => String(a.name).localeCompare(String(b.name), 'ru'));
+    }
+
     // Список разделов (корень проводника): «Общий», «Личный», у ГлавАдмина — личные всех
     if (currentFolderId === null && !searchQuery) {
       return sections.map(s => ({ ...s, type: 'Раздел' }));
@@ -1259,6 +1297,32 @@ export default function Explorer() {
               </div>
             ))}
 
+            {/* Подборки: срезы по всем файлам, а не папки */}
+            <div className="mt-3 mb-1 px-4 text-2xs font-mono uppercase tracking-wider text-slate-400">Подборки</div>
+            {[
+              { id: SMART_RECENT, label: 'Недавние', icon: Clock, hint: 'Сто последних изменённых файлов проекта' },
+              { id: SMART_UNTAGGED, label: 'Без тегов', icon: Tag, hint: 'Файлы, не привязанные ни к одному тегу оборудования' },
+              { id: SMART_DUPES, label: 'Дубликаты', icon: Copy, hint: 'Файлы с одинаковыми именами — вероятные повторы' },
+            ].map((sm) => {
+              const Icon = sm.icon as any;
+              const active = currentFolderId === sm.id;
+              return (
+                <div
+                  key={sm.id}
+                  className={`flex items-center py-1.5 px-3 mx-2 rounded-lg cursor-pointer transition-ui ${
+                    active
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 font-semibold'
+                      : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900'
+                  }`}
+                  onClick={() => navigateTo(sm.id)}
+                  title={sm.hint}
+                >
+                  <Icon className="w-4 h-4 mr-2 text-slate-500 shrink-0" />
+                  <span className="text-sm">{sm.label}</span>
+                </div>
+              );
+            })}
+
             {/* Корзина: удалённое хранится здесь до явной очистки */}
             <div
               className={`flex items-center py-1.5 px-3 mx-2 mt-2 rounded-lg cursor-pointer transition-ui ${
@@ -1294,6 +1358,23 @@ export default function Explorer() {
                  <div className="text-emerald-600 font-medium flex items-center gap-2 bg-white/90 dark:bg-slate-950/90 px-4 py-2 rounded-full shadow-sm">
                    <Upload className="w-5 h-5" /> Отпустите — загрузим сюда
                  </div>
+              </div>
+            )}
+
+            {/* Подборка: короткое пояснение, что именно показано */}
+            {isSmartId(currentFolderId) && (
+              <div className="px-4 py-2.5 border-b border-slate-100 dark:border-dark-border bg-slate-50/60 dark:bg-dark-surface/40">
+                <p className="text-sm font-bold">
+                  {currentFolderId === SMART_RECENT ? 'Недавние'
+                    : currentFolderId === SMART_UNTAGGED ? 'Без тегов' : 'Дубликаты'}
+                </p>
+                <p className="text-xs text-slate-500 dark:text-dark-text-muted mt-0.5">
+                  {currentFolderId === SMART_RECENT
+                    ? 'Сто последних изменённых файлов проекта, независимо от папки.'
+                    : currentFolderId === SMART_UNTAGGED
+                      ? 'Файлы, не привязанные ни к одному тегу оборудования: их не найти через реестр и не увидеть в карточке узла.'
+                      : 'Файлы с одинаковыми именами — вероятные повторы одного документа.'}
+                </p>
               </div>
             )}
 
@@ -1416,8 +1497,14 @@ export default function Explorer() {
                              <div className="w-16 h-16 bg-slate-50 dark:bg-slate-950/60 rounded-full flex items-center justify-center mb-3 text-slate-400 dark:text-slate-500">
                                   {searchQuery ? <Search className="w-8 h-8" /> : <Folder className="w-8 h-8" />}
                              </div>
-                             <p className="text-sm">{searchQuery ? "Ничего не найдено — попробуйте другой запрос." : "Эта папка пуста."}</p>
-                             {!searchQuery && (
+                             <p className="text-sm">{
+                               searchQuery ? 'Ничего не найдено — попробуйте другой запрос.'
+                               : currentFolderId === SMART_UNTAGGED ? 'Все файлы привязаны к тегам — это хорошо.'
+                               : currentFolderId === SMART_DUPES ? 'Повторов по именам не нашлось.'
+                               : currentFolderId === SMART_RECENT ? 'Пока ничего не менялось.'
+                               : 'Эта папка пуста.'
+                             }</p>
+                             {!searchQuery && !isSmartId(currentFolderId) && (
                                <>
                                  <div className="flex items-center gap-2 pt-3">
                                    <button type="button" onClick={() => fileInputRef.current?.click()}
@@ -2210,7 +2297,13 @@ const FileRowItem = React.memo(({
             className="border border-emerald-405 px-1 py-0 text-sm outline-none w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white select-text"
           />
         ) : (
-          <span className="truncate max-w-[200px] text-slate-800 dark:text-slate-100">{item.name}</span>
+          <>
+            <span className="truncate max-w-[200px] text-slate-800 dark:text-slate-100">{item.name}</span>
+            {/* В подборках одинаковые имена не различить без места хранения */}
+            {item.smartLocation && (
+              <span className="ml-2 text-2xs text-slate-400 shrink-0" title="Где лежит файл">в папке «{item.smartLocation}»</span>
+            )}
+          </>
         )}
         {loaded && !isRenaming && (
           <span
