@@ -89,7 +89,7 @@ export default function NotificationsPanel() {
   const unreadOf = (items: { isRead: boolean }[]) => items.filter(x => !x.isRead).length;
 
   return (
-    <aside className={`${panelOpen ? 'w-[360px] opacity-100' : 'w-0 opacity-0 pointer-events-none'} shrink-0 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col transition-all duration-300 overflow-hidden`}>
+    <aside className={`${panelOpen ? 'w-[360px] opacity-100' : 'w-0 opacity-0 pointer-events-none'} shrink-0 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col transition-ui duration-300 overflow-hidden`}>
       <div className="w-[360px] h-full flex flex-col shrink-0">
         {/* Шапка */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-amber-500/10 to-transparent shrink-0">
@@ -99,17 +99,17 @@ export default function NotificationsPanel() {
             </div>
             <h2 className="text-sm font-bold text-slate-900 dark:text-white">Уведомления</h2>
           </div>
-          <button onClick={() => setPanelOpen(false)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" title="Закрыть">
+          <button type="button" onClick={() => setPanelOpen(false)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" title="Закрыть">
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Вкладки: Общие | Личные */}
         <div className="flex p-1.5 gap-1 border-b border-slate-100 dark:border-slate-800 shrink-0">
-          <button onClick={() => setTab('shared')} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${tab === 'shared' ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
+          <button type="button" onClick={() => setTab('shared')} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${tab === 'shared' ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
             <Globe className="w-3.5 h-3.5" /> Общие
           </button>
-          <button onClick={() => setTab('personal')} className={`relative flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${tab === 'personal' ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
+          <button type="button" onClick={() => setTab('personal')} className={`relative flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${tab === 'personal' ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
             <UserCircle className="w-3.5 h-3.5" /> Личные
             {unreadOf(personal) > 0 && (
               <span className="min-w-4 h-4 px-1 rounded-full bg-amber-500 text-white text-2xs font-bold flex items-center justify-center">{unreadOf(personal)}</span>
@@ -126,7 +126,7 @@ export default function NotificationsPanel() {
               <div key={day.title}>
                 <div className="px-2 pt-2 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400 sticky top-0 bg-white dark:bg-slate-900">{day.title}</div>
                 {day.items.map(l => (
-                  <button key={l.id} onClick={() => go(l.targetRoute)} className="w-full text-left p-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-850 transition-colors border border-transparent hover:border-slate-200 dark:hover:border-slate-800 cursor-pointer">
+                  <button type="button" key={l.id} onClick={() => go(l.targetRoute)} className="w-full text-left p-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-850 transition-colors border border-transparent hover:border-slate-200 dark:hover:border-slate-800 cursor-pointer">
                     <div className="text-xs text-slate-800 dark:text-slate-200 leading-snug">{l.description}</div>
                     <div className="flex items-center gap-2 mt-1 text-2xs text-slate-400">
                       <span className="font-semibold text-slate-500 dark:text-slate-400">{l.userName}</span>
@@ -147,7 +147,7 @@ export default function NotificationsPanel() {
                   <span className="text-2xs text-slate-300 dark:text-slate-600">{g.items.length}</span>
                 </div>
                 {g.items.map(n => (
-                  <button key={n.id} onClick={() => go(n.targetRoute)} className={`w-full text-left p-2.5 rounded-lg transition-colors border cursor-pointer ${n.isRead ? 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-850' : 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40'}`}>
+                  <button type="button" key={n.id} onClick={() => go(n.targetRoute)} className={`w-full text-left p-2.5 rounded-lg transition-colors border cursor-pointer ${n.isRead ? 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-850' : 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40'}`}>
                     <div className="flex items-center gap-1.5">
                       <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 leading-snug flex-1">{n.title}</div>
                       {!n.isRead && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />}

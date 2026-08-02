@@ -136,7 +136,7 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
               Импорт в «{categoryLabel}»{fileIds.length > 1 ? ` · файл ${idx + 1} из ${fileIds.length}` : ''} · предпросмотр (БД не изменена)
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded cursor-pointer"><X className="w-5 h-5" /></button>
+          <button type="button" onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded cursor-pointer"><X className="w-5 h-5" /></button>
         </div>
 
         {loading ? (
@@ -146,7 +146,7 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
             <AlertTriangle className="w-8 h-8 text-rose-500" />
             <div className="text-sm text-slate-600 dark:text-slate-300 max-w-md">{error}</div>
             {fileIds.length > 1 && idx + 1 < fileIds.length && (
-              <button onClick={() => setIdx(idx + 1)} className="text-xs font-bold px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer">Пропустить файл</button>
+              <button type="button" onClick={() => setIdx(idx + 1)} className="text-xs font-bold px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer">Пропустить файл</button>
             )}
           </div>
         ) : plan && (
@@ -170,7 +170,7 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
                   return (
                     <div key={sys} className="mb-1">
                       <div className="flex items-center gap-1.5 px-1.5 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-850">
-                        <button onClick={() => setCollapsed(c => ({ ...c, [sys]: !c[sys] }))} className="text-slate-400 cursor-pointer">
+                        <button type="button" onClick={() => setCollapsed(c => ({ ...c, [sys]: !c[sys] }))} className="text-slate-400 cursor-pointer">
                           {collapsed[sys] ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                         </button>
                         <input type="checkbox" checked={allOn} onChange={() => toggleSystem(sys, blocks)} className="w-3.5 h-3.5 accent-emerald-500 cursor-pointer" />
@@ -256,8 +256,8 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
             <div className="flex items-center justify-between px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 shrink-0">
               <span className="text-xs text-slate-500">Выбрано к импорту: <b>{selectedCount}</b> из {plan.blocks.length}</span>
               <div className="flex items-center gap-2">
-                <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Отмена</button>
-                <button onClick={apply} disabled={applying || selectedCount === 0}
+                <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Отмена</button>
+                <button type="button" onClick={apply} disabled={applying || selectedCount === 0}
                   className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-sm font-bold cursor-pointer flex items-center gap-1.5">
                   {applying ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                   Импортировать {selectedCount}{fileIds.length > 1 ? ` (файл ${idx + 1}/${fileIds.length})` : ''}

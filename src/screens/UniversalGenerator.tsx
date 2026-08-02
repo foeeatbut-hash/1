@@ -190,7 +190,7 @@ export default function UniversalGenerator() {
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Рабочее место инженера</h1>
           {/* Removed heading description as requested */}
         </div>
-        <button 
+        <button type="button" 
           onClick={() => setIsSetupMode(!isSetupMode)}
           className={`flex items-center gap-2 px-4 py-2 rounded font-semibold text-sm transition-colors border cursor-pointer ${isSetupMode ? 'border-amber-205 bg-amber-50 dark:bg-amber-955/20 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-955/40' : 'border-slate-205 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 shadow-sm'}`}
         >
@@ -205,10 +205,10 @@ export default function UniversalGenerator() {
              <h2 className="font-semibold text-slate-800 dark:text-white flex items-center gap-2"><Settings className="w-5 h-5 text-slate-500" /> Конструктор структуры</h2>
              <div className="flex flex-wrap items-center gap-2">
                <span className="text-xs text-slate-500 dark:text-slate-400 font-bold mr-2">Добавить:</span>
-               <button onClick={() => addBlock('dictionary')} className="px-3 py-1.5 text-xs bg-white dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 rounded border border-emerald-200 dark:border-emerald-900 flex items-center gap-1 font-semibold shadow-xs cursor-pointer"><Book className="w-3.5 h-3.5"/> Справочник</button>
-               <button onClick={() => addBlock('static')} className="px-3 py-1.5 text-xs bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded border border-slate-200 dark:border-slate-700 flex items-center gap-1 font-semibold shadow-xs cursor-pointer"><Type className="w-3.5 h-3.5"/> Свой Текст</button>
-               <button onClick={() => addBlock('delimiter')} className="px-3 py-1.5 text-xs bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded border border-slate-200 dark:border-slate-700 flex items-center gap-1 font-semibold shadow-xs cursor-pointer"><AlignLeft className="w-3.5 h-3.5"/> Разд.</button>
-               <button onClick={() => addBlock('number')} className="px-3 py-1.5 text-xs bg-white dark:bg-slate-800 hover:bg-amber-50 dark:hover:bg-amber-955/20 text-amber-700 dark:text-amber-400 rounded border border-amber-200 dark:border-amber-900 flex items-center gap-1 font-semibold shadow-xs cursor-pointer"><Hash className="w-3.5 h-3.5"/> Номер</button>
+               <button type="button" onClick={() => addBlock('dictionary')} className="px-3 py-1.5 text-xs bg-white dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 rounded border border-emerald-200 dark:border-emerald-900 flex items-center gap-1 font-semibold shadow-xs cursor-pointer"><Book className="w-3.5 h-3.5"/> Справочник</button>
+               <button type="button" onClick={() => addBlock('static')} className="px-3 py-1.5 text-xs bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded border border-slate-200 dark:border-slate-700 flex items-center gap-1 font-semibold shadow-xs cursor-pointer"><Type className="w-3.5 h-3.5"/> Свой Текст</button>
+               <button type="button" onClick={() => addBlock('delimiter')} className="px-3 py-1.5 text-xs bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded border border-slate-200 dark:border-slate-700 flex items-center gap-1 font-semibold shadow-xs cursor-pointer"><AlignLeft className="w-3.5 h-3.5"/> Разд.</button>
+               <button type="button" onClick={() => addBlock('number')} className="px-3 py-1.5 text-xs bg-white dark:bg-slate-800 hover:bg-amber-50 dark:hover:bg-amber-955/20 text-amber-700 dark:text-amber-400 rounded border border-amber-200 dark:border-amber-900 flex items-center gap-1 font-semibold shadow-xs cursor-pointer"><Hash className="w-3.5 h-3.5"/> Номер</button>
              </div>
            </div>
 
@@ -252,7 +252,7 @@ export default function UniversalGenerator() {
                     )}
                   </div>
 
-                  <button onClick={() => removeBlock(block.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded transition-colors shrink-0 cursor-pointer"><X className="w-4 h-4" /></button>
+                  <button type="button" onClick={() => removeBlock(block.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded transition-colors shrink-0 cursor-pointer"><X className="w-4 h-4" /></button>
                 </Reorder.Item>
              ))}
              {template.length === 0 && (
@@ -264,7 +264,7 @@ export default function UniversalGenerator() {
            </Reorder.Group>
 
            <div className="mt-6 flex justify-end">
-             <button onClick={saveTemplate} className="flex items-center gap-2 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold shadow-sm transition-colors cursor-pointer">
+             <button type="button" onClick={saveTemplate} className="flex items-center gap-2 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold shadow-sm transition-colors cursor-pointer">
                <CheckCircle2 className="w-4 h-4" />
                Применить и Сохранить
              </button>
@@ -293,7 +293,7 @@ export default function UniversalGenerator() {
                     <select 
                       value={genValues[block.id] || ''} 
                       onChange={e => setGenValues({...genValues, [block.id]: e.target.value})}
-                      className="w-full text-base px-3 py-2.5 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all shadow-sm"
+                      className="w-full text-base px-3 py-2.5 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-ui shadow-sm"
                     >
                       <option value="">-- Выберите значение --</option>
                       {dict?.items.map((item: any) => (
@@ -307,16 +307,16 @@ export default function UniversalGenerator() {
               {template.filter(b => b.type === 'dictionary').length === 0 && (
                 <div className="text-sm text-slate-500 dark:text-slate-400 italic py-4 bg-slate-50 dark:bg-slate-950 rounded border border-slate-200 dark:border-slate-850 px-4 text-center">
                   Формула не содержит справочников для заполнения.<br/> 
-                  <button onClick={() => setIsSetupMode(true)} className="text-emerald-600 hover:underline mt-1 font-semibold cursor-pointer">Перейти к настройке</button>
+                  <button type="button" onClick={() => setIsSetupMode(true)} className="text-emerald-600 hover:underline mt-1 font-semibold cursor-pointer">Перейти к настройке</button>
                 </div>
               )}
             </div>
             
             {template.length > 0 && template.filter(b => b.type === 'dictionary').length > 0 && (
-              <button 
+              <button type="button" 
                 onClick={handleGenerateTag}
                 disabled={isGenerating}
-                className="w-full mt-10 py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md font-bold transition-all shadow-sm flex items-center justify-center gap-2 text-lg cursor-pointer"
+                className="w-full mt-10 py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md font-bold transition-ui shadow-sm flex items-center justify-center gap-2 text-lg cursor-pointer"
               >
                 {isGenerating ? 'Резервирование...' : 'Сгенерировать и получить номер'} <ArrowRight className="w-5 h-5" />
               </button>

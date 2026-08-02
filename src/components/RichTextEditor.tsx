@@ -725,7 +725,7 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
         onKeyDown={handleEditorKeyDown}
         onKeyUp={updateActiveFormats}
         onPaste={handlePaste}
-        className={`flex-1 min-h-[220px] p-4 text-sm text-slate-800 dark:text-slate-200 outline-none overflow-y-auto prose dark:prose-invert max-w-none focus:bg-slate-50/20 dark:focus:bg-slate-950/20 transition-all`}
+        className={`flex-1 min-h-[220px] p-4 text-sm text-slate-800 dark:text-slate-200 outline-none overflow-y-auto prose dark:prose-invert max-w-none focus:bg-slate-50/20 dark:focus:bg-slate-950/20 transition-ui`}
         style={{ direction: 'ltr' }}
       />
 

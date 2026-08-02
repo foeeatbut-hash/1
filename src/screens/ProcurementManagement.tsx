@@ -13,6 +13,8 @@ import {
   ProcurementStage, StageTemplate, loadProcurementStages, loadStageTemplates,
   resolveTemplate, stageIcon, stageColor, DEFAULT_TEMPLATE_ID
 } from '../lib/procurementStages';
+import { countOf } from '../lib/plural';
+import NoProject from '../components/NoProject';
 
 // ── Раздел «Менеджмент» ────────────────────────────────────────────────────────
 // Оболочка над той же базой тегов под задачи менеджеров по закупкам.
@@ -109,8 +111,8 @@ export default function ProcurementManagement() {
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-1.5">
         {([['procurement', 'Закупки'], ['vdr', 'ВДР']] as const).map(([id, label]) => (
-          <button key={id} onClick={() => setTab(id)}
-            className={`px-4 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-all ${tab === id
+          <button type="button" key={id} onClick={() => setTab(id)}
+            className={`px-4 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-ui ${tab === id
               ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-800 dark:border-slate-100'
               : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:border-slate-400'}`}>
             {label}
@@ -478,11 +480,7 @@ function ProcurementTab() {
 
   if (!activeProject) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl max-w-2xl mx-auto p-8 shadow-sm text-center">
-        <Briefcase className="w-12 h-12 text-slate-300 dark:text-slate-700 mb-4" />
-        <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">Проект не выбран</h3>
-        <p className="text-slate-500 dark:text-slate-400 text-sm mt-1 max-w-sm">Выберите проект на «Главной», чтобы открыть закупки по его позициям.</p>
-      </div>
+      <NoProject what="Закупки" />
     );
   }
 
@@ -527,7 +525,7 @@ function ProcurementTab() {
           <div className="flex items-center gap-1.5" style={treeLevel !== null ? { paddingLeft: `${treeLevel * 22}px` } : undefined}>
             {treeLevel !== null && (
               treeHasChildren ? (
-                <button
+                <button type="button"
                   onClick={(e) => { e.stopPropagation(); onTreeToggle && onTreeToggle(); }}
                   className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer shrink-0"
                   title={treeExpanded ? 'Свернуть дочерние' : 'Развернуть дочерние'}
@@ -576,10 +574,10 @@ function ProcurementTab() {
               return (
                 <React.Fragment key={s.id}>
                   {idx > 0 && <div className={`w-3 h-0.5 ${idx <= row.stageIdx ? 'bg-emerald-400' : 'bg-slate-200 dark:bg-slate-800'}`} />}
-                  <button
+                  <button type="button"
                     onClick={(e) => { e.stopPropagation(); setStage(row, idx); }}
                     title={`${s.label}${idx === row.stageIdx && idx > 0 ? ' (клик — откат на шаг назад)' : ''}`}
-                    className={`w-7 h-7 rounded-full border flex items-center justify-center transition-all cursor-pointer ${
+                    className={`w-7 h-7 rounded-full border flex items-center justify-center transition-ui cursor-pointer ${
                       reached
                         ? `${c.bg} ${c.border} ${c.color} ${idx === row.stageIdx ? 'ring-2 ring-offset-1 dark:ring-offset-slate-950 ring-current scale-110' : ''}`
                         : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-300 dark:text-slate-700 hover:border-slate-400'
@@ -654,7 +652,7 @@ function ProcurementTab() {
               className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 rounded text-xs focus:outline-none text-slate-800 dark:text-slate-100"
             />
           ) : (
-            <button
+            <button type="button"
               onClick={(e) => { e.stopPropagation(); setEditingNoteId(row.tag.id); }}
               className="text-xs text-left text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 cursor-text w-full min-h-[24px]"
               title="Нажмите, чтобы изменить примечание"
@@ -700,13 +698,13 @@ function ProcurementTab() {
         </div>
         <div className="flex items-center gap-2 self-start lg:self-auto">
           <div className="flex bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200/60 dark:border-slate-800">
-            <button
+            <button type="button"
               onClick={() => setViewMode('list')}
               className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer ${viewMode === 'list' ? 'bg-white dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 shadow-xs' : 'text-slate-500'}`}
             >
               <List className="w-3.5 h-3.5" /> Список
             </button>
-            <button
+            <button type="button"
               onClick={() => setViewMode('tree')}
               title="Группировка: родительский тег → дочерние"
               className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer ${viewMode === 'tree' ? 'bg-white dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 shadow-xs' : 'text-slate-500'}`}
@@ -714,14 +712,14 @@ function ProcurementTab() {
               <FolderTree className="w-3.5 h-3.5" /> Дерево
             </button>
           </div>
-          <button
+          <button type="button"
             onClick={() => navigate('/settings?section=management')}
             title="Настроить этапы закупки"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer"
           >
             <Settings2 className="w-3.5 h-3.5" /> Этапы
           </button>
-          <button
+          <button type="button"
             onClick={loadAll}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer"
           >
@@ -732,9 +730,9 @@ function ProcurementTab() {
 
       {/* Счётчики этапов: клик — фильтр */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
-        <button
+        <button type="button"
           onClick={() => setStageFilter('all')}
-          className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${stageFilter === 'all' ? 'bg-indigo-600 border-indigo-700 text-white shadow-md' : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 hover:border-indigo-300'}`}
+          className={`p-3 rounded-xl border text-left transition-ui cursor-pointer ${stageFilter === 'all' ? 'bg-indigo-600 border-indigo-700 text-white shadow-md' : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 hover:border-indigo-300'}`}
         >
           <div className="text-2xl font-black leading-none">{rows.length}</div>
           <div className={`text-xs font-bold mt-1 ${stageFilter === 'all' ? 'text-indigo-100' : 'text-slate-400'}`}>Все позиции</div>
@@ -744,11 +742,11 @@ function ProcurementTab() {
           const c = stageColor(s.color);
           const active = stageFilter === s.id;
           return (
-            <button
+            <button type="button"
               key={s.id}
               onClick={() => setStageFilter(active ? 'all' : s.id)}
               title={templateName ? `Этап шаблона «${templateName}»` : undefined}
-              className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${active ? `${c.bg} ${c.border} ring-2 ring-offset-1 dark:ring-offset-slate-950 ring-current ${c.color} shadow-md` : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 hover:shadow-sm'}`}
+              className={`p-3 rounded-xl border text-left transition-ui cursor-pointer ${active ? `${c.bg} ${c.border} ring-2 ring-offset-1 dark:ring-offset-slate-950 ring-current ${c.color} shadow-md` : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 hover:shadow-sm'}`}
             >
               <div className="flex items-center justify-between">
                 <div className={`text-2xl font-black leading-none ${c.color}`}>{counts[s.id] || 0}</div>
@@ -805,11 +803,11 @@ function ProcurementTab() {
             const Icon = stageIcon(s.icon);
             const c = stageColor(s.color);
             return (
-              <button
+              <button type="button"
                 key={s.id}
                 onClick={() => setStageBulk(idx)}
                 title={bulkStages ? s.label : `Этап №${idx + 1} в наборе каждой позиции`}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all hover:scale-105 ${c.bg} ${c.border} ${c.color}`}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-ui hover:scale-105 ${c.bg} ${c.border} ${c.color}`}
               >
                 <Icon className="w-3.5 h-3.5" /> {bulkStages ? s.label : `№${idx + 1} ${s.label}`}
               </button>
@@ -834,7 +832,7 @@ function ProcurementTab() {
               />
             </div>
           )}
-          <button
+          <button type="button"
             onClick={() => setSelectedIds(new Set())}
             className="ml-auto p-1.5 rounded-lg hover:bg-white/60 dark:hover:bg-slate-900 text-slate-400 cursor-pointer"
             title="Снять выделение"
@@ -898,11 +896,11 @@ function ProcurementTab() {
             {viewMode === 'list' && filtered.length > renderLimit && (
               <tr>
                 <td colSpan={8} className="p-0">
-                  <button
+                  <button type="button"
                     onClick={() => setRenderLimit(l => l + 300)}
                     className="w-full py-3 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50/60 dark:hover:bg-indigo-950/20 cursor-pointer"
                   >
-                    Показать ещё ({filtered.length - renderLimit} позиций скрыто)
+                    Показать ещё ({countOf(filtered.length - renderLimit, 'позиция')} скрыто)
                   </button>
                 </td>
               </tr>

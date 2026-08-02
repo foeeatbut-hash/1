@@ -15,7 +15,7 @@ import { useNavigate } from 'react-router-dom';
 export default function ProjectsManagement() {
   const { user, activeProject, setActiveProject } = useStore();
   const { addToast } = useToastStore();
-  const { openPrompt } = useModalStore();
+  const { openPrompt, openConfirm } = useModalStore();
   const navigate = useNavigate();
   
   const [projects, setProjects] = useState<Project[]>([]);
@@ -146,7 +146,7 @@ export default function ProjectsManagement() {
   };
 
   const handleDeleteProject = async (projId: string, projName: string) => {
-    if (!confirm(`Вы действительно хотите удалить проект "${projName}" и ВСЕ связанные файлы, папки, теги и спецификации? Это действие необратимо!`)) {
+    if (!await openConfirm(`Удалить проект «${projName}»?`, 'Вместе с проектом удалятся все его файлы, папки, теги и спецификации. Действие необратимо.', { confirmLabel: 'Удалить проект', tone: 'danger' })) {
       return;
     }
 
@@ -200,10 +200,10 @@ export default function ProjectsManagement() {
             <span>Инженерные Проекты</span>
           </h2>
           {canCreate && (
-            <button
+            <button type="button"
               onClick={() => setShowCreate(true)}
               data-tour="project-create-btn"
-              className="p-1 px-2.5 bg-emerald-700 hover:bg-emerald-650 text-white text-xs font-bold rounded-md flex items-center gap-1 transition-all cursor-pointer"
+              className="p-1 px-2.5 bg-emerald-700 hover:bg-emerald-650 text-white text-xs font-bold rounded-md flex items-center gap-1 transition-ui cursor-pointer"
               title="Создать новый проект"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -251,7 +251,7 @@ export default function ProjectsManagement() {
                     setSelectedProject(p);
                     initForm(p);
                   }}
-                  className={`p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between items-stretch gap-1.5 relative group ${
+                  className={`p-3 rounded-xl border transition-ui cursor-pointer flex flex-col justify-between items-stretch gap-1.5 relative group ${
                     isSelected
                       ? 'bg-slate-50 dark:bg-slate-850 border-slate-300 dark:border-slate-700'
                       : 'bg-white dark:bg-slate-900 border-slate-150 hover:bg-slate-50 dark:hover:bg-slate-850/50'
@@ -292,12 +292,12 @@ export default function ProjectsManagement() {
                       <span>{new Date(p.createdAt).toLocaleDateString('ru-RU')}</span>
                     </span>
                     {canManage && (
-                      <button
+                      <button type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleDeleteProject(p.id, p.name);
                         }}
-                        className="opacity-0 group-hover:opacity-100 hover:text-red-500 p-1 rounded hover:bg-red-50 dark:hover:bg-red-950/20 transition-all text-slate-400 cursor-pointer"
+                        className="opacity-0 group-hover:opacity-100 hover:text-red-500 p-1 rounded hover:bg-red-50 dark:hover:bg-red-950/20 transition-ui text-slate-400 cursor-pointer"
                         title="Удалить проект"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -409,7 +409,7 @@ export default function ProjectsManagement() {
                     <button
                       type="button"
                       onClick={() => initForm(selectedProject)}
-                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold rounded-lg transition-all cursor-pointer"
+                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold rounded-lg transition-ui cursor-pointer"
                     >
                       Сбросить
                     </button>
@@ -417,7 +417,7 @@ export default function ProjectsManagement() {
                       type="button"
                       disabled={isSaving}
                       onClick={handleSaveProject}
-                      className="px-4.5 py-2 bg-emerald-700 hover:bg-emerald-650 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-50"
+                      className="px-4.5 py-2 bg-emerald-700 hover:bg-emerald-650 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-ui shadow-xs cursor-pointer disabled:opacity-50"
                     >
                       {isSaving ? (
                         <>

@@ -44,6 +44,12 @@ import CustomSelect from '../components/CustomSelect';
 import TagImportWizard from '../components/TagImportWizard';
 import { encodeShare } from '../lib/shareLink';
 import { useShareStore } from '../store/shareStore';
+import { countOf } from '../lib/plural';
+import { useModalStore } from '../store/modalStore';
+import NoProject from '../components/NoProject';
+
+// Диалоги программы вместо системных окон Windows
+const { openConfirm, openAlert, openPrompt } = useModalStore.getState();
 
 // Габариты карточки на холсте (для центрирования, раскладки и защиты от наложений)
 const CARD_W = 330;
@@ -256,7 +262,7 @@ const TagSearchPanel = React.memo(function TagSearchPanel({
             <div className="px-3 py-2 border-t border-slate-100 dark:border-slate-850 flex items-center justify-between gap-2 bg-slate-50/60 dark:bg-slate-900/40">
               <span className="text-xs font-bold text-indigo-600 dark:text-indigo-300">Отмечено: {selectedTagIds.size}</span>
               <div className="flex items-center gap-1.5">
-                <button
+                <button type="button"
                   onClick={() => {
                     onShowSelected();
                     setOpen(false);
@@ -265,7 +271,7 @@ const TagSearchPanel = React.memo(function TagSearchPanel({
                 >
                   Показать
                 </button>
-                <button
+                <button type="button"
                   onClick={onClearSelection}
                   className="px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 text-xs cursor-pointer"
                 >
@@ -437,9 +443,23 @@ export default function Registry() {
   }, [pan]);
 
   useEffect(() => {
+    // Теги без сохранённых координат раньше получали случайную точку в
+    // области 550×320: полсотни карточек ложились друг на друга, и холст
+    // при открытии читать было нельзя, пока не нажмёшь «Упорядочить».
+    // Раскладываем их сеткой — детерминированно и без наложений.
+    const COL_W = 360, ROW_H = 130, PER_ROW = 6, X0 = 80, Y0 = 60;
+    let autoIndex = 0;
     const positions: Record<string, { x: number, y: number }> = {};
     for (const t of tags) {
+      let raw: any = null;
+      try { raw = typeof t.metadata === 'string' ? JSON.parse(t.metadata) : t.metadata; } catch (_) { raw = null; }
+      const hasSaved = raw && raw.x !== undefined && raw.y !== undefined;
       const meta = parseTagMetadata(t);
+      if (!hasSaved) {
+        meta.x = X0 + (autoIndex % PER_ROW) * COL_W;
+        meta.y = Y0 + Math.floor(autoIndex / PER_ROW) * ROW_H;
+        autoIndex++;
+      }
       positions[t.id] = { x: meta.x, y: meta.y };
     }
     cardPositionsRef.current = positions;
@@ -870,7 +890,7 @@ export default function Registry() {
   };
 
   const handleCreateAndPinTag = async (componentId: string) => {
-    const identifier = window.prompt("Введите код нового KKS/BIM тега (на латинице):");
+    const identifier = await openPrompt('Новый тег', 'Код тега — латиницей, как в проектной документации.', 'Например: AHU-103');
     if (!identifier || !identifier.trim()) return;
     if (/[а-яА-ЯёЁ]/.test(identifier)) {
       addToast("Ошибка: Код тега должен быть на латинице!", "error");
@@ -2158,7 +2178,7 @@ export default function Registry() {
     }
 
     if (checkTagExists(newTagIdentifier)) {
-      alert(`⚠️ Тег c идентификатором "${newTagIdentifier}" уже существует в реестре!`);
+      void openAlert('Такой тег уже есть', `Тег «${newTagIdentifier}» уже заведён в этом проекте. Укажите другой код.`);
       return;
     }
 
@@ -2241,7 +2261,7 @@ export default function Registry() {
 
   // Delete Node tag completely
   const handleDeleteTag = async (tagId: string) => {
-    if (!window.confirm('Вы действительно хотите навсегда удалить этот тег и все его связи?')) return;
+    if (!await openConfirm('Удалить тег?', 'Тег и все его связи с другим оборудованием будут удалены. Действие необратимо.', { confirmLabel: 'Удалить тег', tone: 'danger' })) return;
     try {
       for (const otherTag of tags) {
         if (otherTag.id === tagId) continue;
@@ -2518,7 +2538,7 @@ export default function Registry() {
   const handleExportSelectedToExcel = () => {
     const matched = getSegmentMatchedTags();
     if (matched.length === 0) {
-      alert('Нет данных для экспорта. Измените фильтры.');
+      void openAlert('Нечего выгружать', 'Под текущие фильтры не попала ни одна строка. Измените условия отбора и повторите.');
       return;
     }
 
@@ -2604,11 +2624,7 @@ export default function Registry() {
 
   if (!activeProject) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl max-w-2xl mx-auto p-8 shadow-sm text-center">
-        <Database className="w-12 h-12 text-slate-300 dark:text-slate-700 mb-4 animate-bounce" />
-        <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">Проект не выбран</h3>
-        <p className="text-slate-500 dark:text-slate-400 text-sm mt-1 max-w-sm">Выберите технологический проект во вкладке «Дашборд», чтобы открыть его реестр тегов.</p>
-      </div>
+      <NoProject what="Реестр тегов" />
     );
   }
 
@@ -2625,7 +2641,7 @@ export default function Registry() {
             <h1 className="text-lg font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
               Реестр технологических тегов
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200/50">
-                {tags.length} тегов
+                {countOf(tags.length, 'тег')}
               </span>
             </h1>
           </div>
@@ -2633,9 +2649,9 @@ export default function Registry() {
 
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800">
-            <button
+            <button type="button"
               onClick={() => setActiveTab('board')}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
                 activeTab === 'board' 
                   ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -2644,9 +2660,9 @@ export default function Registry() {
               <Network className="w-3.5 h-3.5" />
               <span>Интерактивный граф (Dynamo)</span>
             </button>
-            <button
+            <button type="button"
               onClick={() => setActiveTab('tree')}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
                 activeTab === 'tree' 
                   ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -2655,9 +2671,9 @@ export default function Registry() {
               <FolderTree className="w-3.5 h-3.5" />
               <span>Дерево связей</span>
             </button>
-            <button
+            <button type="button"
               onClick={() => setActiveTab('segments')}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
                 activeTab === 'segments' 
                   ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -2666,9 +2682,9 @@ export default function Registry() {
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
               <span className="text-emerald-700 dark:text-emerald-300">Экспорт и импорт</span>
             </button>
-            <button
+            <button type="button"
               onClick={() => setActiveTab('table')}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
                 activeTab === 'table' 
                   ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -2805,7 +2821,7 @@ export default function Registry() {
               <button
                 type="button"
                 onClick={() => setShowAdvancedCreation(!showAdvancedCreation)}
-                className={`p-1.5 rounded-lg text-xs font-semibold border transition-all flex items-center justify-center gap-1 cursor-pointer shrink-0 h-8 flex-1 ${
+                className={`p-1.5 rounded-lg text-xs font-semibold border transition-ui flex items-center justify-center gap-1 cursor-pointer shrink-0 h-8 flex-1 ${
                   showAdvancedCreation 
                     ? 'bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-350 border-slate-300 dark:border-slate-750' 
                     : 'bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-450 border-slate-200 dark:border-slate-850 hover:bg-slate-50'
@@ -2822,7 +2838,7 @@ export default function Registry() {
                 type="submit"
                 data-tour="tag-create-btn"
                 disabled={!isIdentifierUnique || !newTagIdentifier || !newTagBrand.trim()}
-                className={`p-1.5 rounded-lg text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1 cursor-pointer shrink-0 h-8 flex-1 border-none ${
+                className={`p-1.5 rounded-lg text-xs font-bold shadow-xs transition-ui flex items-center justify-center gap-1 cursor-pointer shrink-0 h-8 flex-1 border-none ${
                   isIdentifierUnique && newTagIdentifier && newTagBrand.trim()
                     ? 'bg-emerald-700 hover:bg-emerald-600 text-white font-semibold'
                     : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
@@ -2957,12 +2973,12 @@ export default function Registry() {
                 <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-sky-600 text-white px-3 py-2 rounded-xl shadow-lg text-xs font-semibold animate-in fade-in slide-in-from-top-2">
                   <Link2 className="w-4 h-4" />
                   Кликните тег-получатель связи
-                  <button onClick={() => setLinkingFrom(null)} className="ml-1 px-1.5 py-0.5 rounded bg-white/20 hover:bg-white/30 cursor-pointer">Esc — отмена</button>
+                  <button type="button" onClick={() => setLinkingFrom(null)} className="ml-1 px-1.5 py-0.5 rounded bg-white/20 hover:bg-white/30 cursor-pointer">Esc — отмена</button>
                 </div>
               )}
 
               {/* Подсказка по управлению холстом (левый низ) */}
-              <div className="absolute bottom-3 left-3 z-30 text-2xs text-slate-400 dark:text-slate-500 bg-white/70 dark:bg-slate-950/70 backdrop-blur px-2 py-1 rounded-lg border border-slate-200/60 dark:border-slate-800/60 pointer-events-none select-none">
+              <div className="absolute bottom-3 left-3 z-30 text-2xs text-slate-400 dark:text-slate-500 bg-white/95 dark:bg-slate-950/95 backdrop-blur px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 pointer-events-none select-none">
                 ПКМ — двигать холст · колесо — масштаб · {linkMode === 'click'
                   ? <><Link2 className="w-2.5 h-2.5 inline -mt-0.5" /> на карточке — связать</>
                   : <>тяни от точек-портов — связать</>}
@@ -2971,7 +2987,7 @@ export default function Registry() {
               {/* Overlaid Zoom and Canvas Controls on the top-right */}
               <div className="absolute top-4 right-4 z-40 flex items-center gap-2 bg-white/90 dark:bg-slate-950/90 backdrop-blur-md p-1.5 rounded-xl border border-slate-200 dark:border-slate-800/80 shadow-md">
                 <div className="flex bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200/50 dark:border-slate-800">
-                  <button 
+                  <button type="button" 
                     onClick={() => setZoom(z => Math.max(0.15, z - 0.1))} 
                     className="p-1 px-1.5 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 rounded transition-colors cursor-pointer"
                   >
@@ -2980,7 +2996,7 @@ export default function Registry() {
                   <span className="px-2 py-0.5 text-xs font-mono font-bold text-slate-600 dark:text-slate-400 self-center">
                     {Math.round(zoom * 100)}%
                   </span>
-                  <button 
+                  <button type="button" 
                     onClick={() => setZoom(z => Math.min(2.5, z + 0.1))}
                     className="p-1 px-1.5 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 rounded transition-colors cursor-pointer"
                   >
@@ -2991,7 +3007,7 @@ export default function Registry() {
                 <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800" />
 
                 <div className="relative">
-                  <button
+                  <button type="button"
                     onClick={(e) => { e.stopPropagation(); handleCenterClick(); }}
                     title="1 клик — выбрать главного родителя и центрировать его дерево; 2 клика — вписать весь холст"
                     className="px-2.5 py-1.5 bg-slate-200/70 dark:bg-slate-850 hover:bg-slate-300 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
@@ -3015,7 +3031,7 @@ export default function Registry() {
                         {rootTags.length === 0 ? (
                           <div className="text-center text-xs text-slate-400 py-4">Нет корневых тегов</div>
                         ) : rootTags.map(rt => (
-                          <button
+                          <button type="button"
                             key={rt.id}
                             onClick={() => centerTreeOfRoot(rt.id)}
                             className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-xs flex items-center justify-between gap-2 cursor-pointer"
@@ -3029,7 +3045,7 @@ export default function Registry() {
                   )}
                 </div>
 
-                <button
+                <button type="button"
                   onClick={arrangeTreeLayout}
                   disabled={isArranging}
                   title="Авто-раскладка: аккуратное дерево связей без наложений"
@@ -3174,7 +3190,7 @@ export default function Registry() {
                               >
                                 <button
                                   type="button"
-                                  className="w-5 h-5 rounded-full bg-rose-500 hover:bg-rose-600 active:bg-rose-700 text-white flex items-center justify-center text-xs font-bold shadow-md hover:scale-110 transition-all border border-white dark:border-slate-900 cursor-pointer"
+                                  className="w-5 h-5 rounded-full bg-rose-500 hover:bg-rose-600 active:bg-rose-700 text-white flex items-center justify-center text-xs font-bold shadow-md hover:scale-110 transition-ui border border-white dark:border-slate-900 cursor-pointer"
                                   title="Удалить связь"
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -3260,7 +3276,7 @@ export default function Registry() {
                         {/* Порты для связи перетаскиванием — только в режиме «Перетаскиванием» */}
                         {linkMode === 'drag' && (<>
                         <div
-                          className={`absolute connection-port left-0 top-[22px] -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border border-slate-300 dark:border-slate-800 transition-all hover:scale-130 cursor-crosshair z-40 ${
+                          className={`absolute connection-port left-0 top-[22px] -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border border-slate-300 dark:border-slate-800 transition-ui hover:scale-130 cursor-crosshair z-40 ${
                             hoveredLeft
                               ? 'bg-emerald-500 border-white scale-125 shadow-lg'
                               : 'bg-slate-200 dark:bg-slate-800'
@@ -3274,7 +3290,7 @@ export default function Registry() {
                         </div>
 
                         <div
-                          className={`absolute connection-port right-0 top-[22px] translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border border-slate-300 dark:border-slate-800 transition-all hover:scale-130 cursor-crosshair z-40 ${
+                          className={`absolute connection-port right-0 top-[22px] translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border border-slate-300 dark:border-slate-800 transition-ui hover:scale-130 cursor-crosshair z-40 ${
                             hoveredRight
                               ? 'bg-emerald-500 border-white scale-125 shadow-lg'
                               : 'bg-slate-200 dark:bg-slate-800'
@@ -3311,7 +3327,7 @@ export default function Registry() {
                             <div className="flex items-center gap-1 shrink-0 no-drag select-none">
                               {/* Связать: клик → затем клик по целевому тегу (режим «Кликом») */}
                               {linkMode === 'click' && (
-                                <button
+                                <button type="button"
                                   title={linkingFrom === tag.id ? 'Отменить связывание' : 'Связать: затем кликните целевой тег'}
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -3327,7 +3343,7 @@ export default function Registry() {
                                 </button>
                               )}
                               {/* Toggle Info / Expand Detailed View */}
-                              <button
+                              <button type="button"
                                 title={isExpanded ? "Свернуть подописания" : "Открыть подописания тега"}
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -3382,7 +3398,7 @@ export default function Registry() {
                             <div className="px-3.5 py-2.5 border-b border-slate-100 dark:border-slate-900 no-drag space-y-1.5 text-left">
                               <div className="flex items-center justify-between">
                                 <span className="text-2xs font-bold uppercase tracking-wider text-slate-400">Связи</span>
-                                <button
+                                <button type="button"
                                   onClick={(e) => { e.stopPropagation(); setLinkPicker(prev => prev?.tagId === tag.id ? null : { tagId: tag.id, search: '' }); }}
                                   className="text-2xs font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer"
                                 >
@@ -3393,7 +3409,7 @@ export default function Registry() {
                                 {(incomingByTagId[tag.id] || []).map(pid => tagsById[pid] && (
                                   <span key={`p-${pid}`} className="inline-flex items-center gap-1 pl-1.5 pr-0.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/50 text-2xs font-bold text-indigo-700 dark:text-indigo-300" title={`Родитель: ${tagsById[pid].identifier}`}>
                                     ↑ <span className="font-mono truncate max-w-[110px]">{tagsById[pid].identifier}</span>
-                                    <button onClick={(e) => { e.stopPropagation(); handleRemoveConnection(pid, tag.id); }} className="p-0.5 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900 hover:text-rose-500 cursor-pointer" title="Разорвать связь с родителем">
+                                    <button type="button" onClick={(e) => { e.stopPropagation(); handleRemoveConnection(pid, tag.id); }} className="p-0.5 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900 hover:text-rose-500 cursor-pointer" title="Разорвать связь с родителем">
                                       <X className="w-2.5 h-2.5" />
                                     </button>
                                   </span>
@@ -3401,7 +3417,7 @@ export default function Registry() {
                                 {(meta.connections || []).map(cid => tagsById[cid] && (
                                   <span key={`c-${cid}`} className="inline-flex items-center gap-1 pl-1.5 pr-0.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-2xs font-bold text-emerald-700 dark:text-emerald-300" title={`Дочерний: ${tagsById[cid].identifier}`}>
                                     ↓ <span className="font-mono truncate max-w-[110px]">{tagsById[cid].identifier}</span>
-                                    <button onClick={(e) => { e.stopPropagation(); handleRemoveConnection(tag.id, cid); }} className="p-0.5 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900 hover:text-rose-500 cursor-pointer" title="Разорвать связь">
+                                    <button type="button" onClick={(e) => { e.stopPropagation(); handleRemoveConnection(tag.id, cid); }} className="p-0.5 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900 hover:text-rose-500 cursor-pointer" title="Разорвать связь">
                                       <X className="w-2.5 h-2.5" />
                                     </button>
                                   </span>
@@ -3427,7 +3443,7 @@ export default function Registry() {
                                         && (t.identifier || '').toLowerCase().includes(linkPicker.search.toLowerCase()))
                                       .slice(0, 8)
                                       .map(t => (
-                                        <button key={t.id}
+                                        <button type="button" key={t.id}
                                           onClick={async (e) => { e.stopPropagation(); await handleAddConnection(tag.id, t.id); setLinkPicker(null); }}
                                           className="w-full flex items-center gap-1.5 px-2 py-1 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-left text-xs font-mono font-bold text-slate-700 dark:text-slate-200 cursor-pointer">
                                           {t.identifier}
@@ -3485,13 +3501,13 @@ export default function Registry() {
                                         </div>
 
                                         <div className="flex justify-end gap-1.5 pt-1">
-                                          <button
+                                          <button type="button"
                                             onClick={() => setEditingDescId(null)}
                                             className="px-2 py-0.5 text-xs text-slate-450 hover:text-slate-650 transition-colors cursor-pointer"
                                           >
                                             Отмена
                                           </button>
-                                          <button
+                                          <button type="button"
                                             onClick={async () => {
                                               await handleUpdateDescription(tag.id, desc.id, {
                                                 text: editDescForm.text,
@@ -3524,7 +3540,7 @@ export default function Registry() {
                                             </span>
                                             
                                             {/* Actions */}
-                                            <button
+                                            <button type="button"
                                               title="Редактировать подописание"
                                               onClick={() => {
                                                 setEditingDescId(desc.id);
@@ -3538,7 +3554,7 @@ export default function Registry() {
                                             >
                                               <Edit className="w-2.5 h-2.5" />
                                             </button>
-                                            <button
+                                            <button type="button"
                                               title="Удалить подописание"
                                               onClick={() => handleRemoveDescription(tag.id, desc.id)}
                                               className="p-1 hover:text-rose-500 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors text-slate-400 cursor-pointer"
@@ -3592,7 +3608,7 @@ export default function Registry() {
                                   onChange={(e) => setQuickCommentText(prev => ({ ...prev, [tag.id]: e.target.value }))}
                                   className="px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded text-xs flex-1 text-slate-800 dark:text-slate-100 focus:outline-none"
                                 />
-                                <button
+                                <button type="button"
                                   onClick={() => handleAddDescription(
                                     tag.id, 
                                     quickDescText[tag.id], 
@@ -3609,14 +3625,14 @@ export default function Registry() {
                             {/* Действия карточки */}
                             <div className="p-2 bg-slate-100/40 dark:bg-slate-950/40 border-t border-slate-200 dark:border-slate-850 flex items-center justify-end text-xs rounded-b-2xl no-drag">
                               <div className="flex items-center gap-1.5">
-                                <button
+                                <button type="button"
                                   title="Настроить связи / свойства в модали"
                                   onClick={() => setEditingTag(tag)}
                                   className="flex items-center gap-1 px-2 py-1 hover:text-emerald-600 dark:hover:text-emerald-400 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors text-xs font-semibold cursor-pointer"
                                 >
                                   <Edit2 className="w-3 h-3" /> Настройка
                                 </button>
-                                <button
+                                <button type="button"
                                   title="Удалить тег с холста"
                                   onClick={() => handleDeleteTag(tag.id)}
                                   className="p-1 px-2 hover:text-rose-600 text-slate-550 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded transition-colors text-xs font-semibold cursor-pointer"
@@ -3637,19 +3653,19 @@ export default function Registry() {
               {selectedTagIds.size > 0 && (
                 <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md px-3 py-2 rounded-xl border border-indigo-200 dark:border-indigo-900 shadow-lg text-xs">
                   <span className="font-bold text-indigo-700 dark:text-indigo-300">Выбрано: {selectedTagIds.size}</span>
-                  <button
+                  <button type="button"
                     onClick={() => fitToTags(tags.filter(t => selectedTagIds.has(t.id)))}
                     className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold cursor-pointer"
                   >
                     Показать
                   </button>
-                  <button
+                  <button type="button"
                     onClick={() => shareTagsInChat(Array.from(selectedTagIds))}
                     className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold cursor-pointer"
                   >
                     Поделиться в чате
                   </button>
-                  <button
+                  <button type="button"
                     onClick={() => setSelectedTagIds(new Set())}
                     className="px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 cursor-pointer"
                     title="Снять выделение (Esc)"
@@ -3676,7 +3692,7 @@ export default function Registry() {
               {selectedTagIds.size > 1 && <span className="ml-1 text-indigo-500">+{selectedTagIds.size - 1}</span>}
             </div>
             <div className="px-3 py-1 text-2xs uppercase tracking-wider text-slate-400">Связи</div>
-            <button
+            <button type="button"
               onClick={() => {
                 setSelectedTagIds(collectAncestors(cardMenu.tagId));
                 setCardMenu(null);
@@ -3685,7 +3701,7 @@ export default function Registry() {
             >
               <ChevronUp className="w-3.5 h-3.5 text-indigo-500" /> Выделить вверх по ступеньке (родители)
             </button>
-            <button
+            <button type="button"
               onClick={() => {
                 setSelectedTagIds(collectDescendants(cardMenu.tagId));
                 setCardMenu(null);
@@ -3696,7 +3712,7 @@ export default function Registry() {
             </button>
             <div className="h-px bg-slate-100 dark:bg-slate-850 my-1 mx-2" />
             {dupCountOf(cardMenu.tagId) > 1 && (
-              <button
+              <button type="button"
                 onClick={() => {
                   openDuplicates(cardMenu.tagId);
                   setCardMenu(null);
@@ -3707,7 +3723,7 @@ export default function Registry() {
                 Найти дубли ({dupCountOf(cardMenu.tagId)})
               </button>
             )}
-            <button
+            <button type="button"
               onClick={() => {
                 const ids = selectedTagIds.size > 0 ? Array.from(selectedTagIds) : [cardMenu.tagId];
                 shareTagsInChat(ids);
@@ -3718,7 +3734,7 @@ export default function Registry() {
               <Link2 className="w-3.5 h-3.5 text-emerald-600" />
               Поделиться в рабочем чате{selectedTagIds.size > 1 ? ` (${selectedTagIds.size})` : ''}
             </button>
-            <button
+            <button type="button"
               onClick={() => {
                 setActiveTab('board');
                 setTimeout(() => centerOnTag(cardMenu.tagId), 150);
@@ -3728,7 +3744,7 @@ export default function Registry() {
             >
               <RefreshCw className="w-3.5 h-3.5 text-slate-400" /> Показать на холсте
             </button>
-            <button
+            <button type="button"
               onClick={() => {
                 setSelectedTagIds(new Set());
                 setCardMenu(null);
@@ -3752,21 +3768,21 @@ export default function Registry() {
             <span className="px-1.5 text-2xs font-mono font-bold text-slate-400 max-w-[110px] truncate">
               {tagsById[cardPanel.tagId]?.identifier}
             </span>
-            <button
+            <button type="button"
               onClick={() => { setMultiSelectMode(true); setCardPanel(null); }}
               className="p-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-indigo-500 cursor-pointer"
               title="Выбрать несколько: дальше каждый клик добавляет карточку (Esc — готово)"
             >
               <ClipboardCheck className="w-4 h-4" />
             </button>
-            <button
+            <button type="button"
               onClick={() => { setSelectedTagIds(collectAncestors(cardPanel.tagId)); setCardPanel(null); }}
               className="p-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-indigo-500 cursor-pointer"
               title="Выделить вверх по ступеньке (родители)"
             >
               <ChevronUp className="w-4 h-4" />
             </button>
-            <button
+            <button type="button"
               onClick={() => { setSelectedTagIds(collectDescendants(cardPanel.tagId)); setCardPanel(null); }}
               className="p-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-indigo-500 cursor-pointer"
               title="Выделить вниз по лестнице (дочерние)"
@@ -3774,7 +3790,7 @@ export default function Registry() {
               <ChevronDown className="w-4 h-4" />
             </button>
             {dupCountOf(cardPanel.tagId) > 1 && (
-              <button
+              <button type="button"
                 onClick={() => { openDuplicates(cardPanel.tagId); setCardPanel(null); }}
                 className="p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500 cursor-pointer"
                 title={`Найти дубли (${dupCountOf(cardPanel.tagId)})`}
@@ -3782,7 +3798,7 @@ export default function Registry() {
                 <AlertTriangle className="w-4 h-4" />
               </button>
             )}
-            <button
+            <button type="button"
               onClick={() => {
                 const ids = selectedTagIds.size > 0 ? Array.from(selectedTagIds) : [cardPanel.tagId];
                 shareTagsInChat(ids);
@@ -3793,7 +3809,7 @@ export default function Registry() {
             >
               <Link2 className="w-4 h-4" />
             </button>
-            <button
+            <button type="button"
               onClick={() => { setEditingTag(tagsById[cardPanel.tagId]); setCardPanel(null); }}
               className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-500 cursor-pointer"
               title="Редактировать тег"
@@ -3809,7 +3825,7 @@ export default function Registry() {
           <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[115] flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-xl shadow-lg text-xs font-semibold">
             <ClipboardCheck className="w-4 h-4" />
             Мультивыбор: {selectedTagIds.size} — клик добавляет карточку
-            <button
+            <button type="button"
               onClick={() => setMultiSelectMode(false)}
               className="ml-1 px-2 py-0.5 rounded-lg bg-white/20 hover:bg-white/30 cursor-pointer"
               title="Завершить (Esc)"
@@ -3835,7 +3851,7 @@ export default function Registry() {
                 <span className="text-2xs font-mono font-bold text-rose-600 dark:text-rose-400">
                   {dupPanel.activeIdx + 1} / {dupPanel.ids.length}
                 </span>
-                <button
+                <button type="button"
                   onClick={() => setDupPanel(null)}
                   className="p-1 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/50 text-slate-400 cursor-pointer"
                 >
@@ -3850,7 +3866,7 @@ export default function Registry() {
                 const m = parseTagMetadata(t);
                 const isActive = i === dupPanel.activeIdx;
                 return (
-                  <button
+                  <button type="button"
                     key={id}
                     onClick={() => gotoDup(i)}
                     onMouseEnter={() => { if (!isActive) gotoDup(i); }}
@@ -3879,13 +3895,13 @@ export default function Registry() {
         {selectedTagIds.size > 0 && activeTab !== 'board' && createPortal(
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[110] flex items-center gap-2 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md px-3 py-2 rounded-xl border border-indigo-200 dark:border-indigo-900 shadow-lg text-xs">
             <span className="font-bold text-indigo-700 dark:text-indigo-300">Выбрано: {selectedTagIds.size}</span>
-            <button
+            <button type="button"
               onClick={() => shareTagsInChat(Array.from(selectedTagIds))}
               className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold cursor-pointer"
             >
               Поделиться в чате
             </button>
-            <button
+            <button type="button"
               onClick={() => setSelectedTagIds(new Set())}
               className="px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 cursor-pointer"
               title="Снять выделение (Esc)"
@@ -3915,7 +3931,7 @@ export default function Registry() {
                   : <>Связи: <b>перетаскиванием</b> — тяните строку тега на другую (перетащенный станет дочерним). Способ меняется в «Настройки → Теги → Дерево».</>}
               </span>
               {treeLinkingFrom && (
-                <button onClick={() => setTreeLinkingFrom(null)} className="shrink-0 px-2 py-1 rounded-lg bg-sky-500 text-white font-semibold cursor-pointer">Отмена связи (Esc)</button>
+                <button type="button" onClick={() => setTreeLinkingFrom(null)} className="shrink-0 px-2 py-1 rounded-lg bg-sky-500 text-white font-semibold cursor-pointer">Отмена связи (Esc)</button>
               )}
             </div>
             <div className="p-5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs">
@@ -3956,9 +3972,9 @@ export default function Registry() {
                   <p className="text-xs text-slate-500 mt-0.5 max-w-lg">Загрузите Excel в Проводник или вставьте данные, отметьте колонки (код, марка, наименование, родитель…) — теги попадут в реестр, спецификацию и дерево связей с авто-раскладкой.</p>
                 </div>
               </div>
-              <button
+              <button type="button"
                 onClick={() => setShowImportWizard(true)}
-                className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 transition-all cursor-pointer shrink-0"
+                className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 transition-ui cursor-pointer shrink-0"
               >
                 <Upload className="w-4 h-4" />
                 <span>Открыть мастер импорта</span>
@@ -3978,7 +3994,7 @@ export default function Registry() {
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">Фильтрация по сегментам тега KKS (только латиница и цифры).</p>
                   </div>
-                  <button
+                  <button type="button"
                     onClick={() => setAddedTagSegmentsCount(prev => prev + 1)}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer border-none"
                   >
@@ -4045,14 +4061,14 @@ export default function Registry() {
                     };
 
                     return (
-                      <div key={`tag-seg-${idx}`} className="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2 relative group transition-all text-xs flex flex-col justify-between">
+                      <div key={`tag-seg-${idx}`} className="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2 relative group transition-ui text-xs flex flex-col justify-between">
                         <div>
                           <div className="flex items-center justify-between border-b border-slate-200/40 dark:border-slate-800/45 pb-1 mb-2">
                             <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 uppercase tracking-wider">
                               Segment KKS {idx + 1}
                             </span>
                             {idx >= getMaximumTagSegmentLength() && (
-                              <button
+                              <button type="button"
                                 onClick={() => {
                                   setAddedTagSegmentsCount(prev => Math.max(0, prev - 1));
                                   setActiveTagFilters(prev => {
@@ -4124,7 +4140,7 @@ export default function Registry() {
                                             key={opt.id}
                                             type="button"
                                             onClick={() => setActiveTagFilters(prev => ({ ...prev, [idx]: optVal }))}
-                                            className={`px-1.5 py-0.5 border rounded text-xs font-mono transition-all duration-150 cursor-pointer border-none ${
+                                            className={`px-1.5 py-0.5 border rounded text-xs font-mono transition-ui duration-150 cursor-pointer border-none ${
                                               isSel
                                                 ? 'bg-emerald-600 border-emerald-600 text-white font-bold'
                                                 : 'bg-white hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
@@ -4158,7 +4174,7 @@ export default function Registry() {
                                       key={val}
                                       type="button"
                                       onClick={() => setActiveTagFilters(prev => ({ ...prev, [idx]: val }))}
-                                      className={`px-1.5 py-0.5 rounded text-xs cursor-pointer font-mono font-semibold transition-all duration-150 border-none uppercase tracking-wider ${
+                                      className={`px-1.5 py-0.5 rounded text-xs cursor-pointer font-mono font-semibold transition-ui duration-150 border-none uppercase tracking-wider ${
                                         isSelected
                                           ? 'bg-emerald-600 text-white font-bold'
                                           : 'bg-white hover:bg-slate-150 dark:bg-slate-950 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-800'
@@ -4259,7 +4275,7 @@ export default function Registry() {
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">Фильтрация физического состава марки (поддержка любых языков).</p>
                   </div>
-                  <button
+                  <button type="button"
                     onClick={() => setAddedMarkSegmentsCount(prev => prev + 1)}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer border-none"
                   >
@@ -4326,14 +4342,14 @@ export default function Registry() {
                     };
 
                     return (
-                      <div key={`mark-seg-${idx}`} className="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2 relative group transition-all text-xs flex flex-col justify-between">
+                      <div key={`mark-seg-${idx}`} className="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2 relative group transition-ui text-xs flex flex-col justify-between">
                         <div>
                           <div className="flex items-center justify-between border-b border-slate-200/40 dark:border-slate-800/45 pb-1 mb-2">
                             <span className="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1 uppercase tracking-wider">
                               Segment Mark {idx + 1}
                             </span>
                             {idx >= getMaximumMarkSegmentLength() && (
-                              <button
+                              <button type="button"
                                 onClick={() => {
                                   setAddedMarkSegmentsCount(prev => Math.max(0, prev - 1));
                                   setActiveMarkFilters(prev => {
@@ -4405,7 +4421,7 @@ export default function Registry() {
                                             key={opt.id}
                                             type="button"
                                             onClick={() => setActiveMarkFilters(prev => ({ ...prev, [idx]: optVal }))}
-                                            className={`px-1.5 py-0.5 border rounded text-xs font-mono transition-all duration-150 cursor-pointer border-none ${
+                                            className={`px-1.5 py-0.5 border rounded text-xs font-mono transition-ui duration-150 cursor-pointer border-none ${
                                               isSel
                                                 ? 'bg-amber-600 border-amber-600 text-white font-bold'
                                                 : 'bg-white hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
@@ -4439,7 +4455,7 @@ export default function Registry() {
                                       key={val}
                                       type="button"
                                       onClick={() => setActiveMarkFilters(prev => ({ ...prev, [idx]: val }))}
-                                      className={`px-1.5 py-0.5 rounded text-xs cursor-pointer font-mono font-semibold transition-all duration-150 border-none uppercase tracking-wider ${
+                                      className={`px-1.5 py-0.5 rounded text-xs cursor-pointer font-mono font-semibold transition-ui duration-150 border-none uppercase tracking-wider ${
                                         isSelected
                                           ? 'bg-amber-600 text-white font-bold'
                                           : 'bg-white hover:bg-slate-150 dark:bg-slate-950 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-800'
@@ -4583,9 +4599,9 @@ export default function Registry() {
                   <p className="text-xs text-slate-500">Управляйте структурой скачиваемого файла в зависимости от потребностей верификации состава всех систем.</p>
                 </div>
 
-                <button
+                <button type="button"
                   onClick={handleExportSelectedToExcel}
-                  className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 transition-all cursor-pointer"
+                  className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 transition-ui cursor-pointer"
                 >
                   <FileSpreadsheet className="w-4 h-4" />
                   <span>Экспортировать подборку в Excel</span>
@@ -4672,7 +4688,7 @@ export default function Registry() {
             <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-150 dark:border-slate-855 flex justify-between items-center bg-slate-50/40 dark:bg-slate-900/40 border-none">
                 <span className="text-xs font-bold text-slate-500 uppercase tracking-widest block">
-                  3. Выходные данные ({matchedTagsList.length} записей подобрано)
+                  3. Выходные данные ({countOf(matchedTagsList.length, 'запись')} подобрано)
                 </span>
               </div>
 
@@ -4690,8 +4706,8 @@ export default function Registry() {
                         <span>Статус / Актуальность (Status)</span>
                         <button
                           type="button"
-                          onClick={() => alert("Дополнительное расширение колонок динамическими справочниками будет доступно в следующем релизе!")}
-                          className="p-1 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-905 hover:scale-105 transition-all cursor-pointer font-bold shrink-0 shadow-xs flex items-center justify-center w-5 h-5 ml-2"
+                          onClick={() => void openAlert('Пока недоступно', 'Расширение колонок справочниками появится в одном из следующих обновлений.')}
+                          className="p-1 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-905 hover:scale-105 transition-ui cursor-pointer font-bold shrink-0 shadow-xs flex items-center justify-center w-5 h-5 ml-2"
                           title="Добавить колонку (Spreadsheet Extension)"
                         >
                           +
@@ -4735,7 +4751,7 @@ export default function Registry() {
                                 return (
                                   <span 
                                     key={`tag-part-${idx}`} 
-                                    className={`px-2 py-0.5 rounded text-xs font-mono font-bold uppercase transition-all ${
+                                    className={`px-2 py-0.5 rounded text-xs font-mono font-bold uppercase transition-ui ${
                                       isMatched 
                                         ? 'bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-200 border border-green-300 dark:border-green-800 ring-2 ring-green-400/25' 
                                         : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/40'
@@ -4756,7 +4772,7 @@ export default function Registry() {
                                 return (
                                   <span 
                                     key={`mark-part-${idx}`} 
-                                    className={`px-2 py-0.5 rounded text-xs font-mono font-bold uppercase transition-all ${
+                                    className={`px-2 py-0.5 rounded text-xs font-mono font-bold uppercase transition-ui ${
                                       isMatched 
                                         ? 'bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-200 border border-green-300 dark:border-green-800 ring-2 ring-green-400/25' 
                                         : 'bg-amber-50 dark:bg-slate-900 text-amber-800 dark:text-amber-400 border border-amber-200/40 dark:border-amber-900/45'
@@ -4836,12 +4852,12 @@ export default function Registry() {
             <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs overflow-hidden border-none flex-1 flex flex-col min-h-0">
               {/* Optional view controls bar */}
               <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/40 flex justify-between items-center flex-wrap gap-2 border-none shrink-0">
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-widest block">Спецификация и Актуальность систем ({sortedTagsList.length} записей)</span>
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-widest block">Спецификация и Актуальность систем ({countOf(sortedTagsList.length, 'запись')})</span>
                 
                 <button
                   type="button"
                   onClick={() => setShowOptionalTableColumns(!showOptionalTableColumns)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-all cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-ui cursor-pointer ${
                     showOptionalTableColumns
                       ? 'bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/20 shadow-xs'
                       : 'bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-50'
@@ -5077,7 +5093,7 @@ export default function Registry() {
                   <span className={`flex items-center gap-1 text-xs font-semibold text-emerald-400 transition-opacity duration-300 ${savedFlash ? 'opacity-100' : 'opacity-0'}`}>
                     <Check className="w-3.5 h-3.5" /> Сохранено
                   </span>
-                  <button
+                  <button type="button"
                     onClick={() => { setEditingTag(null); loadTags(); }}
                     className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
                   >
@@ -5324,7 +5340,7 @@ export default function Registry() {
                     />
                   </div>
 
-                  <button
+                  <button type="button"
                     id="modal-add-desc-btn"
                     disabled={!modalDescText.trim()}
                     onClick={async () => {
@@ -5379,13 +5395,13 @@ export default function Registry() {
                                 rows={2}
                               />
                               <div className="flex justify-end gap-1.5">
-                                <button
+                                <button type="button"
                                   onClick={() => setEditingDescId(null)}
                                   className="px-2 py-0.5 text-xs text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
                                 >
                                   Отмена
                                 </button>
-                                <button
+                                <button type="button"
                                   onClick={async () => {
                                     await handleUpdateDescription(editingTag.id, desc.id, {
                                       text: editDescForm.text,
@@ -5420,7 +5436,7 @@ export default function Registry() {
                                   <span className={`inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-xs font-semibold border ${config.bg} ${config.text} ${config.border}`}>
                                     {config.label}
                                   </span>
-                                  <button
+                                  <button type="button"
                                     title="Редактировать подописание"
                                     onClick={() => {
                                       setEditingDescId(desc.id);
@@ -5434,7 +5450,7 @@ export default function Registry() {
                                   >
                                     <Edit className="w-3.5 h-3.5" />
                                   </button>
-                                  <button
+                                  <button type="button"
                                     onClick={() => handleRemoveDescription(editingTag.id, desc.id)}
                                     className="p-1 hover:bg-rose-50 dark:hover:bg-rose-950 rounded text-slate-400 hover:text-rose-500 transition-colors cursor-pointer"
                                   >
@@ -5471,7 +5487,7 @@ export default function Registry() {
               </div>
 
               <div className="p-3 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
-                <button
+                <button type="button"
                   onClick={async () => { const id = editingTag.id; setEditingTag(null); await handleDeleteTag(id); }}
                   className="px-3 py-2 rounded-lg text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer flex items-center gap-1.5 transition-colors"
                   title="Удалить тег со всеми связями"
@@ -5480,7 +5496,7 @@ export default function Registry() {
                 </button>
                 <div className="flex items-center gap-3">
                   <span className="text-2xs text-slate-400">Изменения сохраняются автоматически</span>
-                  <button
+                  <button type="button"
                     onClick={() => { setEditingTag(null); loadTags(); }}
                     className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-semibold cursor-pointer border-none"
                   >
@@ -5512,12 +5528,12 @@ export default function Registry() {
                     Элемент: {bindingBlock.name}
                   </p>
                 </div>
-                <button
+                <button type="button"
                   onClick={() => {
                     setBindingBlock(null);
                     setTagSearchText('');
                   }}
-                  className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 hover:text-slate-600 dark:hover:text-white transition-all cursor-pointer border-none bg-transparent"
+                  className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 hover:text-slate-600 dark:hover:text-white transition-ui cursor-pointer border-none bg-transparent"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -5545,7 +5561,7 @@ export default function Registry() {
                     bindingBlock.tags.map((t: any) => (
                       <span key={t.id} className="inline-flex items-center gap-1.5 text-xs font-semibold bg-emerald-500/10 dark:bg-emerald-500/20 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 px-2.5 py-1 rounded-md">
                         <span>{t.identifier}</span>
-                        <button
+                        <button type="button"
                           onClick={() => handleUnpinTagFromComponent(bindingBlock.id, t.id)}
                           className="hover:text-rose-500 cursor-pointer border-none bg-transparent"
                           title="Удалить привязку"
@@ -5575,7 +5591,7 @@ export default function Registry() {
                   return filtered.map((t) => {
                     const isAlreadyBound = bindingBlock.tags.some((activeT: any) => activeT.id === t.id);
                     return (
-                      <div key={t.id} className="flex items-center justify-between p-2 rounded hover:bg-slate-50 dark:hover:bg-slate-900 border border-transparent hover:border-slate-150 dark:hover:border-slate-850 select-none transition-all">
+                      <div key={t.id} className="flex items-center justify-between p-2 rounded hover:bg-slate-50 dark:hover:bg-slate-900 border border-transparent hover:border-slate-150 dark:hover:border-slate-850 select-none transition-ui">
                         <div className="text-left max-w-[70%]">
                           <p className="font-mono text-xs font-bold text-slate-905 dark:text-slate-100">{t.identifier}</p>
                           <p className="text-xs text-slate-400 truncate">{parseTagMetadata(t).mainName || 'Без названия'}</p>
@@ -5585,7 +5601,7 @@ export default function Registry() {
                             Активен
                           </span>
                         ) : (
-                          <button
+                          <button type="button"
                             onClick={() => handlePinTagToComponent(bindingBlock.id, t.id)}
                             className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-xs font-bold cursor-pointer border-none"
                           >
@@ -5603,7 +5619,7 @@ export default function Registry() {
                 <button
                   type="button"
                   onClick={() => handleCreateAndPinTag(bindingBlock.id)}
-                  className="px-3 py-1.5 bg-slate-150 hover:bg-emerald-50 dark:bg-slate-900 dark:hover:bg-emerald-950/30 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:text-emerald-700 rounded text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
+                  className="px-3 py-1.5 bg-slate-150 hover:bg-emerald-50 dark:bg-slate-900 dark:hover:bg-emerald-950/30 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:text-emerald-700 rounded text-xs font-bold transition-ui cursor-pointer flex items-center gap-1"
                 >
                   <Plus className="w-4 h-4 text-emerald-500" />
                   <span>Создать новый тег</span>
@@ -5710,9 +5726,9 @@ export default function Registry() {
           style={{ marginLeft: `${level * 24}px` }}
         >
           <div className="flex items-center gap-2.5 min-w-0 flex-1 text-left">
-            <button
+            <button type="button"
               onClick={() => toggleTagExpand(node.id)}
-              className={`p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-all shrink-0 ${!hasChildren ? 'opacity-20 cursor-default' : ''}`}
+              className={`p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-ui shrink-0 ${!hasChildren ? 'opacity-20 cursor-default' : ''}`}
               disabled={!hasChildren}
             >
               {isExpanded ? <ChevronDown className="w-4 h-4 text-slate-600 dark:text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-600 dark:text-slate-400" />}
@@ -5739,7 +5755,7 @@ export default function Registry() {
           <div className="flex items-center gap-3 shrink-0">
             {configList.length > 0 && (
               <div className="flex items-center gap-2">
-                <button
+                <button type="button"
                   onClick={() => setShowTreeDescriptions(prev => ({ ...prev, [node.id]: !prev[node.id] }))}
                   title={isTreeDescVisible ? "Скрыть подописания" : `Показать подописания (${configList.length})`}
                   className={`p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer flex items-center justify-center ${
@@ -5767,7 +5783,7 @@ export default function Registry() {
 
             <div className="flex bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg p-0.5 border border-slate-200 dark:border-slate-800">
               {treeLinkMode === 'click' && (
-                <button
+                <button type="button"
                   onClick={(e) => { e.stopPropagation(); setTreeLinkingFrom(prev => prev === node.id ? null : node.id); }}
                   title={treeLinkingFrom === node.id ? 'Отменить связывание' : 'Связать: затем кликните дочернюю строку'}
                   className={`p-1 rounded transition-colors cursor-pointer ${treeLinkingFrom === node.id ? 'bg-sky-500 text-white' : 'hover:text-sky-600 text-slate-500'}`}
@@ -5775,14 +5791,14 @@ export default function Registry() {
                   <Link2 className="w-3.5 h-3.5" />
                 </button>
               )}
-              <button
+              <button type="button"
                 onClick={() => setEditingTag(node)}
                 title="Редактировать описания и комментарии тега"
                 className="p-1 hover:text-emerald-600 dark:hover:text-emerald-400 rounded text-slate-500 transition-colors cursor-pointer"
               >
                 <Edit2 className="w-3.5 h-3.5" />
               </button>
-              <button
+              <button type="button"
                 onClick={() => handleDeleteTag(node.id)}
                 title="Удалить тег"
                 className="p-1 hover:text-rose-500 rounded text-slate-550 transition-colors cursor-pointer"
@@ -5853,7 +5869,7 @@ function TagVdrDocs({ identifier, projectId }: { identifier: string; projectId: 
       <div className="text-2xs font-bold uppercase tracking-wide text-indigo-500 mb-1.5">Документы (ВДР) — {docs.length}</div>
       <div className="border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-850 max-h-40 overflow-auto">
         {docs.map((d: any) => (
-          <button key={d.id}
+          <button type="button" key={d.id}
             onClick={() => navigate(`/management?vdr=${d.registerId}&item=${d.id}`)}
             className="w-full text-left px-3 py-1.5 flex items-center gap-2 text-xs hover:bg-indigo-50 dark:hover:bg-indigo-950/30 cursor-pointer">
             <span className="font-semibold text-slate-700 dark:text-slate-200 truncate flex-1" title={`${d.contractorNo}\n${d.titleRu || d.titleEn}`}>

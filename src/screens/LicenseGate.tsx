@@ -81,7 +81,7 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
             <div className="flex-1 font-mono text-sm text-emerald-300 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2.5 select-all tracking-wide">
               {status.machineId || '—'}
             </div>
-            <button onClick={copyId} className="px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 cursor-pointer">
+            <button type="button" onClick={copyId} className="px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 cursor-pointer">
               {copied ? 'Скопировано' : 'Копировать'}
             </button>
           </div>
@@ -104,7 +104,7 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
           </div>
         )}
 
-        <button
+        <button type="button"
           onClick={submit}
           disabled={busy || !code.trim()}
           className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold cursor-pointer disabled:opacity-50"

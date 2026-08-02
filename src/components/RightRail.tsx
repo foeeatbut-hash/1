@@ -28,7 +28,7 @@ export default function RightRail() {
 
   return (
     <aside className="shrink-0 w-14 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col items-center py-3 gap-2">
-      <button onClick={openNotif} className={`${btn(panelOpen)} ${chatUnread > 0 && !panelOpen ? 'ring-2 ring-emerald-500 text-emerald-600 dark:text-emerald-400' : ''}`} title="Уведомления" data-tour="notif-btn">
+      <button type="button" onClick={openNotif} className={`${btn(panelOpen)} ${chatUnread > 0 && !panelOpen ? 'ring-2 ring-emerald-500 text-emerald-600 dark:text-emerald-400' : ''}`} title="Уведомления" data-tour="notif-btn">
         <Bell className={`w-5 h-5 ${chatUnread > 0 && !panelOpen ? 'animate-pulse' : ''}`} />
         {unread > 0 && (
           <span className={`absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full text-white text-2xs font-bold flex items-center justify-center ${chatUnread > 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}>
@@ -36,7 +36,7 @@ export default function RightRail() {
           </span>
         )}
       </button>
-      <button onClick={openAI} className={btn(assistantOpen)} title="ИИ-чат (Помощник)" data-tour="assistant-btn">
+      <button type="button" onClick={openAI} className={btn(assistantOpen)} title="ИИ-чат (Помощник)" data-tour="assistant-btn">
         <Sparkles className="w-5 h-5" />
       </button>
       <div className="mt-auto pt-2 border-t border-slate-200 dark:border-slate-800 w-full flex justify-center">

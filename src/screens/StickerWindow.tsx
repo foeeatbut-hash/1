@@ -114,7 +114,7 @@ export default function StickerWindow() {
       <div className="w-screen h-screen flex flex-col items-center justify-center bg-rose-950 text-rose-250 p-4 text-center select-none">
         <span className="text-sm font-bold">Стикер не найден</span>
         <span className="text-xs mt-1 opacity-85">Возможно, заметка была удалена.</span>
-        <button onClick={handleClose} className="mt-4 px-2.5 py-1 bg-rose-800 text-white text-xs rounded transition-all">
+        <button type="button" onClick={handleClose} className="mt-4 px-2.5 py-1 bg-rose-800 text-white text-xs rounded transition-ui">
           Закрыть
         </button>
       </div>
@@ -157,7 +157,7 @@ export default function StickerWindow() {
             {COLORS.map(c => {
               const isCurrent = note.color === c.class;
               return (
-                <button
+                <button type="button"
                   key={c.name}
                   onClick={() => handleNoteChange({ color: c.class })}
                   className={`w-3.5 h-3.5 rounded-full ${c.btn} border border-black/10 transition-transform cursor-pointer hover:scale-110 ${
@@ -172,7 +172,7 @@ export default function StickerWindow() {
           <div className="w-[1px] h-4 bg-black/10 dark:bg-white/10 mx-0.5" />
 
           {/* Native close button */}
-          <button
+          <button type="button"
             onClick={handleClose}
             className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 cursor-pointer transition-colors"
             title="Закрыть стикер"

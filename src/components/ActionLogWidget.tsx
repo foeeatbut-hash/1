@@ -206,7 +206,7 @@ export default function ActionLogWidget() {
   return (
     <div
       id="dx-logs-widget"
-      className="fixed bottom-4 z-[9999] flex flex-col items-end pointer-events-none transition-all duration-300"
+      className="fixed bottom-4 z-[9999] flex flex-col items-end pointer-events-none transition-ui duration-300"
       style={{ right: (assistantOpen || notifOpen) ? 380 + 72 : 72 }}
     >
       
@@ -229,7 +229,7 @@ export default function ActionLogWidget() {
                   {logs.length}
                 </span>
               </div>
-              <button 
+              <button type="button" 
                 onClick={() => setWidgetOpen(false)}
                 className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-md text-slate-500 dark:text-slate-400 transition"
               >
@@ -241,7 +241,7 @@ export default function ActionLogWidget() {
             <div className="p-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-850 flex flex-col gap-2">
               <div className="flex items-center gap-1.5 text-xs">
                 {(['ALL', 'INFO', 'WARN', 'ERROR'] as const).map(f => (
-                  <button
+                  <button type="button"
                     key={f}
                     onClick={() => setFilter(f)}
                     className={`px-2 py-1 rounded font-medium transition cursor-pointer ${
@@ -305,7 +305,7 @@ export default function ActionLogWidget() {
             <div className="px-3.5 py-3 bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 flex items-center gap-2">
               {/* Действия работают по выбранной категории: фильтр «Ошибки» —
                   копируются/экспортируются/отправляются только ошибки */}
-              <button
+              <button type="button"
                 onClick={handleCopyLogs}
                 disabled={filteredLogs.length === 0}
                 title={filter === 'ALL' ? 'Копировать весь журнал' : `Копировать только категорию «${filter === 'INFO' ? 'Инфо' : filter === 'WARN' ? 'Предупреждения' : 'Ошибки'}»`}
@@ -315,7 +315,7 @@ export default function ActionLogWidget() {
                 <span>Копировать{filter !== 'ALL' ? ` (${filteredLogs.length})` : ''}</span>
               </button>
 
-              <button
+              <button type="button"
                 onClick={handleExportLogs}
                 disabled={filteredLogs.length === 0}
                 title={filter === 'ALL' ? 'Экспортировать весь журнал' : 'Экспортировать только выбранную категорию'}
@@ -325,7 +325,7 @@ export default function ActionLogWidget() {
                 <span>Экспорт</span>
               </button>
 
-              <button
+              <button type="button"
                 onClick={handleSendLogs}
                 disabled={filteredLogs.length === 0}
                 title={filter === 'ALL' ? 'Отправить весь журнал в чат' : 'Отправить только выбранную категорию в чат'}

@@ -269,7 +269,7 @@ export function WorkspaceRailControls() {
   };
 
   const Btn = ({ mode, title, children }: { mode: any; title: string; children: React.ReactNode }) => (
-    <button
+    <button type="button"
       onClick={() => setLayout(mode)}
       title={title}
       className={`w-9 h-8 flex items-center justify-center rounded-lg transition-colors cursor-pointer ${
@@ -286,7 +286,7 @@ export function WorkspaceRailControls() {
       <Btn mode="dual" title="Две панели рядом"><SquareSplitHorizontal className="w-4 h-4" /></Btn>
       <Btn mode="dualh" title="Две панели одна над другой"><SquareSplitVertical className="w-4 h-4" /></Btn>
       <Btn mode="quad" title="Четыре панели"><Grid2x2 className="w-4 h-4" /></Btn>
-      <button onClick={popOut} title="Вынести раздел в отдельное окно" className="w-9 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+      <button type="button" onClick={popOut} title="Вынести раздел в отдельное окно" className="w-9 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
         <ExternalLink className="w-4 h-4" />
       </button>
     </div>

@@ -156,7 +156,7 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
             <pre style={{ fontSize: 12, color: '#fca5a5', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, padding: 12, maxHeight: 220, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
               {String(this.state.error.message)}
             </pre>
-            <button
+            <button type="button"
               onClick={() => { try { (window as any).location.reload(); } catch (_) {} }}
               style={{ marginTop: 16, padding: '10px 18px', background: '#059669', color: 'white', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}
             >

@@ -5,6 +5,10 @@ import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
 import { Lock, User, Eye, EyeOff, Loader2, AlertCircle, Sun, Moon, Database, FolderOpen, RotateCcw, Server, Laptop, CheckCircle2 } from 'lucide-react';
 import { ENV_CONFIG, getConfiguredServerUrl, setConfiguredServerUrl, setAuthToken } from '../config/env';
+import { useModalStore } from '../store/modalStore';
+
+// Диалоги программы вместо системных окон Windows
+const { openConfirm } = useModalStore.getState();
 
 interface LoginProps {
   onConfigureDatabase?: () => void;
@@ -133,7 +137,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
   };
 
   const handleResetDbPath = async () => {
-    if (!confirm('Вернуть стандартное расположение базы данных (AppData/pdm-app)?')) return;
+    if (!await openConfirm('Вернуть базу в стандартную папку?', 'Программа снова будет работать с базой в папке AppData/pdm-app.', { confirmLabel: 'Вернуть' })) return;
     await switchLocalDb('');
   };
  
@@ -185,7 +189,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
         <button
           type="button"
           onClick={toggleTheme}
-          className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-650 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-all cursor-pointer flex items-center justify-center font-bold"
+          className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-650 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-ui cursor-pointer flex items-center justify-center font-bold"
           title="Переключить тему"
         >
           {theme === 'dark' ? <Sun className="w-5 h-5 text-amber-500" /> : <Moon className="w-5 h-5 text-emerald-600" />}
@@ -198,7 +202,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
           initial={{ opacity: 0, scale: 0.98, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           transition={{ duration: 0.3 }}
-          className="w-full max-w-md bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl transition-all"
+          className="w-full max-w-md bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl transition-ui"
         >
           <AnimatePresence mode="wait">
             {error && (
@@ -231,7 +235,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
                   type="text"
                   value={login}
                   onChange={(e) => setLogin(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-450 dark:placeholder-slate-650 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-sans"
+                  className="w-full pl-9 pr-3 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-450 dark:placeholder-slate-650 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui font-sans"
                   placeholder="Введите логин"
                   required
                   disabled={isLoading}
@@ -252,7 +256,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-9 pr-10 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-450 dark:placeholder-slate-650 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-sans"
+                  className="w-full pl-9 pr-10 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-450 dark:placeholder-slate-650 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui font-sans"
                   placeholder="Введите пароль"
                   required
                   disabled={isLoading}
@@ -274,7 +278,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
                   type="checkbox"
                   checked={remember}
                   onChange={(e) => setRemember(e.target.checked)}
-                  className="w-4 h-4 rounded-sm border-slate-300 dark:border-slate-800 text-emerald-600 focus:ring-emerald-500 bg-slate-50 dark:bg-slate-950 accent-emerald-500 transition-all cursor-pointer"
+                  className="w-4 h-4 rounded-sm border-slate-300 dark:border-slate-800 text-emerald-600 focus:ring-emerald-500 bg-slate-50 dark:bg-slate-950 accent-emerald-500 transition-ui cursor-pointer"
                 />
                 <span>Запомнить данные для входа</span>
               </label>
@@ -284,7 +288,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
               id="submit-button"
               type="submit"
               disabled={isLoading}
-              className="w-full h-11 bg-emerald-700 hover:bg-emerald-600 active:bg-emerald-850 disabled:bg-emerald-800/50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer mt-6"
+              className="w-full h-11 bg-emerald-700 hover:bg-emerald-600 active:bg-emerald-850 disabled:bg-emerald-800/50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg shadow-md hover:shadow-lg transition-ui flex items-center justify-center gap-2 cursor-pointer mt-6"
             >
               {isLoading ? (
                 <>
@@ -304,7 +308,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
         <button
           type="button"
           onClick={() => { setServerPanelOpen(v => !v); setServerDraft(serverUrl); setServerCheck('idle'); }}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-900 border border-transparent hover:border-slate-200 dark:hover:border-slate-800 transition-all cursor-pointer"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-900 border border-transparent hover:border-slate-200 dark:hover:border-slate-800 transition-ui cursor-pointer"
           title="Настроить подключение к серверу"
         >
           {serverUrl ? <Server className="w-3.5 h-3.5 text-emerald-600" /> : <Laptop className="w-3.5 h-3.5" />}
@@ -324,13 +328,13 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
                 value={serverDraft}
                 onChange={(e) => { setServerDraft(e.target.value); setServerCheck('idle'); }}
                 placeholder="http://адрес:порт (пусто = встроенный)"
-                className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui"
               />
               <button
                 type="button"
                 onClick={handleServerCheck}
                 disabled={!serverDraft.trim() || serverCheck === 'checking'}
-                className="px-3 py-2 rounded-lg text-xs font-semibold border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 disabled:opacity-50 transition-all cursor-pointer flex items-center gap-1.5"
+                className="px-3 py-2 rounded-lg text-xs font-semibold border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 disabled:opacity-50 transition-ui cursor-pointer flex items-center gap-1.5"
               >
                 {serverCheck === 'checking' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> :
                  serverCheck === 'ok' ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> :
@@ -345,7 +349,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
                 <button
                   type="button"
                   onClick={() => applyServerUrl('')}
-                  className="px-3 py-2 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-850 transition-all cursor-pointer flex items-center gap-1.5"
+                  className="px-3 py-2 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-850 transition-ui cursor-pointer flex items-center gap-1.5"
                 >
                   <Laptop className="w-3.5 h-3.5" /> Встроенный сервер
                 </button>
@@ -353,7 +357,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
               <button
                 type="button"
                 onClick={() => setServerPanelOpen(false)}
-                className="px-3 py-2 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-850 transition-all cursor-pointer"
+                className="px-3 py-2 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-850 transition-ui cursor-pointer"
               >
                 Отмена
               </button>
@@ -361,7 +365,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
                 type="button"
                 onClick={() => applyServerUrl(serverDraft.trim())}
                 disabled={!serverDraft.trim()}
-                className="px-4 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white transition-all cursor-pointer flex items-center gap-1.5"
+                className="px-4 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white transition-ui cursor-pointer flex items-center gap-1.5"
               >
                 <Server className="w-3.5 h-3.5" /> Подключиться
               </button>

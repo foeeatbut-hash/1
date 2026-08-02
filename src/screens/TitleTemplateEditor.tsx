@@ -137,7 +137,7 @@ export default function TitleTemplateEditor({ docId, onClose }: { docId: string;
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center gap-3 px-4 py-2.5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shrink-0">
-        <button onClick={async () => { await save(); onClose(); }} className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer">
+        <button type="button" onClick={async () => { await save(); onClose(); }} className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer">
           <ArrowLeft className="w-4 h-4" /> Закрыть
         </button>
         <input
@@ -167,10 +167,10 @@ export default function TitleTemplateEditor({ docId, onClose }: { docId: string;
           <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) insertImage(f); e.target.value = ''; }} />
         </div>
-        <button onClick={togglePreview} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${preview ? 'bg-emerald-600 text-white' : 'border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
+        <button type="button" onClick={togglePreview} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${preview ? 'bg-emerald-600 text-white' : 'border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
           <Eye className="w-3.5 h-3.5" /> Предпросмотр
         </button>
-        <button onClick={save} disabled={saving} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">
+        <button type="button" onClick={save} disabled={saving} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">
           {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Сохранить
         </button>
       </div>
@@ -196,7 +196,7 @@ export default function TitleTemplateEditor({ docId, onClose }: { docId: string;
               <button onMouseDown={(e) => { e.preventDefault(); insertStamp(); }} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer" title="Таблица основной надписи внизу титула">
                 <Table className="w-3.5 h-3.5" /> Вставить штамп
               </button>
-              <button onClick={() => setFxOpen((v) => !v)} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-400 text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-950/60 cursor-pointer">
+              <button type="button" onClick={() => setFxOpen((v) => !v)} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-400 text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-950/60 cursor-pointer">
                 <Sigma className="w-3.5 h-3.5" /> Вставить формулу
               </button>
               {fxOpen && (

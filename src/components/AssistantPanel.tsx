@@ -20,7 +20,7 @@ function ActionChip({ a }: { a: AssistantAction }) {
   const runAction = useAssistantStore(s => s.runAction);
   const danger = a.danger || a.kind === 'cancel-input';
   return (
-    <button
+    <button type="button"
       onClick={() => runAction(a)}
       className={`flex items-center gap-1.5 px-2.5 py-1.5 border rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
         danger
@@ -185,7 +185,7 @@ export default function AssistantPanel() {
   return (
     // Раздвижная панель справа — как левый сайдбар: меняет ширину и сдвигает контент
     <aside
-      className={`${isOpen ? 'w-[380px] opacity-100' : 'w-0 opacity-0 pointer-events-none'} shrink-0 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col transition-all duration-300 overflow-hidden`}
+      className={`${isOpen ? 'w-[380px] opacity-100' : 'w-0 opacity-0 pointer-events-none'} shrink-0 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col transition-ui duration-300 overflow-hidden`}
     >
       <div className="w-[380px] h-full flex flex-col shrink-0">
       {/* Шапка */}
@@ -199,7 +199,7 @@ export default function AssistantPanel() {
             <div className="text-2xs text-slate-400 dark:text-slate-500">Локальный · работает офлайн</div>
           </div>
         </div>
-        <button onClick={() => setOpen(false)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer transition-colors" title="Закрыть">
+        <button type="button" onClick={() => setOpen(false)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer transition-colors" title="Закрыть">
           <X className="w-5 h-5" />
         </button>
       </div>
@@ -237,7 +237,7 @@ export default function AssistantPanel() {
             <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1">
               <Info className="w-3 h-3" /> {section.emoji} Раздел: {section.title}
             </span>
-            <button
+            <button type="button"
               onClick={() => describeCurrentSection()}
               className="text-2xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
             >
@@ -246,7 +246,7 @@ export default function AssistantPanel() {
           </div>
           <div className="flex flex-wrap gap-1.5">
             {section.suggestions.map((s, i) => (
-              <button
+              <button type="button"
                 key={i}
                 onClick={() => runSuggestion(s)}
                 className="flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-emerald-600/15 hover:text-emerald-700 dark:hover:text-emerald-300 text-slate-600 dark:text-slate-300 rounded-full text-xs font-medium cursor-pointer transition-colors"
@@ -261,7 +261,7 @@ export default function AssistantPanel() {
 
       {/* Переключатель режима «Демонстрация» */}
       <div className="px-3 py-2 shrink-0">
-        <button
+        <button type="button"
           onClick={() => toggleDemoMode()}
           className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${
             demoMode
@@ -275,7 +275,7 @@ export default function AssistantPanel() {
             Режим «Демонстрация»
           </span>
           <span className={`w-9 h-5 rounded-full relative transition-colors ${demoMode ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`}>
-            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${demoMode ? 'left-[18px]' : 'left-0.5'}`} />
+            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-ui ${demoMode ? 'left-[18px]' : 'left-0.5'}`} />
           </span>
         </button>
       </div>
@@ -289,7 +289,7 @@ export default function AssistantPanel() {
           onChange={(e) => { setInput(e.target.value); setHistIdx(-1); }}
           onKeyDown={onInputKeyDown}
           placeholder={pendingInput?.kind === 'rename-tag' ? `Новый код для «${pendingInput.oldCode}»…` : demoMode ? 'Что показать? Напишите вопрос…' : 'Спросите (Ctrl+K) — данные, действия, справка…'}
-          className={`flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border rounded-lg text-xs text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 transition-all ${
+          className={`flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border rounded-lg text-xs text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 transition-ui ${
             pendingInput ? 'border-amber-400/60 focus:ring-amber-400/30 focus:border-amber-400'
             : demoMode ? 'border-emerald-500/50 focus:ring-emerald-500/30 focus:border-emerald-500' : 'border-slate-200 dark:border-slate-800 focus:ring-emerald-500/30 focus:border-emerald-500'
           }`}

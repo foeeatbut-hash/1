@@ -43,7 +43,7 @@ export default function ContextMenu({ x, y, items, onClose }: {
   return createPortal(
     <div ref={ref} className="fixed z-[95] min-w-52 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl select-none" style={style} onContextMenu={(e) => e.preventDefault()}>
       {items.map((it, i) => (
-        <button
+        <button type="button"
           key={i}
           disabled={it.disabled}
           onClick={() => { onClose(); it.onClick(); }}

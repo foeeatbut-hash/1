@@ -38,7 +38,7 @@ export default function VdrItemPicker({ projectId, title, onPick, onClose }: {
           <span className="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-1.5">
             <FileSpreadsheet className="w-4 h-4 text-indigo-500" /> {title || 'Выбор строки ВДР'}
           </span>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
+          <button type="button" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-3 border-b border-slate-100 dark:border-slate-850">
           <div className="relative">
@@ -50,7 +50,7 @@ export default function VdrItemPicker({ projectId, title, onPick, onClose }: {
         <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-850">
           {busy && <div className="p-4 flex justify-center"><Loader2 className="w-4 h-4 animate-spin text-slate-400" /></div>}
           {!busy && items.map(it => (
-            <button key={it.id} onClick={() => onPick(it)}
+            <button type="button" key={it.id} onClick={() => onPick(it)}
               className="w-full text-left px-4 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 cursor-pointer">
               <div className="text-xs font-bold text-slate-800 dark:text-white">{it.contractorNo || '—'} <span className="ml-1 text-indigo-500 font-semibold">{it.vdrCode}</span> <span className="ml-1 text-slate-400">рев. {it.revision}</span>{it.docId && <span className="ml-1.5 text-2xs text-amber-600">уже связан с документом</span>}</div>
               <div className="text-xs text-slate-500 truncate">{it.titleRu || it.titleEn}</div>

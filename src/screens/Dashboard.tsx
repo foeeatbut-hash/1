@@ -159,7 +159,7 @@ export default function Dashboard() {
       className="max-w-6xl mx-auto space-y-6 text-slate-800 dark:text-dark-text-main font-sans select-none"
     >
       {/* WELCOME HEADER BLOCK */}
-      <header className="p-6 bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-2xl shadow-xs relative overflow-hidden transition-all">
+      <header className="p-6 bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-2xl shadow-xs relative overflow-hidden transition-ui">
         <div className="absolute top-0 right-0 p-8 opacity-5 text-slate-900 dark:text-white pointer-events-none">
           <Database className="w-48 h-48" />
         </div>
@@ -200,7 +200,7 @@ export default function Dashboard() {
             { name: 'Чат', path: '/chat', icon: MessagesSquare },
             ...(user?.role === 'ADMIN' ? [{ name: 'Сотрудники', path: '/users', icon: Users }] : []),
           ].map((s) => (
-            <button
+            <button type="button"
               key={s.path}
               onClick={() => navigate(s.path)}
               data-share-route={s.path}
@@ -225,7 +225,7 @@ export default function Dashboard() {
               <History className="w-4 h-4 text-emerald-600" />
               <span>Последние изменения</span>
             </h2>
-            <button
+            <button type="button"
               onClick={() => navigate('/logs')}
               className="text-xs text-emerald-700 dark:text-emerald-400 hover:text-emerald-650 dark:hover:text-emerald-300 cursor-pointer font-bold flex items-center gap-0.5"
             >
@@ -250,7 +250,7 @@ export default function Dashboard() {
                   <div
                     key={log.id}
                     onClick={() => handleRowClick(log.targetRoute)}
-                    className="p-3 bg-slate-50 dark:bg-dark-bg/50 hover:bg-slate-100/80 dark:hover:bg-dark-panel/60 border border-slate-200/50 dark:border-dark-border rounded-xl transition-all cursor-pointer flex items-start gap-3 relative group"
+                    className="p-3 bg-slate-50 dark:bg-dark-bg/50 hover:bg-slate-100/80 dark:hover:bg-dark-panel/60 border border-slate-200/50 dark:border-dark-border rounded-xl transition-ui cursor-pointer flex items-start gap-3 relative group"
                   >
                     <div className="shrink-0 w-8 h-8 rounded-full bg-slate-200 dark:bg-dark-panel flex items-center justify-center font-bold text-xs uppercase text-slate-600 dark:text-dark-text-muted">
                       {log.userSymbol.slice(0, 2)}
@@ -288,7 +288,7 @@ export default function Dashboard() {
               <FileText className="w-4 h-4 text-emerald-600" />
               <span>Мои заметки</span>
             </h2>
-            <button
+            <button type="button"
               onClick={() => navigate('/notes')}
               className="text-xs text-emerald-700 dark:text-emerald-400 hover:text-emerald-650 dark:hover:text-emerald-300 cursor-pointer font-bold flex items-center gap-0.5"
             >
@@ -307,7 +307,7 @@ export default function Dashboard() {
                 <div className="col-span-2 py-12 text-center text-xs text-slate-400 dark:text-slate-500 flex flex-col items-center gap-1.5">
                   <BookmarkCheck className="w-7 h-7 text-slate-300 dark:text-slate-750" />
                   <span>Панель заметок пуста</span>
-                  <button
+                  <button type="button"
                     onClick={() => navigate('/notes')}
                     className="text-xs font-bold text-emerald-600 hover:underline mt-1 cursor-pointer"
                   >
@@ -320,7 +320,7 @@ export default function Dashboard() {
                   return (
                     <div
                       key={note.id}
-                      className={`p-3.5 rounded-xl border relative flex flex-col justify-between hover:shadow-md transition-all group overflow-hidden ${
+                      className={`p-3.5 rounded-xl border relative flex flex-col justify-between hover:shadow-md transition-ui group overflow-hidden ${
                         note.color || 'bg-slate-50 dark:bg-dark-bg/50 dark:border-dark-border'
                       }`}
                     >
@@ -334,15 +334,15 @@ export default function Dashboard() {
                       </div>
 
                       <div className="mt-4 pt-2.5 border-t border-black/5 dark:border-white/5 flex items-center justify-between gap-2">
-                        <button
+                        <button type="button"
                           onClick={() => navigate('/notes')}
                           className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer whitespace-nowrap"
                         >
                           Открыть
                         </button>
-                        <button
+                        <button type="button"
                           onClick={(e) => handleOpenSticker(e, note.id)}
-                          className="p-1.5 bg-black/5 dark:bg-dark-panel hover:bg-black/10 dark:hover:bg-dark-panel rounded-lg text-slate-600 dark:text-dark-text-muted hover:text-slate-900 dark:hover:text-dark-text-main cursor-pointer flex items-center gap-1 text-xs transition-all whitespace-nowrap shrink-0"
+                          className="p-1.5 bg-black/5 dark:bg-dark-panel hover:bg-black/10 dark:hover:bg-dark-panel rounded-lg text-slate-600 dark:text-dark-text-muted hover:text-slate-900 dark:hover:text-dark-text-main cursor-pointer flex items-center gap-1 text-xs transition-ui whitespace-nowrap shrink-0"
                           title="Открепить стикер (поверх других приложений ОС)"
                         >
                           <ExternalLink className="w-3 h-3 shrink-0" />
@@ -367,7 +367,7 @@ export default function Dashboard() {
             </h2>
             <div className="flex items-center gap-2">
               {can(user, 'project.manage') && (
-                <button
+                <button type="button"
                   onClick={() => setShowCreate(true)}
                   className="text-xs text-slate-500 dark:text-dark-text-muted hover:text-emerald-600 dark:hover:text-emerald-400 font-bold flex items-center gap-0.5 cursor-pointer"
                   title="Быстрое создание проекта"
@@ -376,7 +376,7 @@ export default function Dashboard() {
                   <span>Создать</span>
                 </button>
               )}
-              <button
+              <button type="button"
                 onClick={() => navigate('/projects')}
                 className="text-xs text-emerald-700 dark:text-emerald-400 hover:text-emerald-650 dark:hover:text-emerald-350 cursor-pointer font-bold flex items-center gap-0.5"
               >
@@ -397,7 +397,7 @@ export default function Dashboard() {
                   <Layers className="w-7 h-7 text-slate-300 dark:text-slate-755" />
                   <span>Список инженерных проектов пуст</span>
                   {can(user, 'project.manage') && (
-                    <button
+                    <button type="button"
                       onClick={() => setShowCreate(true)}
                       className="text-xs font-bold text-emerald-600 hover:underline mt-1 cursor-pointer"
                     >
@@ -412,7 +412,7 @@ export default function Dashboard() {
                     <div
                       key={proj.id}
                       onClick={() => handleToggleActiveProject(proj)}
-                      className={`p-3 rounded-xl border transition-all cursor-pointer flex items-start gap-2.5 relative group ${
+                      className={`p-3 rounded-xl border transition-ui cursor-pointer flex items-start gap-2.5 relative group ${
                         isActive
                           ? 'bg-emerald-50/40 dark:bg-emerald-950/15 border-emerald-300 dark:border-emerald-800 shadow-xs'
                           : 'bg-slate-50 dark:bg-dark-bg/50 hover:bg-slate-100/80 dark:hover:bg-dark-panel/60 border-slate-200 dark:border-dark-border'

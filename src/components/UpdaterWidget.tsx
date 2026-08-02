@@ -284,9 +284,9 @@ export default function UpdaterWidget() {
         )}
 
         {status === 'idle' && (
-          <button
+          <button type="button"
             onClick={() => checkUpdate(false)}
-            className="w-full py-1.5 px-3 bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white rounded text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer font-sans"
+            className="w-full py-1.5 px-3 bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white rounded text-xs font-bold transition-ui flex items-center justify-center gap-1.5 cursor-pointer font-sans"
           >
             <RefreshCw className="w-3.5 h-3.5 shrink-0" />
             <span>Проверить обновления</span>
@@ -306,9 +306,9 @@ export default function UpdaterWidget() {
               Доступно ПО версии <span className="font-extrabold text-emerald-600 dark:text-emerald-400">v{latest.version}</span>
               {latest.size ? <span className="text-slate-400 font-normal"> · {formatSize(latest.size)}</span> : null}
             </div>
-            <button
+            <button type="button"
               onClick={() => setShowModal(true)}
-              className="w-full py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer font-sans"
+              className="w-full py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-bold transition-ui flex items-center justify-center gap-1 cursor-pointer font-sans"
             >
               <ArrowUpCircle className="w-3.5 h-3.5 text-white" />
               <span>Показать Changelog</span>
@@ -324,7 +324,7 @@ export default function UpdaterWidget() {
             </div>
             <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded overflow-hidden">
               <div
-                className="bg-emerald-500 h-full transition-all duration-300"
+                className="bg-emerald-500 h-full transition-ui duration-300"
                 style={{ width: `${progress}%` }}
               />
             </div>
@@ -337,9 +337,9 @@ export default function UpdaterWidget() {
               <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
               <span className="text-xs font-bold font-sans">Пакет v{latest.version} скачан!</span>
             </div>
-            <button
+            <button type="button"
               onClick={handleRestartToInstall}
-              className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer font-sans"
+              className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold hover:scale-[1.02] active:scale-95 transition-ui flex items-center justify-center gap-1.5 cursor-pointer font-sans"
             >
               <ArrowUpCircle className="w-3.5 h-3.5 shrink-0" />
               <span>Установить & Перезапустить</span>
@@ -353,9 +353,9 @@ export default function UpdaterWidget() {
 
         {/* Публикация релиза — только администратор */}
         {isAdmin && (
-          <button
+          <button type="button"
             onClick={() => setShowPublishModal(true)}
-            className="w-full mt-1.5 py-1 px-3 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-205 rounded text-xs font-bold font-sans transition-all flex items-center justify-center gap-1 cursor-pointer border border-slate-300 dark:border-slate-800"
+            className="w-full mt-1.5 py-1 px-3 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-205 rounded text-xs font-bold font-sans transition-ui flex items-center justify-center gap-1 cursor-pointer border border-slate-300 dark:border-slate-800"
           >
             <PlusCircle className="w-3.5 h-3.5 text-emerald-500" />
             <span>Опубликовать релиз</span>
@@ -392,19 +392,19 @@ export default function UpdaterWidget() {
             </div>
 
             <div className="p-4 bg-slate-50 dark:bg-slate-990 border-t border-slate-200 dark:border-slate-850 flex items-center justify-end gap-2 shrink-0">
-              <button
+              <button type="button"
                 onClick={() => setShowModal(false)}
-                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-900 dark:hover:bg-slate-850 text-slate-700 dark:text-slate-200 rounded text-xs font-bold transition-all cursor-pointer"
+                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-900 dark:hover:bg-slate-850 text-slate-700 dark:text-slate-200 rounded text-xs font-bold transition-ui cursor-pointer"
               >
                 Закрыть
               </button>
               {status === 'available' && (
-                <button
+                <button type="button"
                   onClick={() => {
                     setShowModal(false);
                     handleStartDownload();
                   }}
-                  className="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white rounded text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/10"
+                  className="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white rounded text-xs font-bold transition-ui flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/10"
                 >
                   <Download className="w-3.5 h-3.5 shrink-0" />
                   <span>Скачать & Установить</span>
@@ -487,17 +487,17 @@ export default function UpdaterWidget() {
             </div>
 
             <div className="p-4 bg-slate-50 dark:bg-slate-990 border-t border-slate-200 dark:border-slate-850 flex items-center justify-end gap-2 shrink-0">
-              <button
+              <button type="button"
                 onClick={() => setShowPublishModal(false)}
                 disabled={isPublishing}
-                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-900 dark:hover:bg-slate-850 text-slate-700 dark:text-slate-200 rounded text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-900 dark:hover:bg-slate-850 text-slate-700 dark:text-slate-200 rounded text-xs font-bold transition-ui cursor-pointer disabled:opacity-50"
               >
                 Отмена
               </button>
-              <button
+              <button type="button"
                 onClick={handlePublishRelease}
                 disabled={isPublishing}
-                className="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/10 font-sans"
+                className="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded text-xs font-bold transition-ui flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/10 font-sans"
               >
                 {isPublishing ? (
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />

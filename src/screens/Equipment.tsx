@@ -8,6 +8,11 @@ import {
   ArrowRight, LayoutGrid, List, Search
 } from 'lucide-react';
 import DocImportWizard from '../components/DocImportWizard';
+import { useModalStore } from '../store/modalStore';
+import NoProject from '../components/NoProject';
+
+// Диалоги программы вместо системных окон Windows
+const { openConfirm } = useModalStore.getState();
 
 // ── Типы данных ──
 interface SpecParam { key: string; value: string; unit: string; }
@@ -277,7 +282,7 @@ export default function Equipment() {
   };
 
   const deleteUnit = async (unit: SystemUnit) => {
-    if (!confirm(`Удалить «${unit.name}» со всем оборудованием?`)) return;
+    if (!await openConfirm(`Удалить «${unit.name}»?`, 'Вместе с узлом удалится всё его оборудование. Действие необратимо.', { confirmLabel: 'Удалить', tone: 'danger' })) return;
     await fetch(api(`/systems/${unit.id}`), { method: 'DELETE' }).catch(() => {});
     addToast('Удалено', 'success'); setSelectedBlockId(null); loadSystems();
   };
@@ -291,15 +296,7 @@ export default function Equipment() {
 
   if (!activeProject) {
     return (
-      <div className="h-full flex flex-col items-center justify-center text-center gap-3 px-6">
-        <Boxes className="w-10 h-10 text-slate-300 dark:text-slate-700" />
-        <div>
-          <p className="text-sm font-bold text-slate-600 dark:text-slate-300">Проект не выбран</p>
-          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 max-w-xs">
-            Выберите активный проект во вкладке «Главная», чтобы работать с оборудованием.
-          </p>
-        </div>
-      </div>
+      <NoProject what="Оборудование" />
     );
   }
 
@@ -309,14 +306,14 @@ export default function Equipment() {
       <div className="w-56 shrink-0 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
         <div className="px-3 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <span className="text-sm font-bold">Категории</span>
-          <button onClick={() => setShowSettings(true)} className="p-1 text-slate-400 hover:text-emerald-600 cursor-pointer" title="Настройки оборудования"><Settings className="w-4 h-4" /></button>
+          <button type="button" onClick={() => setShowSettings(true)} className="p-1 text-slate-400 hover:text-emerald-600 cursor-pointer" title="Настройки оборудования"><Settings className="w-4 h-4" /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {categories.map(c => {
             const n = catCount(c.id);
             const act = c.id === activeCat;
             return (
-              <button key={c.id} onClick={() => { setActiveCat(c.id); setSelectedBlockId(null); }}
+              <button type="button" key={c.id} onClick={() => { setActiveCat(c.id); setSelectedBlockId(null); }}
                 className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left text-xs font-semibold transition-colors cursor-pointer ${act ? 'bg-emerald-600 text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'}`}>
                 {catIcon(c.id)}
                 <span className="flex-1 truncate">{c.label}</span>
@@ -326,7 +323,7 @@ export default function Equipment() {
           })}
         </div>
         <div className="p-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
-          <button
+          <button type="button"
             onClick={() => setShowDocImport(true)}
             className="w-full flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-colors"
             title="Распознать бланк, ведомость или страницу каталога: PDF, Excel, Word, XML"
@@ -355,7 +352,7 @@ export default function Equipment() {
           <span className="text-sm font-bold truncate">{categories.find(c => c.id === activeCat)?.label || activeCat}</span>
           <div className="flex items-center gap-1.5">
             {totalConflicts > 0 && <span className="flex items-center gap-1 text-2xs font-bold text-rose-600 dark:text-rose-400"><AlertTriangle className="w-3 h-3" />{totalConflicts}</span>}
-            <button onClick={loadSystems} className="p-1 text-slate-400 hover:text-emerald-600 cursor-pointer" title="Обновить"><RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /></button>
+            <button type="button" onClick={loadSystems} className="p-1 text-slate-400 hover:text-emerald-600 cursor-pointer" title="Обновить"><RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /></button>
           </div>
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
@@ -364,29 +361,29 @@ export default function Equipment() {
           ) : (catSystems || []).map(unit => (
             <div key={unit.id}>
               <div className="flex items-center group">
-                <button onClick={() => toggle(unit.id)} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 shrink-0 cursor-pointer" title={expanded[unit.id] ? 'Свернуть' : 'Развернуть'}>
+                <button type="button" onClick={() => toggle(unit.id)} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 shrink-0 cursor-pointer" title={expanded[unit.id] ? 'Свернуть' : 'Развернуть'}>
                   {expanded[unit.id] ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                 </button>
-                <button onClick={() => { setSelectedUnitId(unit.id); setSelectedBlockId(null); setExpanded(e => ({ ...e, [unit.id]: true })); }}
+                <button type="button" onClick={() => { setSelectedUnitId(unit.id); setSelectedBlockId(null); setExpanded(e => ({ ...e, [unit.id]: true })); }}
                   className={`flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left cursor-pointer ${selectedUnitId === unit.id && !selectedBlockId ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
                   <Boxes className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                   <span className="text-xs font-bold truncate">{unit.name}</span>
                 </button>
-                <button onClick={() => deleteUnit(unit)} className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-500 cursor-pointer" title="Удалить установку"><Trash2 className="w-3.5 h-3.5" /></button>
+                <button type="button" onClick={() => deleteUnit(unit)} className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-500 cursor-pointer" title="Удалить установку"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
               {expanded[unit.id] && (unit.monoblocks || []).map(mb => {
                 const isUnitMb = mb.name === '__unit__';
                 return (
                   <div key={mb.id} className="ml-4">
                     {!isUnitMb && (
-                      <button onClick={() => toggle(mb.id)} className="w-full flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-left cursor-pointer">
+                      <button type="button" onClick={() => toggle(mb.id)} className="w-full flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-left cursor-pointer">
                         {expanded[mb.id] ? <ChevronDown className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0" />}
                         <Layers className="w-3 h-3 text-slate-400 shrink-0" />
                         <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 truncate">{mb.name}</span>
                       </button>
                     )}
                     {(isUnitMb || expanded[mb.id]) && (mb.components || []).map(c => (
-                      <button key={c.id} onClick={() => { setSelectedBlockId(c.id); setSelectedUnitId(null); setShowAllParams(false); }}
+                      <button type="button" key={c.id} onClick={() => { setSelectedBlockId(c.id); setSelectedUnitId(null); setShowAllParams(false); }}
                         className={`w-full flex items-center gap-1.5 pl-7 pr-2 py-1.5 rounded-lg text-left cursor-pointer ${selectedBlockId === c.id ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
                         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${c.hasConflict ? 'bg-rose-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
                         <span className="text-xs truncate flex-1">{blockLabel(c)}</span>
@@ -550,12 +547,12 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
                 <span key={t.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 text-2xs text-emerald-700 dark:text-emerald-300">
                   <TagIcon className="w-2.5 h-2.5" /><span className="u-sel">{t.identifier}</span>
                   {onUnlinkTag && (
-                    <button onClick={() => onUnlinkTag(generalComp!, t.id)} className="hover:text-rose-500 cursor-pointer" title="Отвязать тег от установки"><X className="w-2.5 h-2.5" /></button>
+                    <button type="button" onClick={() => onUnlinkTag(generalComp!, t.id)} className="hover:text-rose-500 cursor-pointer" title="Отвязать тег от установки"><X className="w-2.5 h-2.5" /></button>
                   )}
                 </span>
               ))}
               {onPickTag && (
-                <button
+                <button type="button"
                   onClick={() => onPickTag(generalComp!)}
                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-dashed border-slate-300 dark:border-slate-600 text-2xs text-slate-500 hover:border-emerald-400 hover:text-emerald-600 cursor-pointer"
                   title="Назначить тег всей установке"
@@ -582,7 +579,7 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
               ))}
             </div>
             {generalComp && (
-              <button onClick={() => onSelectBlock(generalComp!.id)} className="mt-1.5 text-xs text-emerald-600 hover:text-emerald-700 font-semibold cursor-pointer">
+              <button type="button" onClick={() => onSelectBlock(generalComp!.id)} className="mt-1.5 text-xs text-emerald-600 hover:text-emerald-700 font-semibold cursor-pointer">
                 Все параметры установки →
               </button>
             )}
@@ -601,7 +598,7 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
                 return (
                   <React.Fragment key={c.id}>
                     {i > 0 && <div className="flex items-center shrink-0 text-slate-300 dark:text-slate-600"><ArrowRight className="w-4 h-4" /></div>}
-                    <button
+                    <button type="button"
                       onClick={() => onSelectBlock(c.id)}
                       title={`${blockLabel(c)} — открыть характеристики`}
                       className="group shrink-0 w-32 flex flex-col items-center text-center gap-1.5 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 hover:border-emerald-400 hover:bg-emerald-50/60 dark:hover:bg-emerald-950/20 transition-colors cursor-pointer">
@@ -641,7 +638,7 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
                     {sections.map(c => {
                       const Icon = sectionIcon(c.equipType);
                       return (
-                        <button key={c.id} onClick={() => onSelectBlock(c.id)} className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-800/50 text-left cursor-pointer">
+                        <button type="button" key={c.id} onClick={() => onSelectBlock(c.id)} className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-800/50 text-left cursor-pointer">
                           <Icon className={`w-3.5 h-3.5 shrink-0 ${sectionTint(c.equipType)}`} />
                           <span className="flex-1 min-w-0 truncate text-slate-700 dark:text-slate-200">{blockLabel(c)}</span>
                           {(c.tags?.length || 0) > 0 && <TagIcon className="w-3 h-3 text-emerald-500 shrink-0" />}
@@ -654,7 +651,7 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
                 </div>
               ))}
               {monoGenerals.map(c => (
-                <button key={c.id} onClick={() => onSelectBlock(c.id)} className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg border border-slate-150 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 text-left cursor-pointer">
+                <button type="button" key={c.id} onClick={() => onSelectBlock(c.id)} className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg border border-slate-150 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 text-left cursor-pointer">
                   <Layers className="w-3.5 h-3.5 shrink-0 text-slate-400" />
                   <span className="flex-1 min-w-0 truncate text-slate-700 dark:text-slate-200">{blockLabel(c)}</span>
                   <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
@@ -700,7 +697,7 @@ function BlockCard(props: any) {
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             {onBackToUnit && (
-              <button onClick={onBackToUnit} className="inline-flex items-center gap-1 text-2xs font-semibold text-slate-400 hover:text-emerald-600 cursor-pointer" title="Вернуться к схеме установки">
+              <button type="button" onClick={onBackToUnit} className="inline-flex items-center gap-1 text-2xs font-semibold text-slate-400 hover:text-emerald-600 cursor-pointer" title="Вернуться к схеме установки">
                 <LayoutGrid className="w-3 h-3" /> схема
               </button>
             )}
@@ -712,17 +709,17 @@ function BlockCard(props: any) {
             {(comp.tags || []).map((t: any) => (
               <span key={t.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 text-2xs text-emerald-700 dark:text-emerald-300">
                 <TagIcon className="w-2.5 h-2.5" /><span className="u-sel">{t.identifier}</span>
-                <button onClick={() => onUnlinkTag(t.id)} className="hover:text-rose-500 cursor-pointer"><X className="w-2.5 h-2.5" /></button>
+                <button type="button" onClick={() => onUnlinkTag(t.id)} className="hover:text-rose-500 cursor-pointer"><X className="w-2.5 h-2.5" /></button>
               </span>
             ))}
-            <button onClick={onPickTag} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-dashed border-slate-300 dark:border-slate-600 text-2xs text-slate-500 hover:border-emerald-400 hover:text-emerald-600 cursor-pointer"><Plus className="w-2.5 h-2.5" />тег</button>
+            <button type="button" onClick={onPickTag} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-dashed border-slate-300 dark:border-slate-600 text-2xs text-slate-500 hover:border-emerald-400 hover:text-emerald-600 cursor-pointer"><Plus className="w-2.5 h-2.5" />тег</button>
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <button onClick={() => setShowAllParams(!showAllParams)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" title={showAllParams ? 'Показывать по профилю' : 'Показать все параметры'}>
+          <button type="button" onClick={() => setShowAllParams(!showAllParams)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" title={showAllParams ? 'Показывать по профилю' : 'Показать все параметры'}>
             {showAllParams ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </button>
-          <button onClick={onHistory} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" title="История версий"><History className="w-4 h-4" /></button>
+          <button type="button" onClick={onHistory} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" title="История версий"><History className="w-4 h-4" /></button>
         </div>
       </div>
 
@@ -746,7 +743,7 @@ function BlockCard(props: any) {
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-2xs font-bold uppercase tracking-wider text-slate-400">{g.title}</span>
                 {showAllParams && (
-                  <button onClick={() => toggleHidden(comp.equipType, `g:${g.title}`)} className="text-slate-300 hover:text-slate-500 cursor-pointer" title={groupHidden ? 'Показывать группу' : 'Скрыть группу'}>
+                  <button type="button" onClick={() => toggleHidden(comp.equipType, `g:${g.title}`)} className="text-slate-300 hover:text-slate-500 cursor-pointer" title={groupHidden ? 'Показывать группу' : 'Скрыть группу'}>
                     {groupHidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                   </button>
                 )}
@@ -766,8 +763,8 @@ function BlockCard(props: any) {
                       {isEditing ? (
                         <>
                           <input value={editVal} onChange={e => setEditVal(e.target.value)} autoFocus className="w-28 px-1.5 py-0.5 text-xs bg-white dark:bg-slate-950 border border-emerald-400 rounded" />
-                          <button onClick={() => { onOverride(comp, g.title, p.key, editVal); setEditKey(null); }} className="text-emerald-600 cursor-pointer"><Check className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => setEditKey(null)} className="text-slate-400 cursor-pointer"><X className="w-3.5 h-3.5" /></button>
+                          <button type="button" onClick={() => { onOverride(comp, g.title, p.key, editVal); setEditKey(null); }} className="text-emerald-600 cursor-pointer"><Check className="w-3.5 h-3.5" /></button>
+                          <button type="button" onClick={() => setEditKey(null)} className="text-slate-400 cursor-pointer"><X className="w-3.5 h-3.5" /></button>
                         </>
                       ) : (
                         <>
@@ -777,14 +774,14 @@ function BlockCard(props: any) {
                           {conf ? (
                             <span className="flex items-center gap-1 shrink-0">
                               <span className="text-2xs text-rose-500">→ {conf.newValue}</span>
-                              <button onClick={() => onResolve(comp, conf, 'accept')} className="p-0.5 text-emerald-600 hover:bg-emerald-100 dark:hover:bg-emerald-950 rounded cursor-pointer" title="Принять значение из расчёта"><Check className="w-3.5 h-3.5" /></button>
-                              <button onClick={() => { setEditKey(token); setEditVal(conf.newValue); }} className="p-0.5 text-amber-600 hover:bg-amber-100 dark:hover:bg-amber-950 rounded cursor-pointer" title="Изменить вручную"><Pencil className="w-3.5 h-3.5" /></button>
+                              <button type="button" onClick={() => onResolve(comp, conf, 'accept')} className="p-0.5 text-emerald-600 hover:bg-emerald-100 dark:hover:bg-emerald-950 rounded cursor-pointer" title="Принять значение из расчёта"><Check className="w-3.5 h-3.5" /></button>
+                              <button type="button" onClick={() => { setEditKey(token); setEditVal(conf.newValue); }} className="p-0.5 text-amber-600 hover:bg-amber-100 dark:hover:bg-amber-950 rounded cursor-pointer" title="Изменить вручную"><Pencil className="w-3.5 h-3.5" /></button>
                             </span>
                           ) : (
-                            <button onClick={() => { setEditKey(token); setEditVal(p.value); }} className="p-0.5 text-slate-300 hover:text-amber-500 cursor-pointer" title="Изменить вручную"><Pencil className="w-3 h-3" /></button>
+                            <button type="button" onClick={() => { setEditKey(token); setEditVal(p.value); }} className="p-0.5 text-slate-300 hover:text-amber-500 cursor-pointer" title="Изменить вручную"><Pencil className="w-3 h-3" /></button>
                           )}
                           {showAllParams && (
-                            <button onClick={() => toggleHidden(comp.equipType, token)} className="text-slate-300 hover:text-slate-500 cursor-pointer shrink-0" title={pHidden ? 'Показывать' : 'Скрыть'}>
+                            <button type="button" onClick={() => toggleHidden(comp.equipType, token)} className="text-slate-300 hover:text-slate-500 cursor-pointer shrink-0" title={pHidden ? 'Показывать' : 'Скрыть'}>
                               {pHidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                             </button>
                           )}
@@ -858,7 +855,7 @@ function TagPickerModal({ tags, currentComponentId, onPick, onClose }: {
           const busy = !!holder || linkedHere;
           const name = tagName(t);
           return (
-            <button
+            <button type="button"
               key={t.id}
               disabled={busy}
               onClick={() => onPick(t.id)}
@@ -890,7 +887,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
       <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-bold">{title}</h3>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5" /></button>
+          <button type="button" onClick={onClose} className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5" /></button>
         </div>
         {children}
       </div>
@@ -934,8 +931,8 @@ function SettingsModal({ onClose, categories, setCategories, isAdmin, visMode, s
         <div>
           <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Профиль видимости параметров</div>
           <div className="flex gap-2">
-            <button disabled={!isAdmin} onClick={() => switchVisMode('admin')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${visMode === 'admin' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'} ${!isAdmin ? 'opacity-50 cursor-not-allowed' : ''}`}>Админ (для всех)</button>
-            <button onClick={() => switchVisMode('self')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${visMode === 'self' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'}`}>Только для меня</button>
+            <button type="button" disabled={!isAdmin} onClick={() => switchVisMode('admin')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${visMode === 'admin' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'} ${!isAdmin ? 'opacity-50 cursor-not-allowed' : ''}`}>Админ (для всех)</button>
+            <button type="button" onClick={() => switchVisMode('self')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${visMode === 'self' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'}`}>Только для меня</button>
           </div>
           <p className="text-2xs text-slate-400 mt-1.5">Скрывать параметры удобно в карточке блока (значок «глаз» в режиме «показать все»). {visMode === 'admin' ? 'Сейчас изменения применяются ко всем.' : 'Сейчас изменения только для вас.'}</p>
         </div>
@@ -943,8 +940,8 @@ function SettingsModal({ onClose, categories, setCategories, isAdmin, visMode, s
         <div>
           <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">При новой ревизии</div>
           <div className="flex gap-2">
-            <button onClick={() => saveConflictMode('wait')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${conflictMode === 'wait' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'}`}>Ждать решения (✓/✎)</button>
-            <button onClick={() => saveConflictMode('immediate')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${conflictMode === 'immediate' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'}`}>Изменять сразу</button>
+            <button type="button" onClick={() => saveConflictMode('wait')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${conflictMode === 'wait' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'}`}>Ждать решения (✓/✎)</button>
+            <button type="button" onClick={() => saveConflictMode('immediate')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${conflictMode === 'immediate' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'}`}>Изменять сразу</button>
           </div>
         </div>
 
@@ -955,13 +952,13 @@ function SettingsModal({ onClose, categories, setCategories, isAdmin, visMode, s
               {categories.map((c: Category) => (
                 <div key={c.id} className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950 text-xs">
                   <span>{c.label}</span>
-                  {!['AHU', 'FAN', 'VALVE', 'CURTAIN'].includes(c.id) && <button onClick={() => removeCategory(c.id)} className="text-slate-400 hover:text-rose-500 cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>}
+                  {!['AHU', 'FAN', 'VALVE', 'CURTAIN'].includes(c.id) && <button type="button" onClick={() => removeCategory(c.id)} className="text-slate-400 hover:text-rose-500 cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>}
                 </div>
               ))}
             </div>
             <div className="flex gap-2">
               <input value={newCat} onChange={e => setNewCat(e.target.value)} placeholder="Новая категория…" className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs" />
-              <button onClick={addCategory} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold cursor-pointer">Добавить</button>
+              <button type="button" onClick={addCategory} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold cursor-pointer">Добавить</button>
             </div>
           </div>
         )}

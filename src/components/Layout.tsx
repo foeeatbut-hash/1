@@ -19,6 +19,10 @@ import Workspace from './Workspace';
 import ProjectSwitcher from './ProjectSwitcher';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import { useWorkspaceStore, visiblePanes, openSectionWindow } from '../store/workspaceStore';
+import { useModalStore } from '../store/modalStore';
+
+// Диалоги программы вместо системных окон Windows
+const { openAlert } = useModalStore.getState();
 
 export default function Layout() {
   const { user, setUser, activeProject, theme, toggleTheme, syncStatus, sidebarCompact, toggleSidebarCompact } = useStore();
@@ -237,7 +241,7 @@ export default function Layout() {
         const res = await dataService.checkAuth(user.id);
         if (!cancelled && res && res.valid === false) {
           addLog('WARN', 'Безопасность', `Сессия завершена: ${res.reason || 'доступ отозван администратором'}`);
-          alert(res.reason || 'Доступ к системе отозван администратором.');
+          void openAlert('Доступ к программе закрыт', res.reason || 'Администратор отозвал доступ к системе. Обратитесь к нему, если это ошибка.');
           handleLogout();
         }
       } catch (e) {}
@@ -273,7 +277,7 @@ export default function Layout() {
       }
     }
 
-    const containerClasses = `w-9 h-9 rounded-full flex items-center justify-center text-sm font-extrabold text-emerald-700 dark:text-emerald-400 border transition-all duration-350 shrink-0 select-none ${borderClass} ${bgClass}`;
+    const containerClasses = `w-9 h-9 rounded-full flex items-center justify-center text-sm font-extrabold text-emerald-700 dark:text-emerald-400 border transition-ui duration-350 shrink-0 select-none ${borderClass} ${bgClass}`;
 
     return (
       <div className={containerClasses} id={isTrigger ? "profile-trigger-avatar" : "profile-popover-avatar"}>
@@ -457,18 +461,18 @@ export default function Layout() {
                   </div>
 
                   {/* Все настройки перенесены в раздел «Настройки» (левая панель) */}
-                  <button
+                  <button type="button"
                     onClick={() => { setIsProfileMenuOpen(false); openInActivePane('/settings'); }}
-                    className="flex w-full items-center justify-center gap-1.5 px-2 py-2 text-xs font-bold text-slate-700 dark:text-dark-text-main bg-slate-100 dark:bg-dark-surface hover:bg-slate-200 dark:hover:bg-dark-panel border border-slate-200 dark:border-dark-border rounded-lg transition-all cursor-pointer"
+                    className="flex w-full items-center justify-center gap-1.5 px-2 py-2 text-xs font-bold text-slate-700 dark:text-dark-text-main bg-slate-100 dark:bg-dark-surface hover:bg-slate-200 dark:hover:bg-dark-panel border border-slate-200 dark:border-dark-border rounded-lg transition-ui cursor-pointer"
                   >
                     <Settings className="w-3.5 h-3.5 text-emerald-600" />
                     Настройки программы
                   </button>
 
                   {/* Foot Actions: Logout */}
-                  <button 
+                  <button type="button" 
                     onClick={handleLogout}
-                     className="flex w-full items-center justify-center gap-1 px-2 py-2 text-xs text-rose-650 hover:text-white hover:bg-rose-600 active:scale-98 border border-rose-500/10 hover:border-transparent rounded-lg transition-all font-bold cursor-pointer mt-0.5"
+                     className="flex w-full items-center justify-center gap-1 px-2 py-2 text-xs text-rose-650 hover:text-white hover:bg-rose-600 active:scale-98 border border-rose-500/10 hover:border-transparent rounded-lg transition-ui font-bold cursor-pointer mt-0.5"
                   >
                     <LogOut className="w-3 h-3 mr-1 text-rose-500 shrink-0" />
                     Выйти из аккаунта

@@ -11,7 +11,7 @@ export default function NotificationSettings() {
   const Toggle = ({ on, onClick }: { on: boolean; onClick: () => void }) => (
     <button type="button" onClick={onClick}
       className={`relative w-9 h-5 rounded-full transition-colors shrink-0 cursor-pointer ${on ? 'bg-emerald-600' : 'bg-slate-300 dark:bg-slate-700'}`}>
-      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${on ? 'left-[18px]' : 'left-0.5'}`} />
+      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-ui ${on ? 'left-[18px]' : 'left-0.5'}`} />
     </button>
   );
 

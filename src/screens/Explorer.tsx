@@ -15,6 +15,7 @@ import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import EquipmentImportPreview from '../components/EquipmentImportPreview';
+import { countOf } from '../lib/plural';
 
 // Виртуальные корневые разделы проводника: «Общий» и «Личный».
 // Они зашиты в программу: их нельзя удалить, переименовать или переместить.
@@ -646,7 +647,7 @@ export default function Explorer() {
       return it && !it.isFolder;
     });
     if (fileTargets.length === 0) return;
-    const code = await openSelect('Статус документа', `Новый статус для ${fileTargets.length > 1 ? `${fileTargets.length} файлов` : 'файла'}:`,
+    const code = await openSelect('Статус документа', `Новый статус для ${fileTargets.length > 1 ? countOf(fileTargets.length, 'файл') : 'файла'}:`,
       STATUS_ORDER.map(c => ({ value: c, label: FILE_STATUSES[c].label })));
     if (code === null) return;
     await Promise.all(fileTargets.map(id => fetch(`/api/files/${id}`, {
@@ -916,7 +917,7 @@ export default function Explorer() {
       } else if (e.key === 'Delete' && selected.size > 0) {
         const deletable = Array.from(selected).filter(id => !isSectionId(id));
         if (deletable.length === 0) return;
-        openConfirm("Удаление", `Удалить ${deletable.length} элементов?`).then(confirmed => {
+        openConfirm("Удаление", `Удалить ${countOf(deletable.length, 'элемент')}?`).then(confirmed => {
            if (confirmed) {
              deletable.forEach(id => {
                const item = items.find(i => i.id === id);
@@ -1044,7 +1045,7 @@ export default function Explorer() {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
       transition={{ duration: 0.2 }}
-      className="h-full flex flex-col bg-white dark:bg-dark-bg border border-slate-205 dark:border-dark-border rounded-xl shadow-xs overflow-hidden text-sm transition-all" 
+      className="h-full flex flex-col bg-white dark:bg-dark-bg border border-slate-205 dark:border-dark-border rounded-xl shadow-xs overflow-hidden text-sm transition-ui" 
       onClick={() => setSelectedIds(new Set())}
     >
       
@@ -1052,11 +1053,11 @@ export default function Explorer() {
       <div className="flex flex-col bg-slate-100/95 dark:bg-slate-900/90 border-b border-slate-200 dark:border-slate-800">
         {/* Современный компактный тулбар */}
         <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-slate-850">
-           <button onClick={createFolder} title="Новая папка"
+           <button type="button" onClick={createFolder} title="Новая папка"
              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 shadow-xs cursor-pointer">
-              <FolderPlus className="w-4 h-4 text-amber-500" /> Папка
+              <FolderPlus className="w-4 h-4 text-amber-500" /> Новая папка
            </button>
-           <button onClick={() => fileInputRef.current?.click()} title="Загрузить файлы"
+           <button type="button" onClick={() => fileInputRef.current?.click()} title="Загрузить файлы"
              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm cursor-pointer">
               <Upload className="w-4 h-4" /> Загрузить
            </button>
@@ -1065,11 +1066,11 @@ export default function Explorer() {
            {selectedFileCount > 0 && (
              <>
                <div className="w-px h-6 bg-slate-300 dark:bg-slate-700 mx-1" />
-               <button onClick={() => openImportPicker()} title="Загрузить данные выбранных файлов в «Оборудование»"
+               <button type="button" onClick={() => openImportPicker()} title="Загрузить данные выбранных файлов в «Оборудование»"
                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 cursor-pointer">
                   <Boxes className="w-4 h-4" /> В оборудование
                </button>
-               <button onClick={() => handleChangeStatus(Array.from(selectedIds)[0])} title="Сменить статус выделенных"
+               <button type="button" onClick={() => handleChangeStatus(Array.from(selectedIds)[0])} title="Сменить статус выделенных"
                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 cursor-pointer">
                   <Info className="w-4 h-4" /> Статус
                </button>
@@ -1079,14 +1080,14 @@ export default function Explorer() {
 
            <div className="ml-auto flex items-center gap-2">
              <div className="flex border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-white dark:bg-slate-800">
-               <button onClick={() => setViewMode('list')} className={`p-1.5 cursor-pointer ${viewMode === 'list' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-750'}`} title="Списком">
+               <button type="button" onClick={() => setViewMode('list')} className={`p-1.5 cursor-pointer ${viewMode === 'list' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-750'}`} title="Списком">
                  <List className="w-4 h-4" />
                </button>
-               <button onClick={() => setViewMode('grid')} className={`p-1.5 cursor-pointer ${viewMode === 'grid' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-750'}`} title="Сеткой">
+               <button type="button" onClick={() => setViewMode('grid')} className={`p-1.5 cursor-pointer ${viewMode === 'grid' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-750'}`} title="Сеткой">
                  <LayoutGrid className="w-4 h-4" />
                </button>
              </div>
-             <button onClick={() => setShowPreviewPane(!showPreviewPane)} title="Панель предпросмотра"
+             <button type="button" onClick={() => setShowPreviewPane(!showPreviewPane)} title="Панель предпросмотра"
                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${showPreviewPane ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750'}`}>
                <PanelRight className="w-4 h-4" /> Превью
              </button>
@@ -1096,13 +1097,13 @@ export default function Explorer() {
         {/* Address Bar Row */}
         <div className="flex items-center gap-2 px-2 py-1.5 border-b border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface">
           <div className="flex items-center gap-1 mr-2 text-slate-500 dark:text-dark-text-muted">
-            <button onClick={() => goBack()} disabled={explorerHistory.length <= 1} className="p-1.5 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-700 dark:text-dark-text-main disabled:opacity-30 cursor-pointer">
+            <button type="button" onClick={() => goBack()} disabled={explorerHistory.length <= 1} className="p-1.5 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-700 dark:text-dark-text-main disabled:opacity-30 cursor-pointer">
               <ArrowLeft className="w-4 h-4" />
             </button>
-            <button onClick={() => goForward()} disabled={explorerForward.length === 0} className="p-1.5 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-700 dark:text-dark-text-main disabled:opacity-30 cursor-pointer">
+            <button type="button" onClick={() => goForward()} disabled={explorerForward.length === 0} className="p-1.5 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-700 dark:text-dark-text-main disabled:opacity-30 cursor-pointer">
               <ArrowRight className="w-4 h-4" />
             </button>
-            <button onClick={handleNavigateUp} disabled={!currentFolderId} className="p-1.5 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-700 dark:text-dark-text-main disabled:opacity-30 cursor-pointer">
+            <button type="button" onClick={handleNavigateUp} disabled={!currentFolderId} className="p-1.5 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-700 dark:text-dark-text-main disabled:opacity-30 cursor-pointer">
               <ArrowUp className="w-4 h-4" />
             </button>
           </div>
@@ -1131,7 +1132,7 @@ export default function Explorer() {
              placeholder={currentFolder ? `Поиск в ${currentFolder.name}` : "Поиск в проводнике"} 
              value={searchQuery}
              onChange={(e) => setSearchQuery(e.target.value)}
-             className="pl-8 pr-4 py-1 w-full border border-slate-255 dark:border-dark-border focus:outline-none focus:border-emerald-500 bg-white dark:bg-dark-panel text-slate-800 dark:text-dark-text-main rounded-lg transition-all focus:ring-1 focus:ring-emerald-500/20"
+             className="pl-8 pr-4 py-1 w-full border border-slate-255 dark:border-dark-border focus:outline-none focus:border-emerald-500 bg-white dark:bg-dark-panel text-slate-800 dark:text-dark-text-main rounded-lg transition-ui focus:ring-1 focus:ring-emerald-500/20"
            />
           </div>
         </div>
@@ -1264,7 +1265,7 @@ export default function Explorer() {
                              <div className="w-16 h-16 bg-slate-50 dark:bg-slate-950/60 rounded-full flex items-center justify-center mb-3 text-slate-400 dark:text-slate-500">
                                   {searchQuery ? <Search className="w-8 h-8" /> : <Folder className="w-8 h-8" />}
                              </div>
-                             <p className="text-sm">{searchQuery ? "Нет элементов, соответствующих вашему поиску." : "Эта папка пуста."}</p>
+                             <p className="text-sm">{searchQuery ? "Ничего не найдено — попробуйте другой запрос." : "Эта папка пуста."}</p>
                              {!searchQuery && <p className="text-xs pt-1 text-slate-500 dark:text-slate-600">Перетащите файлы сюда или используйте кнопку 'Загрузить'.</p>}
                            </div>
                         </td>
@@ -1332,7 +1333,7 @@ export default function Explorer() {
                        <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-3 text-slate-300">
                            {searchQuery ? <Search className="w-8 h-8" /> : <Folder className="w-8 h-8" />}
                        </div>
-                       <p className="text-sm">{searchQuery ? "Нет элементов, соответствующих вашему поиску." : "Эта папка пуста."}</p>
+                       <p className="text-sm">{searchQuery ? "Ничего не найдено — попробуйте другой запрос." : "Эта папка пуста."}</p>
                        {!searchQuery && <p className="text-xs pt-1 text-slate-400">Перетащите файлы сюда или используйте кнопку 'Загрузить'.</p>}
                     </div>
                   </div>
@@ -1398,7 +1399,7 @@ export default function Explorer() {
           <div className="w-64 border-l border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-surface overflow-y-auto flex flex-col flex-shrink-0">
              {(() => {
                 if (selectedIds.size === 0) return <div className="p-4 text-center text-slate-500 dark:text-dark-text-muted text-xs mt-10">Выберите файл для предпросмотра.</div>;
-                if (selectedIds.size > 1) return <div className="p-4 text-center text-slate-500 dark:text-dark-text-muted text-xs mt-10">Выбрано элементов: {selectedIds.size}.</div>;
+                if (selectedIds.size > 1) return <div className="p-4 text-center text-slate-500 dark:text-dark-text-muted text-xs mt-10">Выбрано: {countOf(selectedIds.size, 'элемент')}.</div>;
 
                 const id = Array.from(selectedIds)[0];
                 const item = allCurrentItems.find(i => i.id === id);
@@ -1486,7 +1487,7 @@ export default function Explorer() {
 
       {/* StatusBar */}
       <div className="h-6 bg-[#F3F4F6] dark:bg-dark-surface border-t border-slate-300 dark:border-dark-border flex items-center px-4 text-xs text-slate-600 dark:text-dark-text-muted gap-4 flex-shrink-0">
-          <span>{allCurrentItems.length} элементов</span>
+          <span>{countOf(allCurrentItems.length, 'элемент')}</span>
           {selectedIds.size > 0 && <span>выбрано: {selectedIds.size}</span>}
       </div>
 
@@ -1580,7 +1581,7 @@ export default function Explorer() {
            <div className="p-4">
               <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                  <div 
-                    className="bg-emerald-600 h-2 rounded-full transition-all duration-300 ease-out" 
+                    className="bg-emerald-600 h-2 rounded-full transition-ui duration-300 ease-out" 
                     style={{ width: `${Math.round((uploadProgress.current / uploadProgress.total) * 100)}%` }}
                  />
               </div>
@@ -1724,13 +1725,13 @@ export default function Explorer() {
               <div className="flex justify-between items-center mb-2">
                 <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Сортировка</span>
                 <div className="flex bg-slate-100 rounded p-0.5">
-                  <button onClick={() => setTagSortConfig({ key: 'createdAt', direction: tagSortConfig.key === 'createdAt' && tagSortConfig.direction === 'desc' ? 'asc' : 'desc'})} className={`px-2 py-1 text-xs rounded transition-colors ${tagSortConfig.key === 'createdAt' ? 'bg-white shadow-sm text-slate-800 font-medium' : 'text-slate-500 hover:text-slate-700'}`}>
+                  <button type="button" onClick={() => setTagSortConfig({ key: 'createdAt', direction: tagSortConfig.key === 'createdAt' && tagSortConfig.direction === 'desc' ? 'asc' : 'desc'})} className={`px-2 py-1 text-xs rounded transition-colors ${tagSortConfig.key === 'createdAt' ? 'bg-white shadow-sm text-slate-800 font-medium' : 'text-slate-500 hover:text-slate-700'}`}>
                     По дате {tagSortConfig.key === 'createdAt' && (tagSortConfig.direction === 'asc' ? '↑' : '↓')}
                   </button>
-                  <button onClick={() => setTagSortConfig({ key: 'identifier', direction: tagSortConfig.key === 'identifier' && tagSortConfig.direction === 'asc' ? 'desc' : 'asc'})} className={`px-2 py-1 text-xs rounded transition-colors ${tagSortConfig.key === 'identifier' ? 'bg-white shadow-sm text-slate-800 font-medium' : 'text-slate-500 hover:text-slate-700'}`}>
+                  <button type="button" onClick={() => setTagSortConfig({ key: 'identifier', direction: tagSortConfig.key === 'identifier' && tagSortConfig.direction === 'asc' ? 'desc' : 'asc'})} className={`px-2 py-1 text-xs rounded transition-colors ${tagSortConfig.key === 'identifier' ? 'bg-white shadow-sm text-slate-800 font-medium' : 'text-slate-500 hover:text-slate-700'}`}>
                     По имени {tagSortConfig.key === 'identifier' && (tagSortConfig.direction === 'asc' ? '↑' : '↓')}
                   </button>
-                  <button onClick={() => setTagSortConfig({ key: 'department', direction: tagSortConfig.key === 'department' && tagSortConfig.direction === 'asc' ? 'desc' : 'asc'})} className={`px-2 py-1 text-xs rounded transition-colors ${tagSortConfig.key === 'department' ? 'bg-white shadow-sm text-slate-800 font-medium' : 'text-slate-500 hover:text-slate-700'}`}>
+                  <button type="button" onClick={() => setTagSortConfig({ key: 'department', direction: tagSortConfig.key === 'department' && tagSortConfig.direction === 'asc' ? 'desc' : 'asc'})} className={`px-2 py-1 text-xs rounded transition-colors ${tagSortConfig.key === 'department' ? 'bg-white shadow-sm text-slate-800 font-medium' : 'text-slate-500 hover:text-slate-700'}`}>
                     По отделу {tagSortConfig.key === 'department' && (tagSortConfig.direction === 'asc' ? '↑' : '↓')}
                   </button>
                 </div>
@@ -1846,7 +1847,7 @@ export default function Explorer() {
             </div>
             <div className="p-3 overflow-y-auto scrollbar-thin grid grid-cols-1 gap-1.5">
               {equipCats.map(c => (
-                <button
+                <button type="button"
                   key={c.id}
                   onClick={() => importFilesToCategory(importPickerFiles, c.id)}
                   className="flex items-center gap-3 px-4 py-3 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:border-emerald-400 transition-colors text-left cursor-pointer"
@@ -1893,7 +1894,7 @@ export default function Explorer() {
 // Subcomponents
 
 const MenuItem = ({ icon, label, onClick, className = '' }: any) => (
-  <button onClick={onClick} className={`w-full flex items-center gap-3 px-6 py-1 hover:bg-[#91C9F7] dark:hover:bg-dark-surface/80 transition-colors text-slate-800 dark:text-dark-text-main focus:outline-none ${className}`}>
+  <button type="button" onClick={onClick} className={`w-full flex items-center gap-3 px-6 py-1 hover:bg-[#91C9F7] dark:hover:bg-dark-surface/80 transition-colors text-slate-800 dark:text-dark-text-main focus:outline-none ${className}`}>
     {React.cloneElement(icon, { className: 'w-4 h-4 text-slate-600 dark:text-dark-text-muted' })}
     <span>{label}</span>
   </button>
@@ -2114,7 +2115,7 @@ const FileCardItem = React.memo(({
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
-      className={`w-28 flex flex-col items-center gap-2 p-2 rounded border border-transparent cursor-default transition-all ${isSelected ? 'bg-emerald-105 dark:bg-emerald-950/35 border-emerald-300 dark:border-emerald-800' : 'hover:bg-slate-100 dark:hover:bg-dark-panel hover:border-slate-200 dark:hover:border-dark-border'} ${isCut ? 'opacity-50' : ''}`}
+      className={`w-28 flex flex-col items-center gap-2 p-2 rounded border border-transparent cursor-default transition-ui ${isSelected ? 'bg-emerald-105 dark:bg-emerald-950/35 border-emerald-300 dark:border-emerald-800' : 'hover:bg-slate-100 dark:hover:bg-dark-panel hover:border-slate-200 dark:hover:border-dark-border'} ${isCut ? 'opacity-50' : ''}`}
     >
        <div className="w-16 h-16 flex items-center justify-center relative select-none">
          {item.isFolder ? (

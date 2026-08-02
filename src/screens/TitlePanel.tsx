@@ -148,7 +148,7 @@ export default function TitlePanel({ projectId, settings, onChange, onClose, doc
     <div className="absolute right-4 top-14 z-40 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-800">
         <span className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-1.5"><Stamp className="w-4 h-4 text-emerald-600" /> Титульный лист</span>
-        <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
+        <button type="button" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
       </div>
       <div className="p-4 space-y-3">
         <div>
@@ -212,11 +212,11 @@ export default function TitlePanel({ projectId, settings, onChange, onClose, doc
                 <span className="flex-1 text-xs text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
                   <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-500" /> Привязан к строке ВДР
                 </span>
-                <button onClick={() => linkVdr(null)} title="Отвязать от строки ВДР"
+                <button type="button" onClick={() => linkVdr(null)} title="Отвязать от строки ВДР"
                   className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 cursor-pointer"><Unlink className="w-3.5 h-3.5" /></button>
               </div>
             ) : (
-              <button onClick={() => setVdrPickerOpen(true)}
+              <button type="button" onClick={() => setVdrPickerOpen(true)}
                 className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-300 dark:border-indigo-800 text-indigo-700 dark:text-indigo-400 text-xs font-bold hover:bg-indigo-50 dark:hover:bg-indigo-950/30 cursor-pointer">
                 <FileSpreadsheet className="w-3.5 h-3.5" /> Привязать к строке ВДР…
               </button>
