@@ -2252,12 +2252,13 @@ app.get('/api/projects/:projectId/folders', async (req: Request, res: Response) 
         ? { OR: [{ scope: { not: 'PERSONAL' } }, { ownerId: actorId }] }
         : { scope: { not: 'PERSONAL' } };
 
+    // Удалённое лежит в корзине и в обычных списках не показывается
     const folders = await prisma.folder.findMany({
-      where: { ...projectWhere, ...scopeWhere },
-      include: { files: { include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true } } }
+      where: { ...projectWhere, ...scopeWhere, deletedAt: null },
+      include: { files: { where: { deletedAt: null }, include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true } } }
     });
     const rootFiles = await prisma.fileNode.findMany({
-      where: { folderId: null, type: { not: 'CHAT_FILE' }, ...scopeWhere },
+      where: { folderId: null, type: { not: 'CHAT_FILE' }, deletedAt: null, ...scopeWhere },
       include: { mainTags: true, additionalTags: true, createdBy: true, updatedBy: true }
     });
 
@@ -2325,8 +2326,65 @@ app.delete('/api/folders/:id', async (req: Request, res: Response) => {
   if ((target as any)?.system) {
     return res.status(403).json({ error: 'Это системная папка — её нельзя удалить.' });
   }
-  await prisma.folder.delete({ where: { id: req.params.id } });
-  res.json({ success: true });
+  // Мягкое удаление: папка со всем содержимым уходит в корзину и
+  // восстанавливается целиком. Файлы внутри не трогаем — они скрыты
+  // вместе с папкой и вернутся вместе с ней.
+  await prisma.folder.update({
+    where: { id: req.params.id },
+    data: { deletedAt: new Date(), deletedById: String(req.query.actorId || req.body?.actorId || '') || null },
+  });
+  res.json({ success: true, trashed: true });
+});
+
+// ── Корзина Проводника ─────────────────────────────────────────────────────
+// Удалённое хранится до явной очистки: в системе документов случайное
+// удаление чертежа не должно быть необратимым.
+app.get('/api/projects/:projectId/trash', async (req: Request, res: Response) => {
+  try {
+    const { projectId } = req.params;
+    const projectWhere = (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default') ? {} : { projectId };
+    const [folders, files] = await Promise.all([
+      prisma.folder.findMany({ where: { ...projectWhere, deletedAt: { not: null } }, orderBy: { deletedAt: 'desc' } }),
+      prisma.fileNode.findMany({
+        where: { deletedAt: { not: null }, type: { not: 'CHAT_FILE' } },
+        orderBy: { deletedAt: 'desc' },
+        include: { mainTags: true, additionalTags: true },
+      }),
+    ]);
+    res.json({ folders, files });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/files/:id/restore', async (req: Request, res: Response) => {
+  try {
+    const file = await prisma.fileNode.update({ where: { id: req.params.id }, data: { deletedAt: null, deletedById: null } });
+    // Если папка файла тоже в корзине — возвращаем и её, иначе файл
+    // «восстановится» в невидимое место.
+    if (file.folderId) {
+      const folder = await prisma.folder.findUnique({ where: { id: file.folderId } });
+      if (folder && (folder as any).deletedAt) {
+        await prisma.folder.update({ where: { id: folder.id }, data: { deletedAt: null, deletedById: null } });
+      }
+    }
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/folders/:id/restore', async (req: Request, res: Response) => {
+  try {
+    await prisma.folder.update({ where: { id: req.params.id }, data: { deletedAt: null, deletedById: null } });
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/projects/:projectId/trash', async (req: Request, res: Response) => {
+  try {
+    const { projectId } = req.params;
+    const projectWhere = (!projectId || projectId === 'null' || projectId === 'undefined' || projectId === 'default') ? {} : { projectId };
+    const files = await prisma.fileNode.deleteMany({ where: { deletedAt: { not: null }, type: { not: 'CHAT_FILE' } } });
+    const folders = await prisma.folder.deleteMany({ where: { ...projectWhere, deletedAt: { not: null } } });
+    res.json({ success: true, files: files.count, folders: folders.count });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/files', async (req: Request, res: Response) => {
@@ -2476,8 +2534,13 @@ app.delete('/api/files/:id', async (req: Request, res: Response) => {
   if ((target as any)?.type === 'CONSTRUCTOR') {
     return res.status(403).json({ error: 'Это документ Конструктора — удалите его в разделе «Конструктор» (там есть корзина).' });
   }
-  await prisma.fileNode.delete({ where: { id: req.params.id } });
-  res.json({ success: true });
+  // Мягкое удаление: файл уходит в корзину проводника и восстановим.
+  // Безвозвратно чистит только «Очистить корзину».
+  await prisma.fileNode.update({
+    where: { id: req.params.id },
+    data: { deletedAt: new Date(), deletedById: String(req.query.actorId || req.body?.actorId || '') || null },
+  });
+  res.json({ success: true, trashed: true });
 });
 
 // Registry (Equipment & Tags)

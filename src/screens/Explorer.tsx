@@ -20,6 +20,10 @@ import { countOf } from '../lib/plural';
 // Виртуальные корневые разделы проводника: «Общий» и «Личный».
 // Они зашиты в программу: их нельзя удалить, переименовать или переместить.
 const SEC_SHARED = 'sec:shared';
+// Корзина Проводника: отдельный «раздел» в дереве. Удалённое хранится до
+// явной очистки — в системе документов случайно удалённый чертёж не должен
+// пропадать безвозвратно.
+const TRASH_ID = 'trash:root';
 const personalSecId = (uid: string) => `sec:personal:${uid}`;
 const isSectionId = (id: string | null | undefined): boolean => !!id && id.startsWith('sec:');
 const parseSection = (id: string): { scope: 'SHARED' | 'PERSONAL'; ownerId: string | null } =>
@@ -138,6 +142,49 @@ export default function Explorer() {
   const [clipboard, setClipboard] = useState<{ ids: string[], type: 'copy' | 'cut' } | null>(null);
 
   const [uploadProgress, setUploadProgress] = useState<{current: number, total: number} | null>(null);
+  const [trash, setTrash] = useState<{ folders: any[]; files: any[] } | null>(null);
+  const [trashLoading, setTrashLoading] = useState(false);
+
+  const loadTrash = React.useCallback(async () => {
+    setTrashLoading(true);
+    try {
+      const r = await fetch(`/api/projects/${activeProject?.id || 'default'}/trash`);
+      const d = r.ok ? await r.json() : { folders: [], files: [] };
+      setTrash({ folders: d.folders || [], files: d.files || [] });
+    } catch (_) {
+      setTrash({ folders: [], files: [] });
+    } finally {
+      setTrashLoading(false);
+    }
+  }, [activeProject?.id]);
+
+  const restoreItem = async (kind: 'file' | 'folder', id: string, name: string) => {
+    try {
+      const r = await fetch(`/api/${kind === 'file' ? 'files' : 'folders'}/${id}/restore`, { method: 'POST' });
+      if (!r.ok) throw new Error('Сервер отказал в восстановлении');
+      addToast(`«${name}» возвращён${kind === 'folder' ? 'а' : ''} на место`, 'success');
+      await Promise.all([loadTrash(), fetchData()]);
+    } catch (e: any) {
+      addToast(e.message || 'Не удалось восстановить', 'error');
+    }
+  };
+
+  const purgeTrash = async () => {
+    const total = (trash?.files.length || 0) + (trash?.folders.length || 0);
+    if (!total) return;
+    const okToPurge = await openConfirm('Очистить корзину?',
+      `Будет безвозвратно удалено: ${countOf(total, 'элемент')}. Вернуть их будет нельзя.`,
+      { confirmLabel: 'Очистить корзину', tone: 'danger' });
+    if (!okToPurge) return;
+    try {
+      const r = await fetch(`/api/projects/${activeProject?.id || 'default'}/trash`, { method: 'DELETE' });
+      if (!r.ok) throw new Error('Сервер отказал в очистке');
+      addToast('Корзина очищена', 'success');
+      await loadTrash();
+    } catch (e: any) {
+      addToast(e.message || 'Не удалось очистить корзину', 'error');
+    }
+  };
   
   const [propertiesModal, setPropertiesModal] = useState<{item: any, isFile: boolean} | null>(null);
   
@@ -266,6 +313,7 @@ export default function Explorer() {
 
   const navigateTo = (folderId: string | null) => {
     setContextMenu(null);
+    if (folderId === TRASH_ID) loadTrash();
     pushHistory(folderId);
     setSearchQuery('');
     setSelectedIds(new Set());
@@ -605,18 +653,33 @@ export default function Explorer() {
     fetchData();
   };
 
-  const handleDelete = async (id: string, isFile: boolean) => {
+  // skipConfirm — когда подтверждение уже спросили один раз на всю пачку
+  // (удаление нескольких выделенных), иначе программа спрашивала бы про
+  // каждый файл отдельно.
+  const handleDelete = async (id: string, isFile: boolean, skipConfirm = false) => {
     if (isSectionId(id)) {
       addToast('Разделы «Общий» и «Личный» встроены в программу — их нельзя удалить.', 'error');
       return;
     }
-    const confirmed = await openConfirm("Подтверждение", "Вы уверены, что хотите удалить этот элемент?");
+    const confirmed = skipConfirm || await openConfirm(
+      isFile ? 'Удалить файл?' : 'Удалить папку?',
+      isFile
+        ? 'Файл попадёт в корзину Проводника — оттуда его можно вернуть.'
+        : 'Папка со всем содержимым попадёт в корзину Проводника — оттуда её можно вернуть.',
+      { confirmLabel: 'Удалить', tone: 'danger' },
+    );
     if (!confirmed) return;
     const endpoint = isFile ? `/api/files/${id}` : `/api/folders/${id}`;
-    await fetch(endpoint, { method: 'DELETE' });
+    const res = await fetch(endpoint, { method: 'DELETE' });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      addToast(d.error || 'Не удалось удалить', 'error');
+      return;
+    }
     if (!isFile && currentFolderId === id) navigateTo(null);
-    addToast('Удалено успешно', 'success');
+    if (!skipConfirm) addToast(isFile ? 'Файл перемещён в корзину' : 'Папка перемещена в корзину', 'success');
     fetchData();
+    if (trash) loadTrash();
   };
 
   const handleAssignTag = (fileId: string) => {
@@ -925,14 +988,17 @@ export default function Explorer() {
       } else if (e.key === 'Delete' && selected.size > 0) {
         const deletable = Array.from(selected).filter(id => !isSectionId(id));
         if (deletable.length === 0) return;
-        openConfirm("Удаление", `Удалить ${countOf(deletable.length, 'элемент')}?`).then(confirmed => {
+        openConfirm(`Удалить ${countOf(deletable.length, 'элемент')}?`,
+          'Удалённое попадёт в корзину Проводника — оттуда его можно вернуть.',
+          { confirmLabel: 'Удалить', tone: 'danger' }).then(confirmed => {
            if (confirmed) {
              deletable.forEach(id => {
                const item = items.find(i => i.id === id);
                const isFile = item ? !item.isFolder : false;
-               handleDeleteRef.current(id, isFile);
+               handleDeleteRef.current(id, isFile, true);
              });
              setSelectedIds(new Set());
+             addToast(`Перемещено в корзину: ${countOf(deletable.length, 'элемент')}`, 'success');
            }
         });
       } else if (e.key === 'F2' && selected.size === 1) {
@@ -1192,6 +1258,25 @@ export default function Explorer() {
                 ))}
               </div>
             ))}
+
+            {/* Корзина: удалённое хранится здесь до явной очистки */}
+            <div
+              className={`flex items-center py-1.5 px-3 mx-2 mt-2 rounded-lg cursor-pointer transition-ui ${
+                currentFolderId === TRASH_ID
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 font-semibold'
+                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900'
+              }`}
+              onClick={() => navigateTo(TRASH_ID)}
+              title="Удалённые файлы и папки — можно вернуть"
+            >
+              <Trash2 className="w-4 h-4 mr-2 text-slate-500 shrink-0" />
+              <span className="text-sm">Корзина</span>
+              {!!((trash?.files.length || 0) + (trash?.folders.length || 0)) && (
+                <span className="ml-auto text-2xs font-mono text-slate-400">
+                  {(trash?.files.length || 0) + (trash?.folders.length || 0)}
+                </span>
+              )}
+            </div>
         </div>
 
         {/* Main Pane - Table View */}
@@ -1212,6 +1297,64 @@ export default function Explorer() {
               </div>
             )}
 
+            {/* Корзина: отдельный вид вместо таблицы файлов */}
+            {currentFolderId === TRASH_ID ? (
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h2 className="text-sm font-bold flex items-center gap-2">
+                      <Trash2 className="w-4 h-4 text-slate-500" /> Корзина
+                    </h2>
+                    <p className="text-xs text-slate-500 dark:text-dark-text-muted mt-0.5">
+                      Удалённое хранится здесь, пока корзину не очистят. Восстановленное возвращается в свою папку.
+                    </p>
+                  </div>
+                  {!!((trash?.files.length || 0) + (trash?.folders.length || 0)) && (
+                    <button type="button" onClick={purgeTrash}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-900 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-ui cursor-pointer">
+                      Очистить корзину
+                    </button>
+                  )}
+                </div>
+
+                {trashLoading && <p className="text-xs text-slate-400 py-6">Загружаю…</p>}
+
+                {!trashLoading && !((trash?.files.length || 0) + (trash?.folders.length || 0)) && (
+                  <div className="flex flex-col items-center justify-center py-20 text-slate-400 dark:text-slate-500">
+                    <div className="w-16 h-16 bg-slate-50 dark:bg-slate-950/60 rounded-full flex items-center justify-center mb-3">
+                      <Trash2 className="w-8 h-8" />
+                    </div>
+                    <p className="text-sm">Корзина пуста</p>
+                    <p className="text-2xs pt-1">Удалённые файлы и папки появятся здесь.</p>
+                  </div>
+                )}
+
+                <div className="flex flex-col divide-y divide-slate-100 dark:divide-dark-border">
+                  {(trash?.folders || []).map((f: any) => (
+                    <div key={f.id} className="flex items-center gap-3 py-2">
+                      <Folder className="w-4 h-4 text-amber-500 shrink-0" />
+                      <span className="text-sm font-medium flex-1 truncate">{f.name}</span>
+                      <span className="text-2xs text-slate-400 shrink-0">папка · удалена {f.deletedAt ? format(new Date(f.deletedAt), 'dd.MM.yyyy HH:mm') : ''}</span>
+                      <button type="button" onClick={() => restoreItem('folder', f.id, f.name)}
+                        className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer shrink-0">
+                        Восстановить
+                      </button>
+                    </div>
+                  ))}
+                  {(trash?.files || []).map((f: any) => (
+                    <div key={f.id} className="flex items-center gap-3 py-2">
+                      {getFileIcon(f, 'w-4 h-4 shrink-0')}
+                      <span className="text-sm font-medium flex-1 truncate">{f.name}</span>
+                      <span className="text-2xs text-slate-400 shrink-0">{formatSize(f.size)} · удалён {f.deletedAt ? format(new Date(f.deletedAt), 'dd.MM.yyyy HH:mm') : ''}</span>
+                      <button type="button" onClick={() => restoreItem('file', f.id, f.name)}
+                        className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer shrink-0">
+                        Восстановить
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
             <AnimatePresence mode="wait">
               {isLoading ? (
                 <motion.table
@@ -1414,6 +1557,7 @@ export default function Explorer() {
               </motion.div>
             )}
             </AnimatePresence>
+            )}
         </div>
 
         {/* Preview Pane */}
