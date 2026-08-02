@@ -454,7 +454,12 @@ export default function Registry() {
     // области 550×320: полсотни карточек ложились друг на друга, и холст
     // при открытии читать было нельзя, пока не нажмёшь «Упорядочить».
     // Раскладываем их сеткой — детерминированно и без наложений.
-    const COL_W = 360, ROW_H = 130, PER_ROW = 6, X0 = 80, Y0 = 60;
+    const COL_W = 360, ROW_H = 130, X0 = 80, Y0 = 60;
+    // Число столбцов подбираем так, чтобы холст был близок к пропорциям
+    // экрана: при шести столбцах две тысячи тегов вытягивались в ленту
+    // высотой 44 тысячи пикселей, и до нижних карточек было не добраться.
+    const autoCount = tags.length;
+    const PER_ROW = Math.max(6, Math.ceil(Math.sqrt((autoCount * ROW_H * 1.6) / COL_W)));
     let autoIndex = 0;
     const positions: Record<string, { x: number, y: number }> = {};
     for (const t of tags) {
@@ -606,6 +611,29 @@ export default function Registry() {
     const y1 = (boardSize.h - pan.y) / zoom + 60;
     return { active, x0, y0, x1, y1 };
   }, [tags.length, pan, zoom, boardSize]);
+
+  // Размер координатного пространства холста: раньше был жёстко задан
+  // (3500×2500), и при большом реестре часть карточек оказывалась за его
+  // границей. Считаем по фактическому размещению.
+  const [showCanvasHint, setShowCanvasHint] = useState(() => {
+    try { return localStorage.getItem('flux_canvas_hint_seen') !== '1'; } catch (_) { return true; }
+  });
+  const hideCanvasHint = React.useCallback(() => {
+    setShowCanvasHint((prev) => {
+      if (prev) { try { localStorage.setItem('flux_canvas_hint_seen', '1'); } catch (_) {} }
+      return false;
+    });
+  }, []);
+
+  const worldSize = useMemo(() => {
+    let maxX = 0, maxY = 0;
+    for (const t of tags) {
+      const p = cardPositionsRef.current[t.id] || parseTagMetadata(t);
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+    return { w: Math.max(3500, Math.ceil(maxX + CARD_W + 400)), h: Math.max(2500, Math.ceil(maxY + 400)) };
+  }, [tags]);
 
   const isTagVisibleOnBoard = (t: any): boolean => {
     if (!cullInfo.active) return true;
@@ -2946,6 +2974,7 @@ export default function Registry() {
                 className="w-full flex-1 min-h-0 overflow-hidden bg-slate-50 dark:bg-slate-900 border-2 border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-lg relative select-none transition-colors"
               style={{ cursor: isPanning ? 'grabbing' : (linkingFrom ? 'crosshair' : 'default') }}
               onMouseDown={(e) => {
+                hideCanvasHint();
                 // Правая (или средняя) кнопка — панорама холста
                 if (e.button === 2 || e.button === 1) {
                   e.preventDefault();
@@ -2981,12 +3010,16 @@ export default function Registry() {
                 </div>
               )}
 
-              {/* Подсказка по управлению холстом (левый низ) */}
+              {/* Подсказка по управлению холстом: висела поверх карточек всегда.
+                  Показываем, пока пользователь не подвигал холст — дальше она
+                  только загораживает. */}
+              {showCanvasHint && (
               <div className="absolute bottom-3 left-3 z-30 text-2xs text-slate-400 dark:text-slate-500 bg-white/95 dark:bg-slate-950/95 backdrop-blur px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 pointer-events-none select-none">
                 ПКМ — двигать холст · колесо — масштаб · {linkMode === 'click'
                   ? <><Link2 className="w-2.5 h-2.5 inline -mt-0.5" /> на карточке — связать</>
                   : <>тяни от точек-портов — связать</>}
               </div>
+              )}
 
               {/* Overlaid Zoom and Canvas Controls on the top-right */}
               <div className="absolute top-4 right-4 z-40 flex items-center gap-2 bg-white/90 dark:bg-slate-950/90 backdrop-blur-md p-1.5 rounded-xl border border-slate-200 dark:border-slate-800/80 shadow-md">
@@ -3060,21 +3093,52 @@ export default function Registry() {
                 </button>
               </div>
 
+              {/* Точечная сетка холста.
+                  Раньше она была фоном самого холста — элемента 3500×2500,
+                  который из-за transform уезжает в отдельный слой и
+                  растрируется целиком: 8,75 млн пикселей узора при каждом
+                  открытии раздела (1,35 с из 2 с на проекте с двумя тысячами
+                  тегов). Теперь сетка живёт в отдельном слое размером с
+                  видимую область, а панорама и масштаб отыгрываются
+                  смещением и размером узора — рисуется только то, что видно. */}
+              <div
+                aria-hidden="true"
+                className="absolute inset-0 pointer-events-none"
+                style={{
+                  backgroundImage: theme === 'dark'
+                    ? 'radial-gradient(circle, #334155 1.1px, transparent 1.1px)'
+                    : 'radial-gradient(circle, #cbd5e1 1.1px, transparent 1.1px)',
+                  backgroundSize: `${24 * zoom}px ${24 * zoom}px`,
+                  backgroundPosition: `${pan.x}px ${pan.y}px`,
+                }}
+              />
               <div
                 ref={worldRef}
                 className="absolute inset-0 origin-top-left pointer-events-none"
                 style={{
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                  backgroundImage: theme === 'dark' 
-                    ? 'radial-gradient(circle, #334155 1.1px, transparent 1.1px)' 
-                    : 'radial-gradient(circle, #cbd5e1 1.1px, transparent 1.1px)',
-                  backgroundSize: '24px 24px',
-                  width: '3500px',
-                  height: '2500px'
+                  width: `${worldSize.w}px`,
+                  height: `${worldSize.h}px`
                 }}
               >
                 {/* SVG CONNECTION LAYER */}
-                <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible">
+                {/* Слой связей. Раньше растягивался на весь холст: при большом
+                    реестре это SVG размером в десятки тысяч пикселей, который
+                    браузер растрирует целиком. Теперь его рамка — видимая
+                    часть холста, а система координат остаётся мировой через
+                    viewBox, поэтому пути считать по-прежнему не нужно. */}
+                <svg
+                  className="absolute pointer-events-none overflow-visible"
+                  style={cullInfo.active ? {
+                    left: `${cullInfo.x0}px`,
+                    top: `${cullInfo.y0}px`,
+                    width: `${Math.max(1, cullInfo.x1 - cullInfo.x0)}px`,
+                    height: `${Math.max(1, cullInfo.y1 - cullInfo.y0)}px`,
+                  } : { inset: 0, width: '100%', height: '100%' }}
+                  viewBox={cullInfo.active
+                    ? `${cullInfo.x0} ${cullInfo.y0} ${Math.max(1, cullInfo.x1 - cullInfo.x0)} ${Math.max(1, cullInfo.y1 - cullInfo.y0)}`
+                    : undefined}
+                >
                   {/* Draw Dynamo Style Connection Wires */}
                   {tags.map((tag) => {
                     const sourceMeta = parseTagMetadata(tag);
