@@ -1426,6 +1426,8 @@ export default function ConstructorScreen() {
   // Вкладки студии: все / таблицы (Эксель) / документы (Ворд). Заметки — в
   // отдельном разделе «Блокнот», в Конструкторе их нет.
   const [tab, setTab] = useState<'all' | 'sheet' | 'text'>('all');
+  const [docQuery, setDocQuery] = useState('');
+  const [docSort, setDocSort] = useState<'updated' | 'name'>('updated');
   const autoRefreshRef = useRef(false); // открыть следующий документ с обновлением блоков
 
   const projectId = activeProject?.id || 'default';
@@ -1444,7 +1446,19 @@ export default function ConstructorScreen() {
   // Фильтр по вкладке: sheet = таблицы (DOC), text = текстовые документы (TEXT)
   const matchesTab = (d: DocMeta) =>
     tab === 'all' ? true : tab === 'sheet' ? d.kind === 'DOC' : d.kind === 'TEXT';
-  const alive = docs.filter(d => !d.deletedAt && (d.kind === 'TEMPLATE' || d.kind === 'TITLE' || matchesTab(d)));
+  // Поиск и порядок в списке: при десятках документов вкладок «Все /
+  // Таблицы / Документы» уже мало.
+  const matchesQuery = (d: DocMeta) => {
+    const q = docQuery.trim().toLowerCase();
+    return !q || String(d.name || '').toLowerCase().includes(q);
+  };
+  const sortDocs = (list: DocMeta[]) => {
+    const arr = [...list];
+    if (docSort === 'name') arr.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ru'));
+    else arr.sort((a, b) => new Date((b as any).updatedAt || 0).getTime() - new Date((a as any).updatedAt || 0).getTime());
+    return arr;
+  };
+  const alive = sortDocs(docs.filter(d => !d.deletedAt && matchesQuery(d) && (d.kind === 'TEMPLATE' || d.kind === 'TITLE' || matchesTab(d))));
   const templates = alive.filter(d => d.kind === 'TEMPLATE');
   const titleTemplates = alive.filter(d => d.kind === 'TITLE');
   const recents = useMemo(() => {
@@ -1462,9 +1476,18 @@ export default function ConstructorScreen() {
 
   // Создание: таблица (DOC), документ (TEXT) или шаблон титула (TITLE)
   const createDoc = async (kind: 'DOC' | 'TEXT' | 'TITLE' = 'DOC') => {
+    // Имя спрашиваем сразу: иначе документ называется «Без названия — 2
+    // августа», и через неделю в списке невозможно понять, что это.
+    const what = kind === 'TEXT' ? 'документ' : kind === 'TITLE' ? 'шаблон титула' : 'таблицу';
+    const example = kind === 'TEXT' ? 'Например: Пояснительная записка'
+      : kind === 'TITLE' ? 'Например: Титул для заказчика «Азот»'
+      : 'Например: Ведомость вентиляции';
+    const name = await openPrompt(`Как назвать ${what}?`, 'Название можно изменить позже.', example);
+    if (name === null) return; // отмена — документ не создаём
+
     const res = await fetch('/api/constructor/docs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId, ...(kind !== 'DOC' ? { kind } : {}) }),
+      body: JSON.stringify({ projectId, ...(kind !== 'DOC' ? { kind } : {}), ...(name.trim() ? { name: name.trim() } : {}) }),
     });
     if (res.ok) {
       const { doc } = await res.json();
@@ -1612,8 +1635,8 @@ export default function ConstructorScreen() {
             </button>
           </div>
         </div>
-        {/* Вкладки типов */}
-        <div className="flex items-center gap-1.5">
+        {/* Вкладки типов, поиск и порядок */}
+        <div className="flex items-center gap-1.5 flex-wrap">
           {([
             { id: 'all' as const, label: 'Все' },
             { id: 'sheet' as const, label: 'Таблицы' },
@@ -1626,6 +1649,29 @@ export default function ConstructorScreen() {
               {t.label}
             </button>
           ))}
+          <div className="flex-1 min-w-[8rem]" />
+          <div className="flex items-center gap-1.5">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={docQuery}
+                onChange={(e) => setDocQuery(e.target.value)}
+                placeholder="Найти документ по названию"
+                aria-label="Поиск по документам"
+                className="pl-8 pr-3 py-1.5 w-56 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs outline-none focus:border-emerald-600 dark:focus:border-emerald-400"
+              />
+            </div>
+            <select
+              value={docSort}
+              onChange={(e) => setDocSort(e.target.value as 'updated' | 'name')}
+              aria-label="Порядок документов"
+              title="Порядок в списке"
+              className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs cursor-pointer"
+            >
+              <option value="updated">Сначала недавние</option>
+              <option value="name">По названию</option>
+            </select>
+          </div>
         </div>
       </div>
 
