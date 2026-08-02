@@ -41,6 +41,32 @@ interface WorkspaceState {
   bindUser: (userId: string | null) => void;
 }
 
+// Чем пользователь пользуется чаще и что открывал последним — этим
+// главный экран сортирует разделы и предлагает продолжить работу.
+// Хранится локально, ничего никуда не отправляется.
+const USE_KEY = 'flux_section_uses';
+const RECENT_KEY = 'flux_recent_sections';
+
+export function rememberSectionUse(path: string) {
+  if (typeof localStorage === 'undefined' || !path) return;
+  try {
+    const uses = JSON.parse(localStorage.getItem(USE_KEY) || '{}');
+    uses[path] = (uses[path] || 0) + 1;
+    localStorage.setItem(USE_KEY, JSON.stringify(uses));
+    const recent: string[] = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+    const next = [path, ...recent.filter((p) => p !== path)].slice(0, 8);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+  } catch (_) { /* приватный режим браузера — просто не запоминаем */ }
+}
+
+export function sectionUses(): Record<string, number> {
+  try { return JSON.parse(localStorage.getItem(USE_KEY) || '{}'); } catch (_) { return {}; }
+}
+
+export function recentSections(): string[] {
+  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch (_) { return []; }
+}
+
 const paneCounter = { n: 0 };
 const newPane = (path: string): Pane => ({ id: `pane-${Date.now().toString(36)}-${paneCounter.n++}`, stack: [path] });
 
@@ -108,7 +134,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     setActivePane: (id) => update((st) => (st.panes.some((p) => p.id === id) ? { activePaneId: id } : {})),
 
-    openInActivePane: (path) => get().openInPane(get().activePaneId, path),
+    openInActivePane: (path) => { rememberSectionUse(path); return get().openInPane(get().activePaneId, path); },
 
     openInPane: (paneId, path) => update((st) => ({
       activePaneId: paneId,

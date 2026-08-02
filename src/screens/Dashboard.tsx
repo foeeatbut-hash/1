@@ -1,468 +1,454 @@
-import React, { useEffect, useState } from 'react';
+/**
+ * Главный экран — то, что видит человек, войдя в программу.
+ *
+ * Задача экрана: за один взгляд ответить на три вопроса — «где я
+ * остановился», «что изменилось без меня», «куда идти дальше» — и дать одно
+ * поле, из которого можно попасть куда угодно. Всё, что на эти вопросы не
+ * отвечает, с экрана убрано: раньше половину занимали двенадцать одинаковых
+ * плиток разделов и декоративная подложка во весь блок.
+ *
+ * Порядок разделов не выдуман: он считается по тому, чем пользователь
+ * действительно пользуется (счётчик открытий хранится локально).
+ */
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
-import { useModalStore } from '../store/modalStore';
-import { can } from '../lib/permissions';
 import ProjectFormModal from '../components/ProjectFormModal';
 import { dataService, UserNote, SystemChangeLog, Project, ProjectInput } from '../services/dataService';
-import { useNavigate } from 'react-router-dom';
+import { useWorkspaceStore, sectionUses, recentSections } from '../store/workspaceStore';
+import { useShareStore } from '../store/shareStore';
+import { SECTIONS } from '../workspace/sections';
 import { motion } from 'motion/react';
 import {
-  Home, Clock, History, FileText, ArrowRight, ExternalLink,
-  ChevronRight, Calendar, User, Database, BookmarkCheck,
-  Layers, CheckSquare, Square, FolderPlus, Plus,
-  MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Tag, Fan, BookOpen, Users, Briefcase, Table2
+  Search, History, ExternalLink, ArrowRight, Plus, Check,
+  FolderKanban, NotebookPen, CornerDownLeft, X, Clock,
 } from 'lucide-react';
+
+type Hit = {
+  kind: 'section' | 'project' | 'note' | 'tag';
+  id: string;
+  title: string;
+  hint?: string;
+  open: () => void;
+};
+
+const KIND_LABEL: Record<Hit['kind'], string> = {
+  section: 'Раздел',
+  project: 'Проект',
+  note: 'Заметка',
+  tag: 'Тег',
+};
 
 export default function Dashboard() {
   const { user, activeProject, setActiveProject } = useStore();
   const { addToast } = useToastStore();
-  const { openPrompt } = useModalStore();
-  const navigate = useNavigate();
+  const open = useWorkspaceStore((s) => s.openInActivePane);
+  const setFocusTarget = useShareStore((s) => s.setFocusTarget);
+
+  // Открыть найденный тег не «где-то в реестре», а прямо на нём: раздел
+  // «Теги» сам центрирует холст на карточке с такой меткой.
+  const openTag = (tagId: string, identifier: string) => {
+    setFocusTarget({ r: '/registry', f: `tag:${tagId}`, l: identifier, ty: 'el' });
+    open('/registry');
+  };
 
   const [logs, setLogs] = useState<SystemChangeLog[]>([]);
   const [notes, setNotes] = useState<UserNote[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [loadingLogs, setLoadingLogs] = useState(true);
-  const [loadingNotes, setLoadingNotes] = useState(true);
-  const [loadingProjects, setLoadingProjects] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
 
-  // Fetch log history and notes preview
-  const fetchDashboardData = async () => {
-    try {
-      setLoadingLogs(true);
-      const fetchedLogs = await dataService.getLogs();
-      setLogs(fetchedLogs.slice(0, 4)); // Get last 4 rows as requested
-    } catch (err) {
-      console.error('Failed to load system logs:', err);
-    } finally {
-      setLoadingLogs(false);
-    }
+  // ── Данные экрана ──────────────────────────────────────────────────────────
+  const load = async () => {
+    setLoading(true);
+    const [l, n, p] = await Promise.allSettled([
+      dataService.getLogs(),
+      dataService.getNotes(),
+      dataService.getProjects(),
+    ]);
+    if (l.status === 'fulfilled') setLogs((l.value || []).slice(0, 6));
+    if (n.status === 'fulfilled') setNotes((n.value || []).slice(0, 3));
+    if (p.status === 'fulfilled') setProjects(p.value || []);
+    setLoading(false);
+  };
 
-    try {
-      setLoadingNotes(true);
-      const fetchedNotes = await dataService.getNotes();
-      setNotes(fetchedNotes.slice(0, 4)); // Get last 4 notes for elegant preview grid
-    } catch (err) {
-      console.error('Failed to load notes:', err);
-    } finally {
-      setLoadingNotes(false);
-    }
+  useEffect(() => { load(); }, []);
 
+  // ── Разделы: порядок по частоте использования ──────────────────────────────
+  const sections = useMemo(() => {
+    const uses = sectionUses();
+    const list = SECTIONS
+      .filter((s) => s.path !== '/' && s.path !== '/logs' && s.path !== '/generator')
+      .filter((s) => !s.adminOnly || user?.role === 'ADMIN');
+    return [...list].sort((a, b) => (uses[b.path] || 0) - (uses[a.path] || 0));
+  }, [user?.role, loading]);
+
+  const recent = useMemo(() => {
+    return recentSections()
+      .map((path) => SECTIONS.find((s) => s.path === path))
+      .filter((s): s is (typeof SECTIONS)[number] => !!s && s.path !== '/')
+      .slice(0, 4);
+  }, [loading]);
+
+  // ── Поиск по всему сразу ───────────────────────────────────────────────────
+  const [query, setQuery] = useState('');
+  const [cursor, setCursor] = useState(0);
+  const [tags, setTags] = useState<any[] | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Теги подтягиваем при первом обращении к поиску, а не при входе:
+  // на большом проекте их тысячи, и грузить их «на всякий случай» незачем.
+  const ensureTags = async () => {
+    if (tags !== null || !activeProject) return;
     try {
-      setLoadingProjects(true);
-      const fetchedProjects = await dataService.getProjects();
-      setProjects(fetchedProjects);
-    } catch (err) {
-      console.error('Failed to load projects:', err);
-    } finally {
-      setLoadingProjects(false);
+      const data = await dataService.getTags(activeProject.id);
+      setTags(data.tags || []);
+    } catch (_) {
+      setTags([]);
     }
   };
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
-
-  // Format relative time (Russian)
-  const formatRelativeTime = (isoString: string) => {
-    try {
-      const date = new Date(isoString);
-      const diffMs = Date.now() - date.getTime();
-      const diffMins = Math.floor(diffMs / 60000);
-      
-      if (diffMins < 1) return 'только что';
-      if (diffMins < 60) return `${diffMins} мин. назад`;
-      const diffHours = Math.floor(diffMins / 60);
-      if (diffHours < 24) return `${diffHours} ч. назад`;
-      return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
-    } catch (e) {
-      return '';
-    }
-  };
-
-  // Launch electronic floating sticker or window popup fallback
-  const handleOpenSticker = (e: React.MouseEvent, noteId: string) => {
-    e.stopPropagation();
-    const win = window as any;
-    
-    if (win.electron && win.electron.ipcRenderer) {
-      win.electron.ipcRenderer.send('window:open-sticker', noteId);
-      addToast('Стикер откреплен поверх окон ОС!', 'success');
-    } else {
-      // Browser popup window simulation
-      const popup = window.open(
-        `/#/sticker?id=${noteId}`,
-        `sticker-${noteId}`,
-        'width=320,height=380,menubar=no,status=no,toolbar=no,resizable=yes'
-      );
-      if (popup) {
-        addToast('Стикер открыт во внешнем окне!', 'success');
-      } else {
-        addToast('Браузер заблокировал всплывающее окно.', 'info');
+  const hits = useMemo<Hit[]>(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    const out: Hit[] = [];
+    for (const s of sections) {
+      if (s.title.toLowerCase().includes(q)) {
+        out.push({ kind: 'section', id: s.path, title: s.title, open: () => open(s.path) });
       }
     }
-  };
-
-  // Get current date formatted beautifully
-  const getCurrentDateRussian = () => {
-    return new Date().toLocaleDateString('ru-RU', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-  };
-
-  const handleRowClick = (targetRoute: string) => {
-    if (targetRoute && targetRoute !== '#') {
-      navigate(targetRoute);
-      addToast(`Переход по маршруту: ${targetRoute}`, 'info');
+    for (const p of projects) {
+      if ((p.name || '').toLowerCase().includes(q)) {
+        out.push({
+          kind: 'project', id: p.id, title: p.name,
+          hint: activeProject?.id === p.id ? 'уже активный' : 'сделать активным',
+          open: () => { setActiveProject(p as any); addToast(`Проект «${p.name}» активен`, 'success'); },
+        });
+      }
     }
+    for (const n of notes) {
+      if ((n.title || '').toLowerCase().includes(q)) {
+        out.push({ kind: 'note', id: n.id, title: n.title || 'Без названия', open: () => open('/notes') });
+      }
+    }
+    for (const t of tags || []) {
+      if (out.length > 20) break;
+      const ident = (t.identifier || '').toLowerCase();
+      const brand = (t.brand || '').toLowerCase();
+      if (ident.includes(q) || brand.includes(q)) {
+        out.push({ kind: 'tag', id: t.id, title: t.identifier, hint: t.brand || undefined, open: () => openTag(t.id, t.identifier) });
+      }
+    }
+    return out.slice(0, 8);
+  }, [query, sections, projects, notes, tags, activeProject?.id]);
+
+  useEffect(() => { setCursor(0); }, [query]);
+
+  const onSearchKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setCursor((c) => Math.min(c + 1, Math.max(0, hits.length - 1))); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setCursor((c) => Math.max(0, c - 1)); }
+    else if (e.key === 'Enter') { e.preventDefault(); const h = hits[cursor]; if (h) { h.open(); setQuery(''); } }
+    else if (e.key === 'Escape') { setQuery(''); (e.target as HTMLInputElement).blur(); }
   };
 
-  const handleToggleActiveProject = (proj: Project) => {
-    if (activeProject?.id === proj.id) {
-      setActiveProject(null);
-      addToast(`Проект "${proj.name}" деактивирован.`, 'info');
+  // Курсор сразу в поиске: главный экран — это и есть точка входа, откуда
+  // человек идёт дальше. Сочетание Ctrl+K не занимаем — оно уже вызывает
+  // помощника из любого места программы.
+  useEffect(() => {
+    const t = setTimeout(() => inputRef.current?.focus(), 120);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Любая буква, набранная на главном экране, попадает в поиск —
+  // не нужно целиться мышью в поле.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const typing = !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || (t as any).isContentEditable);
+      if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key.length === 1 && /[\p{L}\p{N}-]/u.test(e.key)) {
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // ── Мелочи оформления ──────────────────────────────────────────────────────
+  const relTime = (iso: string) => {
+    try {
+      const d = new Date(iso);
+      const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+      if (mins < 1) return 'только что';
+      if (mins < 60) return `${mins} мин назад`;
+      const hours = Math.floor(mins / 60);
+      if (hours < 24) return `${hours} ч назад`;
+      return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+    } catch (_) { return ''; }
+  };
+
+  const today = new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  const openSticker = (e: React.MouseEvent, noteId: string) => {
+    e.stopPropagation();
+    const win = window as any;
+    if (win.electron?.ipcRenderer) {
+      win.electron.ipcRenderer.send('window:open-sticker', noteId);
+      addToast('Заметка откреплена поверх окон', 'success');
     } else {
-      setActiveProject(proj);
-      addToast(`Проект "${proj.name}" выбран как активный!`, 'success');
+      window.open(`/#/sticker?id=${noteId}`, `sticker-${noteId}`, 'width=320,height=380,menubar=no,status=no,toolbar=no,resizable=yes');
     }
   };
 
-  const handleCreateProjectDirect = async (data: ProjectInput) => {
+  const createProject = async (data: ProjectInput) => {
     try {
       const proj = await dataService.createProject(data, user?.id);
-      addToast('Проект успешно создан', 'success');
-      await dataService.createLog({
-        userName: user?.name || 'Главный Администратор',
-        userSymbol: user?.symbol || 'RaupovKhKh',
-        description: `Создан новый инженерный проект: ${proj.name}`,
-        targetRoute: '/projects'
-      });
       setShowCreate(false);
-      const fetchedProjects = await dataService.getProjects();
-      setProjects(fetchedProjects);
+      addToast('Проект создан', 'success');
+      await dataService.createLog({
+        userName: user?.name || '',
+        userSymbol: user?.symbol || '',
+        description: `Создан новый инженерный проект: ${proj.name}`,
+        targetRoute: '/projects',
+      });
+      setProjects(await dataService.getProjects());
     } catch (err: any) {
       addToast(err.message || 'Не удалось создать проект', 'error');
     }
   };
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 15 }}
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -15 }}
-      transition={{ duration: 0.25 }}
-      className="max-w-6xl mx-auto space-y-6 text-slate-800 dark:text-dark-text-main font-sans select-none"
+      transition={{ duration: 0.18 }}
+      className="max-w-6xl mx-auto flex flex-col gap-4 text-slate-800 dark:text-dark-text-main"
     >
-      {/* WELCOME HEADER BLOCK */}
-      <header className="p-6 bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-2xl shadow-xs relative overflow-hidden transition-ui">
-        <div className="absolute top-0 right-0 p-8 opacity-5 text-slate-900 dark:text-white pointer-events-none">
-          <Database className="w-48 h-48" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-dark-text-main">
-            С возвращением, {user?.name || 'Инженер'}
-          </h1>
-          <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-dark-text-muted">
-            <span className="flex items-center gap-1 bg-slate-100 dark:bg-dark-panel px-2.5 py-1 rounded-md font-mono text-slate-655 font-bold dark:text-dark-text-main">
-              <User className="w-3.5 h-3.5" />
-              <span>Табельный номер ID: {user?.symbol || 'RaupovKhKh'}</span>
-            </span>
-            <span className="flex items-center gap-1.5 font-light">
-              <Calendar className="w-3.5 h-3.5 text-slate-400" />
-              <span>{getCurrentDateRussian()}</span>
-            </span>
-          </div>
-        </div>
+      {/* ── Шапка: кто и когда ── */}
+      <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h1 className="text-xl font-bold tracking-tight">
+          С возвращением, {(user?.name || 'Инженер').replace(/\s*\(.*\)$/, '')}
+        </h1>
+        <span className="text-xs text-slate-500 dark:text-dark-text-muted first-letter:uppercase">{today}</span>
       </header>
 
-      {/* БЫСТРЫЙ ДОСТУП К РАЗДЕЛАМ */}
-      <div className="bg-white dark:bg-dark-surface rounded-2xl border border-slate-200 dark:border-dark-border shadow-xs p-4">
-        <h2 className="text-sm font-bold text-slate-900 dark:text-dark-text-main flex items-center gap-2 mb-3">
-          <Layers className="w-4 h-4 text-emerald-600" />
-          <span>Разделы</span>
-        </h2>
-        <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-8 gap-2.5">
-          {[
-            { name: 'Проекты', path: '/projects', icon: FolderKanban },
-            { name: 'Теги', path: '/registry', icon: Tag },
-            { name: 'Оборудование', path: '/equipment', icon: Fan },
-            { name: 'Справочник', path: '/directory', icon: BookOpen },
-            { name: 'Менеджмент', path: '/management', icon: Briefcase },
-            { name: 'ВДР', path: '/management?tab=vdr', icon: Briefcase },
-            { name: 'Проводник', path: '/explorer', icon: FolderOpen },
-            { name: 'Конструктор', path: '/constructor', icon: Table2 },
-            { name: 'Блокнот', path: '/notes', icon: NotebookPen },
-            { name: 'Чат', path: '/chat', icon: MessagesSquare },
-            ...(user?.role === 'ADMIN' ? [{ name: 'Сотрудники', path: '/users', icon: Users }] : []),
-          ].map((s) => (
-            <button type="button"
-              key={s.path}
-              onClick={() => navigate(s.path)}
-              data-share-route={s.path}
-              data-share-focus={`nav:${s.path}`}
-              data-share-label={s.name}
-              className="flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl border border-slate-150 dark:border-dark-border bg-slate-50 dark:bg-dark-surface/40 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 hover:border-emerald-400 transition-colors cursor-pointer"
-            >
-              <s.icon className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-              <span className="text-xs font-semibold text-slate-700 dark:text-dark-text-main text-center leading-tight">{s.name}</span>
+      {/* ── Поиск: одна дверь во всё ── */}
+      <div className="relative">
+        <div className="flex items-center gap-2.5 px-3.5 h-12 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface focus-within:border-emerald-600 dark:focus-within:border-emerald-400">
+          <Search className="w-4 h-4 text-slate-400 shrink-0" />
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onFocus={ensureTags}
+            onKeyDown={onSearchKey}
+            placeholder={activeProject ? 'Найти тег, заметку, проект или раздел' : 'Найти заметку, проект или раздел'}
+            aria-label="Поиск по программе"
+            className="flex-1 bg-transparent outline-none text-sm placeholder:text-slate-400"
+          />
+          {query ? (
+            <button type="button" onClick={() => { setQuery(''); inputRef.current?.focus(); }} aria-label="Очистить поиск"
+              className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
+              <X className="w-4 h-4" />
             </button>
-          ))}
+          ) : (
+            <span className="hidden sm:inline text-2xs text-slate-400">просто начните печатать</span>
+          )}
         </div>
+
+        {query.trim() && (
+          <div role="listbox" aria-label="Результаты поиска"
+            className="absolute z-30 left-0 right-0 mt-1.5 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-panel shadow-lg overflow-hidden">
+            {hits.length === 0 ? (
+              <p className="px-3.5 py-3 text-xs text-slate-500 dark:text-dark-text-muted">
+                Ничего не нашлось. Попробуйте код тега, название заметки или раздела.
+              </p>
+            ) : hits.map((h, i) => (
+              <button
+                key={`${h.kind}-${h.id}`}
+                type="button"
+                role="option"
+                aria-selected={i === cursor}
+                onMouseEnter={() => setCursor(i)}
+                onClick={() => { h.open(); setQuery(''); }}
+                className={`w-full flex items-center gap-3 px-3.5 py-2 text-left cursor-pointer ${
+                  i === cursor ? 'bg-emerald-50 dark:bg-emerald-950/40' : ''
+                }`}
+              >
+                <span className="text-2xs font-mono uppercase tracking-wider text-slate-400 w-14 shrink-0">{KIND_LABEL[h.kind]}</span>
+                <span className="text-sm font-medium truncate flex-1">{h.title}</span>
+                {h.hint && <span className="text-xs text-slate-400 truncate max-w-[30%]">{h.hint}</span>}
+                {i === cursor && <CornerDownLeft className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* THREE PANEL SECTIONS (slate / zinc design) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* PANEL: LAST CHANGES LOG */}
-        <div className="bg-white dark:bg-dark-surface rounded-2xl border border-slate-200 dark:border-dark-border shadow-xs flex flex-col overflow-hidden">
-          <div className="border-b border-slate-100 dark:border-dark-border px-5 py-4 bg-slate-50/50 dark:bg-dark-surface/40 flex items-center justify-between">
-            <h2 className="text-sm font-bold text-slate-900 dark:text-dark-text-main flex items-center gap-2">
-              <History className="w-4 h-4 text-emerald-600" />
-              <span>Последние изменения</span>
-            </h2>
-            <button type="button"
-              onClick={() => navigate('/logs')}
-              className="text-xs text-emerald-700 dark:text-emerald-400 hover:text-emerald-650 dark:hover:text-emerald-300 cursor-pointer font-bold flex items-center gap-0.5"
-            >
-              <span>Посмотреть все</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="p-4 flex-1 flex flex-col justify-between">
-            <div className="space-y-2">
-              {loadingLogs ? (
-                <div id="logs-loading-spinner" className="py-12 text-center text-xs text-slate-400 dark:text-slate-500">
-                  Синхронизация логов SQLite...
-                </div>
-              ) : logs.length === 0 ? (
-                <div className="py-12 text-center text-xs text-slate-400 dark:text-slate-500 flex flex-col items-center gap-1">
-                  <Database className="w-6 h-6 text-slate-300 dark:text-slate-700" />
-                  <span>История системных записей пуста</span>
-                </div>
-              ) : (
-                logs.map((log) => (
-                  <div
-                    key={log.id}
-                    onClick={() => handleRowClick(log.targetRoute)}
-                    className="p-3 bg-slate-50 dark:bg-dark-bg/50 hover:bg-slate-100/80 dark:hover:bg-dark-panel/60 border border-slate-200/50 dark:border-dark-border rounded-xl transition-ui cursor-pointer flex items-start gap-3 relative group"
-                  >
-                    <div className="shrink-0 w-8 h-8 rounded-full bg-slate-200 dark:bg-dark-panel flex items-center justify-center font-bold text-xs uppercase text-slate-600 dark:text-dark-text-muted">
-                      {log.userSymbol.slice(0, 2)}
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2.5">
-                        <span className="text-xs font-bold text-slate-700 dark:text-dark-text-main truncate">
-                          {log.userName} ({log.userSymbol})
-                        </span>
-                        <span className="text-xs text-slate-400 dark:text-dark-text-muted flex items-center gap-1 font-mono shrink-0">
-                          <Clock className="w-3 h-3" />
-                          <span>{formatRelativeTime(log.createdAt)}</span>
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-600 dark:text-dark-text-muted mt-1 truncate">
-                        {log.description}
-                      </p>
-                    </div>
-
-                    <div className="opacity-0 group-hover:opacity-100 transition-opacity self-center shrink-0 pr-1">
-                      <ChevronRight className="w-4 h-4 text-emerald-600" />
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* PANEL: LATEST NOTES PREVIEW GRID */}
-        <div className="bg-white dark:bg-dark-surface rounded-2xl border border-slate-200 dark:border-dark-border shadow-xs flex flex-col overflow-hidden">
-          <div className="border-b border-slate-100 dark:border-dark-border px-5 py-4 bg-slate-50/50 dark:bg-dark-surface/40 flex items-center justify-between">
-            <h2 className="text-sm font-bold text-slate-900 dark:text-dark-text-main flex items-center gap-2">
-              <FileText className="w-4 h-4 text-emerald-600" />
-              <span>Мои заметки</span>
-            </h2>
-            <button type="button"
-              onClick={() => navigate('/notes')}
-              className="text-xs text-emerald-700 dark:text-emerald-400 hover:text-emerald-650 dark:hover:text-emerald-300 cursor-pointer font-bold flex items-center gap-0.5"
-            >
-              <span>Посмотреть все</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="p-4 flex-1 flex flex-col justify-between">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              {loadingNotes ? (
-                <div id="notes-loading-spinner" className="col-span-2 py-12 text-center text-xs text-slate-400">
-                  Загрузка заметок...
-                </div>
-              ) : notes.length === 0 ? (
-                <div className="col-span-2 py-12 text-center text-xs text-slate-400 dark:text-slate-500 flex flex-col items-center gap-1.5">
-                  <BookmarkCheck className="w-7 h-7 text-slate-300 dark:text-slate-750" />
-                  <span>Панель заметок пуста</span>
-                  <button type="button"
-                    onClick={() => navigate('/notes')}
-                    className="text-xs font-bold text-emerald-600 hover:underline mt-1 cursor-pointer"
-                  >
-                    Перейти и создать
-                  </button>
-                </div>
-              ) : (
-                notes.map((note) => {
-                  const plainContent = note.content ? note.content.replace(/<[^>]*>/g, '') : '';
-                  return (
-                    <div
-                      key={note.id}
-                      className={`p-3.5 rounded-xl border relative flex flex-col justify-between hover:shadow-md transition-ui group overflow-hidden ${
-                        note.color || 'bg-slate-50 dark:bg-dark-bg/50 dark:border-dark-border'
-                      }`}
-                    >
-                      <div>
-                        <h3 className="text-slate-850 dark:text-dark-text-main font-bold text-xs truncate max-w-[170px]">
-                          {note.title || 'Инженерная заметка'}
-                        </h3>
-                        <p className="text-xs text-slate-600 dark:text-dark-text-muted line-clamp-3 mt-1.5 leading-relaxed font-light">
-                          {plainContent || 'Заметка не заполнена'}
-                        </p>
-                      </div>
-
-                      <div className="mt-4 pt-2.5 border-t border-black/5 dark:border-white/5 flex items-center justify-between gap-2">
-                        <button type="button"
-                          onClick={() => navigate('/notes')}
-                          className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer whitespace-nowrap"
-                        >
-                          Открыть
-                        </button>
-                        <button type="button"
-                          onClick={(e) => handleOpenSticker(e, note.id)}
-                          className="p-1.5 bg-black/5 dark:bg-dark-panel hover:bg-black/10 dark:hover:bg-dark-panel rounded-lg text-slate-600 dark:text-dark-text-muted hover:text-slate-900 dark:hover:text-dark-text-main cursor-pointer flex items-center gap-1 text-xs transition-ui whitespace-nowrap shrink-0"
-                          title="Открепить стикер (поверх других приложений ОС)"
-                        >
-                          <ExternalLink className="w-3 h-3 shrink-0" />
-                          <span>На экран</span>
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-          </div>
-        </div>
-
-        {/* PANEL: PROJECTS SELECTION */}
-        <div className="bg-white dark:bg-dark-surface rounded-2xl border border-slate-200 dark:border-dark-border shadow-xs flex flex-col overflow-hidden">
-          <div className="border-b border-slate-100 dark:border-dark-border px-5 py-4 bg-slate-50/50 dark:bg-dark-surface/40 flex items-center justify-between">
-            <h2 className="text-sm font-bold text-slate-900 dark:text-dark-text-main flex items-center gap-2">
-              <Layers className="w-4 h-4 text-emerald-600" />
-              <span>Проекты</span>
-            </h2>
-            <div className="flex items-center gap-2">
-              {can(user, 'project.manage') && (
-                <button type="button"
-                  onClick={() => setShowCreate(true)}
-                  className="text-xs text-slate-500 dark:text-dark-text-muted hover:text-emerald-600 dark:hover:text-emerald-400 font-bold flex items-center gap-0.5 cursor-pointer"
-                  title="Быстрое создание проекта"
+      {/* ── Продолжить: где человек был в прошлый раз ── */}
+      {recent.length > 0 && (
+        <section>
+          <h2 className="text-2xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">Продолжить</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {recent.map((s) => {
+              const Icon = s.icon as any;
+              return (
+                <button
+                  key={s.path}
+                  type="button"
+                  onClick={() => open(s.path)}
+                  data-share-route={s.path}
+                  data-share-label={s.title}
+                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface hover:border-emerald-600 dark:hover:border-emerald-400 transition-ui cursor-pointer text-left"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Создать</span>
+                  {Icon && <Icon className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />}
+                  <span className="text-sm font-semibold truncate">{s.title}</span>
                 </button>
-              )}
-              <button type="button"
-                onClick={() => navigate('/projects')}
-                className="text-xs text-emerald-700 dark:text-emerald-400 hover:text-emerald-650 dark:hover:text-emerald-350 cursor-pointer font-bold flex items-center gap-0.5"
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* ── Разделы: часто используемые впереди ── */}
+      <section>
+        <h2 className="text-2xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">Разделы</h2>
+        <div className="flex flex-wrap gap-1.5">
+          {sections.map((s) => {
+            const Icon = s.icon as any;
+            return (
+              <button
+                key={s.path}
+                type="button"
+                onClick={() => open(s.path)}
+                data-share-route={s.path}
+                data-share-label={s.title}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:border-emerald-600 dark:hover:border-emerald-400 transition-ui cursor-pointer"
               >
-                <span>Управление</span>
-                <ArrowRight className="w-3.5 h-3.5" />
+                {Icon && <Icon className="w-3.5 h-3.5 text-slate-400" />}
+                <span className="text-xs font-semibold">{s.title}</span>
               </button>
-            </div>
-          </div>
-
-          <div className="p-4 flex-grow flex flex-col justify-between overflow-y-auto max-h-[350px]">
-            <div className="space-y-2.5">
-              {loadingProjects ? (
-                <div className="py-12 text-center text-xs text-slate-400 dark:text-slate-500">
-                  Загрузка проектов...
-                </div>
-              ) : projects.length === 0 ? (
-                <div className="py-12 text-center text-xs text-slate-400 dark:text-slate-500 flex flex-col items-center gap-1.5">
-                  <Layers className="w-7 h-7 text-slate-300 dark:text-slate-755" />
-                  <span>Список инженерных проектов пуст</span>
-                  {can(user, 'project.manage') && (
-                    <button type="button"
-                      onClick={() => setShowCreate(true)}
-                      className="text-xs font-bold text-emerald-600 hover:underline mt-1 cursor-pointer"
-                    >
-                      Создать проект
-                    </button>
-                  )}
-                </div>
-              ) : (
-                projects.map((proj) => {
-                  const isActive = activeProject?.id === proj.id;
-                  return (
-                    <div
-                      key={proj.id}
-                      onClick={() => handleToggleActiveProject(proj)}
-                      className={`p-3 rounded-xl border transition-ui cursor-pointer flex items-start gap-2.5 relative group ${
-                        isActive
-                          ? 'bg-emerald-50/40 dark:bg-emerald-950/15 border-emerald-300 dark:border-emerald-800 shadow-xs'
-                          : 'bg-slate-50 dark:bg-dark-bg/50 hover:bg-slate-100/80 dark:hover:bg-dark-panel/60 border-slate-200 dark:border-dark-border'
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleActiveProject(proj);
-                        }}
-                        className="shrink-0 mt-0.5 cursor-pointer text-slate-400 hover:text-emerald-650 dark:hover:text-emerald-400 focus:outline-none transition-colors"
-                      >
-                        {isActive ? (
-                          <CheckSquare className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                        ) : (
-                          <Square className="w-4 h-4 text-slate-400 dark:text-dark-text-muted" />
-                        )}
-                      </button>
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className={`text-xs font-bold leading-tight truncate ${isActive ? 'text-emerald-850 dark:text-emerald-400' : 'text-slate-800 dark:text-dark-text-main'}`}>
-                            {proj.name}
-                          </span>
-                          <span className="text-xs font-mono font-semibold text-slate-400 dark:text-dark-text-muted uppercase shrink-0">
-                            {proj.status === 'ACTIVE' ? 'Активен' : 'Архив'}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-500 dark:text-dark-text-muted mt-1 line-clamp-1 leading-normal font-light">
-                          {proj.description || 'Инженерно-проектная документация.'}
-                        </p>
-                      </div>
-
-                      <div className="opacity-0 group-hover:opacity-100 transition-opacity self-center shrink-0 pr-1">
-                        <ChevronRight className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-          </div>
+            );
+          })}
         </div>
+      </section>
 
+      {/* ── Три колонки: изменения, заметки, проекты ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start">
+        {/* Последние изменения */}
+        <section className="rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
+          <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-slate-100 dark:border-dark-border">
+            <h2 className="text-sm font-bold flex items-center gap-2"><History className="w-4 h-4 text-emerald-700 dark:text-emerald-400" /> Последние изменения</h2>
+            <button type="button" onClick={() => open('/logs')} className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer">Все</button>
+          </div>
+          <div className="divide-y divide-slate-100 dark:divide-dark-border">
+            {loading && <p className="px-3.5 py-4 text-xs text-slate-400">Загружаю…</p>}
+            {!loading && logs.length === 0 && (
+              <p className="px-3.5 py-4 text-xs text-slate-500 dark:text-dark-text-muted">Пока ничего не менялось.</p>
+            )}
+            {logs.map((log) => (
+              <button
+                key={log.id}
+                type="button"
+                onClick={() => { const r = (log as any).targetRoute; if (r && r !== '#') open(r); }}
+                className="w-full text-left px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-dark-panel transition-ui cursor-pointer"
+              >
+                <p className="text-xs text-slate-700 dark:text-dark-text-main line-clamp-2">{log.description}</p>
+                <p className="mt-0.5 text-2xs text-slate-400 flex items-center gap-1.5">
+                  <Clock className="w-3 h-3 shrink-0" />
+                  {relTime((log as any).createdAt)}
+                  <span className="truncate">· {(log.userName || '').replace(/\s*\(.*\)$/, '')}</span>
+                </p>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* Мои заметки */}
+        <section className="rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
+          <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-slate-100 dark:border-dark-border">
+            <h2 className="text-sm font-bold flex items-center gap-2"><NotebookPen className="w-4 h-4 text-emerald-700 dark:text-emerald-400" /> Мои заметки</h2>
+            <button type="button" onClick={() => open('/notes')} className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer">Все</button>
+          </div>
+          <div className="divide-y divide-slate-100 dark:divide-dark-border">
+            {!loading && notes.length === 0 && (
+              <div className="px-3.5 py-4">
+                <p className="text-xs text-slate-500 dark:text-dark-text-muted mb-2">Заметок пока нет.</p>
+                <button type="button" onClick={() => open('/notes')}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400 cursor-pointer hover:underline">
+                  <Plus className="w-3.5 h-3.5" /> Создать первую
+                </button>
+              </div>
+            )}
+            {notes.map((note) => (
+              <div key={note.id} className="px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-dark-panel transition-ui group">
+                <button type="button" onClick={() => open('/notes')} className="w-full text-left cursor-pointer">
+                  <p className="text-xs font-semibold truncate">{note.title || 'Без названия'}</p>
+                  <p className="text-2xs text-slate-500 dark:text-dark-text-muted line-clamp-2 mt-0.5">
+                    {(note.content || '').replace(/<[^>]*>/g, ' ').trim() || 'Заметка не заполнена'}
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => openSticker(e, note.id)}
+                  title="Открыть заметку отдельным окном поверх других"
+                  className="mt-1 inline-flex items-center gap-1 text-2xs font-semibold text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400 opacity-0 group-hover:opacity-100 transition-ui cursor-pointer"
+                >
+                  <ExternalLink className="w-3 h-3" /> На экран
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Проекты */}
+        <section className="rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
+          <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-slate-100 dark:border-dark-border">
+            <h2 className="text-sm font-bold flex items-center gap-2"><FolderKanban className="w-4 h-4 text-emerald-700 dark:text-emerald-400" /> Проекты</h2>
+            <button type="button" onClick={() => setShowCreate(true)}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer">
+              <Plus className="w-3.5 h-3.5" /> Создать
+            </button>
+          </div>
+          <div className="divide-y divide-slate-100 dark:divide-dark-border max-h-56 overflow-y-auto scrollbar-thin">
+            {!loading && projects.length === 0 && (
+              <p className="px-3.5 py-4 text-xs text-slate-500 dark:text-dark-text-muted">
+                Проектов пока нет. Создайте первый — без него не работают теги, оборудование и закупки.
+              </p>
+            )}
+            {projects.map((p) => {
+              const active = activeProject?.id === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setActiveProject(active ? null : (p as any))}
+                  aria-pressed={active}
+                  title={active ? 'Снять как активный' : 'Сделать активным'}
+                  className={`w-full flex items-center gap-2 px-3.5 py-2 text-left transition-ui cursor-pointer ${
+                    active ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'hover:bg-slate-50 dark:hover:bg-dark-panel'
+                  }`}
+                >
+                  <Check className={`w-3.5 h-3.5 shrink-0 ${active ? 'text-emerald-700 dark:text-emerald-400' : 'opacity-0'}`} />
+                  <span className={`text-xs truncate flex-1 ${active ? 'font-bold text-emerald-900 dark:text-emerald-200' : 'font-medium'}`}>{p.name}</span>
+                  {active && <span className="text-2xs font-mono uppercase text-emerald-700 dark:text-emerald-400 shrink-0">активный</span>}
+                </button>
+              );
+            })}
+          </div>
+          <button type="button" onClick={() => open('/projects')}
+            className="w-full px-3.5 py-2 text-xs font-semibold text-slate-500 dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-panel border-t border-slate-100 dark:border-dark-border flex items-center justify-center gap-1 cursor-pointer">
+            Управление проектами <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </section>
       </div>
 
       {showCreate && (
-        <ProjectFormModal title="Новый проект" onClose={() => setShowCreate(false)} onSave={handleCreateProjectDirect} />
+        <ProjectFormModal
+          title="Новый проект"
+          onClose={() => setShowCreate(false)}
+          onSave={createProject}
+        />
       )}
     </motion.div>
   );
