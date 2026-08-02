@@ -252,12 +252,20 @@ export default function Explorer() {
   }, [activeProject?.id]); // по идентификатору, а не по объекту: иначе перезапрос при каждой смене ссылки
 
   useEffect(() => {
+    // Меню закрывается кликом мимо и клавишей Esc — иначе оно оставалось
+    // висеть поверх содержимого, в том числе после перехода в другую папку.
     const handleGlobalClick = () => setContextMenu(null);
+    const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setContextMenu(null); };
     window.addEventListener('click', handleGlobalClick);
-    return () => window.removeEventListener('click', handleGlobalClick);
+    window.addEventListener('keydown', handleEsc);
+    return () => {
+      window.removeEventListener('click', handleGlobalClick);
+      window.removeEventListener('keydown', handleEsc);
+    };
   }, []);
 
   const navigateTo = (folderId: string | null) => {
+    setContextMenu(null);
     pushHistory(folderId);
     setSearchQuery('');
     setSelectedIds(new Set());
@@ -1129,7 +1137,7 @@ export default function Explorer() {
            <Search className="w-4 h-4 absolute left-2.5 top-2 text-slate-400 dark:text-dark-text-muted" />
            <input 
              type="text" 
-             placeholder={currentFolder ? `Поиск в ${currentFolder.name}` : "Поиск в проводнике"} 
+             placeholder={currentFolder ? `Поиск в папке «${currentFolder.name}»` : 'Поиск по проводнику'} 
              value={searchQuery}
              onChange={(e) => setSearchQuery(e.target.value)}
              className="pl-8 pr-4 py-1 w-full border border-slate-255 dark:border-dark-border focus:outline-none focus:border-emerald-500 bg-white dark:bg-dark-panel text-slate-800 dark:text-dark-text-main rounded-lg transition-ui focus:ring-1 focus:ring-emerald-500/20"
@@ -1199,7 +1207,7 @@ export default function Explorer() {
             {isDragging && (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-emerald-500/10 border-2 border-emerald-500 border-dashed m-2 pointer-events-none">
                  <div className="text-emerald-600 font-medium flex items-center gap-2 bg-white/90 dark:bg-slate-950/90 px-4 py-2 rounded-full shadow-sm">
-                   <Upload className="w-5 h-5" /> Копировать файлы...
+                   <Upload className="w-5 h-5" /> Отпустите — загрузим сюда
                  </div>
               </div>
             )}
@@ -1266,7 +1274,21 @@ export default function Explorer() {
                                   {searchQuery ? <Search className="w-8 h-8" /> : <Folder className="w-8 h-8" />}
                              </div>
                              <p className="text-sm">{searchQuery ? "Ничего не найдено — попробуйте другой запрос." : "Эта папка пуста."}</p>
-                             {!searchQuery && <p className="text-xs pt-1 text-slate-500 dark:text-slate-600">Перетащите файлы сюда или используйте кнопку 'Загрузить'.</p>}
+                             {!searchQuery && (
+                               <>
+                                 <div className="flex items-center gap-2 pt-3">
+                                   <button type="button" onClick={() => fileInputRef.current?.click()}
+                                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition-ui cursor-pointer">
+                                     <Upload className="w-3.5 h-3.5" /> Загрузить файлы
+                                   </button>
+                                   <button type="button" onClick={createFolder}
+                                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-200 dark:border-dark-border hover:bg-slate-50 dark:hover:bg-dark-panel transition-ui cursor-pointer">
+                                     <FolderPlus className="w-3.5 h-3.5 text-amber-500" /> Новая папка
+                                   </button>
+                                 </div>
+                                 <p className="text-2xs pt-2 text-slate-400 dark:text-slate-600">Файлы можно просто перетащить сюда из проводника Windows.</p>
+                               </>
+                             )}
                            </div>
                         </td>
                       </tr>
@@ -2055,9 +2077,11 @@ const FileRowItem = React.memo(({
           </span>
         )}
       </td>
-      <td className="flux-cell text-sm text-slate-500 dark:text-dark-text-muted whitespace-nowrap">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : ''}</td>
+      <td className="flux-cell text-sm text-slate-500 dark:text-dark-text-muted whitespace-nowrap">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : <span className="text-slate-300 dark:text-slate-700">—</span>}</td>
       <td className="flux-cell text-sm">{!item.isFolder ? <StatusChip code={item.statusCode} onClick={onChangeStatus ? (e) => { e.stopPropagation(); onChangeStatus(item.id); } : undefined} /> : <span className="text-slate-400 text-xs">Папка</span>}</td>
-      <td className="flux-cell text-sm text-slate-500 dark:text-dark-text-muted text-right whitespace-nowrap">{!item.isFolder ? formatSize(item.size) : ''}</td>
+      {/* У папки нет размера, у файла может не быть тегов и отдела: ставим
+          прочерк — пустая ячейка читается как «данные не загрузились». */}
+      <td className="flux-cell text-sm text-slate-500 dark:text-dark-text-muted text-right whitespace-nowrap">{!item.isFolder ? formatSize(item.size) : <span className="text-slate-300 dark:text-slate-700">—</span>}</td>
       <td className="flux-cell">
          <div className="flex flex-wrap gap-1">
            {!item.isFolder && (item.mainTags || []).map((t: any) => (
@@ -2067,6 +2091,9 @@ const FileRowItem = React.memo(({
            {!item.isFolder && (item.additionalTags || []).map((t: any) => (
              <span key={t.id} className="text-2xs font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400" title={`Доп. тег ${t.identifier}`}>{t.identifier}</span>
            ))}
+           {(item.isFolder || (!(item.mainTags || []).length && !(item.additionalTags || []).length)) && (
+             <span className="text-slate-300 dark:text-slate-700">—</span>
+           )}
          </div>
       </td>
       <td className="flux-cell text-xs text-slate-500 dark:text-dark-text-muted">{!item.isFolder && item.department !== 'Unassigned' ? item.department : ''}</td>
