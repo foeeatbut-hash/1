@@ -162,24 +162,24 @@ export default function DictionaryEditor() {
 
       if (depCategory) {
         const defaultDeps = ["Отдел КИПиА", "Отдел АСУ ТП", "Технологический отдел", "Электротехнический отдел"];
-        for (const dep of defaultDeps) {
-          await fetch(`/api/projects/${activeProject!.id}/dictionaries/${newDict.id}/items`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ code: dep, nameRu: dep, parentId: depCategory.id })
-          });
-        }
+        // Одним заходом, а не по одному: на общей базе по сети каждый
+        // такой POST — отдельный круг до сервера.
+        await Promise.all(defaultDeps.map((dep) => fetch(`/api/projects/${activeProject!.id}/dictionaries/${newDict.id}/items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: dep, nameRu: dep, parentId: depCategory.id })
+        })));
       }
 
       if (fluidCategory) {
         const defaultFluids = ["Воздух", "Вода", "Пар", "Газ", "Нефть"];
-        for (const fluid of defaultFluids) {
-          await fetch(`/api/projects/${activeProject!.id}/dictionaries/${newDict.id}/items`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ code: fluid, nameRu: fluid, parentId: fluidCategory.id })
-          });
-        }
+        // Одним заходом, а не по одному: на общей базе по сети каждый
+        // такой POST — отдельный круг до сервера.
+        await Promise.all(defaultFluids.map((fluid) => fetch(`/api/projects/${activeProject!.id}/dictionaries/${newDict.id}/items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: fluid, nameRu: fluid, parentId: fluidCategory.id })
+        })));
       }
       
       // Update dictionaries from API again

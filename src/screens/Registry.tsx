@@ -74,6 +74,10 @@ function parseTagMetadata(tag: any): ParsedMetadata {
       const parsed = typeof tag.metadata === 'string' ? JSON.parse(tag.metadata) : tag.metadata;
       const res: ParsedMetadata = {
         ...parsed,
+        // Пометка «координат в базе нет»: раскладку такому тегу назначает
+        // сетка при загрузке реестра. Без пометки пришлось бы разбирать
+        // JSON второй раз — на двух тысячах тегов это заметно.
+        _noPos: parsed.x === undefined || parsed.y === undefined,
         x: parsed.x !== undefined ? parsed.x : Math.floor(Math.random() * 500 + 100),
         y: parsed.y !== undefined ? parsed.y : Math.floor(Math.random() * 300 + 100),
         parentId: parsed.parentId,
@@ -87,6 +91,7 @@ function parseTagMetadata(tag: any): ParsedMetadata {
     console.error('Error parsing tag metadata:', e);
   }
   const fallback: ParsedMetadata = {
+    _noPos: true,
     x: Math.floor(Math.random() * 550 + 80),
     y: Math.floor(Math.random() * 320 + 80),
     connections: [],
@@ -316,6 +321,8 @@ interface DescriptionItem {
 interface ParsedMetadata {
   x: number;
   y: number;
+  /** Координат в базе не было — позицию назначает сетка при загрузке */
+  _noPos?: boolean;
   mainName?: string;
   parentId?: string;
   connections: string[]; // List of tag IDs this tag has peer-connections with
@@ -451,11 +458,8 @@ export default function Registry() {
     let autoIndex = 0;
     const positions: Record<string, { x: number, y: number }> = {};
     for (const t of tags) {
-      let raw: any = null;
-      try { raw = typeof t.metadata === 'string' ? JSON.parse(t.metadata) : t.metadata; } catch (_) { raw = null; }
-      const hasSaved = raw && raw.x !== undefined && raw.y !== undefined;
       const meta = parseTagMetadata(t);
-      if (!hasSaved) {
+      if (meta._noPos) {
         meta.x = X0 + (autoIndex % PER_ROW) * COL_W;
         meta.y = Y0 + Math.floor(autoIndex / PER_ROW) * ROW_H;
         autoIndex++;

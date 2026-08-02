@@ -381,6 +381,14 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   transition-duration: var(--flux-dur-fast);
 }
 
+/* Длинные списки (журнал, переписка): браузер пропускает отрисовку того,
+   что за пределами экрана, и запоминает фактическую высоту, чтобы полоса
+   прокрутки не прыгала. Для строк таблиц не годится — там виртуализация. */
+.flux-lazy-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
+}
+
 /* Цифры в колонках должны стоять друг под другом */
 .nums, table {
   font-variant-numeric: tabular-nums;

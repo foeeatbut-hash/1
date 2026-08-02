@@ -1028,7 +1028,7 @@ export default function ChatManagement() {
                       </div>
                     )}
                     <div 
-                      className={`group flex gap-3 max-w-[85%] ${isMe ? 'ml-auto flex-row-reverse' : 'mr-auto'}`}
+                      className={`flux-lazy-item group flex gap-3 max-w-[85%] ${isMe ? 'ml-auto flex-row-reverse' : 'mr-auto'}`}
                     >
                       <div className="w-8 h-8 rounded-full bg-slate-150 dark:bg-slate-800 shrink-0 border border-slate-250 dark:border-slate-750 flex items-center justify-center text-xs font-bold text-slate-600 dark:text-slate-400">
                         {(msg.sender?.name || 'С').charAt(0)}

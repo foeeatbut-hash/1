@@ -310,7 +310,7 @@ export default function LogsManagement() {
                 <div
                   key={log.id}
                   onClick={() => handleRowClick(log.targetRoute)}
-                  className="p-4 hover:bg-slate-50/70 dark:hover:bg-slate-950/20 transition-ui cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 relative group pl-5 border-l-3 border-transparent hover:border-emerald-600"
+                  className="flux-lazy-item p-4 hover:bg-slate-50/70 dark:hover:bg-slate-950/20 transition-ui cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 relative group pl-5 border-l-3 border-transparent hover:border-emerald-600"
                 >
                   <div className="flex items-start gap-4">
                     {/* User identifier rounded bubble */}
