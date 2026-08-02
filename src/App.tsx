@@ -58,7 +58,7 @@ function ElectronTitleBar() {
       {/* Компактный логотип слева, без названия */}
       <div className="flex items-center gap-2 pl-3">
         <div className="w-5 h-5 rounded-md bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-sm">
-          <span className="text-[9px] font-black text-white tracking-tight">M</span>
+          <span className="text-2xs font-black text-white tracking-tight">M</span>
         </div>
       </div>
 

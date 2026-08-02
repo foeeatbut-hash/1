@@ -31,7 +31,7 @@ export default function RightRail() {
       <button onClick={openNotif} className={`${btn(panelOpen)} ${chatUnread > 0 && !panelOpen ? 'ring-2 ring-emerald-500 text-emerald-600 dark:text-emerald-400' : ''}`} title="Уведомления" data-tour="notif-btn">
         <Bell className={`w-5 h-5 ${chatUnread > 0 && !panelOpen ? 'animate-pulse' : ''}`} />
         {unread > 0 && (
-          <span className={`absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full text-white text-[10px] font-bold flex items-center justify-center ${chatUnread > 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}>
+          <span className={`absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full text-white text-2xs font-bold flex items-center justify-center ${chatUnread > 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}>
             {unread > 99 ? '99+' : unread}
           </span>
         )}

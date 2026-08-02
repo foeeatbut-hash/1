@@ -66,7 +66,7 @@ const StatusChip = ({ code, onClick }: { code?: string; onClick?: (e: React.Mous
     <span
       onClick={onClick}
       title={onClick ? 'Сменить статус документа' : s.label}
-      className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${s.chip} ${onClick ? 'cursor-pointer hover:brightness-95' : ''}`}
+      className={`inline-flex items-center gap-1 text-2xs font-bold px-1.5 py-0.5 rounded-full ${s.chip} ${onClick ? 'cursor-pointer hover:brightness-95' : ''}`}
     >
       <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} /> {s.label}
     </span>
@@ -1073,7 +1073,7 @@ export default function Explorer() {
                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 cursor-pointer">
                   <Info className="w-4 h-4" /> Статус
                </button>
-               <span className="text-[11px] text-slate-400 ml-1">выбрано: {selectedFileCount}</span>
+               <span className="text-xs text-slate-400 ml-1">выбрано: {selectedFileCount}</span>
              </>
            )}
 
@@ -1426,7 +1426,7 @@ export default function Explorer() {
                         ) : isText && item.content ? (
                           // Текст декодируем как UTF-8 в <pre> — iframe с data:text
                           // без charset давал кракозябры на кириллице
-                          <pre className="w-full h-full overflow-auto text-left text-[11px] leading-relaxed p-3 text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words font-mono">{decodeTextContent(item.content)}</pre>
+                          <pre className="w-full h-full overflow-auto text-left text-xs leading-relaxed p-3 text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words font-mono">{decodeTextContent(item.content)}</pre>
                         ) : isPdf && item.content ? (
                           // B5: пустой sandbox ломал встроенный PDF-вьюер
                           <iframe src={item.content} className="w-full h-full border-0 bg-white dark:bg-dark-panel" title={item.name} sandbox="allow-scripts allow-same-origin" />
@@ -1502,12 +1502,12 @@ export default function Explorer() {
               <MenuItem icon={<Folder />} label="Открыть" onClick={() => { navigateTo(contextMenu.targetId!); setContextMenu(null); }} />
               <MenuItem icon={<RefreshCw />} label="Обновить" onClick={() => { fetchData(); setContextMenu(null); }} />
               <div className="h-px bg-slate-300 dark:bg-dark-border my-1 mx-2" />
-              <div className="px-6 py-1 text-[10px] text-slate-400 select-none">Встроенный раздел: нельзя удалить или переименовать</div>
+              <div className="px-6 py-1 text-2xs text-slate-400 select-none">Встроенный раздел: нельзя удалить или переименовать</div>
             </>
           ) : contextMenu.isContainer ? (
             <>
               {/* «Создать» — как в Windows: правый клик по пустому месту */}
-              <div className="px-6 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 select-none">Создать</div>
+              <div className="px-6 py-1 text-2xs font-bold uppercase tracking-wider text-slate-400 select-none">Создать</div>
               <MenuItem icon={<FolderPlus />} label="Папку" onClick={() => { createFolder(); setContextMenu(null); }} />
               <MenuItem icon={<Grid3X3 />} label="Таблицу (Excel)" onClick={() => { createConstructorDoc('DOC'); setContextMenu(null); }} />
               <MenuItem icon={<FileText />} label="Документ (Word)" onClick={() => { createConstructorDoc('TEXT'); setContextMenu(null); }} />
@@ -2047,7 +2047,7 @@ const FileRowItem = React.memo(({
         )}
         {loaded && !isRenaming && (
           <span
-            className="ml-1 inline-flex items-center gap-1 shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+            className="ml-1 inline-flex items-center gap-1 shrink-0 text-2xs font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
             title={`Данные загружены в оборудование: ${catLabel(loaded.category)} (ревизия v${loaded.version})`}
           >
             <Boxes className="w-3 h-3" /> v{loaded.version}
@@ -2061,10 +2061,10 @@ const FileRowItem = React.memo(({
          <div className="flex flex-wrap gap-1">
            {!item.isFolder && (item.mainTags || []).map((t: any) => (
              <span key={t.id} onClick={onOpenTag ? (e) => { e.stopPropagation(); onOpenTag(t.identifier); } : undefined}
-               className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400 ${onOpenTag ? 'cursor-pointer hover:brightness-95' : ''}`} title={`Основной тег ${t.identifier}`}>{t.identifier}</span>
+               className={`text-2xs font-mono font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400 ${onOpenTag ? 'cursor-pointer hover:brightness-95' : ''}`} title={`Основной тег ${t.identifier}`}>{t.identifier}</span>
            ))}
            {!item.isFolder && (item.additionalTags || []).map((t: any) => (
-             <span key={t.id} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400" title={`Доп. тег ${t.identifier}`}>{t.identifier}</span>
+             <span key={t.id} className="text-2xs font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400" title={`Доп. тег ${t.identifier}`}>{t.identifier}</span>
            ))}
          </div>
       </td>
@@ -2129,7 +2129,7 @@ const FileCardItem = React.memo(({
          )}
          {loaded && (
             <span
-              className="absolute -top-1 -right-1 inline-flex items-center gap-0.5 text-[9px] font-bold px-1 py-0.5 rounded-full bg-emerald-600 text-white shadow"
+              className="absolute -top-1 -right-1 inline-flex items-center gap-0.5 text-2xs font-bold px-1 py-0.5 rounded-full bg-emerald-600 text-white shadow"
               title={`Данные загружены в оборудование: ${catLabel(loaded.category)} (ревизия v${loaded.version})`}
             >
               <Boxes className="w-2.5 h-2.5" />v{loaded.version}

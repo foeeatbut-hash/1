@@ -971,7 +971,7 @@ export default function ChatManagement() {
               <div className="px-4 py-2 border-b border-amber-200/60 dark:border-amber-900/40 bg-amber-50/60 dark:bg-amber-950/15 shrink-0 flex items-start gap-2">
                 <Pin className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
                 <div className="min-w-0 flex-1">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">Закреплено ({pinnedMessages.length})</div>
+                  <div className="text-2xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">Закреплено ({pinnedMessages.length})</div>
                   <div className="text-xs text-slate-600 dark:text-slate-300 truncate">{pinnedMessages[pinnedMessages.length - 1].content || 'Вложение'}</div>
                 </div>
               </div>
@@ -988,7 +988,7 @@ export default function ChatManagement() {
               className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50 dark:bg-slate-900/20 relative">
               {conversationSearch.trim() && (
                 <div className="sticky top-0 z-10 -mt-1 mb-1 flex items-center justify-center">
-                  <span className="px-3 py-1 rounded-full bg-emerald-600/90 text-white text-[11px] font-semibold shadow">
+                  <span className="px-3 py-1 rounded-full bg-emerald-600/90 text-white text-xs font-semibold shadow">
                     {visibleMessages.length === 0 ? 'Ничего не найдено' : `Найдено сообщений: ${visibleMessages.length}`}
                   </span>
                 </div>
@@ -1019,7 +1019,7 @@ export default function ChatManagement() {
                     {showDaySeparator && (
                       <div className="flex items-center gap-3 my-2 select-none">
                         <div className="flex-1 h-px bg-slate-200 dark:bg-slate-800" />
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">{dayLabel}</span>
+                        <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">{dayLabel}</span>
                         <div className="flex-1 h-px bg-slate-200 dark:bg-slate-800" />
                       </div>
                     )}
@@ -1123,7 +1123,7 @@ export default function ChatManagement() {
                             : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850/60 text-slate-800 dark:text-slate-150 rounded-tl-none'
                         }`}>
                           {msg.forwardedFrom && (
-                            <div className="mb-1.5 text-[10px] font-semibold text-sky-600 dark:text-sky-400 flex items-center gap-1 select-none">
+                            <div className="mb-1.5 text-2xs font-semibold text-sky-600 dark:text-sky-400 flex items-center gap-1 select-none">
                               <CornerUpRight className="w-3 h-3" /> Переслано от {msg.forwardedFrom}
                             </div>
                           )}
@@ -1246,7 +1246,7 @@ export default function ChatManagement() {
                       <Reply className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                     )}
                     <div className="min-w-0">
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                      <div className="text-2xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
                         {editingMessage ? 'Редактирование сообщения' : `Ответ: ${replyTarget?.sender?.name || ''}`}
                       </div>
                       <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
@@ -1840,7 +1840,7 @@ export default function ChatManagement() {
               </button>
             </div>
             <input type="text" value={ngName} onChange={(e) => setNgName(e.target.value)} placeholder={ngType === 'CHANNEL' ? 'Название канала' : 'Название группы'} className="w-full mb-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500" />
-            <p className="text-[11px] text-slate-400 mb-2">{ngType === 'CHANNEL' ? 'В канал пишет только владелец/админ, остальные читают.' : 'Участники группы могут писать и читать.'}</p>
+            <p className="text-xs text-slate-400 mb-2">{ngType === 'CHANNEL' ? 'В канал пишет только владелец/админ, остальные читают.' : 'Участники группы могут писать и читать.'}</p>
             <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Участники ({ngMembers.length})</div>
             <div className="max-h-48 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-850 mb-4">
               {users.filter(u => u.id !== user?.id).map(u => {
@@ -1885,13 +1885,13 @@ export default function ChatManagement() {
             </div>
             <div className="text-xs text-slate-500 dark:text-slate-400 mb-3 p-2 bg-slate-50 dark:bg-slate-950 rounded-lg border border-slate-200 dark:border-slate-800 truncate">{forwardFor.content || 'Вложение'}</div>
             <div className="max-h-72 overflow-y-auto space-y-1">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1 py-1">Группы и каналы</div>
+              <div className="text-2xs font-bold uppercase tracking-wider text-slate-400 px-1 py-1">Группы и каналы</div>
               {groups.map(g => (
                 <button key={g.id} type="button" onClick={() => handleForwardTo({ groupId: g.id })} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs text-slate-700 dark:text-slate-200">
                   {g.type === 'CHANNEL' ? <Radio className="w-4 h-4 text-emerald-500" /> : <Users className="w-4 h-4 text-emerald-500" />} {g.name}
                 </button>
               ))}
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1 py-1 mt-2">Личные диалоги</div>
+              <div className="text-2xs font-bold uppercase tracking-wider text-slate-400 px-1 py-1 mt-2">Личные диалоги</div>
               {users.filter(u => u.id !== user?.id).map(u => (
                 <button key={u.id} type="button" onClick={() => handleForwardTo({ receiverId: u.id })} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs text-slate-700 dark:text-slate-200">
                   <User className="w-4 h-4 text-emerald-500" /> {u.name}

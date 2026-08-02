@@ -320,7 +320,7 @@ export default function Equipment() {
                 className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left text-xs font-semibold transition-colors cursor-pointer ${act ? 'bg-emerald-600 text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'}`}>
                 {catIcon(c.id)}
                 <span className="flex-1 truncate">{c.label}</span>
-                {n > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${act ? 'bg-white/20' : 'bg-slate-200 dark:bg-slate-700'}`}>{n}</span>}
+                {n > 0 && <span className={`text-2xs px-1.5 py-0.5 rounded-full ${act ? 'bg-white/20' : 'bg-slate-200 dark:bg-slate-700'}`}>{n}</span>}
               </button>
             );
           })}
@@ -334,7 +334,7 @@ export default function Equipment() {
             <Sparkles className="w-3.5 h-3.5" />
             Импорт из документов
           </button>
-          <div className="text-[10px] text-slate-400 text-center">
+          <div className="text-2xs text-slate-400 text-center">
             PDF · Excel · Word · XML, или расчёт через «Проводник»
           </div>
         </div>
@@ -354,7 +354,7 @@ export default function Equipment() {
         <div className="px-3 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <span className="text-sm font-bold truncate">{categories.find(c => c.id === activeCat)?.label || activeCat}</span>
           <div className="flex items-center gap-1.5">
-            {totalConflicts > 0 && <span className="flex items-center gap-1 text-[10px] font-bold text-rose-600 dark:text-rose-400"><AlertTriangle className="w-3 h-3" />{totalConflicts}</span>}
+            {totalConflicts > 0 && <span className="flex items-center gap-1 text-2xs font-bold text-rose-600 dark:text-rose-400"><AlertTriangle className="w-3 h-3" />{totalConflicts}</span>}
             <button onClick={loadSystems} className="p-1 text-slate-400 hover:text-emerald-600 cursor-pointer" title="Обновить"><RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /></button>
           </div>
         </div>
@@ -382,14 +382,14 @@ export default function Equipment() {
                       <button onClick={() => toggle(mb.id)} className="w-full flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-left cursor-pointer">
                         {expanded[mb.id] ? <ChevronDown className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0" />}
                         <Layers className="w-3 h-3 text-slate-400 shrink-0" />
-                        <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 truncate">{mb.name}</span>
+                        <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 truncate">{mb.name}</span>
                       </button>
                     )}
                     {(isUnitMb || expanded[mb.id]) && (mb.components || []).map(c => (
                       <button key={c.id} onClick={() => { setSelectedBlockId(c.id); setSelectedUnitId(null); setShowAllParams(false); }}
                         className={`w-full flex items-center gap-1.5 pl-7 pr-2 py-1.5 rounded-lg text-left cursor-pointer ${selectedBlockId === c.id ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
                         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${c.hasConflict ? 'bg-rose-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
-                        <span className="text-[11px] truncate flex-1">{blockLabel(c)}</span>
+                        <span className="text-xs truncate flex-1">{blockLabel(c)}</span>
                         {(c.tags?.length || 0) > 0 && <TagIcon className="w-3 h-3 text-emerald-500 shrink-0" />}
                       </button>
                     ))}
@@ -538,16 +538,16 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
         className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold uppercase tracking-wider">Установка</span>
-            {unit.fileName && <span className="text-[10px] text-slate-400 font-mono truncate max-w-[220px]" title={unit.fileName}>{unit.fileName}</span>}
+            <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-2xs font-bold uppercase tracking-wider">Установка</span>
+            {unit.fileName && <span className="text-2xs text-slate-400 font-mono truncate max-w-[220px]" title={unit.fileName}>{unit.fileName}</span>}
           </div>
           <h3 className="u-sel text-sm font-bold mt-1 truncate flex items-center gap-1.5"><Boxes className="w-4 h-4 text-emerald-600 shrink-0" />{unit.name}</h3>
-          <p className="text-[11px] text-slate-400 mt-0.5">{totalSections} {totalSections === 1 ? 'секция' : totalSections >= 2 && totalSections <= 4 ? 'секции' : 'секций'} · нажмите на секцию, чтобы открыть её характеристики</p>
+          <p className="text-xs text-slate-400 mt-0.5">{totalSections} {totalSections === 1 ? 'секция' : totalSections >= 2 && totalSections <= 4 ? 'секции' : 'секций'} · нажмите на секцию, чтобы открыть её характеристики</p>
           {/* Тег на установку целиком (через компонент «Параметры установки») */}
           {generalComp && (
             <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
               {(generalComp.tags || []).map((t: any) => (
-                <span key={t.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 text-[10px] text-emerald-700 dark:text-emerald-300">
+                <span key={t.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 text-2xs text-emerald-700 dark:text-emerald-300">
                   <TagIcon className="w-2.5 h-2.5" /><span className="u-sel">{t.identifier}</span>
                   {onUnlinkTag && (
                     <button onClick={() => onUnlinkTag(generalComp!, t.id)} className="hover:text-rose-500 cursor-pointer" title="Отвязать тег от установки"><X className="w-2.5 h-2.5" /></button>
@@ -557,7 +557,7 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
               {onPickTag && (
                 <button
                   onClick={() => onPickTag(generalComp!)}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-dashed border-slate-300 dark:border-slate-600 text-[10px] text-slate-500 hover:border-emerald-400 hover:text-emerald-600 cursor-pointer"
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-dashed border-slate-300 dark:border-slate-600 text-2xs text-slate-500 hover:border-emerald-400 hover:text-emerald-600 cursor-pointer"
                   title="Назначить тег всей установке"
                 >
                   <Plus className="w-2.5 h-2.5" />тег установки
@@ -572,7 +572,7 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
         {/* Общие характеристики установки */}
         {generalParams.length > 0 && (
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Общие характеристики установки</div>
+            <div className="text-2xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Общие характеристики установки</div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 rounded-lg border border-slate-150 dark:border-slate-800 p-2.5">
               {generalParams.map((p, i) => (
                 <div key={i} className="flex items-center gap-2 text-xs py-0.5 min-w-0">
@@ -582,7 +582,7 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
               ))}
             </div>
             {generalComp && (
-              <button onClick={() => onSelectBlock(generalComp!.id)} className="mt-1.5 text-[11px] text-emerald-600 hover:text-emerald-700 font-semibold cursor-pointer">
+              <button onClick={() => onSelectBlock(generalComp!.id)} className="mt-1.5 text-xs text-emerald-600 hover:text-emerald-700 font-semibold cursor-pointer">
                 Все параметры установки →
               </button>
             )}
@@ -592,7 +592,7 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
         {/* Чертёж: секции по ходу воздуха */}
         {flowSections.length > 0 && (
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5"><LayoutGrid className="w-3 h-3" />Схема установки</div>
+            <div className="text-2xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5"><LayoutGrid className="w-3 h-3" />Схема установки</div>
             <div className="flex items-stretch gap-1 overflow-x-auto pb-2 -mx-1 px-1">
               {flowSections.map((c, i) => {
                 const Icon = sectionIcon(c.equipType);
@@ -608,15 +608,15 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
                       <span className={`w-9 h-9 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center ${tint} group-hover:scale-105 transition-transform`}>
                         <Icon className="w-5 h-5" />
                       </span>
-                      <span className="text-[11px] font-bold leading-tight line-clamp-2 text-slate-700 dark:text-slate-200">{blockLabel(c)}</span>
+                      <span className="text-xs font-bold leading-tight line-clamp-2 text-slate-700 dark:text-slate-200">{blockLabel(c)}</span>
                       {preview.length > 0 && (
                         <div className="w-full space-y-0.5">
                           {preview.map((p, k) => (
-                            <div key={k} className="text-[10px] text-slate-400 leading-tight truncate">{p.value}{p.unit ? ` ${p.unit}` : ''}</div>
+                            <div key={k} className="text-2xs text-slate-400 leading-tight truncate">{p.value}{p.unit ? ` ${p.unit}` : ''}</div>
                           ))}
                         </div>
                       )}
-                      {c.hasConflict && <span className="text-[9px] font-bold text-rose-500">изменилось</span>}
+                      {c.hasConflict && <span className="text-2xs font-bold text-rose-500">изменилось</span>}
                     </button>
                   </React.Fragment>
                 );
@@ -627,7 +627,7 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
 
         {/* Список составных частей (сохраняем привычный список) */}
         <div>
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5 flex items-center gap-1.5"><List className="w-3 h-3" />Составные части</div>
+          <div className="text-2xs font-bold uppercase tracking-wider text-slate-400 mb-1.5 flex items-center gap-1.5"><List className="w-3 h-3" />Составные части</div>
           {monoSections.length === 0 && monoGenerals.length === 0 ? (
             <p className="text-xs text-slate-400">У этой установки нет составных частей.</p>
           ) : (
@@ -635,7 +635,7 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
               {monoSections.map(({ mono, sections }) => (
                 <div key={mono.id}>
                   {mono.name !== '__unit__' && (
-                    <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1.5"><Layers className="w-3 h-3" />{mono.name}</div>
+                    <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1.5"><Layers className="w-3 h-3" />{mono.name}</div>
                   )}
                   <div className="rounded-lg border border-slate-150 dark:border-slate-800 overflow-hidden divide-y divide-slate-100 dark:divide-slate-850">
                     {sections.map(c => {
@@ -700,22 +700,22 @@ function BlockCard(props: any) {
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             {onBackToUnit && (
-              <button onClick={onBackToUnit} className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-400 hover:text-emerald-600 cursor-pointer" title="Вернуться к схеме установки">
+              <button onClick={onBackToUnit} className="inline-flex items-center gap-1 text-2xs font-semibold text-slate-400 hover:text-emerald-600 cursor-pointer" title="Вернуться к схеме установки">
                 <LayoutGrid className="w-3 h-3" /> схема
               </button>
             )}
-            <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold uppercase tracking-wider">{comp.equipType}</span>
-            <span className="text-[10px] text-slate-400 font-mono">{unitName} · v{comp.version}</span>
+            <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-2xs font-bold uppercase tracking-wider">{comp.equipType}</span>
+            <span className="text-2xs text-slate-400 font-mono">{unitName} · v{comp.version}</span>
           </div>
           <h3 className="u-sel text-sm font-bold mt-1 truncate">{blockLabel(comp)}</h3>
           <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
             {(comp.tags || []).map((t: any) => (
-              <span key={t.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 text-[10px] text-emerald-700 dark:text-emerald-300">
+              <span key={t.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 text-2xs text-emerald-700 dark:text-emerald-300">
                 <TagIcon className="w-2.5 h-2.5" /><span className="u-sel">{t.identifier}</span>
                 <button onClick={() => onUnlinkTag(t.id)} className="hover:text-rose-500 cursor-pointer"><X className="w-2.5 h-2.5" /></button>
               </span>
             ))}
-            <button onClick={onPickTag} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-dashed border-slate-300 dark:border-slate-600 text-[10px] text-slate-500 hover:border-emerald-400 hover:text-emerald-600 cursor-pointer"><Plus className="w-2.5 h-2.5" />тег</button>
+            <button onClick={onPickTag} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-dashed border-slate-300 dark:border-slate-600 text-2xs text-slate-500 hover:border-emerald-400 hover:text-emerald-600 cursor-pointer"><Plus className="w-2.5 h-2.5" />тег</button>
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -744,7 +744,7 @@ function BlockCard(props: any) {
           return (
             <div key={g.title}>
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{g.title}</span>
+                <span className="text-2xs font-bold uppercase tracking-wider text-slate-400">{g.title}</span>
                 {showAllParams && (
                   <button onClick={() => toggleHidden(comp.equipType, `g:${g.title}`)} className="text-slate-300 hover:text-slate-500 cursor-pointer" title={groupHidden ? 'Показывать группу' : 'Скрыть группу'}>
                     {groupHidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
@@ -776,7 +776,7 @@ function BlockCard(props: any) {
                           </span>
                           {conf ? (
                             <span className="flex items-center gap-1 shrink-0">
-                              <span className="text-[10px] text-rose-500">→ {conf.newValue}</span>
+                              <span className="text-2xs text-rose-500">→ {conf.newValue}</span>
                               <button onClick={() => onResolve(comp, conf, 'accept')} className="p-0.5 text-emerald-600 hover:bg-emerald-100 dark:hover:bg-emerald-950 rounded cursor-pointer" title="Принять значение из расчёта"><Check className="w-3.5 h-3.5" /></button>
                               <button onClick={() => { setEditKey(token); setEditVal(conf.newValue); }} className="p-0.5 text-amber-600 hover:bg-amber-100 dark:hover:bg-amber-950 rounded cursor-pointer" title="Изменить вручную"><Pencil className="w-3.5 h-3.5" /></button>
                             </span>
@@ -846,7 +846,7 @@ function TagPickerModal({ tags, currentComponentId, onPick, onClose }: {
           className="w-full pl-8 pr-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs focus:outline-none focus:border-emerald-500 text-slate-800 dark:text-slate-100"
         />
       </div>
-      <p className="text-[10px] text-slate-400 mb-2">Один тег — одно изделие: занятые теги показаны серым, сначала отвяжите их на текущем месте.</p>
+      <p className="text-2xs text-slate-400 mb-2">Один тег — одно изделие: занятые теги показаны серым, сначала отвяжите их на текущем месте.</p>
       <div className="max-h-80 overflow-y-auto space-y-1">
         {tags.length === 0 ? (
           <p className="text-xs text-slate-400">В проекте нет тегов. Создайте их в разделе «Теги».</p>
@@ -871,9 +871,9 @@ function TagPickerModal({ tags, currentComponentId, onPick, onClose }: {
               <span className="font-mono font-bold shrink-0">{t.identifier}</span>
               {name && <span className="text-slate-400 truncate">{name}</span>}
               <span className="ml-auto flex items-center gap-1.5 shrink-0">
-                {t.department && <span className="text-[10px] text-slate-400">{t.department}</span>}
-                {linkedHere && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600">привязан</span>}
-                {holder && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-500" title={`Занят: ${holder.name || holder.itemCode}`}>занят · {holder.name || holder.itemCode}</span>}
+                {t.department && <span className="text-2xs text-slate-400">{t.department}</span>}
+                {linkedHere && <span className="text-2xs font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600">привязан</span>}
+                {holder && <span className="text-2xs font-bold px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-500" title={`Занят: ${holder.name || holder.itemCode}`}>занят · {holder.name || holder.itemCode}</span>}
               </span>
             </button>
           );
@@ -937,7 +937,7 @@ function SettingsModal({ onClose, categories, setCategories, isAdmin, visMode, s
             <button disabled={!isAdmin} onClick={() => switchVisMode('admin')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${visMode === 'admin' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'} ${!isAdmin ? 'opacity-50 cursor-not-allowed' : ''}`}>Админ (для всех)</button>
             <button onClick={() => switchVisMode('self')} className={`flex-1 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${visMode === 'self' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'}`}>Только для меня</button>
           </div>
-          <p className="text-[10px] text-slate-400 mt-1.5">Скрывать параметры удобно в карточке блока (значок «глаз» в режиме «показать все»). {visMode === 'admin' ? 'Сейчас изменения применяются ко всем.' : 'Сейчас изменения только для вас.'}</p>
+          <p className="text-2xs text-slate-400 mt-1.5">Скрывать параметры удобно в карточке блока (значок «глаз» в режиме «показать все»). {visMode === 'admin' ? 'Сейчас изменения применяются ко всем.' : 'Сейчас изменения только для вас.'}</p>
         </div>
 
         <div>

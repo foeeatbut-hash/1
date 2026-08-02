@@ -209,7 +209,7 @@ export default function Dashboard() {
               className="flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl border border-slate-150 dark:border-dark-border bg-slate-50 dark:bg-dark-surface/40 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 hover:border-emerald-400 transition-colors cursor-pointer"
             >
               <s.icon className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-              <span className="text-[11px] font-semibold text-slate-700 dark:text-dark-text-main text-center leading-tight">{s.name}</span>
+              <span className="text-xs font-semibold text-slate-700 dark:text-dark-text-main text-center leading-tight">{s.name}</span>
             </button>
           ))}
         </div>

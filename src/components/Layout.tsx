@@ -356,12 +356,15 @@ export default function Layout() {
         <div className="px-1.5 pt-3 pb-2 flex flex-col items-center gap-1 border-b border-slate-200 dark:border-dark-border">
           <FluxLogo size={30} />
           <h1 className="text-sm font-extrabold tracking-tight text-slate-900 dark:text-white leading-none">Flux</h1>
-          <p className="text-[9px] text-slate-500 dark:text-dark-text-muted text-center leading-tight line-clamp-2 px-1" title={activeProject?.name || 'Проект не выбран'}>
+          <p className="text-2xs text-slate-500 dark:text-dark-text-muted text-center leading-tight line-clamp-2 px-1" title={activeProject?.name || 'Проект не выбран'}>
             {activeProject?.name || 'Без проекта'}
           </p>
         </div>
-        <div className="flex-1 overflow-y-auto py-2 scrollbar-thin">
-          <nav className="flex flex-col gap-1 px-1.5">
+        <div className="flex-1 overflow-y-auto scrollbar-thin">
+          {/* Зазор минимальный: на ноутбуке 1366×768 все разделы должны
+              помещаться без прокрутки — прокручиваемое главное меню
+              прячет разделы и найти их нельзя. */}
+          <nav className="flex flex-col gap-0.5 px-1.5">
             {[...navItems, ...(user && user.role === 'ADMIN' ? [{ name: 'Сотрудники', path: '/users', icon: Users }] : [])].map((item) => {
               const active = wsActivePath === item.path;
               const chatGlow = item.path === '/chat' && chatUnread > 0 && !active;
@@ -376,7 +379,7 @@ export default function Layout() {
                   data-share-focus={`nav:${item.path}`}
                   data-share-label={item.name}
                   title={item.name}
-                  className={`relative flex flex-col items-center justify-center gap-1 py-2 rounded-xl transition-all cursor-pointer ${
+                  className={`relative flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-xl transition-all cursor-pointer ${
                     active
                       ? 'bg-emerald-600 text-white shadow-sm'
                       : chatGlow
@@ -385,9 +388,9 @@ export default function Layout() {
                   }`}
                 >
                   <item.icon className="w-5 h-5 shrink-0" />
-                  <span className="text-[10px] font-semibold leading-tight text-center break-words">{item.name}</span>
+                  <span className="text-2xs font-semibold leading-none text-center break-words px-0.5">{item.name}</span>
                   {item.path === '/chat' && chatUnread > 0 && (
-                    <span className="absolute top-1 right-2 min-w-4 h-4 px-1 rounded-full bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center">{chatUnread}</span>
+                    <span className="absolute top-1 right-2 min-w-4 h-4 px-1 rounded-full bg-emerald-500 text-white text-2xs font-bold flex items-center justify-center">{chatUnread}</span>
                   )}
                 </button>
               );
@@ -395,7 +398,7 @@ export default function Layout() {
           </nav>
         </div>
 
-        <div className="p-4 border-t border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-surface shrink-0 relative">
+        <div className="px-1.5 pt-2 pb-2.5 border-t border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-surface shrink-0 relative">
           {createPortal(
             <AnimatePresence>
             {isProfileMenuOpen && (
@@ -466,7 +469,7 @@ export default function Layout() {
             }`}
           >
             <Settings className="w-5 h-5 shrink-0" />
-            <span className="text-[10px] font-semibold leading-tight">Настройки</span>
+            <span className="text-2xs font-semibold leading-tight">Настройки</span>
           </button>
 
           {/* Interactive Profile Clickable Button (Trigger) */}
@@ -482,7 +485,7 @@ export default function Layout() {
             }`}
           >
             {renderAvatar(true)}
-            <span className="text-[10px] font-bold text-slate-850 dark:text-white leading-tight truncate max-w-full">{(user?.name || '').split(' ')[0] || 'Профиль'}</span>
+            <span className="text-2xs font-bold text-slate-850 dark:text-white leading-tight truncate max-w-full">{(user?.name || '').split(' ')[0] || 'Профиль'}</span>
           </button>
         </div>
       </aside>

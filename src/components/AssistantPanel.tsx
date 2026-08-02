@@ -54,16 +54,16 @@ function InteractiveList({ items }: { items: NonNullable<AssistantMessage['list'
           <div className="flex items-center gap-1.5 min-w-0">
             <TagIcon className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
             <span className="font-mono font-bold text-xs text-slate-800 dark:text-slate-100 truncate">{it.title}</span>
-            {it.badge && <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 uppercase tracking-wide">{it.badge}</span>}
+            {it.badge && <span className="shrink-0 text-2xs font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 uppercase tracking-wide">{it.badge}</span>}
           </div>
-          {it.subtitle && <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 pl-5 truncate">{it.subtitle}</div>}
+          {it.subtitle && <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 pl-5 truncate">{it.subtitle}</div>}
           <div className="flex flex-wrap gap-1.5 mt-1.5 pl-5">
             {it.actions.map((a, i) => <ActionChip key={i} a={a} />)}
           </div>
         </div>
       ))}
       {items.length > shown.length && (
-        <div className="text-[10px] text-slate-400 px-1">Показано {shown.length} из {items.length}.</div>
+        <div className="text-2xs text-slate-400 px-1">Показано {shown.length} из {items.length}.</div>
       )}
     </div>
   );
@@ -74,7 +74,7 @@ function DataTable({ table }: { table: NonNullable<AssistantMessage['table']> })
   return (
     <div className="mt-2 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
       <div className="max-h-60 overflow-auto">
-        <table className="w-full text-[11px] border-collapse">
+        <table className="w-full text-xs border-collapse">
           <thead className="sticky top-0">
             <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
               {table.columns.map((c, i) => (
@@ -94,7 +94,7 @@ function DataTable({ table }: { table: NonNullable<AssistantMessage['table']> })
         </table>
       </div>
       {table.rows.length > shown.length && (
-        <div className="px-2 py-1 text-[10px] text-slate-400 bg-slate-50 dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
+        <div className="px-2 py-1 text-2xs text-slate-400 bg-slate-50 dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
           Показано {shown.length} из {table.rows.length}. Выгрузите в Excel, чтобы увидеть всё.
         </div>
       )}
@@ -196,7 +196,7 @@ export default function AssistantPanel() {
           </div>
           <div>
             <div className="text-sm font-bold text-slate-900 dark:text-white leading-tight">Помощник Flux</div>
-            <div className="text-[10px] text-slate-400 dark:text-slate-500">Локальный · работает офлайн</div>
+            <div className="text-2xs text-slate-400 dark:text-slate-500">Локальный · работает офлайн</div>
           </div>
         </div>
         <button onClick={() => setOpen(false)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer transition-colors" title="Закрыть">
@@ -234,12 +234,12 @@ export default function AssistantPanel() {
       {section && demoMode && (
         <div className="px-3 pt-2 pb-1 border-t border-slate-100 dark:border-slate-850 shrink-0">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1">
+            <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1">
               <Info className="w-3 h-3" /> {section.emoji} Раздел: {section.title}
             </span>
             <button
               onClick={() => describeCurrentSection()}
-              className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+              className="text-2xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
             >
               Подробнее
             </button>
@@ -249,7 +249,7 @@ export default function AssistantPanel() {
               <button
                 key={i}
                 onClick={() => runSuggestion(s)}
-                className="flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-emerald-600/15 hover:text-emerald-700 dark:hover:text-emerald-300 text-slate-600 dark:text-slate-300 rounded-full text-[11px] font-medium cursor-pointer transition-colors"
+                className="flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-emerald-600/15 hover:text-emerald-700 dark:hover:text-emerald-300 text-slate-600 dark:text-slate-300 rounded-full text-xs font-medium cursor-pointer transition-colors"
               >
                 {s.kind === 'tour' ? <Play className="w-3 h-3" /> : <MessageCircleQuestion className="w-3 h-3" />}
                 {s.label}

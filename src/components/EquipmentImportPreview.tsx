@@ -176,8 +176,8 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
                         <input type="checkbox" checked={allOn} onChange={() => toggleSystem(sys, blocks)} className="w-3.5 h-3.5 accent-emerald-500 cursor-pointer" />
                         <span className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate flex-1" title={s?.title}>{sys}</span>
                         {s?.action === 'create'
-                          ? <span className="text-[10px] px-1 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 font-bold">новая</span>
-                          : <span className="text-[10px] px-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold" title={s?.matchedName ? `сопоставлена с «${s.matchedName}»` : ''}>есть</span>}
+                          ? <span className="text-2xs px-1 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 font-bold">новая</span>
+                          : <span className="text-2xs px-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold" title={s?.matchedName ? `сопоставлена с «${s.matchedName}»` : ''}>есть</span>}
                       </div>
                       {!collapsed[sys] && blocks.map(b => {
                         const ba = actionBadge(b.action);
@@ -189,7 +189,7 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
                             <span className="text-xs text-slate-700 dark:text-slate-300 truncate flex-1" title={b.title}>
                               {b.itemCode === '__unit__' ? '⚙ параметры установки' : b.title}
                             </span>
-                            <span className={`text-[10px] px-1 rounded font-bold ${ba.cls}`}>{ba.text}</span>
+                            <span className={`text-2xs px-1 rounded font-bold ${ba.cls}`}>{ba.text}</span>
                           </div>
                         );
                       })}
@@ -216,7 +216,7 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
                           return (
                             <tr key={i} className={p.warning ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}>
                               <td className="py-1.5 pr-2 text-slate-600 dark:text-slate-300">
-                                <span className="text-[10px] text-slate-400 block">{p.group}</span>{p.key}
+                                <span className="text-2xs text-slate-400 block">{p.group}</span>{p.key}
                               </td>
                               <td className="py-1.5 pr-2">
                                 <div className="flex items-center gap-1.5">
@@ -226,9 +226,9 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
                                     className={`w-full px-1.5 py-0.5 rounded border bg-transparent text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500 ${edited !== undefined ? 'border-emerald-400' : 'border-transparent hover:border-slate-200 dark:hover:border-slate-700'}`}
                                   />
                                   {p.status === 'changed' && edited === undefined && (
-                                    <span className="text-[10px] text-amber-600 whitespace-nowrap" title={`было: ${p.oldValue}`}>← {p.oldValue}</span>
+                                    <span className="text-2xs text-amber-600 whitespace-nowrap" title={`было: ${p.oldValue}`}>← {p.oldValue}</span>
                                   )}
-                                  {p.status === 'new' && <span className="text-[10px] text-emerald-500 shrink-0">нов.</span>}
+                                  {p.status === 'new' && <span className="text-2xs text-emerald-500 shrink-0">нов.</span>}
                                 </div>
                               </td>
                               <td className="py-1.5 pr-2 text-slate-500">{p.unit}</td>
@@ -242,7 +242,7 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
                       </tbody>
                     </table>
                     {active.params.some(p => p.warning) && (
-                      <div className="mt-3 text-[11px] text-amber-600 dark:text-amber-400 flex items-start gap-1.5">
+                      <div className="mt-3 text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1.5">
                         <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                         Значения с пометкой выходят за типовой диапазон — возможна ошибка распознавания. Исправьте прямо здесь до импорта.
                       </div>

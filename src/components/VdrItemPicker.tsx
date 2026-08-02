@@ -52,9 +52,9 @@ export default function VdrItemPicker({ projectId, title, onPick, onClose }: {
           {!busy && items.map(it => (
             <button key={it.id} onClick={() => onPick(it)}
               className="w-full text-left px-4 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 cursor-pointer">
-              <div className="text-xs font-bold text-slate-800 dark:text-white">{it.contractorNo || '—'} <span className="ml-1 text-indigo-500 font-semibold">{it.vdrCode}</span> <span className="ml-1 text-slate-400">рев. {it.revision}</span>{it.docId && <span className="ml-1.5 text-[10px] text-amber-600">уже связан с документом</span>}</div>
+              <div className="text-xs font-bold text-slate-800 dark:text-white">{it.contractorNo || '—'} <span className="ml-1 text-indigo-500 font-semibold">{it.vdrCode}</span> <span className="ml-1 text-slate-400">рев. {it.revision}</span>{it.docId && <span className="ml-1.5 text-2xs text-amber-600">уже связан с документом</span>}</div>
               <div className="text-xs text-slate-500 truncate">{it.titleRu || it.titleEn}</div>
-              {it.registerName && <div className="text-[10px] text-slate-400">{it.registerName}</div>}
+              {it.registerName && <div className="text-2xs text-slate-400">{it.registerName}</div>}
             </button>
           ))}
           {!busy && items.length === 0 && <div className="p-6 text-center text-xs text-slate-400">Не найдено</div>}

@@ -244,10 +244,10 @@ const TagSearchPanel = React.memo(function TagSearchPanel({
                   <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${st.text} bg-current`} title={`Актуальность: ${st.label}`} />
                   <span className="font-mono font-bold text-xs text-emerald-700 dark:text-emerald-400 truncate">{t.identifier}</span>
                   {dup && (
-                    <span className="shrink-0 text-[9px] font-bold px-1 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 uppercase">дубль</span>
+                    <span className="shrink-0 text-2xs font-bold px-1 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 uppercase">дубль</span>
                   )}
                   <span className="text-xs text-slate-500 dark:text-slate-400 truncate flex-1">{meta.mainName || ''}</span>
-                  {t.brand && <span className="font-mono text-[10px] text-slate-400 truncate max-w-[80px] shrink-0">{t.brand}</span>}
+                  {t.brand && <span className="font-mono text-2xs text-slate-400 truncate max-w-[80px] shrink-0">{t.brand}</span>}
                 </div>
               );
             })}
@@ -2962,7 +2962,7 @@ export default function Registry() {
               )}
 
               {/* Подсказка по управлению холстом (левый низ) */}
-              <div className="absolute bottom-3 left-3 z-30 text-[10px] text-slate-400 dark:text-slate-500 bg-white/70 dark:bg-slate-950/70 backdrop-blur px-2 py-1 rounded-lg border border-slate-200/60 dark:border-slate-800/60 pointer-events-none select-none">
+              <div className="absolute bottom-3 left-3 z-30 text-2xs text-slate-400 dark:text-slate-500 bg-white/70 dark:bg-slate-950/70 backdrop-blur px-2 py-1 rounded-lg border border-slate-200/60 dark:border-slate-800/60 pointer-events-none select-none">
                 ПКМ — двигать холст · колесо — масштаб · {linkMode === 'click'
                   ? <><Link2 className="w-2.5 h-2.5 inline -mt-0.5" /> на карточке — связать</>
                   : <>тяни от точек-портов — связать</>}
@@ -3302,7 +3302,7 @@ export default function Registry() {
                                 {tag.identifier}
                               </span>
                               {dup && (
-                                <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 uppercase tracking-wide" title="Дубликат кода тега">
+                                <span className="shrink-0 text-2xs font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 uppercase tracking-wide" title="Дубликат кода тега">
                                   дубль
                                 </span>
                               )}
@@ -3354,11 +3354,11 @@ export default function Registry() {
                           {/* Марка и актуальность */}
                           <div className="flex items-center gap-1.5 pl-5 mt-0.5 min-w-0">
                             {tag.brand && (
-                              <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 truncate max-w-[140px]" title={`Марка: ${tag.brand}`}>
+                              <span className="font-mono text-2xs font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 truncate max-w-[140px]" title={`Марка: ${tag.brand}`}>
                                 {tag.brand}
                               </span>
                             )}
-                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${statusVal.bg} ${statusVal.text} ${statusVal.border}`} title={`Актуальность: ${statusVal.label}`}>
+                            <span className={`text-2xs font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${statusVal.bg} ${statusVal.text} ${statusVal.border}`} title={`Актуальность: ${statusVal.label}`}>
                               {statusVal.label}
                             </span>
                           </div>
@@ -3381,17 +3381,17 @@ export default function Registry() {
                             {/* СВЯЗИ: родители и дочерние теги — добавить/снять в один клик */}
                             <div className="px-3.5 py-2.5 border-b border-slate-100 dark:border-slate-900 no-drag space-y-1.5 text-left">
                               <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Связи</span>
+                                <span className="text-2xs font-bold uppercase tracking-wider text-slate-400">Связи</span>
                                 <button
                                   onClick={(e) => { e.stopPropagation(); setLinkPicker(prev => prev?.tagId === tag.id ? null : { tagId: tag.id, search: '' }); }}
-                                  className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer"
+                                  className="text-2xs font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer"
                                 >
                                   + дочерний тег
                                 </button>
                               </div>
                               <div className="flex flex-wrap gap-1">
                                 {(incomingByTagId[tag.id] || []).map(pid => tagsById[pid] && (
-                                  <span key={`p-${pid}`} className="inline-flex items-center gap-1 pl-1.5 pr-0.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/50 text-[10px] font-bold text-indigo-700 dark:text-indigo-300" title={`Родитель: ${tagsById[pid].identifier}`}>
+                                  <span key={`p-${pid}`} className="inline-flex items-center gap-1 pl-1.5 pr-0.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/50 text-2xs font-bold text-indigo-700 dark:text-indigo-300" title={`Родитель: ${tagsById[pid].identifier}`}>
                                     ↑ <span className="font-mono truncate max-w-[110px]">{tagsById[pid].identifier}</span>
                                     <button onClick={(e) => { e.stopPropagation(); handleRemoveConnection(pid, tag.id); }} className="p-0.5 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900 hover:text-rose-500 cursor-pointer" title="Разорвать связь с родителем">
                                       <X className="w-2.5 h-2.5" />
@@ -3399,7 +3399,7 @@ export default function Registry() {
                                   </span>
                                 ))}
                                 {(meta.connections || []).map(cid => tagsById[cid] && (
-                                  <span key={`c-${cid}`} className="inline-flex items-center gap-1 pl-1.5 pr-0.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-[10px] font-bold text-emerald-700 dark:text-emerald-300" title={`Дочерний: ${tagsById[cid].identifier}`}>
+                                  <span key={`c-${cid}`} className="inline-flex items-center gap-1 pl-1.5 pr-0.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-2xs font-bold text-emerald-700 dark:text-emerald-300" title={`Дочерний: ${tagsById[cid].identifier}`}>
                                     ↓ <span className="font-mono truncate max-w-[110px]">{tagsById[cid].identifier}</span>
                                     <button onClick={(e) => { e.stopPropagation(); handleRemoveConnection(tag.id, cid); }} className="p-0.5 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900 hover:text-rose-500 cursor-pointer" title="Разорвать связь">
                                       <X className="w-2.5 h-2.5" />
@@ -3407,7 +3407,7 @@ export default function Registry() {
                                   </span>
                                 ))}
                                 {(incomingByTagId[tag.id] || []).length === 0 && (meta.connections || []).length === 0 && (
-                                  <span className="text-[10px] text-slate-400">Нет связей</span>
+                                  <span className="text-2xs text-slate-400">Нет связей</span>
                                 )}
                               </div>
                               {linkPicker?.tagId === tag.id && (
@@ -3440,7 +3440,7 @@ export default function Registry() {
 
                             {/* SUB-DESCRIPTIONS LIST (With full tracking timestamps and inline editing capability!) */}
                             <div className="p-3.5 space-y-2 max-h-[220px] overflow-y-auto no-drag">
-                              <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                              <div className="text-2xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
                                 Подописания ({meta.descriptions.length})
                               </div>
 
@@ -3671,11 +3671,11 @@ export default function Registry() {
             style={{ top: Math.min(cardMenu.y, window.innerHeight - 230), left: Math.min(cardMenu.x, window.innerWidth - 260) }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-slate-400 truncate font-mono">
+            <div className="px-3 py-1 text-2xs uppercase tracking-wider text-slate-400 truncate font-mono">
               {tagsById[cardMenu.tagId]?.identifier || 'Тег'}
               {selectedTagIds.size > 1 && <span className="ml-1 text-indigo-500">+{selectedTagIds.size - 1}</span>}
             </div>
-            <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-slate-400">Связи</div>
+            <div className="px-3 py-1 text-2xs uppercase tracking-wider text-slate-400">Связи</div>
             <button
               onClick={() => {
                 setSelectedTagIds(collectAncestors(cardMenu.tagId));
@@ -3749,7 +3749,7 @@ export default function Registry() {
             style={{ top: Math.min(cardPanel.y, window.innerHeight - 52), left: Math.min(cardPanel.x, window.innerWidth - 300) }}
             onClick={(e) => e.stopPropagation()}
           >
-            <span className="px-1.5 text-[10px] font-mono font-bold text-slate-400 max-w-[110px] truncate">
+            <span className="px-1.5 text-2xs font-mono font-bold text-slate-400 max-w-[110px] truncate">
               {tagsById[cardPanel.tagId]?.identifier}
             </span>
             <button
@@ -3829,10 +3829,10 @@ export default function Registry() {
             <div className="flex items-center justify-between px-3 py-2 bg-rose-50/80 dark:bg-rose-950/30 border-b border-rose-100 dark:border-rose-900/60">
               <div className="min-w-0">
                 <div className="text-xs font-bold text-rose-700 dark:text-rose-300 truncate">Дубли: {dupPanel.code}</div>
-                <div className="text-[10px] text-slate-400">колесо мыши — листать · Esc — закрыть</div>
+                <div className="text-2xs text-slate-400">колесо мыши — листать · Esc — закрыть</div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-                <span className="text-[10px] font-mono font-bold text-rose-600 dark:text-rose-400">
+                <span className="text-2xs font-mono font-bold text-rose-600 dark:text-rose-400">
                   {dupPanel.activeIdx + 1} / {dupPanel.ids.length}
                 </span>
                 <button
@@ -3864,7 +3864,7 @@ export default function Registry() {
                       <span className="font-mono font-bold text-slate-800 dark:text-slate-100">{i + 1}. {t.identifier}</span>
                       {isActive && <Eye className="w-3.5 h-3.5 text-rose-500 shrink-0" />}
                     </div>
-                    <div className="text-[10px] text-slate-400 truncate mt-0.5">
+                    <div className="text-2xs text-slate-400 truncate mt-0.5">
                       {m.mainName || 'Без наименования'} · {t.department || '—'}
                     </div>
                   </button>
@@ -5070,11 +5070,11 @@ export default function Registry() {
                       />
                       <Edit2 className="w-3.5 h-3.5 text-slate-500 group-focus-within/rename:text-emerald-400 shrink-0" />
                     </div>
-                    <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mt-0.5">Код и данные тега редактируются · сохраняются сами</p>
+                    <p className="text-2xs text-slate-400 uppercase tracking-wider font-semibold mt-0.5">Код и данные тега редактируются · сохраняются сами</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <span className={`flex items-center gap-1 text-[11px] font-semibold text-emerald-400 transition-opacity duration-300 ${savedFlash ? 'opacity-100' : 'opacity-0'}`}>
+                  <span className={`flex items-center gap-1 text-xs font-semibold text-emerald-400 transition-opacity duration-300 ${savedFlash ? 'opacity-100' : 'opacity-0'}`}>
                     <Check className="w-3.5 h-3.5" /> Сохранено
                   </span>
                   <button
@@ -5479,7 +5479,7 @@ export default function Registry() {
                   <Trash2 className="w-3.5 h-3.5" /> Удалить тег
                 </button>
                 <div className="flex items-center gap-3">
-                  <span className="text-[10px] text-slate-400">Изменения сохраняются автоматически</span>
+                  <span className="text-2xs text-slate-400">Изменения сохраняются автоматически</span>
                   <button
                     onClick={() => { setEditingTag(null); loadTags(); }}
                     className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-semibold cursor-pointer border-none"
@@ -5724,7 +5724,7 @@ export default function Registry() {
               <div className="flex items-center gap-2">
                 <span className="font-mono font-bold text-slate-800 dark:text-slate-100 text-sm select-all">{node.identifier}</span>
                 {duplicateCodes.has((node.identifier || '').trim()) && (
-                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 uppercase tracking-wide shrink-0" title="Дубликат кода тега">дубль</span>
+                  <span className="text-2xs font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 uppercase tracking-wide shrink-0" title="Дубликат кода тега">дубль</span>
                 )}
                 <span className="text-xs bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded-full border border-slate-200/60 dark:border-slate-800 font-semibold shrink-0">
                   {node.department || 'Комплексный'}
@@ -5850,7 +5850,7 @@ function TagVdrDocs({ identifier, projectId }: { identifier: string; projectId: 
   const stLabel: Record<string, string> = { DRAFT: 'в работе', READY: 'готово', REMARKS: 'замечания', ACCEPTED: 'принят' };
   return (
     <div className="px-4 pb-3">
-      <div className="text-[10px] font-bold uppercase tracking-wide text-indigo-500 mb-1.5">Документы (ВДР) — {docs.length}</div>
+      <div className="text-2xs font-bold uppercase tracking-wide text-indigo-500 mb-1.5">Документы (ВДР) — {docs.length}</div>
       <div className="border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-850 max-h-40 overflow-auto">
         {docs.map((d: any) => (
           <button key={d.id}

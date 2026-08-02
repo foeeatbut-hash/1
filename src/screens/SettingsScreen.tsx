@@ -95,7 +95,7 @@ export default function SettingsScreen() {
                 <Icon className={`w-4.5 h-4.5 mt-0.5 shrink-0 ${active ? 'text-white' : 'text-emerald-600 dark:text-emerald-400'}`} />
                 <span className="min-w-0">
                   <span className="block text-sm font-semibold leading-tight">{s.label}</span>
-                  <span className={`block text-[11px] leading-tight mt-0.5 truncate ${active ? 'text-emerald-100' : 'text-slate-400'}`}>{s.desc}</span>
+                  <span className={`block text-xs leading-tight mt-0.5 truncate ${active ? 'text-emerald-100' : 'text-slate-400'}`}>{s.desc}</span>
                 </span>
               </button>
             );
@@ -172,7 +172,7 @@ function GeneralSection({ theme, toggleTheme }: any) {
             <div className="min-w-0">
               <div className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
                 Flux
-                <span className="font-mono text-[11px] font-normal text-slate-400 dark:text-slate-500">v{__APP_VERSION__}</span>
+                <span className="font-mono text-xs font-normal text-slate-400 dark:text-slate-500">v{__APP_VERSION__}</span>
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 Разработка <span className="font-semibold text-slate-600 dark:text-slate-300">Раупова Хусрава</span>
@@ -321,7 +321,7 @@ function RuleListInput({ label, hint, values, onChange, disabled }: {
 }) {
   return (
     <div className="space-y-1">
-      <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">{label}</label>
+      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">{label}</label>
       <input
         disabled={disabled}
         defaultValue={values.join(', ')}
@@ -498,7 +498,7 @@ function ManagementSection({ isAdmin, addToast }: any) {
                 disabled={!isAdmin}
               />
             </div>
-            <p className="text-[10px] text-slate-400 leading-relaxed">
+            <p className="text-2xs text-slate-400 leading-relaxed">
               Шаблон применится к тегу, если совпало хотя бы одно правило. Приоритет: назначение вручную →
               обозначение → тип оборудования → категория установки → отдел. Назначить шаблон конкретным
               тегам вручную можно в разделе «Менеджмент» (выделите позиции → «Шаблон этапов»).
@@ -607,7 +607,7 @@ function BackupSection({ isAdmin, addToast }: any) {
               </button>
             )}
           </div>
-          <div className="text-[11px] text-slate-400 leading-relaxed">
+          <div className="text-xs text-slate-400 leading-relaxed">
             Внутри каждого архива: <span className="font-mono">database.sqlite</span> (вся база),
             папка <span className="font-mono">Проводник</span> (файлы как есть, по проектам и папкам),
             папка <span className="font-mono">Данные</span> (Excel-книги: теги, закупки, оборудование).
@@ -650,7 +650,7 @@ function BackupSection({ isAdmin, addToast }: any) {
               className="flex-1 px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono"
             />
           </div>
-          <p className="text-[10px] text-amber-600 dark:text-amber-400">
+          <p className="text-2xs text-amber-600 dark:text-amber-400">
             Совет: укажите папку на другом диске или сетевом хранилище — тогда архив переживёт даже поломку диска с программой.
           </p>
         </div>
@@ -951,7 +951,7 @@ function DatabaseSection({ addToast }: any) {
 
         {dbType === 'LOCAL' ? (
           <div className="space-y-2">
-            <p className="font-mono text-[11px] text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 p-2.5 border border-slate-200 dark:border-slate-800 rounded-lg select-all break-all" title={dbLocation}>
+            <p className="font-mono text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 p-2.5 border border-slate-200 dark:border-slate-800 rounded-lg select-all break-all" title={dbLocation}>
               {dbDisplayLocation || 'database.sqlite'}
             </p>
             <div className="grid grid-cols-2 gap-2">
@@ -971,7 +971,7 @@ function DatabaseSection({ addToast }: any) {
               placeholder="mysql://user:password@host:3306/flux или postgresql://user:password@host:5432/flux"
               className="w-full font-mono text-xs bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 p-2.5 border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:border-emerald-500"
             />
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">MariaDB/MySQL — адрес mysql://…, PostgreSQL — postgresql://…</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">MariaDB/MySQL — адрес mysql://…, PostgreSQL — postgresql://…</p>
             <div className="grid grid-cols-2 gap-2">
               <button disabled={isTesting} onClick={handleTest} className="py-2 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer disabled:opacity-50">
                 {isTesting ? 'Проверка…' : 'Тестировать'}
@@ -994,7 +994,7 @@ function DatabaseSection({ addToast }: any) {
             <button disabled={isSyncing} onClick={handleSyncSchema} className="w-full py-2.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer disabled:opacity-50">
               {isSyncing ? 'Проверка…' : 'Проверить / обновить структуру базы'}
             </button>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">Достраивает недостающие таблицы и колонки в общей базе после обновления программы. Обычно выполняется автоматически при запуске.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Достраивает недостающие таблицы и колонки в общей базе после обновления программы. Обычно выполняется автоматически при запуске.</p>
           </div>
         )}
       </div>
@@ -1046,7 +1046,7 @@ function CrashLogsSection({ addLog }: any) {
   return (
     <SectionShell title="Crash-логи" desc="Папка, куда программа записывает аварийные журналы при закрытии. В журнале видно каждый клик и запрос — по нему легко найти причину ошибки.">
       <div className="max-w-lg space-y-2">
-        <p className="font-mono text-[11px] text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 p-2.5 border border-slate-200 dark:border-slate-800 rounded-lg select-all break-all">
+        <p className="font-mono text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 p-2.5 border border-slate-200 dark:border-slate-800 rounded-lg select-all break-all">
           {crashLogDir || 'AppData/pdm-app/logs (по умолчанию)'}
         </p>
         <div className="grid grid-cols-2 gap-2">
@@ -1154,12 +1154,12 @@ function DocflowSection({ isAdmin, addToast }: any) {
                   <option value="revise">замечания</option>
                 </select>
                 <input type="number" value={c.deadlineDays ?? ''} onChange={e => upd('reviewCodes', i, 'deadlineDays', Number(e.target.value) || 0)} className={inp + ' w-16 text-center'} title="Срок новой ревизии, дней" />
-                <span className="text-[10px] text-slate-400">дн.</span>
+                <span className="text-2xs text-slate-400">дн.</span>
                 <button onClick={() => delRow('reviewCodes', i)} className="p-1 text-slate-300 hover:text-rose-500 cursor-pointer"><X className="w-3 h-3" /></button>
               </div>
             ))}
           </div>
-          <button onClick={() => addRow('reviewCodes', { code: '', label: '', action: 'revise', deadlineDays: 7 })} className="mt-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-700 cursor-pointer">+ код</button>
+          <button onClick={() => addRow('reviewCodes', { code: '', label: '', action: 'revise', deadlineDays: 7 })} className="mt-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-700 cursor-pointer">+ код</button>
         </div>
 
         {/* Причины выпуска */}
@@ -1178,7 +1178,7 @@ function DocflowSection({ isAdmin, addToast }: any) {
               </div>
             ))}
           </div>
-          <button onClick={() => addRow('reasons', { code: '', label: '', revKind: 'letter' })} className="mt-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-700 cursor-pointer">+ причина</button>
+          <button onClick={() => addRow('reasons', { code: '', label: '', revKind: 'letter' })} className="mt-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-700 cursor-pointer">+ причина</button>
         </div>
 
         {/* Маски и спец-ревизии */}
@@ -1214,7 +1214,7 @@ function DocflowSection({ isAdmin, addToast }: any) {
               </div>
             ))}
           </div>
-          <button onClick={() => addRow('vdrTypes', { code: '', titleEn: '', titleRu: '' })} className="mt-1.5 text-[11px] font-bold text-indigo-600 hover:text-indigo-700 cursor-pointer">+ тип</button>
+          <button onClick={() => addRow('vdrTypes', { code: '', titleEn: '', titleRu: '' })} className="mt-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-700 cursor-pointer">+ тип</button>
         </div>
 
         <button onClick={save} disabled={busy} className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">

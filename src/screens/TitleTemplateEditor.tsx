@@ -146,7 +146,7 @@ export default function TitleTemplateEditor({ docId, onClose }: { docId: string;
           onBlur={(e) => { const v = e.target.value.trim(); if (v) fetch(`/api/constructor/docs/${docId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: v }) }); }}
           className="font-bold text-slate-800 dark:text-white bg-transparent border-b border-transparent hover:border-slate-300 focus:border-emerald-500 focus:outline-none px-1 py-0.5 min-w-40 max-w-md"
         />
-        <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[11px] font-bold">Шаблон титула</span>
+        <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-xs font-bold">Шаблон титула</span>
         <div className="flex-1" />
         {/* Форматирование */}
         <div className="flex items-center gap-0.5">
@@ -181,7 +181,7 @@ export default function TitleTemplateEditor({ docId, onClose }: { docId: string;
           <div className="w-60 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-y-auto p-3 space-y-3">
             {Object.entries(grouped).map(([group, fields]) => (
               <div key={group}>
-                <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1">{group}</div>
+                <div className="text-2xs font-bold uppercase tracking-wide text-slate-400 mb-1">{group}</div>
                 <div className="flex flex-wrap gap-1.5">
                   {fields.map((f) => (
                     <button key={f.key} onMouseDown={(e) => { e.preventDefault(); insertHtmlAtCaret(fieldChipHtml(f.key)); }}
@@ -203,7 +203,7 @@ export default function TitleTemplateEditor({ docId, onClose }: { docId: string;
                 <div className="mt-2 space-y-1.5">
                   <textarea value={fxExpr} onChange={(e) => setFxExpr(e.target.value)} rows={2}
                     className="w-full px-2 py-1.5 text-xs font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500" />
-                  <p className="text-[10px] text-slate-400 font-mono leading-tight">project.code &amp; "-" &amp; doc.revision</p>
+                  <p className="text-2xs text-slate-400 font-mono leading-tight">project.code &amp; "-" &amp; doc.revision</p>
                   <button onMouseDown={(e) => { e.preventDefault(); insertHtmlAtCaret(formulaChipHtml(fxExpr)); }}
                     className="w-full px-2 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer">Вставить в титул</button>
                 </div>

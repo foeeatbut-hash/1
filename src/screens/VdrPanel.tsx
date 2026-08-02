@@ -368,7 +368,7 @@ export default function VdrPanel() {
                 </tbody>
               </table>
             </div>
-            <div className="px-3 py-2 text-[11px] text-slate-400 bg-slate-50 dark:bg-slate-900 border-t border-slate-100 dark:border-slate-850">
+            <div className="px-3 py-2 text-xs text-slate-400 bg-slate-50 dark:bg-slate-900 border-t border-slate-100 dark:border-slate-850">
               {filtered.length} из {items.length} строк {register.poNumber ? `· Заказ ${register.poNumber}` : ''} {register.vendor ? `· ${register.vendor}` : ''} {standard ? `· Стандарт: ${standard.name}` : ''}
             </div>
           </div>
@@ -469,12 +469,12 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
   const inputCls = 'w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500';
   const F = ({ label, k, ph }: { label: string; k: keyof Item; ph?: string }) => (
     <div>
-      <label className="block text-[11px] font-bold text-slate-500 uppercase">{label}</label>
+      <label className="block text-xs font-bold text-slate-500 uppercase">{label}</label>
       <input value={String(f[k] ?? '')} onChange={e => setF(s => ({ ...s, [k]: e.target.value }))} placeholder={ph} className={inputCls} />
     </div>
   );
   const Sect = ({ title }: { title: string }) => (
-    <div className="pt-2 mt-1 border-t border-slate-100 dark:border-slate-850 text-[10px] font-bold uppercase tracking-wide text-indigo-500">{title}</div>
+    <div className="pt-2 mt-1 border-t border-slate-100 dark:border-slate-850 text-2xs font-bold uppercase tracking-wide text-indigo-500">{title}</div>
   );
 
   return (
@@ -482,7 +482,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
       <div className="w-[520px] max-w-[94vw] h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <span className="font-bold text-slate-800 dark:text-white truncate flex-1">{isNew ? 'Новая строка' : (f.contractorNo || f.titleRu || 'Строка реестра')}</span>
-          {!isNew && <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${STATUS_META[f.status]?.cls || ''}`}>{STATUS_META[f.status]?.label || f.status}</span>}
+          {!isNew && <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${STATUS_META[f.status]?.cls || ''}`}>{STATUS_META[f.status]?.label || f.status}</span>}
           <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
         </div>
 
@@ -511,7 +511,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
             <F label="№ заказчика" k="ownerNo" />
             <F label="№ поставщика" k="vendorNo" />
             <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase">Тип (VDR-код)</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase">Тип (VDR-код)</label>
               <input list="vdr-types" value={f.vdrCode} onChange={e => setF(s => ({ ...s, vdrCode: e.target.value }))} className={inputCls} />
               <datalist id="vdr-types">
                 {(standard?.config?.vdrTypes || []).map((t: any) => <option key={t.code} value={t.code}>{t.titleRu || t.titleEn}</option>)}
@@ -523,7 +523,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
           <div className="grid grid-cols-3 gap-2.5">
             <F label="Ревизия" k="revision" />
             <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase">Причина</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase">Причина</label>
               <select value={f.reasonForIssue} onChange={e => setF(s => ({ ...s, reasonForIssue: e.target.value }))} className={inputCls + ' cursor-pointer'}>
                 <option value="">—</option>
                 {reasons.map((r: any) => <option key={r.code} value={r.code}>{r.code}</option>)}
@@ -534,11 +534,11 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
           </div>
           <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase">Дата выпуска</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase">Дата выпуска</label>
               <input type="date" value={f.issueDate ? String(f.issueDate).slice(0, 10) : ''} onChange={e => setF(s => ({ ...s, issueDate: e.target.value || null }))} className={inputCls} />
             </div>
             <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase">Срок след. ревизии</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase">Срок след. ревизии</label>
               <input type="date" value={f.dueDate ? String(f.dueDate).slice(0, 10) : ''} onChange={e => setF(s => ({ ...s, dueDate: e.target.value || null }))} className={inputCls} />
             </div>
           </div>
@@ -546,14 +546,14 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
           <Sect title="Рассмотрение" />
           <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase" title="Код заказчика: статус и срок проставятся сами по стандарту">Код рассмотрения</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase" title="Код заказчика: статус и срок проставятся сами по стандарту">Код рассмотрения</label>
               <select value={f.reviewCode} onChange={e => setReviewCode(e.target.value)} className={inputCls + ' cursor-pointer'}>
                 <option value="">—</option>
                 {reviewCodes.map((c: any) => <option key={c.code} value={c.code} title={c.label}>{c.code} — {String(c.label).split('/')[0].trim()}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase">Исполнитель</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase">Исполнитель</label>
               <select value={f.assigneeId || ''} onChange={e => setF(s => ({ ...s, assigneeId: e.target.value || null }))} className={inputCls + ' cursor-pointer'}>
                 <option value="">—</option>
                 {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -561,7 +561,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
             </div>
           </div>
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase">Замечания</label>
+            <label className="block text-xs font-bold text-slate-500 uppercase">Замечания</label>
             <textarea value={f.remarks} onChange={e => setF(s => ({ ...s, remarks: e.target.value }))} rows={2} className={inputCls} />
           </div>
           {f.fileNodeId && (
@@ -601,7 +601,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
               <div className="grid grid-cols-2 gap-2.5">
                 {customCols.map(c => (
                   <div key={c.key}>
-                    <label className="block text-[11px] font-bold text-slate-500 uppercase truncate" title={`${c.title}\n${c.titleRu || ''}`}>{c.titleRu || c.title || c.key}</label>
+                    <label className="block text-xs font-bold text-slate-500 uppercase truncate" title={`${c.title}\n${c.titleRu || ''}`}>{c.titleRu || c.title || c.key}</label>
                     <input value={String(f.extra?.[c.key] ?? '')}
                       onChange={e => setF(s => ({ ...s, extra: { ...s.extra, [c.key]: e.target.value } }))}
                       className={inputCls} />
@@ -627,8 +627,8 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
                 </div>
               )}
               <div className="flex gap-2">
-                <button onClick={() => setRevDialog('void')} className="px-2.5 py-1 rounded-lg border border-rose-200 dark:border-rose-900 text-rose-600 text-[11px] font-bold hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer">Аннулировать (V)</button>
-                <button onClick={() => setRevDialog('superseded')} className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-500 text-[11px] font-bold hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Заменён (S)</button>
+                <button onClick={() => setRevDialog('void')} className="px-2.5 py-1 rounded-lg border border-rose-200 dark:border-rose-900 text-rose-600 text-xs font-bold hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer">Аннулировать (V)</button>
+                <button onClick={() => setRevDialog('superseded')} className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-500 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Заменён (S)</button>
               </div>
             </>
           )}
@@ -696,7 +696,7 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
   const inputCls = 'w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500';
   const F = ({ label, k }: { label: string; k: string }) => (
     <div>
-      <label className="block text-[11px] font-bold text-slate-500 uppercase">{label}</label>
+      <label className="block text-xs font-bold text-slate-500 uppercase">{label}</label>
       <input value={String(f[k] ?? '')} onChange={e => setF((s: any) => ({ ...s, [k]: e.target.value }))} className={inputCls} />
     </div>
   );
@@ -711,7 +711,7 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
         <div className="grid grid-cols-2 gap-2.5">
           <F label="Название реестра" k="name" />
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase">Стандарт документооборота</label>
+            <label className="block text-xs font-bold text-slate-500 uppercase">Стандарт документооборота</label>
             <select value={f.standardId || ''} onChange={e => setF((s: any) => ({ ...s, standardId: e.target.value || null }))} className={inputCls + ' cursor-pointer'}>
               <option value="">— по умолчанию —</option>
               {standards.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -729,7 +729,7 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
           <F label="№ ВДР (заказчик)" k="ownerDocNo" />
           <F label="№ ВДР (поставщик)" k="vendorDocNo" />
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase">Менеджер (уведомления «готово»)</label>
+            <label className="block text-xs font-bold text-slate-500 uppercase">Менеджер (уведомления «готово»)</label>
             <select value={f.managerId || ''} onChange={e => setF((s: any) => ({ ...s, managerId: e.target.value || null }))} className={inputCls + ' cursor-pointer'}>
               <option value="">—</option>
               {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -741,10 +741,10 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
         </div>
 
         <div className="pt-2 border-t border-slate-100 dark:border-slate-850">
-          <div className="text-[11px] font-bold uppercase tracking-wide text-indigo-500 mb-1.5">Свои колонки реестра ({cols.filter(c => !c.field).length} доп. / {cols.length} всего)</div>
+          <div className="text-xs font-bold uppercase tracking-wide text-indigo-500 mb-1.5">Свои колонки реестра ({cols.filter(c => !c.field).length} доп. / {cols.length} всего)</div>
           <div className="flex flex-wrap gap-1.5 mb-2 max-h-28 overflow-auto">
             {cols.filter(c => !c.field).map(c => (
-              <span key={c.key} className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-semibold">
+              <span key={c.key} className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold">
                 {c.titleRu || c.title || c.key}
                 {c.source === 'custom' && (
                   <button onClick={() => setCols(cs => cs.filter(x => x.key !== c.key))} className="hover:text-rose-500 cursor-pointer"><X className="w-3 h-3" /></button>

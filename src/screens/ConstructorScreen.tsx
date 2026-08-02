@@ -257,7 +257,7 @@ function DataWizard({ projectId, onInsert, onClose }: {
                         {(f as any).alias && <span className="text-indigo-500" title="Объединённое поле (алиас)">⚭</span>}
                         {f.title}
                       </span>
-                      {(f as any).note && <span className="text-[11px] text-slate-400 ml-auto shrink-0">{(f as any).note}</span>}
+                      {(f as any).note && <span className="text-xs text-slate-400 ml-auto shrink-0">{(f as any).note}</span>}
                     </label>
                   );
                 })}
@@ -309,7 +309,7 @@ function DataWizard({ projectId, onInsert, onClose }: {
                       ))}
                     </tbody>
                   </table>
-                  <div className="px-3 py-2 text-[11px] text-slate-400 bg-slate-50 dark:bg-slate-850 sticky bottom-0">
+                  <div className="px-3 py-2 text-xs text-slate-400 bg-slate-50 dark:bg-slate-850 sticky bottom-0">
                     Показаны первые {preview.rows.length} из {preview.total} строк — вставятся все
                   </div>
                 </div>
@@ -1081,16 +1081,16 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
             <div className="flex -space-x-1.5">
               {peers.slice(0, 5).map(pp => (
                 <div key={pp.socketId}
-                  className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black text-white ring-2 ring-white dark:ring-slate-900"
+                  className="w-6 h-6 rounded-full flex items-center justify-center text-2xs font-black text-white ring-2 ring-white dark:ring-slate-900"
                   style={{ background: pp.color }} title={pp.name}>
                   {pp.name.trim().charAt(0).toUpperCase()}
                 </div>
               ))}
               {peers.length > 5 && (
-                <div className="w-6 h-6 rounded-full bg-slate-400 text-white text-[10px] font-black flex items-center justify-center ring-2 ring-white dark:ring-slate-900">+{peers.length - 5}</div>
+                <div className="w-6 h-6 rounded-full bg-slate-400 text-white text-2xs font-black flex items-center justify-center ring-2 ring-white dark:ring-slate-900">+{peers.length - 5}</div>
               )}
             </div>
-            <span className="ml-2 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">✏️ {peers.length + 1} в документе</span>
+            <span className="ml-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400">✏️ {peers.length + 1} в документе</span>
           </div>
         )}
         <button onClick={() => setWizardOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer">
@@ -1141,7 +1141,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         <button onClick={exportToExplorer} title="Сохранить XLSX в Проводник программы" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
           <FolderOpen className="w-3.5 h-3.5" /> В Проводник
         </button>
-        <span className="text-[11px] text-slate-400 w-24 text-right">
+        <span className="text-xs text-slate-400 w-24 text-right">
           {saveState === 'saving' ? 'сохраняю…' : saveState === 'saved' ? `сохранено` : ''}
         </span>
       </div>
@@ -1153,7 +1153,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         {peerRects.map(r => (
           <div key={r.key} className="absolute pointer-events-none z-20"
             style={{ left: r.left, top: r.top, width: r.width, height: r.height, border: `2px solid ${r.color}` }}>
-            <span className="absolute -top-5 left-0 px-1.5 py-0.5 rounded text-[10px] font-bold text-white whitespace-nowrap shadow-sm"
+            <span className="absolute -top-5 left-0 px-1.5 py-0.5 rounded text-2xs font-bold text-white whitespace-nowrap shadow-sm"
               style={{ background: r.color }}>{r.name}</span>
           </div>
         ))}
@@ -1187,7 +1187,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
             <div className="flex items-center gap-2">
               <button
                 onClick={async () => { await makeVersion('ручное сохранение'); await loadVersions(); addToast('Версия сохранена', 'success'); }}
-                className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer flex items-center gap-1">
+                className="text-xs font-bold px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer flex items-center gap-1">
                 <History className="w-3 h-3" /> Сохранить версию
               </button>
               <button onClick={() => setVersionsOpen(false)} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
@@ -1196,13 +1196,13 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           <div className="max-h-80 overflow-auto divide-y divide-slate-100 dark:divide-slate-850">
             {versions.map(v => (
               <div key={v.id} className="px-4 py-2.5 flex items-center gap-3">
-                <div className="w-9 h-6 shrink-0 rounded bg-slate-100 dark:bg-slate-850 flex items-center justify-center text-[11px] font-bold text-slate-500">в{v.version}</div>
+                <div className="w-9 h-6 shrink-0 rounded bg-slate-100 dark:bg-slate-850 flex items-center justify-center text-xs font-bold text-slate-500">в{v.version}</div>
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{v.comment || 'без комментария'}</div>
-                  <div className="text-[10px] text-slate-400">{fmtDate(v.createdAt)}</div>
+                  <div className="text-2xs text-slate-400">{fmtDate(v.createdAt)}</div>
                 </div>
                 <button onClick={() => restoreVersion(v)} title="Восстановить эту версию"
-                  className="text-[11px] font-bold px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 hover:text-emerald-700 cursor-pointer">
+                  className="text-xs font-bold px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 hover:text-emerald-700 cursor-pointer">
                   Восстановить
                 </button>
               </div>
@@ -1224,7 +1224,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
             <span className="text-sm font-bold text-slate-800 dark:text-white">Умные блоки</span>
             <div className="flex items-center gap-2">
               <button onClick={refreshAll} disabled={refreshingIds.length > 0}
-                className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white cursor-pointer flex items-center gap-1">
+                className="text-xs font-bold px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white cursor-pointer flex items-center gap-1">
                 <RefreshCw className={`w-3 h-3 ${refreshingIds.length ? 'animate-spin' : ''}`} /> Обновить все
               </button>
               <button onClick={() => setBlocksOpen(false)} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
@@ -1238,7 +1238,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
                     {b.name}
                     {staleMap[b.id] && <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" title="Данные проекта изменились" />}
                   </div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">
+                  <div className="text-xs text-slate-400 mt-0.5">
                     {b.rows.length} строк · обновлено {fmtDate(b.state.lastRefreshAt)}
                     {Object.keys(b.overrides).length > 0 && ` · правок: ${Object.keys(b.overrides).length}`}
                   </div>
@@ -1274,8 +1274,8 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
                     <span className="text-slate-400">против</span>
                     <span className="px-2 py-1 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 font-mono text-xs">из проекта: {String(item.liveValue)}</span>
                     <div className="flex-1" />
-                    <button onClick={() => resolveConflict(item, 'mine')} className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Моё</button>
-                    <button onClick={() => resolveConflict(item, 'live')} className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer">Из проекта</button>
+                    <button onClick={() => resolveConflict(item, 'mine')} className="text-xs font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Моё</button>
+                    <button onClick={() => resolveConflict(item, 'live')} className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer">Из проекта</button>
                   </div>
                 </div>
               ))}
@@ -1501,7 +1501,7 @@ export default function ConstructorScreen() {
         {d.scope === 'PERSONAL' && <Lock className="w-3 h-3 text-slate-400 shrink-0" />}
         <span className="truncate">{d.name}</span>
       </div>
-      <div className="mt-1 text-[11px] text-slate-400 flex items-center gap-2">
+      <div className="mt-1 text-xs text-slate-400 flex items-center gap-2">
         <span>{fmtDate(d.updatedAt)}</span>
         {d.kind === 'TEMPLATE' && <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-bold">ШАБЛОН</span>}
         {d.kind === 'TITLE' && <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-bold">ТИТУЛ</span>}
@@ -1510,7 +1510,7 @@ export default function ConstructorScreen() {
       {d.kind === 'TEMPLATE' && !inTrash && (
         <button
           onClick={e => { e.stopPropagation(); createFromTemplate(d); }}
-          className="mt-2.5 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold cursor-pointer">
+          className="mt-2.5 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer">
           <Plus className="w-3 h-3" /> Создать документ
         </button>
       )}

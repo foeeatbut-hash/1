@@ -538,13 +538,13 @@ function ProcurementTab() {
             )}
             <span className="font-mono font-bold text-xs text-slate-900 dark:text-white select-all">{row.tag.identifier}</span>
             {row.isDup && (
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 uppercase" title="Дубликат кода тега">дубль</span>
+              <span className="text-2xs font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 uppercase" title="Дубликат кода тега">дубль</span>
             )}
           </div>
           <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 max-w-[220px] truncate" title={row.name} style={treeLevel !== null ? { paddingLeft: `${treeLevel * 22 + 18}px` } : undefined}>
             {row.name || <span className="italic opacity-60">Без наименования</span>}
           </div>
-          <div className="text-[10px] text-slate-400 font-mono mt-0.5" style={treeLevel !== null ? { paddingLeft: `${treeLevel * 22 + 18}px` } : undefined}>
+          <div className="text-2xs text-slate-400 font-mono mt-0.5" style={treeLevel !== null ? { paddingLeft: `${treeLevel * 22 + 18}px` } : undefined}>
             {row.tag.department || '—'} · добавлен {fmtDate(row.tag.createdAt)}
           </div>
         </td>
@@ -560,7 +560,7 @@ function ProcurementTab() {
 
         {/* Актуальность */}
         <td className="px-4 py-3 align-top">
-          <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full border ${act.cls}`}>
+          <span className={`inline-flex items-center gap-1 text-2xs font-bold px-2 py-1 rounded-full border ${act.cls}`}>
             {(row.actuality === 'critical' || row.actuality === 'warning') && <AlertTriangle className="w-3 h-3" />}
             {act.label}
           </span>
@@ -591,7 +591,7 @@ function ProcurementTab() {
               );
             })}
           </div>
-          <div className="text-[10px] font-bold mt-1 text-slate-500 dark:text-slate-400">
+          <div className="text-2xs font-bold mt-1 text-slate-500 dark:text-slate-400">
             {row.stages[row.stageIdx]?.label || '—'}
             {row.template && (
               <span
@@ -606,7 +606,7 @@ function ProcurementTab() {
 
         {/* Даты этапов */}
         <td className="px-4 py-3 align-top">
-          <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 space-y-0.5 leading-tight">
+          <div className="text-2xs font-mono text-slate-500 dark:text-slate-400 space-y-0.5 leading-tight">
             {row.stages.slice(1).map(s => {
               const rec = row.proc.stageLog?.[s.id];
               const c = stageColor(s.color);
@@ -756,7 +756,7 @@ function ProcurementTab() {
               </div>
               <div className="text-xs font-bold mt-1 text-slate-400 truncate">
                 {s.label}
-                {templateName && <span className="ml-1 text-[9px] text-indigo-400 font-semibold">· {templateName}</span>}
+                {templateName && <span className="ml-1 text-2xs text-indigo-400 font-semibold">· {templateName}</span>}
               </div>
             </button>
           );
@@ -816,7 +816,7 @@ function ProcurementTab() {
             );
           })}
           {!bulkStages && (
-            <span className="text-[10px] text-slate-400" title="У выбранных позиций разные шаблоны — этап применяется по номеру в наборе каждой позиции">
+            <span className="text-2xs text-slate-400" title="У выбранных позиций разные шаблоны — этап применяется по номеру в наборе каждой позиции">
               (разные шаблоны — по номеру этапа)
             </span>
           )}

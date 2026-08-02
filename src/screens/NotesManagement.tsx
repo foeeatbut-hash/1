@@ -463,7 +463,7 @@ export default function NotesManagement() {
             )}
           </div>
           {/* Сортировка списка */}
-          <div className="flex items-center gap-1 text-[11px]">
+          <div className="flex items-center gap-1 text-xs">
             <span className="text-slate-400 mr-0.5">Сортировка:</span>
             {([['updated','Изменённые'],['created','Новые'],['title','А–Я']] as const).map(([v, label]) => (
               <button
@@ -614,7 +614,7 @@ export default function NotesManagement() {
                         {open ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
                         <Folder className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                         <span className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate flex-1">{g}</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{grouped[g].length}</span>
+                        <span className="text-2xs px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{grouped[g].length}</span>
                       </button>
                       {open && <div className="pl-2 space-y-1.5">{grouped[g].map(renderNote)}</div>}
                     </div>

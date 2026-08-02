@@ -152,7 +152,7 @@ export default function TitlePanel({ projectId, settings, onChange, onClose, doc
       </div>
       <div className="p-4 space-y-3">
         <div>
-          <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Шаблон титула</label>
+          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Шаблон титула</label>
           <select
             value={settings.titleTemplateId || ''}
             onChange={(e) => onChange({ ...settings, titleTemplateId: e.target.value || undefined }, true)}
@@ -161,13 +161,13 @@ export default function TitlePanel({ projectId, settings, onChange, onClose, doc
             {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
           {templates.length === 0 && (
-            <p className="text-[11px] text-slate-400 mt-1">Создаются в Конструкторе → «Шаблон титула»</p>
+            <p className="text-xs text-slate-400 mt-1">Создаются в Конструкторе → «Шаблон титула»</p>
           )}
         </div>
         <div className="pt-1 border-t border-slate-100 dark:border-slate-850 space-y-2">
           {([['code', 'Номер / шифр'], ['revision', 'Ревизия'], ['title', 'Наименование']] as const).map(([k, label]) => (
             <div key={k}>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase">{label}</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase">{label}</label>
               <input
                 value={settings.docMeta?.[k] || ''}
                 onChange={(e) => onChange({ ...settings, docMeta: { ...settings.docMeta, [k]: e.target.value } }, false)}
@@ -177,9 +177,9 @@ export default function TitlePanel({ projectId, settings, onChange, onClose, doc
           ))}
         </div>
         <div className="pt-1 border-t border-slate-100 dark:border-slate-850 space-y-2">
-          <p className="text-[10px] text-slate-400 font-mono">{'{page} {pages} {date} {doc.code} {doc.revision} {project.code}'}</p>
+          <p className="text-2xs text-slate-400 font-mono">{'{page} {pages} {date} {doc.code} {doc.revision} {project.code}'}</p>
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase">Верхний колонтитул</label>
+            <label className="block text-xs font-bold text-slate-500 uppercase">Верхний колонтитул</label>
             <input
               value={settings.pageSetup?.header || ''}
               onChange={(e) => onChange({ ...settings, pageSetup: { ...settings.pageSetup, header: e.target.value } }, false)}
@@ -188,7 +188,7 @@ export default function TitlePanel({ projectId, settings, onChange, onClose, doc
               className="w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500" />
           </div>
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase">Нижний колонтитул</label>
+            <label className="block text-xs font-bold text-slate-500 uppercase">Нижний колонтитул</label>
             <input
               value={settings.pageSetup?.footer || ''}
               onChange={(e) => onChange({ ...settings, pageSetup: { ...settings.pageSetup, footer: e.target.value } }, false)}
