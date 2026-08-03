@@ -253,7 +253,7 @@ const RichChatInput = forwardRef<RichChatInputHandle, Props>(function RichChatIn
           document.execCommand('insertText', false, text);
           emit();
         }}
-        className="w-full min-h-[36px] max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-xs px-3 py-2 bg-slate-50 hover:bg-slate-100/50 dark:bg-slate-950 dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 focus:bg-white dark:focus:bg-slate-950 transition-all font-sans font-medium cursor-text"
+        className="w-full min-h-[36px] max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-xs px-3 py-2 bg-slate-50 hover:bg-slate-100/50 dark:bg-slate-950 dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 focus:bg-white dark:focus:bg-slate-950 transition-ui font-sans font-medium cursor-text"
       />
     </div>
   );

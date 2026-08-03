@@ -344,7 +344,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-900 dark:text-white">Импорт из документов</h2>
-              <p className="text-[11px] text-slate-400">PDF · Excel · Word · XML · вставка таблицы (Ctrl+V)</p>
+              <p className="text-xs text-slate-400">PDF · Excel · Word · XML · вставка таблицы (Ctrl+V)</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -356,7 +356,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                 placeholder="Категория оборудования"
               />
             </div>
-            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 cursor-pointer" title="Закрыть (Esc)">
+            <button type="button" onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 cursor-pointer" title="Закрыть (Esc)">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -373,7 +373,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
             >
               <Upload className="w-5 h-5 mx-auto text-slate-400 mb-1.5" />
               <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">Перетащите файлы или кликните</p>
-              <p className="text-[10px] text-slate-400 mt-1">.pdf .xlsx .docx .xml .csv · фото/скан .jpg .png</p>
+              <p className="text-2xs text-slate-400 mt-1">.pdf .xlsx .docx .xml .csv · фото/скан .jpg .png</p>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -383,7 +383,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                 onChange={e => { if (e.target.files?.length) { handleFiles(e.target.files); e.target.value = ''; } }}
               />
             </div>
-            <div className="px-3 pb-1 flex items-center gap-1.5 text-[10px] text-slate-400">
+            <div className="px-3 pb-1 flex items-center gap-1.5 text-2xs text-slate-400">
               <ClipboardPaste className="w-3 h-3" /> Или Ctrl+V — таблица из Excel/Word
             </div>
 
@@ -391,7 +391,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
               {jobs.map(j => {
                 const itemCount = j.draft?.items.length || 0;
                 return (
-                  <button
+                  <button type="button"
                     key={j.id}
                     onClick={() => setActiveJobId(j.id)}
                     className={`w-full text-left p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
@@ -404,7 +404,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                       {j.fileName.toLowerCase().endsWith('.pdf') ? <FileText className="w-3.5 h-3.5 text-rose-500 shrink-0" /> : <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />}
                       <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">{j.fileName}</span>
                     </div>
-                    <div className="mt-1 flex items-center gap-1 text-[10px]">
+                    <div className="mt-1 flex items-center gap-1 text-2xs">
                       {(j.status === 'parsing' || j.status === 'ocr') && <><Loader2 className="w-3 h-3 animate-spin text-emerald-500" /> <span className="text-slate-400 truncate">{j.statusText || 'Разбор…'}</span></>}
                       {j.status === 'ready' && itemCount > 0 && <span className="text-emerald-600 dark:text-emerald-400 font-bold">{itemCount} позиц.</span>}
                       {j.status === 'ready' && itemCount === 0 && <span className="text-amber-500 font-semibold">нет данных</span>}
@@ -415,14 +415,14 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                 );
               })}
               {jobs.length === 0 && (
-                <p className="text-[11px] text-slate-400 text-center px-4 py-6">
+                <p className="text-xs text-slate-400 text-center px-4 py-6">
                   Бланки подбора, ведомости, опросные листы, страницы каталогов — с любым расположением данных.
                 </p>
               )}
             </div>
 
             {jobs.length > 1 && (
-              <div className="p-2 border-t border-slate-100 dark:border-slate-850 text-[10px] text-slate-400 text-center">
+              <div className="p-2 border-t border-slate-100 dark:border-slate-850 text-2xs text-slate-400 text-center">
                 Файлов: {jobs.length} · готово к импорту: {readyCount}
               </div>
             )}
@@ -441,9 +441,9 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                 <Loader2 className="w-7 h-7 animate-spin text-emerald-500" />
                 <p className="text-xs">{activeJob.statusText || 'Разбор документа…'}</p>
                 {activeJob.status === 'ocr' && activeJob.ocrController && (
-                  <button
+                  <button type="button"
                     onClick={() => cancelOcr(activeJob)}
-                    className="mt-1 px-3 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-900 cursor-pointer"
+                    className="mt-1 px-3 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-900 cursor-pointer"
                   >
                     Остановить распознавание
                   </button>
@@ -465,7 +465,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                           <ScanLine className="w-3.5 h-3.5" />
                           {activeJob.imageData ? 'Изображение — готово к распознаванию' : `Страниц-сканов без текста: ${activeJob.scanPages!.length}`}
                         </span>
-                        <button
+                        <button type="button"
                           onClick={() => runOcr(activeJob)}
                           className="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white font-semibold cursor-pointer shrink-0"
                         >
@@ -497,7 +497,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                     </div>
                   )}
                   {activeJob.draft?.warnings.map((w, i) => (
-                    <div key={i} className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-[11px] text-amber-800 dark:text-amber-300 flex items-start gap-1.5">
+                    <div key={i} className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-1.5">
                       <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" /> {w}
                     </div>
                   ))}
@@ -511,7 +511,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                       <div key={item.id} className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
                         {/* Шапка позиции */}
                         <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/60">
-                          <button
+                          <button type="button"
                             onClick={() => setCollapsedItems(p => ({ ...p, [item.id]: !p[item.id] }))}
                             className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
                           >
@@ -524,12 +524,12 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                             title="Название позиции (можно исправить)"
                           />
                           {item.brand && (
-                            <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 text-slate-700 dark:text-slate-300">{item.brand}</span>
+                            <span className="text-2xs font-mono font-bold px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 text-slate-700 dark:text-slate-300">{item.brand}</span>
                           )}
                           {item.system && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300">{item.system}</span>
+                            <span className="text-2xs font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300">{item.system}</span>
                           )}
-                          <button
+                          <button type="button"
                             onClick={() => removeItem(activeJob.id, item.id)}
                             className="p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500 cursor-pointer"
                             title="Не импортировать эту позицию"
@@ -540,11 +540,11 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
 
                         {/* Выбор колонки матрицы */}
                         {item.matrixHeaders && item.matrixHeaders.length > 0 && (
-                          <div className="px-3 py-2 border-t border-amber-200 dark:border-amber-900 bg-amber-50/60 dark:bg-amber-950/20 text-[11px]">
+                          <div className="px-3 py-2 border-t border-amber-200 dark:border-amber-900 bg-amber-50/60 dark:bg-amber-950/20 text-xs">
                             <span className="font-semibold text-amber-800 dark:text-amber-300">В таблице несколько типоразмеров — какой ваш?</span>
                             <div className="flex flex-wrap gap-1.5 mt-1.5">
                               {item.matrixHeaders.map(h => (
-                                <button
+                                <button type="button"
                                   key={h}
                                   onClick={() => chooseMatrixColumn(activeJob.id, item.id, h)}
                                   className="px-2 py-1 rounded-lg border border-amber-300 dark:border-amber-800 bg-white dark:bg-slate-950 font-mono font-bold text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/50 cursor-pointer"
@@ -573,8 +573,8 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                                   placeholder="ед."
                                   className="w-14 shrink-0 px-1.5 py-0.5 bg-white/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded outline-none focus:border-emerald-400 text-slate-500 dark:text-slate-400"
                                 />
-                                <span className="w-20 shrink-0 text-[9px] uppercase tracking-wider opacity-70 text-right">{CONF_LABEL[f.confidence]}</span>
-                                <button
+                                <span className="w-20 shrink-0 text-2xs uppercase tracking-wider opacity-70 text-right">{CONF_LABEL[f.confidence]}</span>
+                                <button type="button"
                                   onClick={() => removeField(activeJob.id, item.id, fi)}
                                   className="p-0.5 rounded hover:bg-rose-100 dark:hover:bg-rose-950/50 text-slate-300 hover:text-rose-500 cursor-pointer shrink-0"
                                   title="Убрать параметр"
@@ -583,11 +583,11 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                                 </button>
                               </div>
                             ))}
-                            <button
+                            <button type="button"
                               onClick={() => patchItem(activeJob.id, item.id, {
                                 fields: [...item.fields, { label: 'Параметр', value: '', unit: '', group: 'Прочее', confidence: 'high', source: 'table' }],
                               })}
-                              className="w-full px-3 py-1.5 text-[11px] text-slate-400 hover:text-emerald-600 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 flex items-center gap-1 cursor-pointer"
+                              className="w-full px-3 py-1.5 text-xs text-slate-400 hover:text-emerald-600 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 flex items-center gap-1 cursor-pointer"
                             >
                               <Plus className="w-3 h-3" /> Добавить параметр вручную
                             </button>
@@ -608,10 +608,10 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                 {/* Нижняя панель импорта */}
                 {activeJob.status === 'ready' && (activeJob.draft?.items.length || 0) > 0 && (
                   <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
-                    <div className="text-[11px] text-slate-400">
+                    <div className="text-xs text-slate-400">
                       Зелёное — уверенно · жёлтое — проверьте · серое — подпись не распознана.
                     </div>
-                    <button
+                    <button type="button"
                       onClick={() => commitJob(activeJob)}
                       disabled={isCommitting}
                       className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shrink-0"

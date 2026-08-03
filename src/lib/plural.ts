@@ -1,0 +1,54 @@
+/**
+ * Согласование существительных с числом.
+ *
+ * В интерфейсе форма была зашита жёстко: «2 элементов», «54 тегов»,
+ * «1 записей». Правило русского языка зависит от последних цифр числа,
+ * поэтому одной строкой не обойтись.
+ *
+ *   plural(2, 'элемент', 'элемента', 'элементов')  → 'элемента'
+ *   count(2, 'элемент', 'элемента', 'элементов')   → '2 элемента'
+ */
+export function plural(n: number, one: string, few: string, many: string): string {
+  const abs = Math.abs(Math.trunc(n));
+  const mod100 = abs % 100;
+  if (mod100 >= 11 && mod100 <= 14) return many;
+  const mod10 = abs % 10;
+  if (mod10 === 1) return one;
+  if (mod10 >= 2 && mod10 <= 4) return few;
+  return many;
+}
+
+export function count(n: number, one: string, few: string, many: string): string {
+  return `${n} ${plural(n, one, few, many)}`;
+}
+
+/** Готовые формы для самых частых сущностей программы. */
+export const WORDS = {
+  элемент: ['элемент', 'элемента', 'элементов'],
+  тег: ['тег', 'тега', 'тегов'],
+  файл: ['файл', 'файла', 'файлов'],
+  запись: ['запись', 'записи', 'записей'],
+  строка: ['строка', 'строки', 'строк'],
+  документ: ['документ', 'документа', 'документов'],
+  проект: ['проект', 'проекта', 'проектов'],
+  сотрудник: ['сотрудник', 'сотрудника', 'сотрудников'],
+  папка: ['папка', 'папки', 'папок'],
+  день: ['день', 'дня', 'дней'],
+  позиция: ['позиция', 'позиции', 'позиций'],
+  диалог: ['диалог', 'диалога', 'диалогов'],
+  уведомление: ['уведомление', 'уведомления', 'уведомлений'],
+} as const;
+
+type WordKey = keyof typeof WORDS;
+
+/** Короткая форма: countOf(2, 'элемент') → '2 элемента' */
+export function countOf(n: number, word: WordKey): string {
+  const [one, few, many] = WORDS[word];
+  return count(n, one, few, many);
+}
+
+/** Только слово, без числа: wordFor(2, 'элемент') → 'элемента' */
+export function wordFor(n: number, word: WordKey): string {
+  const [one, few, many] = WORDS[word];
+  return plural(n, one, few, many);
+}

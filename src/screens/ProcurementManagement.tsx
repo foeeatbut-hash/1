@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import VdrPanel from './VdrPanel';
 import { useStore } from '../store/store';
@@ -6,13 +6,16 @@ import { useToastStore } from '../store/toastStore';
 import { dataService } from '../services/dataService';
 import {
   Briefcase, Search, RefreshCw, Database, AlertTriangle, X, ChevronDown, ChevronUp,
-  ChevronRight, Filter, List, FolderTree, Settings2, CheckSquare
+  ChevronRight, Filter, List, FolderTree, Settings2, CheckSquare, Download
 } from 'lucide-react';
 import CustomSelect from '../components/CustomSelect';
 import {
   ProcurementStage, StageTemplate, loadProcurementStages, loadStageTemplates,
   resolveTemplate, stageIcon, stageColor, DEFAULT_TEMPLATE_ID
 } from '../lib/procurementStages';
+import { countOf } from '../lib/plural';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import NoProject from '../components/NoProject';
 
 // ── Раздел «Менеджмент» ────────────────────────────────────────────────────────
 // Оболочка над той же базой тегов под задачи менеджеров по закупкам.
@@ -109,8 +112,8 @@ export default function ProcurementManagement() {
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-1.5">
         {([['procurement', 'Закупки'], ['vdr', 'ВДР']] as const).map(([id, label]) => (
-          <button key={id} onClick={() => setTab(id)}
-            className={`px-4 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-all ${tab === id
+          <button type="button" key={id} onClick={() => setTab(id)}
+            className={`px-4 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-ui ${tab === id
               ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-800 dark:border-slate-100'
               : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:border-slate-400'}`}>
             {label}
@@ -139,11 +142,18 @@ function ProcurementTab() {
     return () => clearTimeout(t);
   }, [search]);
   // Порционный рендер: DOM из тысяч строк тормозил прокрутку — рисуем частями
-  const [renderLimit, setRenderLimit] = useState(120);
+  // Виртуализация списка позиций: на реальном проекте их тысячи, а раньше
+  // экран рисовал их все подряд (около 70 узлов разметки на строку) и
+  // прокрутка проседала. Рисуем только то, что видно.
+  const tableRef = useRef<HTMLTableElement>(null);
+  // Элемент прокрутки держим в состоянии, а не в ref: виртуализатору нужен
+  // повторный расчёт после того, как контейнер найден.
+  const [scrollEl, setScrollEl] = useState<HTMLElement | null>(null);
   const [stageFilter, setStageFilter] = useState<string>('all');
   const [deptFilter, setDeptFilter] = useState<string>('');
   const [onlyDuplicates, setOnlyDuplicates] = useState(false);
   const [onlyCritical, setOnlyCritical] = useState(false);
+  const [onlyStuck, setOnlyStuck] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'tree'>('list');
   const [sortKey, setSortKey] = useState<'identifier' | 'stage' | 'lastDate' | 'brand' | 'qty'>('identifier');
   const [sortAsc, setSortAsc] = useState(true);
@@ -171,7 +181,7 @@ function ProcurementTab() {
     } finally {
       setIsLoading(false);
     }
-  }, [activeProject]);
+  }, [activeProject?.id]); // по идентификатору, а не по объекту: иначе перезапрос при каждой смене ссылки
 
   useEffect(() => {
     loadAll();
@@ -251,11 +261,30 @@ function ProcurementTab() {
     return cards;
   }, [stages, templates, counts]);
 
+  // ── «Зависшие» позиции ──────────────────────────────────────────────────────
+  // Закупка ломается не там, где что-то отменили, а там, где ничего не
+  // происходит: позицию завели и забыли. Считаем, сколько дней позиция стоит
+  // на текущем этапе, и отдельно показываем те, что стоят слишком долго.
+  // Позиция на последнем этапе не «зависла» — она закрыта.
+  const stuckAfterDays = 14;
+  const daysAtStage = useCallback((r: Row): number => {
+    const cur = r.stages[r.stageIdx];
+    const rec = cur ? r.proc.stageLog?.[cur.id] : null;
+    const at = rec?.at || r.tag.createdAt;
+    const ms = at ? new Date(at).getTime() : 0;
+    if (!ms) return 0;
+    return Math.max(0, Math.floor((Date.now() - ms) / 86400000));
+  }, []);
+  const isStuck = useCallback((r: Row): boolean =>
+    r.stageIdx < r.stages.length - 1 && daysAtStage(r) >= stuckAfterDays, [daysAtStage]);
+  const stuckCount = useMemo(() => rows.filter(isStuck).length, [rows, isStuck]);
+
   const rowMatchesFilters = useCallback((r: Row): boolean => {
     if (stageFilter !== 'all' && r.stages[r.stageIdx]?.id !== stageFilter) return false;
     if (deptFilter && r.tag.department !== deptFilter) return false;
     if (onlyDuplicates && !r.isDup) return false;
     if (onlyCritical && r.actuality !== 'critical' && r.actuality !== 'warning') return false;
+    if (onlyStuck && !isStuck(r)) return false; // eslint-disable-line
     const q = debouncedSearch.trim().toLowerCase();
     if (q) {
       const hit = (r.tag.identifier || '').toLowerCase().includes(q) ||
@@ -266,12 +295,12 @@ function ProcurementTab() {
       if (!hit) return false;
     }
     return true;
-  }, [stageFilter, deptFilter, onlyDuplicates, onlyCritical, debouncedSearch]);
+  }, [stageFilter, deptFilter, onlyDuplicates, onlyCritical, onlyStuck, isStuck, debouncedSearch]);
 
-  // Смена фильтров возвращает порционный рендер к началу
+  // Смена фильтров возвращает прокрутку списка к началу
   useEffect(() => {
-    setRenderLimit(120);
-  }, [stageFilter, deptFilter, onlyDuplicates, onlyCritical, debouncedSearch, viewMode]);
+    scrollEl?.scrollTo({ top: 0 });
+  }, [stageFilter, deptFilter, onlyDuplicates, onlyCritical, onlyStuck, debouncedSearch, viewMode]);
 
   const lastDateOf = (r: Row): number => {
     let max = new Date(r.tag.createdAt || 0).getTime();
@@ -474,25 +503,77 @@ function ProcurementTab() {
     });
   };
 
+  // Выгрузка в Excel того, что человек видит: фильтры, поиск и порядок
+  // уже применены. Выгружать «всё подряд» бесполезно — отчёт всегда
+  // делается по срезу.
+  const exportToExcel = async () => {
+    if (!filtered.length) { addToast('Нечего выгружать: под фильтры не попала ни одна позиция', 'info'); return; }
+    const XLSX = await import('xlsx');
+    const rows = filtered.map((r) => {
+      const cur = r.stages[r.stageIdx];
+      const rec = cur ? r.proc.stageLog?.[cur.id] : null;
+      return {
+        'Позиция': r.tag.identifier || '',
+        'Наименование': r.name || '',
+        'Марка': r.tag.brand || '',
+        'Отдел': r.tag.department || '',
+        'Этап закупки': cur?.label || '',
+        'Дата этапа': rec?.at ? fmtDate(rec.at) : '',
+        'Кто отметил': rec?.by || '',
+        'Дней на этапе': daysAtStage(r),
+        'Поставщик': r.proc.supplier || '',
+        'Количество': r.proc.qty || '',
+        'Примечание': r.proc.note || '',
+      };
+    });
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    // Ширины колонок: без них выгрузка открывается «лесенкой» из решёток.
+    (sheet as any)['!cols'] = [
+      { wch: 16 }, { wch: 32 }, { wch: 16 }, { wch: 10 }, { wch: 16 },
+      { wch: 12 }, { wch: 20 }, { wch: 13 }, { wch: 20 }, { wch: 12 }, { wch: 40 },
+    ];
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, 'Закупки');
+    const stamp = new Date().toISOString().slice(0, 10);
+    const projectPart = String(activeProject?.name || 'проект').replace(/[\\/:*?"<>|]/g, '-').slice(0, 40);
+    XLSX.writeFile(book, `Закупки — ${projectPart} — ${stamp}.xlsx`);
+    addToast(`Выгружено строк: ${filtered.length}`, 'success');
+  };
+
   const allVisibleSelected = filtered.length > 0 && filtered.every(r => selectedIds.has(r.tag.id));
+
+  // Прокручивается не сама таблица, а контейнер раздела рабочего стола
+  useEffect(() => {
+    const el = (tableRef.current?.closest('.overflow-y-auto') as HTMLElement) || null;
+    setScrollEl((prev) => (prev === el ? prev : el));
+  }, [viewMode, filtered.length]);
+
+  const rowVirtualizer = useVirtualizer({
+    count: viewMode === 'list' ? filtered.length : 0,
+    getScrollElement: () => scrollEl,
+    estimateSize: () => 100,
+    overscan: 4,
+    // Реальная высота строки зависит от содержимого: измеряем, иначе
+    // виртуализатор постоянно пересчитывает раскладку при прокрутке.
+    measureElement: (el) => el.getBoundingClientRect().height,
+  });
+  const virtualRows = rowVirtualizer.getVirtualItems();
 
   if (!activeProject) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl max-w-2xl mx-auto p-8 shadow-sm text-center">
-        <Briefcase className="w-12 h-12 text-slate-300 dark:text-slate-700 mb-4" />
-        <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">Проект не выбран</h3>
-        <p className="text-slate-500 dark:text-slate-400 text-sm mt-1 max-w-sm">Выберите проект на «Главной», чтобы открыть закупки по его позициям.</p>
-      </div>
+      <NoProject what="Закупки" />
     );
   }
 
   // ── Строка позиции (общая для списка и дерева) ──────────────────────────────
-  const renderRow = (row: Row, treeLevel: number | null, treeHasChildren?: boolean, treeExpanded?: boolean, onTreeToggle?: () => void) => {
+  const renderRow = (row: Row, treeLevel: number | null, treeHasChildren?: boolean, treeExpanded?: boolean, onTreeToggle?: () => void, measureRef?: (el: HTMLElement | null) => void, vIndex?: number) => {
     const act = ACTUALITY_LABELS[row.actuality] || ACTUALITY_LABELS.draft;
     const isSelected = selectedIds.has(row.tag.id);
     return (
       <tr
         key={row.tag.id}
+        ref={measureRef}
+        data-index={vIndex}
         data-share-route="/management"
         data-share-focus={`ptag:${row.tag.id}`}
         data-share-label={row.tag.identifier}
@@ -511,7 +592,7 @@ function ProcurementTab() {
         }`}
       >
         {/* Галочка мультивыбора */}
-        <td className="px-3 py-3 align-top w-8">
+        <td className="flux-cell align-top w-8">
           <input
             type="checkbox"
             checked={isSelected}
@@ -523,11 +604,11 @@ function ProcurementTab() {
         </td>
 
         {/* Позиция */}
-        <td className="px-4 py-3 align-top">
+        <td className="flux-cell align-top">
           <div className="flex items-center gap-1.5" style={treeLevel !== null ? { paddingLeft: `${treeLevel * 22}px` } : undefined}>
             {treeLevel !== null && (
               treeHasChildren ? (
-                <button
+                <button type="button"
                   onClick={(e) => { e.stopPropagation(); onTreeToggle && onTreeToggle(); }}
                   className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer shrink-0"
                   title={treeExpanded ? 'Свернуть дочерние' : 'Развернуть дочерние'}
@@ -538,19 +619,19 @@ function ProcurementTab() {
             )}
             <span className="font-mono font-bold text-xs text-slate-900 dark:text-white select-all">{row.tag.identifier}</span>
             {row.isDup && (
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 uppercase" title="Дубликат кода тега">дубль</span>
+              <span className="text-2xs font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 uppercase" title="Дубликат кода тега">дубль</span>
             )}
           </div>
           <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 max-w-[220px] truncate" title={row.name} style={treeLevel !== null ? { paddingLeft: `${treeLevel * 22 + 18}px` } : undefined}>
             {row.name || <span className="italic opacity-60">Без наименования</span>}
           </div>
-          <div className="text-[10px] text-slate-400 font-mono mt-0.5" style={treeLevel !== null ? { paddingLeft: `${treeLevel * 22 + 18}px` } : undefined}>
+          <div className="text-2xs text-slate-400 font-mono mt-0.5" style={treeLevel !== null ? { paddingLeft: `${treeLevel * 22 + 18}px` } : undefined}>
             {row.tag.department || '—'} · добавлен {fmtDate(row.tag.createdAt)}
           </div>
         </td>
 
         {/* Марка */}
-        <td className="px-4 py-3 align-top">
+        <td className="flux-cell align-top">
           {row.tag.brand ? (
             <span className="font-mono text-xs font-semibold px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 inline-block max-w-[150px] truncate" title={row.tag.brand}>
               {row.tag.brand}
@@ -559,15 +640,15 @@ function ProcurementTab() {
         </td>
 
         {/* Актуальность */}
-        <td className="px-4 py-3 align-top">
-          <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full border ${act.cls}`}>
+        <td className="flux-cell align-top">
+          <span className={`inline-flex items-center gap-1 text-2xs font-bold px-2 py-1 rounded-full border ${act.cls}`}>
             {(row.actuality === 'critical' || row.actuality === 'warning') && <AlertTriangle className="w-3 h-3" />}
             {act.label}
           </span>
         </td>
 
         {/* Этап закупки: степпер по этапам позиции (стандартным или шаблонным) */}
-        <td className="px-4 py-3 align-top">
+        <td className="flux-cell align-top">
           <div className="flex items-center gap-0.5 flex-wrap">
             {row.stages.map((s, idx) => {
               const Icon = stageIcon(s.icon);
@@ -576,10 +657,10 @@ function ProcurementTab() {
               return (
                 <React.Fragment key={s.id}>
                   {idx > 0 && <div className={`w-3 h-0.5 ${idx <= row.stageIdx ? 'bg-emerald-400' : 'bg-slate-200 dark:bg-slate-800'}`} />}
-                  <button
+                  <button type="button"
                     onClick={(e) => { e.stopPropagation(); setStage(row, idx); }}
                     title={`${s.label}${idx === row.stageIdx && idx > 0 ? ' (клик — откат на шаг назад)' : ''}`}
-                    className={`w-7 h-7 rounded-full border flex items-center justify-center transition-all cursor-pointer ${
+                    className={`w-7 h-7 rounded-full border flex items-center justify-center transition-ui cursor-pointer ${
                       reached
                         ? `${c.bg} ${c.border} ${c.color} ${idx === row.stageIdx ? 'ring-2 ring-offset-1 dark:ring-offset-slate-950 ring-current scale-110' : ''}`
                         : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-300 dark:text-slate-700 hover:border-slate-400'
@@ -591,8 +672,18 @@ function ProcurementTab() {
               );
             })}
           </div>
-          <div className="text-[10px] font-bold mt-1 text-slate-500 dark:text-slate-400">
+          <div className="text-2xs font-bold mt-1 text-slate-500 dark:text-slate-400">
             {row.stages[row.stageIdx]?.label || '—'}
+            {/* Сколько дней позиция стоит на этом этапе — видно сразу, без
+                разбора дат: именно это и есть настоящая проблема закупки. */}
+            {isStuck(row) && (
+              <span
+                className="ml-1.5 px-1.5 py-px rounded-full bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-900/50 font-bold normal-case"
+                title={`Позиция стоит на этапе «${row.stages[row.stageIdx]?.label}» уже ${daysAtStage(row)} дн. — движения нет`}
+              >
+                {daysAtStage(row)} дн.
+              </span>
+            )}
             {row.template && (
               <span
                 className="ml-1.5 px-1.5 py-px rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-500 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900/50 font-semibold normal-case"
@@ -605,8 +696,8 @@ function ProcurementTab() {
         </td>
 
         {/* Даты этапов */}
-        <td className="px-4 py-3 align-top">
-          <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 space-y-0.5 leading-tight">
+        <td className="flux-cell align-top">
+          <div className="text-2xs font-mono text-slate-500 dark:text-slate-400 space-y-0.5 leading-tight">
             {row.stages.slice(1).map(s => {
               const rec = row.proc.stageLog?.[s.id];
               const c = stageColor(s.color);
@@ -620,7 +711,7 @@ function ProcurementTab() {
         </td>
 
         {/* Поставщик и количество */}
-        <td className="px-4 py-3 align-top">
+        <td className="flux-cell align-top">
           <input
             type="text"
             defaultValue={row.proc.supplier || ''}
@@ -640,7 +731,7 @@ function ProcurementTab() {
         </td>
 
         {/* Примечание */}
-        <td className="px-4 py-3 align-top min-w-[180px]">
+        <td className="flux-cell align-top min-w-[180px]">
           {editingNoteId === row.tag.id ? (
             <textarea
               autoFocus
@@ -654,7 +745,7 @@ function ProcurementTab() {
               className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 rounded text-xs focus:outline-none text-slate-800 dark:text-slate-100"
             />
           ) : (
-            <button
+            <button type="button"
               onClick={(e) => { e.stopPropagation(); setEditingNoteId(row.tag.id); }}
               className="text-xs text-left text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 cursor-text w-full min-h-[24px]"
               title="Нажмите, чтобы изменить примечание"
@@ -700,13 +791,13 @@ function ProcurementTab() {
         </div>
         <div className="flex items-center gap-2 self-start lg:self-auto">
           <div className="flex bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200/60 dark:border-slate-800">
-            <button
+            <button type="button"
               onClick={() => setViewMode('list')}
               className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer ${viewMode === 'list' ? 'bg-white dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 shadow-xs' : 'text-slate-500'}`}
             >
               <List className="w-3.5 h-3.5" /> Список
             </button>
-            <button
+            <button type="button"
               onClick={() => setViewMode('tree')}
               title="Группировка: родительский тег → дочерние"
               className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer ${viewMode === 'tree' ? 'bg-white dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 shadow-xs' : 'text-slate-500'}`}
@@ -714,14 +805,21 @@ function ProcurementTab() {
               <FolderTree className="w-3.5 h-3.5" /> Дерево
             </button>
           </div>
-          <button
+          <button type="button"
             onClick={() => navigate('/settings?section=management')}
             title="Настроить этапы закупки"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer"
           >
             <Settings2 className="w-3.5 h-3.5" /> Этапы
           </button>
-          <button
+          <button type="button"
+            onClick={exportToExcel}
+            title="Выгрузить то, что сейчас на экране: с учётом фильтров, поиска и порядка"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5" /> В Excel
+          </button>
+          <button type="button"
             onClick={loadAll}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer"
           >
@@ -732,23 +830,24 @@ function ProcurementTab() {
 
       {/* Счётчики этапов: клик — фильтр */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
-        <button
+        <button type="button"
           onClick={() => setStageFilter('all')}
-          className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${stageFilter === 'all' ? 'bg-indigo-600 border-indigo-700 text-white shadow-md' : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 hover:border-indigo-300'}`}
+          aria-pressed={stageFilter === 'all'}
+          className={`p-3 rounded-xl border text-left transition-ui cursor-pointer ${stageFilter === 'all' ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-600 dark:border-emerald-500 text-emerald-900 dark:text-emerald-200' : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 hover:border-emerald-400'}`}
         >
           <div className="text-2xl font-black leading-none">{rows.length}</div>
-          <div className={`text-xs font-bold mt-1 ${stageFilter === 'all' ? 'text-indigo-100' : 'text-slate-400'}`}>Все позиции</div>
+          <div className={`text-xs font-bold mt-1 ${stageFilter === 'all' ? 'text-emerald-800 dark:text-emerald-300' : 'text-slate-400'}`}>Все позиции</div>
         </button>
         {stageCards.map(({ stage: s, templateName }) => {
           const Icon = stageIcon(s.icon);
           const c = stageColor(s.color);
           const active = stageFilter === s.id;
           return (
-            <button
+            <button type="button"
               key={s.id}
               onClick={() => setStageFilter(active ? 'all' : s.id)}
               title={templateName ? `Этап шаблона «${templateName}»` : undefined}
-              className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${active ? `${c.bg} ${c.border} ring-2 ring-offset-1 dark:ring-offset-slate-950 ring-current ${c.color} shadow-md` : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 hover:shadow-sm'}`}
+              className={`p-3 rounded-xl border text-left transition-ui cursor-pointer ${active ? `${c.bg} ${c.border} ring-2 ring-offset-1 dark:ring-offset-slate-950 ring-current ${c.color} shadow-md` : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 hover:shadow-sm'}`}
             >
               <div className="flex items-center justify-between">
                 <div className={`text-2xl font-black leading-none ${c.color}`}>{counts[s.id] || 0}</div>
@@ -756,7 +855,7 @@ function ProcurementTab() {
               </div>
               <div className="text-xs font-bold mt-1 text-slate-400 truncate">
                 {s.label}
-                {templateName && <span className="ml-1 text-[9px] text-indigo-400 font-semibold">· {templateName}</span>}
+                {templateName && <span className="ml-1 text-2xs text-indigo-400 font-semibold">· {templateName}</span>}
               </div>
             </button>
           );
@@ -791,6 +890,17 @@ function ProcurementTab() {
           <input type="checkbox" checked={onlyCritical} onChange={(e) => setOnlyCritical(e.target.checked)} className="accent-amber-500" />
           Требуют внимания
         </label>
+        <label
+          className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer select-none px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900 ${
+            stuckCount > 0 ? 'text-orange-700 dark:text-orange-400' : 'text-slate-600 dark:text-slate-300'}`}
+          title={`Позиции, которые стоят на одном этапе дольше ${stuckAfterDays} дней и ещё не закрыты`}
+        >
+          <input type="checkbox" checked={onlyStuck} onChange={(e) => setOnlyStuck(e.target.checked)} className="accent-orange-500" />
+          Зависшие
+          {stuckCount > 0 && (
+            <span className="px-1.5 py-px rounded-full bg-orange-100 dark:bg-orange-950/50 text-orange-700 dark:text-orange-300 text-2xs font-bold">{stuckCount}</span>
+          )}
+        </label>
         <span className="text-xs text-slate-400 flex items-center gap-1"><Filter className="w-3.5 h-3.5" /> Показано: {filtered.length}</span>
       </div>
 
@@ -805,18 +915,18 @@ function ProcurementTab() {
             const Icon = stageIcon(s.icon);
             const c = stageColor(s.color);
             return (
-              <button
+              <button type="button"
                 key={s.id}
                 onClick={() => setStageBulk(idx)}
                 title={bulkStages ? s.label : `Этап №${idx + 1} в наборе каждой позиции`}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all hover:scale-105 ${c.bg} ${c.border} ${c.color}`}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-ui hover:scale-105 ${c.bg} ${c.border} ${c.color}`}
               >
                 <Icon className="w-3.5 h-3.5" /> {bulkStages ? s.label : `№${idx + 1} ${s.label}`}
               </button>
             );
           })}
           {!bulkStages && (
-            <span className="text-[10px] text-slate-400" title="У выбранных позиций разные шаблоны — этап применяется по номеру в наборе каждой позиции">
+            <span className="text-2xs text-slate-400" title="У выбранных позиций разные шаблоны — этап применяется по номеру в наборе каждой позиции">
               (разные шаблоны — по номеру этапа)
             </span>
           )}
@@ -834,7 +944,7 @@ function ProcurementTab() {
               />
             </div>
           )}
-          <button
+          <button type="button"
             onClick={() => setSelectedIds(new Set())}
             className="ml-auto p-1.5 rounded-lg hover:bg-white/60 dark:hover:bg-slate-900 text-slate-400 cursor-pointer"
             title="Снять выделение"
@@ -846,10 +956,10 @@ function ProcurementTab() {
 
       {/* Таблица позиций */}
       <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs overflow-x-auto">
-        <table className="w-full text-left border-collapse min-w-[980px]">
+        <table ref={tableRef} className="w-full text-left border-collapse min-w-[980px]">
           <thead className="bg-slate-50 dark:bg-slate-900/60 text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-850">
             <tr>
-              <th className="px-3 py-2.5 w-8">
+              <th className="flux-cell w-8">
                 <input
                   type="checkbox"
                   checked={allVisibleSelected}
@@ -861,23 +971,23 @@ function ProcurementTab() {
                   title="Выбрать все показанные"
                 />
               </th>
-              <th className="px-4 py-2.5 cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('identifier')}>
+              <th className="flux-cell cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('identifier')}>
                 Позиция {sortKey === 'identifier' && (sortAsc ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />)}
               </th>
-              <th className="px-4 py-2.5 cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('brand')}>
+              <th className="flux-cell cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('brand')}>
                 Марка {sortKey === 'brand' && (sortAsc ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />)}
               </th>
-              <th className="px-4 py-2.5">Актуальность</th>
-              <th className="px-4 py-2.5 cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('stage')}>
+              <th className="flux-cell">Актуальность</th>
+              <th className="flux-cell cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('stage')}>
                 Этап закупки {sortKey === 'stage' && (sortAsc ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />)}
               </th>
-              <th className="px-4 py-2.5 cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('lastDate')}>
+              <th className="flux-cell cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('lastDate')}>
                 Даты этапов {sortKey === 'lastDate' && (sortAsc ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />)}
               </th>
-              <th className="px-4 py-2.5 cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('qty')}>
+              <th className="flux-cell cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('qty')}>
                 Поставщик / Кол-во {sortKey === 'qty' && (sortAsc ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />)}
               </th>
-              <th className="px-4 py-2.5">Примечание</th>
+              <th className="flux-cell">Примечание</th>
             </tr>
           </thead>
           <tbody>
@@ -891,21 +1001,21 @@ function ProcurementTab() {
                 {rows.length === 0 ? 'В проекте нет позиций. Добавьте теги в разделе «Теги».' : 'Ничего не найдено по заданным фильтрам.'}
               </td></tr>
             ) : viewMode === 'list' ? (
-              filtered.slice(0, renderLimit).map(row => renderRow(row, null))
+              <>
+                {virtualRows.length > 0 && virtualRows[0].start > 0 && (
+                  <tr style={{ height: virtualRows[0].start, border: 'none' }} aria-hidden="true"><td colSpan={8} className="p-0" /></tr>
+                )}
+                {virtualRows.map((v) => (
+                  <React.Fragment key={filtered[v.index].tag.id}>
+                    {renderRow(filtered[v.index], null, undefined, undefined, undefined, rowVirtualizer.measureElement, v.index)}
+                  </React.Fragment>
+                ))}
+                {virtualRows.length > 0 && (
+                  <tr style={{ height: Math.max(0, rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end), border: 'none' }} aria-hidden="true"><td colSpan={8} className="p-0" /></tr>
+                )}
+              </>
             ) : (
               tree.flatMap(({ id, childrenMap, visible }) => renderTreeRows(id, childrenMap, visible, 0, new Set()))
-            )}
-            {viewMode === 'list' && filtered.length > renderLimit && (
-              <tr>
-                <td colSpan={8} className="p-0">
-                  <button
-                    onClick={() => setRenderLimit(l => l + 300)}
-                    className="w-full py-3 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50/60 dark:hover:bg-indigo-950/20 cursor-pointer"
-                  >
-                    Показать ещё ({filtered.length - renderLimit} позиций скрыто)
-                  </button>
-                </td>
-              </tr>
             )}
           </tbody>
         </table>

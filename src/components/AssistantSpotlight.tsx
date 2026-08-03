@@ -124,19 +124,19 @@ export default function AssistantSpotlight() {
         style={tipStyle}
       >
         <div className="flex items-center justify-between mb-1.5">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+          <span className="text-2xs font-bold uppercase tracking-wider text-emerald-400">
             Демонстрация · шаг {tourStepIndex + 1}/{activeTour.steps.length}
           </span>
-          <button onClick={cancelTour} className="p-0.5 text-slate-400 hover:text-rose-400 cursor-pointer" title="Завершить демонстрацию">
+          <button type="button" onClick={cancelTour} className="p-0.5 text-slate-400 hover:text-rose-400 cursor-pointer" title="Завершить демонстрацию">
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
         <p className="text-xs text-slate-100 leading-relaxed mb-3">{step.text}</p>
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] text-slate-500">
+          <span className="text-2xs text-slate-500">
             {step.target ? 'Нажмите подсвеченный элемент или «Далее»' : 'Нажмите «Далее»'}
           </span>
-          <button
+          <button type="button"
             onClick={advanceTour}
             className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg cursor-pointer transition-colors"
           >

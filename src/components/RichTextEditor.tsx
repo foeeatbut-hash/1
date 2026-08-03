@@ -674,7 +674,7 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
                   ))
                 )}
               </div>
-              <div className="text-center text-[10px] text-slate-500 dark:text-slate-400 mt-1.5 font-mono">
+              <div className="text-center text-2xs text-slate-500 dark:text-slate-400 mt-1.5 font-mono">
                 {gridHover.r > 0 ? `${gridHover.r} × ${gridHover.c}` : 'Выберите размер'}
               </div>
             </div>
@@ -725,12 +725,12 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
         onKeyDown={handleEditorKeyDown}
         onKeyUp={updateActiveFormats}
         onPaste={handlePaste}
-        className={`flex-1 min-h-[220px] p-4 text-sm text-slate-800 dark:text-slate-200 outline-none overflow-y-auto prose dark:prose-invert max-w-none focus:bg-slate-50/20 dark:focus:bg-slate-950/20 transition-all`}
+        className={`flex-1 min-h-[220px] p-4 text-sm text-slate-800 dark:text-slate-200 outline-none overflow-y-auto prose dark:prose-invert max-w-none focus:bg-slate-50/20 dark:focus:bg-slate-950/20 transition-ui`}
         style={{ direction: 'ltr' }}
       />
 
       {/* Счётчик слов и символов */}
-      <div className="shrink-0 px-4 py-1 text-[10px] text-slate-400 dark:text-slate-600 border-t border-slate-100 dark:border-slate-800 select-none">
+      <div className="shrink-0 px-4 py-1 text-2xs text-slate-400 dark:text-slate-600 border-t border-slate-100 dark:border-slate-800 select-none">
         {countInfo.words} слов · {countInfo.chars} символов
       </div>
 

@@ -6,6 +6,11 @@ import {
   FileSpreadsheet, Plus, Upload, Download, RefreshCw, Trash2, FileText, ArrowUpCircle,
   CheckCircle2, AlertTriangle, Send, Loader2, X, Search, Settings2, Tag as TagIcon, History,
 } from 'lucide-react';
+import { countOf } from '../lib/plural';
+import { useModalStore } from '../store/modalStore';
+
+// Диалоги программы вместо системных окон Windows
+const { openPrompt } = useModalStore.getState();
 
 // ── ВДР 2.0: реестр документации (вкладка «Менеджмент») ──
 // Ручная таблица в первую очередь: всё правится в карточке строки; автоматика
@@ -169,7 +174,7 @@ export default function VdrPanel() {
 
   const registerRevisionUp = async () => {
     if (!register) return;
-    const description = window.prompt(`Новая ревизия ВДР (текущая: ${register.revision}). Описание изменения:`, '');
+    const description = await openPrompt('Новая ревизия ВДР', `Текущая ревизия — ${register.revision}. Опишите, что изменилось.`, 'Например: уточнены сроки поставки');
     if (description === null) return;
     const r = await fetch(`/api/vdr/registers/${register.id}/revision-up`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description }),
@@ -178,7 +183,7 @@ export default function VdrPanel() {
   };
 
   const createRegister = async () => {
-    const name = window.prompt('Название реестра:', 'ВДР');
+    const name = await openPrompt('Новый реестр', 'Как назвать реестр документов?', 'Например: ВДР по котельной', 'ВДР');
     if (!name) return;
     const r = await fetch('/api/vdr/registers', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -189,7 +194,7 @@ export default function VdrPanel() {
 
   const bulkAssign = async (userId: string) => {
     for (const id of selected) await fetch(`/api/vdr/items/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assigneeId: userId || null }) });
-    addToast(`Исполнитель назначен: ${selected.size} строк`, 'success');
+    addToast(`Исполнитель назначен: ${countOf(selected.size, 'строка')}`, 'success');
     setSelected(new Set()); refresh();
   };
 
@@ -239,28 +244,28 @@ export default function VdrPanel() {
         </label>
         {register && (
           <>
-            <button onClick={exportXlsx} title="Выгрузить ВДР в Excel (формат заказчика: титул + ревизии + реестр)"
+            <button type="button" onClick={exportXlsx} title="Выгрузить ВДР в Excel (формат заказчика: титул + ревизии + реестр)"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer">
               <Download className="w-3.5 h-3.5" /> Выгрузить
             </button>
-            <button onClick={registerRevisionUp} title="Новая ревизия самого ВДР (запись в Учёт ревизий)"
+            <button type="button" onClick={registerRevisionUp} title="Новая ревизия самого ВДР (запись в Учёт ревизий)"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
               <ArrowUpCircle className="w-3.5 h-3.5" /> Рев. ВДР
             </button>
-            <button onClick={() => setRegSettingsOpen(true)} title="Реквизиты реестра, стандарт, свои колонки"
+            <button type="button" onClick={() => setRegSettingsOpen(true)} title="Реквизиты реестра, стандарт, свои колонки"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
               <Settings2 className="w-3.5 h-3.5" />
             </button>
-            <button onClick={() => setCardItem({ id: '', registerId: register.id, contractorNo: '', ownerNo: '', vendorNo: '', titleEn: '', titleRu: '', vdrCode: '', revision: 'A', reasonForIssue: '', language: '', equipmentTags: '[]', status: 'DRAFT', remarks: '', reviewCode: '', extra: {} })}
+            <button type="button" onClick={() => setCardItem({ id: '', registerId: register.id, contractorNo: '', ownerNo: '', vendorNo: '', titleEn: '', titleRu: '', vdrCode: '', revision: 'A', reasonForIssue: '', language: '', equipmentTags: '[]', status: 'DRAFT', remarks: '', reviewCode: '', extra: {} })}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
               <Plus className="w-3.5 h-3.5" /> Строка
             </button>
           </>
         )}
-        <button onClick={createRegister} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
+        <button type="button" onClick={createRegister} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
           <Plus className="w-3.5 h-3.5" /> Реестр
         </button>
-        <button onClick={refresh} className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer"><RefreshCw className="w-3.5 h-3.5" /></button>
+        <button type="button" onClick={refresh} className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer"><RefreshCw className="w-3.5 h-3.5" /></button>
       </div>
 
       {register && (
@@ -268,24 +273,24 @@ export default function VdrPanel() {
           {/* Фильтры */}
           <div className="flex flex-wrap items-center gap-2">
             {Object.entries(STATUS_META).map(([st, meta]) => (
-              <button key={st} onClick={() => setStatusFilter(statusFilter === st ? '' : st)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-all ${statusFilter === st ? 'border-indigo-500 ring-1 ring-indigo-400' : 'border-transparent'} ${meta.cls}`}>
+              <button type="button" key={st} onClick={() => setStatusFilter(statusFilter === st ? '' : st)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-ui ${statusFilter === st ? 'border-indigo-500 ring-1 ring-indigo-400' : 'border-transparent'} ${meta.cls}`}>
                 {meta.label}: {counts[st] || 0}
               </button>
             ))}
-            <button onClick={() => setOnlyOverdue(v => !v)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-all bg-rose-100 dark:bg-rose-950/50 text-rose-700 dark:text-rose-400 ${onlyOverdue ? 'border-rose-500 ring-1 ring-rose-400' : 'border-transparent'}`}>
+            <button type="button" onClick={() => setOnlyOverdue(v => !v)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-ui bg-rose-100 dark:bg-rose-950/50 text-rose-700 dark:text-rose-400 ${onlyOverdue ? 'border-rose-500 ring-1 ring-rose-400' : 'border-transparent'}`}>
               Просрочено: {counts.OVERDUE}
             </button>
-            <button onClick={() => setOnlyMine(v => !v)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-all ${onlyMine ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-950 text-slate-500 border-slate-200 dark:border-slate-800'}`}>
+            <button type="button" onClick={() => setOnlyMine(v => !v)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-ui ${onlyMine ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-950 text-slate-500 border-slate-200 dark:border-slate-800'}`}>
               Мои
             </button>
             <div className="flex-1" />
             {selected.size > 0 && (
               <select defaultValue="" onChange={e => { if (e.target.value !== '') bulkAssign(e.target.value); }}
                 className="px-2 py-1.5 text-xs border border-indigo-300 dark:border-indigo-800 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 cursor-pointer font-bold">
-                <option value="" disabled>Назначить {selected.size} строк…</option>
+                <option value="" disabled>Назначить {countOf(selected.size, 'строка')}…</option>
                 {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
               </select>
             )}
@@ -309,21 +314,21 @@ export default function VdrPanel() {
               <table className="w-full text-xs">
                 <thead className="bg-slate-50 dark:bg-slate-900 sticky top-0 z-10">
                   <tr className="text-left text-slate-500 dark:text-slate-400">
-                    <th className="px-2 py-2 w-8">
+                    <th className="flux-cell w-8">
                       <input type="checkbox" className="w-3.5 h-3.5 accent-indigo-500 cursor-pointer"
                         checked={selected.size > 0 && selected.size === filtered.length}
                         onChange={e => setSelected(e.target.checked ? new Set(filtered.map(i => i.id)) : new Set())} />
                     </th>
-                    <th className="px-3 py-2 font-bold whitespace-nowrap">№ документа</th>
-                    <th className="px-3 py-2 font-bold">Наименование</th>
-                    <th className="px-3 py-2 font-bold">Тип</th>
-                    <th className="px-3 py-2 font-bold">Рев.</th>
-                    <th className="px-3 py-2 font-bold whitespace-nowrap">Срок</th>
-                    <th className="px-3 py-2 font-bold">Код</th>
-                    <th className="px-3 py-2 font-bold">Статус</th>
-                    <th className="px-3 py-2 font-bold">Теги</th>
-                    <th className="px-3 py-2 font-bold">Исполнитель</th>
-                    <th className="px-3 py-2 font-bold text-right">Действия</th>
+                    <th className="flux-cell font-bold whitespace-nowrap">№ документа</th>
+                    <th className="flux-cell font-bold">Наименование</th>
+                    <th className="flux-cell font-bold">Тип</th>
+                    <th className="flux-cell font-bold">Рев.</th>
+                    <th className="flux-cell font-bold whitespace-nowrap">Срок</th>
+                    <th className="flux-cell font-bold">Код</th>
+                    <th className="flux-cell font-bold">Статус</th>
+                    <th className="flux-cell font-bold">Теги</th>
+                    <th className="flux-cell font-bold">Исполнитель</th>
+                    <th className="flux-cell font-bold text-right">Действия</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-900">
@@ -331,31 +336,31 @@ export default function VdrPanel() {
                     <tr key={it.id}
                       onClick={() => setCardItem(it)}
                       className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/60 ${focusItemId === it.id ? 'bg-indigo-50 dark:bg-indigo-950/30' : ''}`}>
-                      <td className="px-2 py-1.5" onClick={e => e.stopPropagation()}>
+                      <td className="flux-cell" onClick={e => e.stopPropagation()}>
                         <input type="checkbox" className="w-3.5 h-3.5 accent-indigo-500 cursor-pointer"
                           checked={selected.has(it.id)}
                           onChange={e => setSelected(s => { const n = new Set(s); e.target.checked ? n.add(it.id) : n.delete(it.id); return n; })} />
                       </td>
-                      <td className="px-3 py-1.5 font-semibold whitespace-nowrap">{it.contractorNo || it.ownerNo || '—'}</td>
-                      <td className="px-3 py-1.5 max-w-80"><div className="truncate" title={`${it.titleRu}\n${it.titleEn}`}>{it.titleRu || it.titleEn}</div></td>
-                      <td className="px-3 py-1.5 whitespace-nowrap">{it.vdrCode}</td>
-                      <td className="px-3 py-1.5 font-bold">{it.revision}</td>
-                      <td className={`px-3 py-1.5 whitespace-nowrap ${overdue(it.dueDate) ? 'text-rose-600 font-bold' : 'text-slate-500'}`}>{fmtD(it.dueDate)}</td>
-                      <td className="px-3 py-1.5 font-bold">{it.reviewCode}</td>
-                      <td className="px-3 py-1.5"><span className={`px-2 py-0.5 rounded-md font-bold whitespace-nowrap ${STATUS_META[it.status]?.cls || ''}`}>{STATUS_META[it.status]?.label || it.status}</span></td>
-                      <td className="px-3 py-1.5 max-w-36"><div className="truncate text-slate-500" title={tagsOf(it).join('; ')}>{tagsOf(it).slice(0, 2).join('; ')}{tagsOf(it).length > 2 ? '…' : ''}</div></td>
-                      <td className="px-3 py-1.5 whitespace-nowrap text-slate-500">{users.find(u => u.id === it.assigneeId)?.name?.split(' ')[0] || '—'}</td>
-                      <td className="px-2 py-1.5" onClick={e => e.stopPropagation()}>
+                      <td className="flux-cell font-semibold whitespace-nowrap">{it.contractorNo || it.ownerNo || '—'}</td>
+                      <td className="flux-cell max-w-80"><div className="truncate" title={`${it.titleRu}\n${it.titleEn}`}>{it.titleRu || it.titleEn}</div></td>
+                      <td className="flux-cell whitespace-nowrap">{it.vdrCode}</td>
+                      <td className="flux-cell font-bold">{it.revision}</td>
+                      <td className={`flux-cell whitespace-nowrap ${overdue(it.dueDate) ? 'text-rose-600 font-bold' : 'text-slate-500'}`}>{fmtD(it.dueDate)}</td>
+                      <td className="flux-cell font-bold">{it.reviewCode}</td>
+                      <td className="flux-cell"><span className={`px-2 py-0.5 rounded-md font-bold whitespace-nowrap ${STATUS_META[it.status]?.cls || ''}`}>{STATUS_META[it.status]?.label || it.status}</span></td>
+                      <td className="flux-cell max-w-36"><div className="truncate text-slate-500" title={tagsOf(it).join('; ')}>{tagsOf(it).slice(0, 2).join('; ')}{tagsOf(it).length > 2 ? '…' : ''}</div></td>
+                      <td className="flux-cell whitespace-nowrap text-slate-500">{users.find(u => u.id === it.assigneeId)?.name?.split(' ')[0] || '—'}</td>
+                      <td className="flux-cell" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-0.5">
                           {it.docId ? (
-                            <button title="Открыть документ" onClick={() => navigate(`/constructor?doc=${it.docId}`)}
+                            <button type="button" title="Открыть документ" onClick={() => navigate(`/constructor?doc=${it.docId}`)}
                               className="p-1.5 rounded-lg text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950/40 cursor-pointer"><FileText className="w-3.5 h-3.5" /></button>
                           ) : (
-                            <button title="Сформировать документ" onClick={() => createDoc(it)}
+                            <button type="button" title="Сформировать документ" onClick={() => createDoc(it)}
                               className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950/40 cursor-pointer"><Plus className="w-3.5 h-3.5" /></button>
                           )}
                           {it.status !== 'READY' && it.status !== 'ACCEPTED' && (
-                            <button title="Готово — уведомить менеджера" onClick={() => patchItem(it.id, { status: 'READY' }, 'Менеджер уведомлён')}
+                            <button type="button" title="Готово — уведомить менеджера" onClick={() => patchItem(it.id, { status: 'READY' }, 'Менеджер уведомлён')}
                               className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer"><Send className="w-3.5 h-3.5" /></button>
                           )}
                         </div>
@@ -368,8 +373,8 @@ export default function VdrPanel() {
                 </tbody>
               </table>
             </div>
-            <div className="px-3 py-2 text-[11px] text-slate-400 bg-slate-50 dark:bg-slate-900 border-t border-slate-100 dark:border-slate-850">
-              {filtered.length} из {items.length} строк {register.poNumber ? `· Заказ ${register.poNumber}` : ''} {register.vendor ? `· ${register.vendor}` : ''} {standard ? `· Стандарт: ${standard.name}` : ''}
+            <div className="px-3 py-2 text-xs text-slate-400 bg-slate-50 dark:bg-slate-900 border-t border-slate-100 dark:border-slate-850">
+              {filtered.length} из {countOf(items.length, 'строка')} {register.poNumber ? `· Заказ ${register.poNumber}` : ''} {register.vendor ? `· ${register.vendor}` : ''} {standard ? `· Стандарт: ${standard.name}` : ''}
             </div>
           </div>
         </>
@@ -469,12 +474,12 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
   const inputCls = 'w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500';
   const F = ({ label, k, ph }: { label: string; k: keyof Item; ph?: string }) => (
     <div>
-      <label className="block text-[11px] font-bold text-slate-500 uppercase">{label}</label>
+      <label className="block text-xs font-bold text-slate-500 uppercase">{label}</label>
       <input value={String(f[k] ?? '')} onChange={e => setF(s => ({ ...s, [k]: e.target.value }))} placeholder={ph} className={inputCls} />
     </div>
   );
   const Sect = ({ title }: { title: string }) => (
-    <div className="pt-2 mt-1 border-t border-slate-100 dark:border-slate-850 text-[10px] font-bold uppercase tracking-wide text-indigo-500">{title}</div>
+    <div className="pt-2 mt-1 border-t border-slate-100 dark:border-slate-850 text-2xs font-bold uppercase tracking-wide text-indigo-500">{title}</div>
   );
 
   return (
@@ -482,8 +487,8 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
       <div className="w-[520px] max-w-[94vw] h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <span className="font-bold text-slate-800 dark:text-white truncate flex-1">{isNew ? 'Новая строка' : (f.contractorNo || f.titleRu || 'Строка реестра')}</span>
-          {!isNew && <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${STATUS_META[f.status]?.cls || ''}`}>{STATUS_META[f.status]?.label || f.status}</span>}
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
+          {!isNew && <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${STATUS_META[f.status]?.cls || ''}`}>{STATUS_META[f.status]?.label || f.status}</span>}
+          <button type="button" onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
@@ -491,15 +496,15 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
           {!isNew && (
             <div className="flex items-center gap-2">
               {f.docId ? (
-                <button onClick={() => onOpenDoc(f.docId!)} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold cursor-pointer">
+                <button type="button" onClick={() => onOpenDoc(f.docId!)} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold cursor-pointer">
                   <FileText className="w-3.5 h-3.5" /> Открыть документ
                 </button>
               ) : (
-                <button onClick={onCreateDoc} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-sky-300 dark:border-sky-800 text-sky-700 dark:text-sky-400 text-xs font-bold hover:bg-sky-50 dark:hover:bg-sky-950/30 cursor-pointer">
+                <button type="button" onClick={onCreateDoc} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-sky-300 dark:border-sky-800 text-sky-700 dark:text-sky-400 text-xs font-bold hover:bg-sky-50 dark:hover:bg-sky-950/30 cursor-pointer">
                   <Plus className="w-3.5 h-3.5" /> Сформировать документ
                 </button>
               )}
-              <button onClick={() => setRevDialog('next')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer" title="Выпустить новую ревизию">
+              <button type="button" onClick={() => setRevDialog('next')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer" title="Выпустить новую ревизию">
                 <ArrowUpCircle className="w-3.5 h-3.5" /> Рев. {f.revision} ↑
               </button>
             </div>
@@ -511,7 +516,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
             <F label="№ заказчика" k="ownerNo" />
             <F label="№ поставщика" k="vendorNo" />
             <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase">Тип (VDR-код)</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase">Тип (VDR-код)</label>
               <input list="vdr-types" value={f.vdrCode} onChange={e => setF(s => ({ ...s, vdrCode: e.target.value }))} className={inputCls} />
               <datalist id="vdr-types">
                 {(standard?.config?.vdrTypes || []).map((t: any) => <option key={t.code} value={t.code}>{t.titleRu || t.titleEn}</option>)}
@@ -523,7 +528,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
           <div className="grid grid-cols-3 gap-2.5">
             <F label="Ревизия" k="revision" />
             <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase">Причина</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase">Причина</label>
               <select value={f.reasonForIssue} onChange={e => setF(s => ({ ...s, reasonForIssue: e.target.value }))} className={inputCls + ' cursor-pointer'}>
                 <option value="">—</option>
                 {reasons.map((r: any) => <option key={r.code} value={r.code}>{r.code}</option>)}
@@ -534,11 +539,11 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
           </div>
           <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase">Дата выпуска</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase">Дата выпуска</label>
               <input type="date" value={f.issueDate ? String(f.issueDate).slice(0, 10) : ''} onChange={e => setF(s => ({ ...s, issueDate: e.target.value || null }))} className={inputCls} />
             </div>
             <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase">Срок след. ревизии</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase">Срок след. ревизии</label>
               <input type="date" value={f.dueDate ? String(f.dueDate).slice(0, 10) : ''} onChange={e => setF(s => ({ ...s, dueDate: e.target.value || null }))} className={inputCls} />
             </div>
           </div>
@@ -546,14 +551,14 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
           <Sect title="Рассмотрение" />
           <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase" title="Код заказчика: статус и срок проставятся сами по стандарту">Код рассмотрения</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase" title="Код заказчика: статус и срок проставятся сами по стандарту">Код рассмотрения</label>
               <select value={f.reviewCode} onChange={e => setReviewCode(e.target.value)} className={inputCls + ' cursor-pointer'}>
                 <option value="">—</option>
                 {reviewCodes.map((c: any) => <option key={c.code} value={c.code} title={c.label}>{c.code} — {String(c.label).split('/')[0].trim()}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase">Исполнитель</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase">Исполнитель</label>
               <select value={f.assigneeId || ''} onChange={e => setF(s => ({ ...s, assigneeId: e.target.value || null }))} className={inputCls + ' cursor-pointer'}>
                 <option value="">—</option>
                 {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -561,11 +566,11 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
             </div>
           </div>
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase">Замечания</label>
+            <label className="block text-xs font-bold text-slate-500 uppercase">Замечания</label>
             <textarea value={f.remarks} onChange={e => setF(s => ({ ...s, remarks: e.target.value }))} rows={2} className={inputCls} />
           </div>
           {f.fileNodeId && (
-            <button onClick={() => { window.location.hash = `#/explorer?file=${f.fileNodeId}`; }}
+            <button type="button" onClick={() => { window.location.hash = `#/explorer?file=${f.fileNodeId}`; }}
               className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-400 text-xs font-bold hover:bg-amber-50 dark:hover:bg-amber-950/30 cursor-pointer">
               <FileText className="w-3.5 h-3.5" /> Прикреплённый файл — открыть в Проводнике
             </button>
@@ -576,7 +581,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
             {tags.map(t => (
               <span key={t} className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-xs font-bold">
                 <TagIcon className="w-3 h-3" /> {t}
-                <button onClick={() => setF(s => ({ ...s, equipmentTags: JSON.stringify(tags.filter(x => x !== t)) }))} className="hover:text-rose-500 cursor-pointer"><X className="w-3 h-3" /></button>
+                <button type="button" onClick={() => setF(s => ({ ...s, equipmentTags: JSON.stringify(tags.filter(x => x !== t)) }))} className="hover:text-rose-500 cursor-pointer"><X className="w-3 h-3" /></button>
               </span>
             ))}
             {tags.length === 0 && <span className="text-xs text-slate-400">не присвоены</span>}
@@ -586,10 +591,10 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
             {tagSearch.trim() && (
               <div className="absolute z-10 left-0 right-0 mt-1 max-h-40 overflow-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl">
                 {projectTags.filter(t => t.identifier.toLowerCase().includes(tagSearch.toLowerCase()) && !tags.includes(t.identifier)).slice(0, 12).map(t => (
-                  <button key={t.id} onClick={() => { setF(s => ({ ...s, equipmentTags: JSON.stringify([...tags, t.identifier]) })); setTagSearch(''); }}
+                  <button type="button" key={t.id} onClick={() => { setF(s => ({ ...s, equipmentTags: JSON.stringify([...tags, t.identifier]) })); setTagSearch(''); }}
                     className="w-full text-left px-3 py-1.5 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-950/30 cursor-pointer">{t.identifier}</button>
                 ))}
-                <button onClick={() => { setF(s => ({ ...s, equipmentTags: JSON.stringify([...tags, tagSearch.trim()]) })); setTagSearch(''); }}
+                <button type="button" onClick={() => { setF(s => ({ ...s, equipmentTags: JSON.stringify([...tags, tagSearch.trim()]) })); setTagSearch(''); }}
                   className="w-full text-left px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">+ добавить «{tagSearch.trim()}» как текст</button>
               </div>
             )}
@@ -601,7 +606,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
               <div className="grid grid-cols-2 gap-2.5">
                 {customCols.map(c => (
                   <div key={c.key}>
-                    <label className="block text-[11px] font-bold text-slate-500 uppercase truncate" title={`${c.title}\n${c.titleRu || ''}`}>{c.titleRu || c.title || c.key}</label>
+                    <label className="block text-xs font-bold text-slate-500 uppercase truncate" title={`${c.title}\n${c.titleRu || ''}`}>{c.titleRu || c.title || c.key}</label>
                     <input value={String(f.extra?.[c.key] ?? '')}
                       onChange={e => setF(s => ({ ...s, extra: { ...s.extra, [c.key]: e.target.value } }))}
                       className={inputCls} />
@@ -627,16 +632,16 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
                 </div>
               )}
               <div className="flex gap-2">
-                <button onClick={() => setRevDialog('void')} className="px-2.5 py-1 rounded-lg border border-rose-200 dark:border-rose-900 text-rose-600 text-[11px] font-bold hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer">Аннулировать (V)</button>
-                <button onClick={() => setRevDialog('superseded')} className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-500 text-[11px] font-bold hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Заменён (S)</button>
+                <button type="button" onClick={() => setRevDialog('void')} className="px-2.5 py-1 rounded-lg border border-rose-200 dark:border-rose-900 text-rose-600 text-xs font-bold hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer">Аннулировать (V)</button>
+                <button type="button" onClick={() => setRevDialog('superseded')} className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-500 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Заменён (S)</button>
               </div>
             </>
           )}
         </div>
 
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-200 dark:border-slate-800 shrink-0">
-          <button onClick={onClose} className="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Закрыть</button>
-          <button onClick={save} disabled={busy} className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">
+          <button type="button" onClick={onClose} className="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Закрыть</button>
+          <button type="button" onClick={save} disabled={busy} className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">
             {busy ? 'Сохраняю…' : 'Сохранить'}
           </button>
         </div>
@@ -651,12 +656,12 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
               <input value={revPlace} onChange={e => setRevPlace(e.target.value)} placeholder="Место изменения (разд., лист)" className={inputCls} />
               <textarea value={revDesc} onChange={e => setRevDesc(e.target.value)} rows={2} placeholder="Описание изменения" className={inputCls} />
               <div className="flex items-center justify-end gap-2">
-                <button onClick={() => setRevDialog(null)} className="px-3 py-1.5 rounded-lg text-xs text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Отмена</button>
+                <button type="button" onClick={() => setRevDialog(null)} className="px-3 py-1.5 rounded-lg text-xs text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Отмена</button>
                 {revDialog === 'next' && /^[A-Za-zА-Яа-я]$/.test(f.revision) && (
-                  <button onClick={() => { setRevDialog('certify'); setTimeout(issueRevision, 0); }} disabled={busy}
+                  <button type="button" onClick={() => { setRevDialog('certify'); setTimeout(issueRevision, 0); }} disabled={busy}
                     className="px-3 py-1.5 rounded-lg border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 text-xs font-bold hover:bg-emerald-50 dark:hover:bg-emerald-950/30 cursor-pointer">Утвердить (→0)</button>
                 )}
-                <button onClick={issueRevision} disabled={busy} className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer disabled:opacity-50">Выпустить</button>
+                <button type="button" onClick={issueRevision} disabled={busy} className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer disabled:opacity-50">Выпустить</button>
               </div>
             </div>
           </div>
@@ -696,7 +701,7 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
   const inputCls = 'w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500';
   const F = ({ label, k }: { label: string; k: string }) => (
     <div>
-      <label className="block text-[11px] font-bold text-slate-500 uppercase">{label}</label>
+      <label className="block text-xs font-bold text-slate-500 uppercase">{label}</label>
       <input value={String(f[k] ?? '')} onChange={e => setF((s: any) => ({ ...s, [k]: e.target.value }))} className={inputCls} />
     </div>
   );
@@ -706,12 +711,12 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
       <div className="w-full max-w-2xl max-h-[88vh] overflow-y-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5 space-y-3" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className="font-bold text-slate-800 dark:text-white">Реквизиты реестра (титульный лист)</h3>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
+          <button type="button" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
         </div>
         <div className="grid grid-cols-2 gap-2.5">
           <F label="Название реестра" k="name" />
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase">Стандарт документооборота</label>
+            <label className="block text-xs font-bold text-slate-500 uppercase">Стандарт документооборота</label>
             <select value={f.standardId || ''} onChange={e => setF((s: any) => ({ ...s, standardId: e.target.value || null }))} className={inputCls + ' cursor-pointer'}>
               <option value="">— по умолчанию —</option>
               {standards.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -729,7 +734,7 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
           <F label="№ ВДР (заказчик)" k="ownerDocNo" />
           <F label="№ ВДР (поставщик)" k="vendorDocNo" />
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase">Менеджер (уведомления «готово»)</label>
+            <label className="block text-xs font-bold text-slate-500 uppercase">Менеджер (уведомления «готово»)</label>
             <select value={f.managerId || ''} onChange={e => setF((s: any) => ({ ...s, managerId: e.target.value || null }))} className={inputCls + ' cursor-pointer'}>
               <option value="">—</option>
               {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -741,13 +746,13 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
         </div>
 
         <div className="pt-2 border-t border-slate-100 dark:border-slate-850">
-          <div className="text-[11px] font-bold uppercase tracking-wide text-indigo-500 mb-1.5">Свои колонки реестра ({cols.filter(c => !c.field).length} доп. / {cols.length} всего)</div>
+          <div className="text-xs font-bold uppercase tracking-wide text-indigo-500 mb-1.5">Свои колонки реестра ({cols.filter(c => !c.field).length} доп. / {cols.length} всего)</div>
           <div className="flex flex-wrap gap-1.5 mb-2 max-h-28 overflow-auto">
             {cols.filter(c => !c.field).map(c => (
-              <span key={c.key} className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-semibold">
+              <span key={c.key} className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold">
                 {c.titleRu || c.title || c.key}
                 {c.source === 'custom' && (
-                  <button onClick={() => setCols(cs => cs.filter(x => x.key !== c.key))} className="hover:text-rose-500 cursor-pointer"><X className="w-3 h-3" /></button>
+                  <button type="button" onClick={() => setCols(cs => cs.filter(x => x.key !== c.key))} className="hover:text-rose-500 cursor-pointer"><X className="w-3 h-3" /></button>
                 )}
               </span>
             ))}
@@ -756,14 +761,14 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
             <input value={newCol} onChange={e => setNewCol(e.target.value)} placeholder="Новая колонка"
               onKeyDown={e => { if (e.key === 'Enter' && newCol.trim()) { setCols(cs => [...cs, { key: `custom_${Date.now().toString(36)}`, title: newCol.trim(), titleRu: newCol.trim(), source: 'custom' }]); setNewCol(''); } }}
               className={inputCls + ' flex-1'} />
-            <button onClick={() => { if (newCol.trim()) { setCols(cs => [...cs, { key: `custom_${Date.now().toString(36)}`, title: newCol.trim(), titleRu: newCol.trim(), source: 'custom' }]); setNewCol(''); } }}
+            <button type="button" onClick={() => { if (newCol.trim()) { setCols(cs => [...cs, { key: `custom_${Date.now().toString(36)}`, title: newCol.trim(), titleRu: newCol.trim(), source: 'custom' }]); setNewCol(''); } }}
               className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer shrink-0">+ Добавить</button>
           </div>
         </div>
 
         <div className="flex items-center justify-end gap-2 pt-1">
-          <button onClick={onClose} className="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Отмена</button>
-          <button onClick={save} disabled={busy} className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">Сохранить</button>
+          <button type="button" onClick={onClose} className="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Отмена</button>
+          <button type="button" onClick={save} disabled={busy} className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">Сохранить</button>
         </div>
       </div>
     </div>

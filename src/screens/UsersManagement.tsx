@@ -19,6 +19,10 @@ import {
   Clock,
   Briefcase
 } from 'lucide-react';
+import { useModalStore } from '../store/modalStore';
+
+// Диалоги программы вместо системных окон Windows
+const { openConfirm } = useModalStore.getState();
 
 export default function UsersManagement() {
   const { user } = useStore();
@@ -131,7 +135,7 @@ export default function UsersManagement() {
 
   const handleDeleteUser = async () => {
     if (!editUser) return;
-    if (!confirm(`Удалить профиль «${editUser.name}» безвозвратно? Связанные сообщения и файлы потеряют автора.`)) return;
+    if (!await openConfirm(`Удалить профиль «${editUser.name}»?`, 'Сообщения и файлы этого сотрудника останутся, но потеряют автора. Действие необратимо.', { confirmLabel: 'Удалить профиль', tone: 'danger' })) return;
     setIsEditSubmitting(true);
     try {
       const res = await dataService.deleteUser(editUser.id);
@@ -311,7 +315,7 @@ export default function UsersManagement() {
           <button
             type="button"
             onClick={() => setIsModalOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-600 active:bg-emerald-800 text-white rounded-lg text-sm font-semibold shadow-md hover:shadow-lg transition-all cursor-pointer"
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-600 active:bg-emerald-800 text-white rounded-lg text-sm font-semibold shadow-md hover:shadow-lg transition-ui cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             Добавить сотрудника
@@ -347,12 +351,12 @@ export default function UsersManagement() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-405 dark:text-slate-500 text-xs font-bold uppercase font-mono tracking-wider bg-slate-50/30 dark:bg-slate-950/10">
-                  <th className="px-6 py-3.5 text-left whitespace-nowrap">ФИО сотрудника</th>
-                  <th className="px-6 py-3.5 text-left whitespace-nowrap">Табельный номер (Логин)</th>
-                  <th className="px-6 py-3.5 text-left whitespace-nowrap">Роль в системе</th>
-                  <th className="px-6 py-3.5 text-left whitespace-nowrap">Доступ</th>
-                  <th className="px-6 py-3.5 text-left whitespace-nowrap">Дата регистрации</th>
-                  <th className="px-6 py-3.5 text-right whitespace-nowrap">Управление</th>
+                  <th className="flux-cell text-left whitespace-nowrap">ФИО сотрудника</th>
+                  <th className="flux-cell text-left whitespace-nowrap">Табельный номер (Логин)</th>
+                  <th className="flux-cell text-left whitespace-nowrap">Роль в системе</th>
+                  <th className="flux-cell text-left whitespace-nowrap">Доступ</th>
+                  <th className="flux-cell text-left whitespace-nowrap">Дата регистрации</th>
+                  <th className="flux-cell text-right whitespace-nowrap">Управление</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-150 dark:divide-slate-850">
@@ -361,21 +365,21 @@ export default function UsersManagement() {
                     key={emp.id}
                     className="hover:bg-slate-50/50 dark:hover:bg-slate-900/50 transition-colors text-slate-800 dark:text-slate-205"
                   >
-                    <td className="px-6 py-4">
+                    <td className="flux-cell">
                       <div className="font-semibold text-slate-900 dark:text-white">
                         {emp.name}
                       </div>
                     </td>
-                    <td className="px-6 py-4 font-mono text-sm font-semibold tracking-wider text-emerald-700 dark:text-emerald-400">
+                    <td className="flux-cell font-mono text-sm font-semibold tracking-wider text-emerald-700 dark:text-emerald-400">
                       {emp.symbol}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="flux-cell">
                       {getRoleBadge(emp.role)}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="flux-cell">
                       {getAccessBadge(emp)}
                     </td>
-                    <td className="px-6 py-4 text-xs text-slate-400 font-mono whitespace-nowrap">
+                    <td className="flux-cell text-xs text-slate-400 font-mono whitespace-nowrap">
                       <span className="inline-flex items-center gap-1.5">
                         <Calendar className="w-3.5 h-3.5 shrink-0" />
                         {new Date(emp.createdAt || Date.now()).toLocaleDateString('ru-RU', {
@@ -385,7 +389,7 @@ export default function UsersManagement() {
                         })}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="flux-cell text-right">
                       <button
                         type="button"
                         onClick={() => openEdit(emp)}
@@ -455,7 +459,7 @@ export default function UsersManagement() {
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       disabled={isSubmitting}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui"
                       placeholder="Фрузенко Анатолий Петрович"
                     />
                   </div>
@@ -470,7 +474,7 @@ export default function UsersManagement() {
                       value={symbol}
                       onChange={(e) => setSymbol(e.target.value)}
                       disabled={isSubmitting}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-mono"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui font-mono"
                       placeholder="Например, 4519"
                     />
                     <p className="text-xs text-slate-400 mt-1 dark:text-slate-500">
@@ -488,7 +492,7 @@ export default function UsersManagement() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       disabled={isSubmitting}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui"
                       placeholder="Задайте надежный пароль"
                     />
                   </div>
@@ -501,7 +505,7 @@ export default function UsersManagement() {
                       value={role}
                       onChange={(e) => setRole(e.target.value)}
                       disabled={isSubmitting}
-                      className="w-full h-[38px] px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-850 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-pointer"
+                      className="w-full h-[38px] px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-850 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui cursor-pointer"
                     >
                       <option value="ENGINEER_VENT">ENGINEER_VENT (Инженер вентиляции)</option>
                       <option value="ENGINEER_AUTO">ENGINEER_AUTO (Инженер автоматики)</option>
@@ -519,7 +523,7 @@ export default function UsersManagement() {
                       value={validUntil}
                       onChange={(e) => setValidUntil(e.target.value)}
                       disabled={isSubmitting}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui"
                     />
                     <p className="text-xs text-slate-400 mt-1 dark:text-slate-500">
                       После этой даты сотрудник не сможет войти в систему. Пусто — бессрочный доступ.
@@ -606,7 +610,7 @@ export default function UsersManagement() {
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
                       disabled={isEditSubmitting}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui"
                     />
                   </div>
 
@@ -617,7 +621,7 @@ export default function UsersManagement() {
                       value={editSymbol}
                       onChange={(e) => setEditSymbol(e.target.value)}
                       disabled={isEditSubmitting}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-mono"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui font-mono"
                     />
                     <p className="text-xs text-slate-400 mt-1 dark:text-slate-500">Логин для входа. Должен быть уникальным, без символа @.</p>
                   </div>
@@ -629,7 +633,7 @@ export default function UsersManagement() {
                         value={editRole}
                         onChange={(e) => setEditRole(e.target.value)}
                         disabled={isEditSubmitting}
-                        className="w-full h-[38px] px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-850 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-pointer"
+                        className="w-full h-[38px] px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-850 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui cursor-pointer"
                       >
                         <option value="ENGINEER_VENT">Инженер вентиляции</option>
                         <option value="ENGINEER_AUTO">Инженер автоматики</option>
@@ -645,7 +649,7 @@ export default function UsersManagement() {
                         onChange={(e) => setEditPassword(e.target.value)}
                         disabled={isEditSubmitting}
                         placeholder="Не менять"
-                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui"
                       />
                     </div>
                   </div>
@@ -659,7 +663,7 @@ export default function UsersManagement() {
                       value={editValidUntil}
                       onChange={(e) => setEditValidUntil(e.target.value)}
                       disabled={isEditSubmitting}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui"
                     />
                     <div className="flex flex-wrap gap-1.5 mt-2">
                       <button type="button" disabled={isEditSubmitting} onClick={() => setEditValidUntil(presetDate(30))} className="px-2 py-1 text-xs font-semibold rounded border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">+30 дней</button>

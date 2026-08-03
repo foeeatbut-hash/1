@@ -2,10 +2,19 @@ import { create } from 'zustand';
 
 type ModalType = 'alert' | 'confirm' | 'prompt' | 'select';
 
+export interface ConfirmOptions {
+  /** Надпись на кнопке действия: всегда глагол — «Удалить», «Восстановить». */
+  confirmLabel?: string;
+  /** danger — необратимое действие: кнопка красная. */
+  tone?: 'default' | 'danger';
+}
+
 interface ModalOptions {
   type: ModalType;
   title: string;
   message?: string;
+  confirmLabel?: string;
+  tone?: 'default' | 'danger';
   placeholder?: string;
   defaultValue?: string;
   options?: { value: string, label: string }[];
@@ -16,7 +25,7 @@ interface ModalOptions {
 interface ModalState {
   currentModal: ModalOptions | null;
   openAlert: (title: string, message?: string) => Promise<void>;
-  openConfirm: (title: string, message?: string) => Promise<boolean>;
+  openConfirm: (title: string, message?: string, opts?: ConfirmOptions) => Promise<boolean>;
   openPrompt: (title: string, message?: string, placeholder?: string, defaultValue?: string) => Promise<string | null>;
   openSelect: (title: string, message?: string, options?: { value: string, label: string }[], defaultValue?: string) => Promise<string | null>;
   closeModal: (value?: any) => void;
@@ -30,9 +39,9 @@ export const useModalStore = create<ModalState>((set, get) => ({
       set({ currentModal: { type: 'alert', title, message, resolve: () => resolve(), reject: () => resolve() } });
     }),
 
-  openConfirm: (title, message) =>
+  openConfirm: (title, message, opts) =>
     new Promise<boolean>((resolve) => {
-      set({ currentModal: { type: 'confirm', title, message, resolve, reject: () => resolve(false) } });
+      set({ currentModal: { type: 'confirm', title, message, confirmLabel: opts?.confirmLabel, tone: opts?.tone, resolve, reject: () => resolve(false) } });
     }),
 
   openPrompt: (title, message, placeholder, defaultValue) =>

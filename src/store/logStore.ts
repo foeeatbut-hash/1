@@ -23,6 +23,15 @@ interface LogState {
 // бесконечно, массив копировался целиком и программа начинала фризить
 const MAX_LOGS = 800;
 
+// Буфер накопленных записей и таймер сброса живут вне хранилища:
+// пока запись лежит здесь, подписчики не перерисовываются.
+let pending: LogItem[] = [];
+let flushTimer: any = null;
+const FLUSH_MS = 700;
+
+let flushLogs = () => {};
+let scheduleFlush = () => {};
+
 export const useLogStore = create<LogState>((set, get) => ({
   logs: [],
   hasUnreadError: false,
@@ -32,35 +41,28 @@ export const useLogStore = create<LogState>((set, get) => ({
     const id = Math.random().toString(36).substring(2, 9) + '-' + Date.now();
     const timestamp = new Date().toLocaleTimeString('ru-RU', { hour12: false });
 
-    const newLog: LogItem = {
-      id,
-      timestamp,
-      type,
-      context,
-      message,
-      stack,
-    };
+    const newLog: LogItem = { id, timestamp, type, context, message, stack };
 
-    set((state) => {
-      const appended = state.logs.length >= MAX_LOGS
-        ? [...state.logs.slice(state.logs.length - MAX_LOGS + 1), newLog]
-        : [...state.logs, newLog];
-
-      // If error occurs and widget is not open, mark as unread error
-      const shouldMarkUnread = type === 'ERROR' && !state.widgetOpen;
-
-      return {
-        logs: appended,
-        hasUnreadError: shouldMarkUnread ? true : state.hasUnreadError,
-      };
-    });
+    // Ошибки и предупреждения показываем сразу — их ждут. Обычные записи
+    // (а это каждый клик и каждый запрос) копим и отдаём пачкой: раньше
+    // любой клик по интерфейсу копировал весь массив журнала и
+    // перерисовывал всех подписчиков, отсюда ощущение вязкости.
+    pending.push(newLog);
+    if (type === 'ERROR' || type === 'WARN') {
+      flushLogs();
+    } else {
+      scheduleFlush();
+    }
   },
 
   clearLogs: () => {
+    pending = [];
+    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
     set({ logs: [], hasUnreadError: false });
   },
 
   setWidgetOpen: (open) => {
+    if (open) flushLogs();
     set({ 
       widgetOpen: open, 
       ...(open ? { hasUnreadError: false } : {}) // Reset when opened
@@ -71,6 +73,27 @@ export const useLogStore = create<LogState>((set, get) => ({
     set({ hasUnreadError: val });
   }
 }));
+
+flushLogs = () => {
+  if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+  if (!pending.length) return;
+  const batch = pending;
+  pending = [];
+  useLogStore.setState((state) => {
+    const merged = [...state.logs, ...batch];
+    const trimmed = merged.length > MAX_LOGS ? merged.slice(merged.length - MAX_LOGS) : merged;
+    const hasError = batch.some((l) => l.type === 'ERROR');
+    return {
+      logs: trimmed,
+      hasUnreadError: hasError && !state.widgetOpen ? true : state.hasUnreadError,
+    };
+  });
+};
+
+scheduleFlush = () => {
+  if (flushTimer) return;
+  flushTimer = setTimeout(flushLogs, FLUSH_MS);
+};
 
 // Делаем журнал доступным глобальной обёртке fetch (config/env.ts) для
 // подробного логирования запросов/ответов без циклических импортов.

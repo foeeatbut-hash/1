@@ -1,21 +1,138 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
-@theme {
-  --color-dark-bg: #0b0f0d;
-  --color-dark-surface: #141a17;
-  --color-dark-panel: #1d2420;
-  --color-dark-border: #222c26;
-  --color-dark-text-main: #e4e9e6;
-  --color-dark-text-muted: #94a39b;
+/* ─────────────────────────────────────────────────────────────
+   Шрифты — внутри сборки, без обращения к интернету.
+   Раньше здесь стоял @import с fonts.googleapis.com: на машине
+   без сети запрос молча отваливался и программа рисовалась
+   системным шрифтом (другие пропорции, поехавшие подписи).
+   Файлы переменные (вес 300–700), подмножества latin + кириллица.
+   ───────────────────────────────────────────────────────────── */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('./fonts/inter-cyrillic.woff2') format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('./fonts/inter-cyrillic-ext.woff2') format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('./fonts/inter-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('./fonts/inter-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('./fonts/jbmono-cyrillic.woff2') format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('./fonts/jbmono-cyrillic-ext.woff2') format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('./fonts/jbmono-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('./fonts/jbmono-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
 
+@theme {
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
-  /* Нестандартные оттенки, используемые в верстке: без явного определения
-     Tailwind не генерирует такие классы и цвет молча не применяется
-     (особенно заметно в темной теме). Ссылаемся на ближайший стандартный шаг,
-     чтобы работал и dark-ремаппинг переменных ниже. */
+  /* ── Фирменный зелёный ───────────────────────────────────────
+     Тон 163° — тот же, что был у emerald: цвет программы не
+     меняется. Изменена только светлота рабочих ступеней: на
+     прежнем зелёном белый текст давал контраст 3.77 при норме
+     4.5 (на 500 — вовсе 2.54), то есть надписи на кнопках были
+     нечитаемы. Ступени 500–800 теперь проходят норму под белый
+     текст, а яркая нота осталась в 300–400 — их используем там,
+     где поверх цвета нет текста (индикаторы, линии связей).   */
+  --color-emerald-50:  oklch(97.5% 0.016 163);
+  --color-emerald-100: oklch(95.0% 0.030 163);
+  --color-emerald-200: oklch(90.5% 0.055 163);
+  --color-emerald-300: oklch(84.5% 0.090 163);
+  --color-emerald-400: oklch(77.0% 0.120 163);
+  --color-emerald-500: oklch(55.0% 0.120 163); /* белый текст: 4.54 */
+  --color-emerald-600: oklch(54.0% 0.115 163); /* белый текст: 4.77 — основной акцент */
+  --color-emerald-700: oklch(50.0% 0.112 163); /* белый текст: 5.66 — наведение */
+  --color-emerald-800: oklch(46.0% 0.105 163); /* белый текст: 6.66 — нажатие */
+  --color-emerald-900: oklch(40.0% 0.090 163);
+  --color-emerald-950: oklch(28.0% 0.060 163);
+
+  /* ── Нейтральные ────────────────────────────────────────────
+     Приведены к тону акцента (163°). Раньше светлая тема была
+     построена на синеватом slate (тон 248), а тёмная — на зелёных
+     поверхностях: при переключении темы менялась не яркость, а
+     ощущение продукта. Ступень 400 углублена: ею набрано ~600
+     второстепенных подписей, и на белом она давала контраст 2.56. */
+  --color-slate-50:  oklch(97.8% 0.004 163);
+  --color-slate-100: oklch(95.5% 0.005 163);
+  --color-slate-200: oklch(91.2% 0.006 163);
+  --color-slate-300: oklch(85.5% 0.008 163);
+  --color-slate-400: oklch(56.5% 0.012 163); /* на белом: 4.54 */
+  --color-slate-500: oklch(53.0% 0.012 163);
+  --color-slate-600: oklch(45.0% 0.013 163);
+  --color-slate-700: oklch(37.0% 0.014 163);
+  --color-slate-800: oklch(28.5% 0.014 163);
+  --color-slate-900: oklch(22.0% 0.012 163);
+  --color-slate-950: oklch(16.0% 0.009 163);
+
+  /* Поверхности тёмной темы — тот же тон 163° */
+  --color-dark-bg: oklch(16.0% 0.009 163);
+  --color-dark-surface: oklch(21.0% 0.011 163);
+  --color-dark-panel: oklch(25.2% 0.013 163);
+  --color-dark-border: oklch(28.5% 0.016 163);
+  --color-dark-text-main: oklch(92.9% 0.007 163);
+  --color-dark-text-muted: oklch(70.5% 0.020 163);
+
+  /* Нижняя ступень размера текста. В разметке встречались
+     произвольные 9, 10 и 11 пикселей — теперь есть одна законная
+     мелкая ступень, ниже которой опускаться нельзя. Ступени
+     12/14/16 остаются как были: их пересматриваем вместе с
+     настройкой плотности, а не вслепую. */
+  --text-2xs: 0.6875rem;      /* 11px — только ярлыки и подписи значков */
+  --text-2xs--line-height: 1.3;
+
+  /* Нестандартные оттенки, встречающиеся в разметке: без явного
+     определения Tailwind молча не выдаёт цвет. Ссылаются на
+     ближайшую обычную ступень, поэтому подхватывают палитру выше. */
   --color-amber-205: var(--color-amber-200);
   --color-amber-450: var(--color-amber-400);
   --color-amber-650: var(--color-amber-600);
@@ -94,10 +211,96 @@
 
 @variant dark (&:where(.dark, .dark *));
 
-/* Нативные контролы (скроллбары, календарь у input[type=date], чекбоксы)
-   должны рисоваться в темной гамме при темной теме */
+/* ─────────────────────────────────────────────────────────────
+   Смысловые переменные. Разметка постепенно переезжает на них:
+   название говорит о роли («поверхность», «линия»), а не о
+   номере оттенка, поэтому тема перестаёт зависеть от того,
+   помнил ли автор экрана про тёмный вариант.
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --flux-bg: var(--color-slate-50);
+  --flux-surface: #ffffff;
+  --flux-panel: var(--color-slate-100);
+  --flux-line: var(--color-slate-200);
+  --flux-text: var(--color-slate-800);
+  --flux-text-muted: var(--color-slate-400);
+  --flux-accent: var(--color-emerald-600);
+  --flux-accent-hover: var(--color-emerald-700);
+  --flux-accent-press: var(--color-emerald-800);
+  --flux-accent-soft: var(--color-emerald-100);
+  --flux-accent-on: #ffffff;
+  --flux-focus: var(--color-emerald-600);
+
+  /* Длительности: отклик / появление / панель.
+     Было семь разных значений от 100 до 500 мс. */
+  --flux-dur-fast: 120ms;
+  --flux-dur-base: 180ms;
+  --flux-dur-slow: 240ms;
+  --flux-ease: cubic-bezier(0.2, 0, 0.13, 1);
+
+  /* Радиусы: три ступени вместо шести */
+  --flux-radius-sm: 6px;
+  --flux-radius-md: 10px;
+  --flux-radius-lg: 16px;
+
+  /* Тени привязаны к слою, а не выбираются на глаз */
+  --flux-shadow-card: 0 1px 2px oklch(16% 0.009 163 / 0.06);
+  --flux-shadow-pop: 0 4px 16px oklch(16% 0.009 163 / 0.12);
+  --flux-shadow-modal: 0 16px 48px oklch(16% 0.009 163 / 0.22);
+
+  /* Слои. В разметке было двенадцать значений от z-10 до z-[999]. */
+  --flux-z-content: 1;
+  --flux-z-sticky: 10;
+  --flux-z-popover: 30;
+  --flux-z-panel: 50;
+  --flux-z-modal: 80;
+  --flux-z-toast: 100;
+}
+
+/* Нативные контролы (скроллбары, календарь у input[type=date],
+   чекбоксы) должны рисоваться в тёмной гамме при тёмной теме */
 .dark {
   color-scheme: dark;
+
+  --flux-bg: var(--color-dark-bg);
+  --flux-surface: var(--color-dark-surface);
+  --flux-panel: var(--color-dark-panel);
+  --flux-line: var(--color-dark-border);
+  --flux-text: var(--color-dark-text-main);
+  --flux-text-muted: var(--color-dark-text-muted);
+  /* На тёмном фоне заливка берётся светлее, а текст на ней —
+     тёмный: белым по зелёному в темноте читается хуже. */
+  --flux-accent: oklch(76% 0.130 163);
+  --flux-accent-hover: oklch(80% 0.130 163);
+  --flux-accent-press: oklch(72% 0.130 163);
+  --flux-accent-soft: oklch(24% 0.030 163);
+  --flux-accent-on: var(--color-dark-bg);
+  --flux-focus: oklch(76% 0.130 163);
+
+  --flux-shadow-card: 0 1px 2px oklch(0% 0 0 / 0.4);
+  --flux-shadow-pop: 0 4px 16px oklch(0% 0 0 / 0.5);
+  --flux-shadow-modal: 0 16px 48px oklch(0% 0 0 / 0.6);
+}
+
+/* Тёмная тема: пока часть разметки обращается к серой шкале
+   напрямую, держим её переопределение — но значения теперь из
+   того же тона 163°, что и вся палитра. Разметка переезжает на
+   смысловые переменные выше по мере переработки экранов. */
+.dark {
+  --color-slate-950: var(--color-dark-bg);
+  --color-slate-900: var(--color-dark-surface);
+  --color-slate-850: var(--color-dark-panel);
+  --color-slate-800: var(--color-dark-border);
+  --color-slate-705: var(--color-dark-border);
+  --color-slate-700: var(--color-dark-border);
+  --color-slate-600: oklch(32% 0.016 163);
+  --color-slate-500: var(--color-dark-text-muted);
+  --color-slate-400: var(--color-dark-text-muted);
+  --color-slate-350: var(--color-dark-text-muted);
+  --color-slate-300: var(--color-dark-text-main);
+  --color-slate-200: var(--color-dark-border);
+  --color-slate-100: var(--color-dark-text-main);
+  --color-slate-50: var(--color-dark-bg);
 }
 
 html, body {
@@ -107,10 +310,14 @@ html, body {
   letter-spacing: -0.011em;
 }
 
-/* По умолчанию текст интерфейса не выделяется мышью (как в десктоп-приложении).
-   Выделять/копировать можно только поля ввода и помеченные .u-sel элементы
-   (теги, марки, значения характеристик и т.п.). */
-* {
+/* Выделение текста. Раньше оно было запрещено на всём документе, а
+   исключения перечислялись вручную — и в программе, где половина работы
+   это сверить код тега или скопировать номер документа в письмо, ничего
+   не копировалось. Теперь наоборот: выделять можно везде, кроме
+   управляющих элементов, где выделение мешает перетаскиванию и двойному
+   клику. */
+button, [role="button"], [role="tab"], [role="option"], label,
+nav, aside, .u-nosel, .u-nosel * {
   user-select: none;
   -webkit-user-select: none;
 }
@@ -120,33 +327,93 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   -webkit-user-select: text;
 }
 
-.dark {
-  --color-slate-950: #0b0f0d;
-  --color-slate-900: #141a17;
-  --color-slate-850: #1d2420;
-  --color-slate-800: #222c26;
-  --color-slate-705: #222c26;
-  --color-slate-700: #222c26;
-  --color-slate-600: #2d3a32;
-  --color-slate-500: #94a39b;
-  --color-slate-400: #94a39b;
-  --color-slate-350: #94a39b;
-  --color-slate-300: #e4e9e6;
-  --color-slate-200: #222c26;
-  --color-slate-100: #e4e9e6;
-  --color-slate-50: #0b0f0d;
+/* ─────────────────────────────────────────────────────────────
+   Фокус. Раньше кольцо появлялось и от мыши тоже и оставалось
+   висеть после клика — поэтому его отовсюду убирали, и с
+   клавиатуры работать было нельзя. Теперь: с мышью кольца нет,
+   с клавиатуры — есть всегда и одинаковое.
+   ───────────────────────────────────────────────────────────── */
+:where(button, a, [role="button"], [role="option"], [role="tab"], summary, [tabindex]):focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none;
+}
+:where(button, a, [role="button"], [role="option"], [role="tab"], summary, [tabindex], input, textarea, select, [contenteditable]):focus-visible {
+  outline: 2px solid var(--flux-focus);
+  outline-offset: 2px;
+  border-radius: var(--flux-radius-sm);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Плотность рабочего места. Класс ставится на <html> из настроек.
+   Таблицы и списки берут высоту строки и внутренние отступы отсюда,
+   поэтому «просторно / стандарт / компактно» меняет всю программу
+   разом, а не по одному экрану.
+   ───────────────────────────────────────────────────────────── */
+:root, .density-standard {
+  --flux-row-h: 34px;
+  --flux-cell-py: 6px;
+  --flux-cell-px: 10px;
+  --flux-control-h: 32px;
+}
+.density-compact {
+  --flux-row-h: 28px;
+  --flux-cell-py: 3px;
+  --flux-cell-px: 8px;
+  --flux-control-h: 28px;
+}
+.density-comfortable {
+  --flux-row-h: 42px;
+  --flux-cell-py: 10px;
+  --flux-cell-px: 14px;
+  --flux-control-h: 38px;
+}
+
+/* Табличная строка и ячейка: единая геометрия для всех разделов */
+.flux-row { height: var(--flux-row-h); }
+.flux-cell { padding: var(--flux-cell-py) var(--flux-cell-px); }
+
+/* Переходы интерфейса: цвет, тень, прозрачность и трансформация.
+   Геометрия (ширина, отступы) намеренно не анимируется — именно она
+   и делала интерфейс вязким: было 138 мест с transition-all. */
+.transition-ui {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, box-shadow, opacity, transform, filter;
+  transition-timing-function: var(--flux-ease);
+  transition-duration: var(--flux-dur-fast);
+}
+
+/* Длинные списки (журнал, переписка): браузер пропускает отрисовку того,
+   что за пределами экрана, и запоминает фактическую высоту, чтобы полоса
+   прокрутки не прыгала. Для строк таблиц не годится — там виртуализация. */
+.flux-lazy-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
+}
+
+/* Цифры в колонках должны стоять друг под другом */
+.nums, table {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Уважаем системную настройку «меньше движения» */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Подсветка цели при переходе по «поделиться-ссылке» */
 @keyframes sharePulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); }
-  20% { box-shadow: 0 0 0 4px rgba(16,185,129,0.55); }
-  60% { box-shadow: 0 0 0 4px rgba(16,185,129,0.30); }
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  20% { box-shadow: 0 0 0 4px color-mix(in oklch, var(--flux-accent) 55%, transparent); }
+  60% { box-shadow: 0 0 0 4px color-mix(in oklch, var(--flux-accent) 30%, transparent); }
 }
 .share-pulse {
   animation: sharePulse 1.1s ease-in-out 0s 3;
-  border-radius: 0.5rem;
-  outline: 2px solid rgba(16,185,129,0.85);
+  border-radius: var(--flux-radius-sm);
+  outline: 2px solid var(--flux-accent);
   outline-offset: 2px;
   scroll-margin: 90px;
 }
@@ -162,18 +429,18 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background-color: #cbd5e1;
+  background-color: var(--color-slate-300);
   border-radius: 9999px;
 }
 
 .dark .scrollbar-thin::-webkit-scrollbar-thumb {
-  background-color: #2d3a32;
+  background-color: oklch(32% 0.016 163);
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background-color: #94a3b8;
+  background-color: var(--color-slate-400);
 }
 
 .dark .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background-color: #3d4f44;
+  background-color: oklch(38% 0.018 163);
 }

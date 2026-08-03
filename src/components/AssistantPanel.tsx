@@ -20,7 +20,7 @@ function ActionChip({ a }: { a: AssistantAction }) {
   const runAction = useAssistantStore(s => s.runAction);
   const danger = a.danger || a.kind === 'cancel-input';
   return (
-    <button
+    <button type="button"
       onClick={() => runAction(a)}
       className={`flex items-center gap-1.5 px-2.5 py-1.5 border rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
         danger
@@ -54,16 +54,16 @@ function InteractiveList({ items }: { items: NonNullable<AssistantMessage['list'
           <div className="flex items-center gap-1.5 min-w-0">
             <TagIcon className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
             <span className="font-mono font-bold text-xs text-slate-800 dark:text-slate-100 truncate">{it.title}</span>
-            {it.badge && <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 uppercase tracking-wide">{it.badge}</span>}
+            {it.badge && <span className="shrink-0 text-2xs font-bold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 uppercase tracking-wide">{it.badge}</span>}
           </div>
-          {it.subtitle && <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 pl-5 truncate">{it.subtitle}</div>}
+          {it.subtitle && <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 pl-5 truncate">{it.subtitle}</div>}
           <div className="flex flex-wrap gap-1.5 mt-1.5 pl-5">
             {it.actions.map((a, i) => <ActionChip key={i} a={a} />)}
           </div>
         </div>
       ))}
       {items.length > shown.length && (
-        <div className="text-[10px] text-slate-400 px-1">Показано {shown.length} из {items.length}.</div>
+        <div className="text-2xs text-slate-400 px-1">Показано {shown.length} из {items.length}.</div>
       )}
     </div>
   );
@@ -74,7 +74,7 @@ function DataTable({ table }: { table: NonNullable<AssistantMessage['table']> })
   return (
     <div className="mt-2 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
       <div className="max-h-60 overflow-auto">
-        <table className="w-full text-[11px] border-collapse">
+        <table className="w-full text-xs border-collapse">
           <thead className="sticky top-0">
             <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
               {table.columns.map((c, i) => (
@@ -94,7 +94,7 @@ function DataTable({ table }: { table: NonNullable<AssistantMessage['table']> })
         </table>
       </div>
       {table.rows.length > shown.length && (
-        <div className="px-2 py-1 text-[10px] text-slate-400 bg-slate-50 dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
+        <div className="px-2 py-1 text-2xs text-slate-400 bg-slate-50 dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
           Показано {shown.length} из {table.rows.length}. Выгрузите в Excel, чтобы увидеть всё.
         </div>
       )}
@@ -185,7 +185,7 @@ export default function AssistantPanel() {
   return (
     // Раздвижная панель справа — как левый сайдбар: меняет ширину и сдвигает контент
     <aside
-      className={`${isOpen ? 'w-[380px] opacity-100' : 'w-0 opacity-0 pointer-events-none'} shrink-0 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col transition-all duration-300 overflow-hidden`}
+      className={`${isOpen ? 'w-[380px] opacity-100' : 'w-0 opacity-0 pointer-events-none'} shrink-0 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col transition-ui duration-300 overflow-hidden`}
     >
       <div className="w-[380px] h-full flex flex-col shrink-0">
       {/* Шапка */}
@@ -196,10 +196,10 @@ export default function AssistantPanel() {
           </div>
           <div>
             <div className="text-sm font-bold text-slate-900 dark:text-white leading-tight">Помощник Flux</div>
-            <div className="text-[10px] text-slate-400 dark:text-slate-500">Локальный · работает офлайн</div>
+            <div className="text-2xs text-slate-400 dark:text-slate-500">Локальный · работает офлайн</div>
           </div>
         </div>
-        <button onClick={() => setOpen(false)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer transition-colors" title="Закрыть">
+        <button type="button" onClick={() => setOpen(false)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer transition-colors" title="Закрыть">
           <X className="w-5 h-5" />
         </button>
       </div>
@@ -234,22 +234,22 @@ export default function AssistantPanel() {
       {section && demoMode && (
         <div className="px-3 pt-2 pb-1 border-t border-slate-100 dark:border-slate-850 shrink-0">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1">
+            <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1">
               <Info className="w-3 h-3" /> {section.emoji} Раздел: {section.title}
             </span>
-            <button
+            <button type="button"
               onClick={() => describeCurrentSection()}
-              className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+              className="text-2xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
             >
               Подробнее
             </button>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {section.suggestions.map((s, i) => (
-              <button
+              <button type="button"
                 key={i}
                 onClick={() => runSuggestion(s)}
-                className="flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-emerald-600/15 hover:text-emerald-700 dark:hover:text-emerald-300 text-slate-600 dark:text-slate-300 rounded-full text-[11px] font-medium cursor-pointer transition-colors"
+                className="flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-emerald-600/15 hover:text-emerald-700 dark:hover:text-emerald-300 text-slate-600 dark:text-slate-300 rounded-full text-xs font-medium cursor-pointer transition-colors"
               >
                 {s.kind === 'tour' ? <Play className="w-3 h-3" /> : <MessageCircleQuestion className="w-3 h-3" />}
                 {s.label}
@@ -261,7 +261,7 @@ export default function AssistantPanel() {
 
       {/* Переключатель режима «Демонстрация» */}
       <div className="px-3 py-2 shrink-0">
-        <button
+        <button type="button"
           onClick={() => toggleDemoMode()}
           className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${
             demoMode
@@ -275,7 +275,7 @@ export default function AssistantPanel() {
             Режим «Демонстрация»
           </span>
           <span className={`w-9 h-5 rounded-full relative transition-colors ${demoMode ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`}>
-            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${demoMode ? 'left-[18px]' : 'left-0.5'}`} />
+            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-ui ${demoMode ? 'left-[18px]' : 'left-0.5'}`} />
           </span>
         </button>
       </div>
@@ -289,7 +289,7 @@ export default function AssistantPanel() {
           onChange={(e) => { setInput(e.target.value); setHistIdx(-1); }}
           onKeyDown={onInputKeyDown}
           placeholder={pendingInput?.kind === 'rename-tag' ? `Новый код для «${pendingInput.oldCode}»…` : demoMode ? 'Что показать? Напишите вопрос…' : 'Спросите (Ctrl+K) — данные, действия, справка…'}
-          className={`flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border rounded-lg text-xs text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 transition-all ${
+          className={`flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border rounded-lg text-xs text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 transition-ui ${
             pendingInput ? 'border-amber-400/60 focus:ring-amber-400/30 focus:border-amber-400'
             : demoMode ? 'border-emerald-500/50 focus:ring-emerald-500/30 focus:border-emerald-500' : 'border-slate-200 dark:border-slate-800 focus:ring-emerald-500/30 focus:border-emerald-500'
           }`}

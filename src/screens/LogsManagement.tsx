@@ -8,6 +8,7 @@ import {
   User, Database, Filter, Calendar, Layers, Shield, FileText,
   AlertTriangle, Trash2
 } from 'lucide-react';
+import { countOf } from '../lib/plural';
 
 export default function LogsManagement() {
   const navigate = useNavigate();
@@ -135,9 +136,9 @@ export default function LogsManagement() {
       {/* HEADER SECTION */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs relative overflow-hidden">
         <div className="flex items-center gap-3">
-          <button
+          <button type="button"
             onClick={() => navigate('/')}
-            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white rounded-xl transition-all cursor-pointer border border-slate-200/60 dark:border-slate-800 shrink-0"
+            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white rounded-xl transition-ui cursor-pointer border border-slate-200/60 dark:border-slate-800 shrink-0"
             title="Назад на Главный экран"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -154,10 +155,10 @@ export default function LogsManagement() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          <button
+          <button type="button"
             onClick={() => fetchAllLogs(true)}
             disabled={loading}
-            className="px-3.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-755 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            className="px-3.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-755 transition-ui flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             title="Обновить журнал изменений"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -209,7 +210,7 @@ export default function LogsManagement() {
             <span>Параметры фильтрации логов</span>
           </h3>
           {(searchQuery || selectedUser || selectedCategory) && (
-            <button
+            <button type="button"
               onClick={handleClearFilters}
               className="text-xs font-bold text-rose-650 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-350 cursor-pointer flex items-center gap-1"
             >
@@ -230,7 +231,7 @@ export default function LogsManagement() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Поиск по описанию или инженеру..."
-              className="block w-full pl-9 pr-3 py-2 text-xs border border-slate-205 dark:border-slate-750 bg-slate-50 dark:bg-slate-950/80 rounded-xl focus:outline-none focus:border-emerald-500 text-slate-900 dark:text-white transition-all shadow-2xs placeholder-slate-400"
+              className="block w-full pl-9 pr-3 py-2 text-xs border border-slate-205 dark:border-slate-750 bg-slate-50 dark:bg-slate-950/80 rounded-xl focus:outline-none focus:border-emerald-500 text-slate-900 dark:text-white transition-ui shadow-2xs placeholder-slate-400"
             />
           </div>
 
@@ -239,7 +240,7 @@ export default function LogsManagement() {
             <select
               value={selectedUser}
               onChange={(e) => setSelectedUser(e.target.value)}
-              className="block w-full px-3 py-2 text-xs border border-slate-205 dark:border-slate-750 bg-slate-50 dark:bg-slate-950/80 rounded-xl focus:outline-none focus:border-emerald-500 text-slate-800 dark:text-white transition-all shadow-2xs cursor-pointer"
+              className="block w-full px-3 py-2 text-xs border border-slate-205 dark:border-slate-750 bg-slate-50 dark:bg-slate-950/80 rounded-xl focus:outline-none focus:border-emerald-500 text-slate-800 dark:text-white transition-ui shadow-2xs cursor-pointer"
             >
               <option value="">Все сотрудники</option>
               {uniqueUsers.map(([symbol, display]) => (
@@ -255,7 +256,7 @@ export default function LogsManagement() {
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="block w-full px-3 py-2 text-xs border border-slate-205 dark:border-slate-750 bg-slate-50 dark:bg-slate-950/80 rounded-xl focus:outline-none focus:border-emerald-500 text-slate-800 dark:text-white transition-all shadow-2xs cursor-pointer"
+              className="block w-full px-3 py-2 text-xs border border-slate-205 dark:border-slate-750 bg-slate-50 dark:bg-slate-950/80 rounded-xl focus:outline-none focus:border-emerald-500 text-slate-800 dark:text-white transition-ui shadow-2xs cursor-pointer"
             >
               <option value="">Все категории событий</option>
               <option value="Проекты">Проекты</option>
@@ -272,7 +273,7 @@ export default function LogsManagement() {
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
         <div className="border-b border-slate-100 dark:border-slate-800/80 px-5 py-4 bg-slate-50/50 dark:bg-slate-900/40 flex items-center justify-between">
           <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-            Отображено: <strong className="font-mono text-emerald-600 font-bold">{filteredLogs.length}</strong> из {logs.length} записей
+            Отображено: <strong className="font-mono text-emerald-600 font-bold">{filteredLogs.length}</strong> из {countOf(logs.length, 'запись')}
           </span>
           <span className="text-xs text-slate-410 dark:text-slate-500 italic">
             Нажмите на запись для мгновенного сквозного перехода к объекту
@@ -292,9 +293,9 @@ export default function LogsManagement() {
               Возможно, заданы слишком строгие фильтры поиска или база данных изменений еще не содержит связанных записей.
             </p>
             {(searchQuery || selectedUser || selectedCategory) && (
-              <button
+              <button type="button"
                 onClick={handleClearFilters}
-                className="mt-2.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-xs font-bold transition-all border border-slate-200 dark:border-slate-700 cursor-pointer"
+                className="mt-2.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-xs font-bold transition-ui border border-slate-200 dark:border-slate-700 cursor-pointer"
               >
                 Сбросить фильтры
               </button>
@@ -309,7 +310,7 @@ export default function LogsManagement() {
                 <div
                   key={log.id}
                   onClick={() => handleRowClick(log.targetRoute)}
-                  className="p-4 hover:bg-slate-50/70 dark:hover:bg-slate-950/20 transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 relative group pl-5 border-l-3 border-transparent hover:border-emerald-600"
+                  className="flux-lazy-item p-4 hover:bg-slate-50/70 dark:hover:bg-slate-950/20 transition-ui cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 relative group pl-5 border-l-3 border-transparent hover:border-emerald-600"
                 >
                   <div className="flex items-start gap-4">
                     {/* User identifier rounded bubble */}
@@ -352,7 +353,7 @@ export default function LogsManagement() {
                     </div>
 
                     {/* Target link shortcut indicator */}
-                    <div className="w-7 h-7 rounded-lg bg-slate-50 dark:bg-slate-800/80 group-hover:bg-emerald-50 dark:group-hover:bg-emerald-950/40 flex items-center justify-center transition-all">
+                    <div className="w-7 h-7 rounded-lg bg-slate-50 dark:bg-slate-800/80 group-hover:bg-emerald-50 dark:group-hover:bg-emerald-950/40 flex items-center justify-center transition-ui">
                       <ChevronRightIcon className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-400" />
                     </div>
                   </div>

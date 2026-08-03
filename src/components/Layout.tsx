@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
-import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, Sparkles, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2 } from 'lucide-react';
+import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, Sparkles, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ToastProvider from './ToastProvider';
 import ModalProvider from './ModalProvider';
@@ -16,14 +16,18 @@ import ShareLayer from './ShareLayer';
 import FluxLogo from './FluxLogo';
 import { useNotificationStore } from '../store/notificationStore';
 import Workspace from './Workspace';
+import ProjectSwitcher from './ProjectSwitcher';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import { useWorkspaceStore, visiblePanes, openSectionWindow } from '../store/workspaceStore';
+import { useModalStore } from '../store/modalStore';
+
+// Диалоги программы вместо системных окон Windows
+const { openAlert } = useModalStore.getState();
 
 export default function Layout() {
-  const { user, setUser, activeProject, theme, toggleTheme, syncStatus } = useStore();
+  const { user, setUser, activeProject, theme, toggleTheme, syncStatus, sidebarCompact, toggleSidebarCompact } = useStore();
   const navigate = useNavigate();
   const [eqOpen, setEqOpen] = useState(true);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   // Активный раздел активной панели рабочего стола (для подсветки меню)
   const wsLayout = useWorkspaceStore((s) => s.layout);
   const wsActivePath = useWorkspaceStore((s) => {
@@ -237,7 +241,7 @@ export default function Layout() {
         const res = await dataService.checkAuth(user.id);
         if (!cancelled && res && res.valid === false) {
           addLog('WARN', 'Безопасность', `Сессия завершена: ${res.reason || 'доступ отозван администратором'}`);
-          alert(res.reason || 'Доступ к системе отозван администратором.');
+          void openAlert('Доступ к программе закрыт', res.reason || 'Администратор отозвал доступ к системе. Обратитесь к нему, если это ошибка.');
           handleLogout();
         }
       } catch (e) {}
@@ -273,7 +277,7 @@ export default function Layout() {
       }
     }
 
-    const containerClasses = `w-9 h-9 rounded-full flex items-center justify-center text-sm font-extrabold text-emerald-700 dark:text-emerald-400 border transition-all duration-350 shrink-0 select-none ${borderClass} ${bgClass}`;
+    const containerClasses = `w-9 h-9 rounded-full flex items-center justify-center text-sm font-extrabold text-emerald-700 dark:text-emerald-400 border transition-ui duration-350 shrink-0 select-none ${borderClass} ${bgClass}`;
 
     return (
       <div className={containerClasses} id={isTrigger ? "profile-trigger-avatar" : "profile-popover-avatar"}>
@@ -335,67 +339,95 @@ export default function Layout() {
     );
   };
 
-  // Разделы, сгруппированные по смыслу (сверху вниз): контекст → инженерные
-  // данные → закупки/документы → заметки → коммуникации.
-  const navItems = [
-    { name: 'Главная', path: '/', icon: Home },
-    { name: 'Проекты', path: '/projects', icon: FolderKanban },
-    { name: 'Теги', path: '/registry', icon: Tag },
-    { name: 'Оборудование', path: '/equipment', icon: Fan },
-    { name: 'Справочник', path: '/directory', icon: BookOpen },
-    { name: 'Менеджмент', path: '/management', icon: Briefcase },
-    { name: 'Проводник', path: '/explorer', icon: FolderOpen },
-    { name: 'Конструктор', path: '/constructor', icon: Table2 },
-    { name: 'Блокнот', path: '/notes', icon: NotebookPen },
-    { name: 'Чат', path: '/chat', icon: MessagesSquare },
+  // Разделы, сгруппированные по смыслу: контекст → инженерные данные →
+  // документы и закупки → личное. Группы разделены тонкой линией: список
+  // из двенадцати одинаковых пунктов подряд не читается.
+  const navGroups: { items: { name: string; path: string; icon: any }[] }[] = [
+    { items: [{ name: 'Главная', path: '/', icon: Home }] },
+    { items: [
+      { name: 'Проекты', path: '/projects', icon: FolderKanban },
+      { name: 'Теги', path: '/registry', icon: Tag },
+      { name: 'Оборудование', path: '/equipment', icon: Fan },
+      { name: 'Справочник', path: '/directory', icon: BookOpen },
+    ] },
+    { items: [
+      { name: 'Менеджмент', path: '/management', icon: Briefcase },
+      { name: 'Проводник', path: '/explorer', icon: FolderOpen },
+      { name: 'Конструктор', path: '/constructor', icon: Table2 },
+    ] },
+    { items: [
+      { name: 'Блокнот', path: '/notes', icon: NotebookPen },
+      { name: 'Чат', path: '/chat', icon: MessagesSquare },
+      ...(user && user.role === 'ADMIN' ? [{ name: 'Сотрудники', path: '/users', icon: Users }] : []),
+    ] },
   ];
+
+  const navButton = (item: { name: string; path: string; icon: any }) => {
+    const active = wsActivePath === item.path;
+    const chatGlow = item.path === '/chat' && chatUnread > 0 && !active;
+    return (
+      <button
+        key={item.path}
+        type="button"
+        onClick={() => openInActivePane(item.path)}
+        onContextMenu={(e) => { e.preventDefault(); setNavMenu({ x: e.clientX, y: e.clientY, path: item.path }); }}
+        data-tour={`nav-${item.path}`}
+        data-share-route={item.path}
+        data-share-focus={`nav:${item.path}`}
+        data-share-label={item.name}
+        title={item.name}
+        aria-current={active ? 'page' : undefined}
+        className={`relative flex items-center cursor-pointer transition-colors duration-[120ms] ${
+          sidebarCompact
+            ? 'justify-center h-10 rounded-lg'
+            : 'flex-col justify-center gap-0.5 py-1 rounded-xl'
+        } ${
+          active
+            // Активный раздел — светлая плашка с зелёной меткой слева, а не
+            // сплошная заливка: полный цвет остаётся за кнопками действий,
+            // и длинные названия больше не упираются в края.
+            ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 font-semibold before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-1 before:rounded-r before:bg-emerald-600 dark:before:bg-emerald-400'
+            : chatGlow
+              ? 'text-emerald-700 dark:text-emerald-400 ring-1 ring-emerald-400/60'
+              : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-panel hover:text-slate-900 dark:hover:text-white'
+        }`}
+      >
+        <item.icon className="w-5 h-5 shrink-0" />
+        {!sidebarCompact && (
+          <span className="text-2xs font-semibold leading-none text-center break-words px-0.5">{item.name}</span>
+        )}
+        {item.path === '/chat' && chatUnread > 0 && (
+          <span className="absolute top-0.5 right-1 min-w-4 h-4 px-1 rounded-full bg-emerald-600 text-white text-2xs font-bold flex items-center justify-center">{chatUnread}</span>
+        )}
+      </button>
+    );
+  };
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-slate-50 dark:bg-dark-bg text-slate-800 dark:text-dark-text-main font-sans relative transition-colors duration-250">
-      <aside className={`${sidebarHidden ? 'w-0 opacity-0 -translate-x-full pointer-events-none' : 'w-24 opacity-100 translate-x-0'} bg-white dark:bg-dark-surface text-slate-700 dark:text-dark-text-muted flex flex-col transition-all duration-300 shrink-0 border-r border-slate-200 dark:border-dark-border`}>
-        <div className="px-1.5 pt-3 pb-2 flex flex-col items-center gap-1 border-b border-slate-200 dark:border-dark-border">
-          <FluxLogo size={30} />
-          <h1 className="text-sm font-extrabold tracking-tight text-slate-900 dark:text-white leading-none">Flux</h1>
-          <p className="text-[9px] text-slate-500 dark:text-dark-text-muted text-center leading-tight line-clamp-2 px-1" title={activeProject?.name || 'Проект не выбран'}>
-            {activeProject?.name || 'Без проекта'}
-          </p>
+      <aside className={`${sidebarHidden ? 'w-0 opacity-0 -translate-x-full pointer-events-none' : `${sidebarCompact ? 'w-14' : 'w-24'} opacity-100 translate-x-0`} bg-white dark:bg-dark-surface text-slate-700 dark:text-dark-text-muted flex flex-col transition-[width,opacity,transform] duration-[240ms] shrink-0 border-r border-slate-200 dark:border-dark-border`}>
+        <div className="px-1.5 pt-2 pb-1.5 flex flex-col items-center gap-1 border-b border-slate-200 dark:border-dark-border">
+          <div className="flex items-center gap-1.5">
+            <FluxLogo size={sidebarCompact ? 24 : 28} />
+            {!sidebarCompact && <h1 className="text-sm font-extrabold tracking-tight text-slate-900 dark:text-white leading-none">Flux</h1>}
+          </div>
+          <ProjectSwitcher compact={sidebarCompact} />
         </div>
-        <div className="flex-1 overflow-y-auto py-2 scrollbar-thin">
-          <nav className="flex flex-col gap-1 px-1.5">
-            {[...navItems, ...(user && user.role === 'ADMIN' ? [{ name: 'Сотрудники', path: '/users', icon: Users }] : [])].map((item) => {
-              const active = wsActivePath === item.path;
-              const chatGlow = item.path === '/chat' && chatUnread > 0 && !active;
-              return (
-                <button
-                  key={item.path}
-                  type="button"
-                  onClick={() => openInActivePane(item.path)}
-                  onContextMenu={(e) => { e.preventDefault(); setNavMenu({ x: e.clientX, y: e.clientY, path: item.path }); }}
-                  data-tour={`nav-${item.path}`}
-                  data-share-route={item.path}
-                  data-share-focus={`nav:${item.path}`}
-                  data-share-label={item.name}
-                  title={item.name}
-                  className={`relative flex flex-col items-center justify-center gap-1 py-2 rounded-xl transition-all cursor-pointer ${
-                    active
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : chatGlow
-                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 ring-1 ring-emerald-400'
-                        : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-panel hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  <item.icon className="w-5 h-5 shrink-0" />
-                  <span className="text-[10px] font-semibold leading-tight text-center break-words">{item.name}</span>
-                  {item.path === '/chat' && chatUnread > 0 && (
-                    <span className="absolute top-1 right-2 min-w-4 h-4 px-1 rounded-full bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center">{chatUnread}</span>
-                  )}
-                </button>
-              );
-            })}
+        <div className="flex-1 overflow-y-auto scrollbar-thin">
+          {/* Зазор минимальный: на ноутбуке 1366×768 все разделы должны
+              помещаться без прокрутки — прокручиваемое главное меню
+              прячет разделы и найти их нельзя. */}
+          <nav className="flex flex-col gap-0.5 px-1.5" aria-label="Разделы программы">
+            {navGroups.map((g, gi) => (
+              <React.Fragment key={gi}>
+                {gi > 0 && <hr className="my-1 border-slate-200 dark:border-dark-border" />}
+                {g.items.map(navButton)}
+              </React.Fragment>
+            ))}
           </nav>
         </div>
 
-        <div className="p-4 border-t border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-surface shrink-0 relative">
+        <div className="px-1.5 pt-2 pb-2.5 border-t border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-surface shrink-0 relative">
           {createPortal(
             <AnimatePresence>
             {isProfileMenuOpen && (
@@ -429,18 +461,18 @@ export default function Layout() {
                   </div>
 
                   {/* Все настройки перенесены в раздел «Настройки» (левая панель) */}
-                  <button
+                  <button type="button"
                     onClick={() => { setIsProfileMenuOpen(false); openInActivePane('/settings'); }}
-                    className="flex w-full items-center justify-center gap-1.5 px-2 py-2 text-xs font-bold text-slate-700 dark:text-dark-text-main bg-slate-100 dark:bg-dark-surface hover:bg-slate-200 dark:hover:bg-dark-panel border border-slate-200 dark:border-dark-border rounded-lg transition-all cursor-pointer"
+                    className="flex w-full items-center justify-center gap-1.5 px-2 py-2 text-xs font-bold text-slate-700 dark:text-dark-text-main bg-slate-100 dark:bg-dark-surface hover:bg-slate-200 dark:hover:bg-dark-panel border border-slate-200 dark:border-dark-border rounded-lg transition-ui cursor-pointer"
                   >
                     <Settings className="w-3.5 h-3.5 text-emerald-600" />
                     Настройки программы
                   </button>
 
                   {/* Foot Actions: Logout */}
-                  <button 
+                  <button type="button" 
                     onClick={handleLogout}
-                     className="flex w-full items-center justify-center gap-1 px-2 py-2 text-xs text-rose-650 hover:text-white hover:bg-rose-600 active:scale-98 border border-rose-500/10 hover:border-transparent rounded-lg transition-all font-bold cursor-pointer mt-0.5"
+                     className="flex w-full items-center justify-center gap-1 px-2 py-2 text-xs text-rose-650 hover:text-white hover:bg-rose-600 active:scale-98 border border-rose-500/10 hover:border-transparent rounded-lg transition-ui font-bold cursor-pointer mt-0.5"
                   >
                     <LogOut className="w-3 h-3 mr-1 text-rose-500 shrink-0" />
                     Выйти из аккаунта
@@ -452,6 +484,19 @@ export default function Layout() {
             document.body
           )}
 
+          {/* Ширина меню: только значки или значки с подписями. Выбор
+              запоминается — на узком экране подписи можно убрать и
+              вернуть содержимому 40 пикселей. */}
+          <button
+            type="button"
+            onClick={toggleSidebarCompact}
+            title={sidebarCompact ? 'Показать подписи разделов' : 'Убрать подписи, оставить значки'}
+            aria-label={sidebarCompact ? 'Показать подписи разделов' : 'Убрать подписи, оставить значки'}
+            className="w-full flex items-center justify-center h-7 mb-1 rounded-lg text-slate-400 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-panel hover:text-slate-700 dark:hover:text-white transition-colors duration-[120ms] cursor-pointer"
+          >
+            {sidebarCompact ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+          </button>
+
           {/* Настройки программы — над профилем (перенесены из окна профиля) */}
           <button
             type="button"
@@ -459,14 +504,17 @@ export default function Layout() {
             data-share-route="/settings"
             data-share-label="Настройки"
             title="Настройки программы"
-            className={`w-full flex flex-col items-center gap-1 p-2 mb-1.5 rounded-xl transition-all cursor-pointer select-none ${
+            aria-current={wsActivePath === '/settings' ? 'page' : undefined}
+            className={`relative w-full flex items-center cursor-pointer select-none transition-colors duration-[120ms] ${
+              sidebarCompact ? 'justify-center h-10 rounded-lg mb-1' : 'flex-col justify-center gap-0.5 py-1 mb-1 rounded-xl'
+            } ${
               wsActivePath === '/settings'
-                ? 'bg-emerald-600 text-white shadow-sm'
+                ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 font-semibold before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-1 before:rounded-r before:bg-emerald-600 dark:before:bg-emerald-400'
                 : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-panel hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             <Settings className="w-5 h-5 shrink-0" />
-            <span className="text-[10px] font-semibold leading-tight">Настройки</span>
+            {!sidebarCompact && <span className="text-2xs font-semibold leading-none">Настройки</span>}
           </button>
 
           {/* Interactive Profile Clickable Button (Trigger) */}
@@ -475,14 +523,18 @@ export default function Layout() {
             data-tour="profile-btn"
             onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
             title={`${user?.name || ''} · ${user?.role || ''}`}
-            className={`w-full flex flex-col items-center gap-1 p-2 rounded-xl transition-all cursor-pointer select-none outline-none ${
+            className={`w-full flex items-center rounded-xl transition-colors duration-[120ms] cursor-pointer select-none ${
+              sidebarCompact ? 'justify-center p-1' : 'flex-col gap-0.5 p-1.5'
+            } ${
               isProfileMenuOpen
                 ? 'bg-slate-200/70 dark:bg-dark-surface border border-slate-200 dark:border-dark-border'
-                : 'hover:bg-slate-150 dark:hover:bg-dark-surface border border-transparent'
+                : 'hover:bg-slate-100 dark:hover:bg-dark-surface border border-transparent'
             }`}
           >
             {renderAvatar(true)}
-            <span className="text-[10px] font-bold text-slate-850 dark:text-white leading-tight truncate max-w-full">{(user?.name || '').split(' ')[0] || 'Профиль'}</span>
+            {!sidebarCompact && (
+              <span className="text-2xs font-bold text-slate-800 dark:text-white leading-none truncate max-w-full">{(user?.name || '').split(' ')[0] || 'Профиль'}</span>
+            )}
           </button>
         </div>
       </aside>

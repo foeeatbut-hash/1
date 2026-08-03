@@ -232,6 +232,8 @@ model Folder {
 
   files       FileNode[]
   updatedAt   DateTime @default(now()) @updatedAt
+  deletedAt   DateTime? // корзина: папка скрыта, но восстановима
+  deletedById String?
 }
 
 model FileNode {
@@ -259,6 +261,8 @@ model FileNode {
   
   mainTags        Tag[]    @relation("FileMainTags")
   additionalTags  Tag[]    @relation("FileAdditionalTags")
+  deletedAt   DateTime? // корзина: файл скрыт, но восстановим
+  deletedById String?
 }
 
 model Equipment {

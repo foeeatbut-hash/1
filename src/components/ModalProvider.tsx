@@ -20,7 +20,17 @@ export default function ModalProvider() {
     }
   }, [currentModal]);
 
+  // Esc закрывает окно — как и все остальные всплывающие окна программы
+  useEffect(() => {
+    if (!currentModal) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeModal(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [currentModal, closeModal]);
+
   if (!currentModal) return null;
+
+  const danger = currentModal.tone === 'danger';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,9 +63,10 @@ export default function ModalProvider() {
               <div className="px-6 py-5">
                 <div className="flex items-start gap-4 mb-4">
                    <div className={`p-2 rounded-full shrink-0 ${
-                       currentModal.type === 'alert' ? 'bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400' : 
-                       currentModal.type === 'confirm' ? 'bg-yellow-100 dark:bg-yellow-950/40 text-yellow-650 dark:text-yellow-405' : 
-                       'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'
+                       danger ? 'bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400' :
+                       currentModal.type === 'alert' ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-650 dark:text-amber-450' :
+                       currentModal.type === 'confirm' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400' :
+                       'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400'
                    }`}>
                       {currentModal.type === 'alert' && <AlertCircle className="w-6 h-6" />}
                       {currentModal.type === 'confirm' && <HelpCircle className="w-6 h-6" />}
@@ -111,23 +122,24 @@ export default function ModalProvider() {
                  )}
                  <button 
                     type="submit"
-                    className={`px-4 py-2 rounded-lg text-sm font-medium text-white shadow-sm transition-colors cursor-pointer ${
-                       currentModal.type === 'alert' ? 'bg-red-600 hover:bg-red-700' :
-                       currentModal.type === 'confirm' ? 'bg-emerald-600 hover:bg-emerald-700' :
-                       'bg-emerald-600 hover:bg-emerald-700'
+                    autoFocus
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold text-white shadow-sm transition-colors duration-[120ms] cursor-pointer ${
+                       danger ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'
                     }`}
                  >
-                    {currentModal.type === 'alert' ? 'ОК' :
-                     currentModal.type === 'confirm' ? 'Подтвердить' :
-                     'Сохранить'}
+                    {currentModal.confirmLabel ||
+                     (currentModal.type === 'alert' ? 'Понятно' :
+                      currentModal.type === 'confirm' ? 'Подтвердить' :
+                      'Сохранить')}
                  </button>
               </div>
            </form>
            
-           <button 
-             onClick={() => closeModal()}
-             className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+           <button
              type="button"
+             onClick={() => closeModal()}
+             className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+             aria-label="Закрыть окно"
            >
               <X className="w-5 h-5" />
            </button>

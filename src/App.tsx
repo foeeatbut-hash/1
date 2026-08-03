@@ -14,6 +14,7 @@ const StickerWindow = lazy(() => import('./screens/StickerWindow'));
 
 import { SocketProvider } from './components/SocketProvider';
 import { ServerGate } from './components/BootSplash';
+import LicenseGate from './screens/LicenseGate';
 import ActionLogWidget from './components/ActionLogWidget';
 import AssistantSpotlight from './components/AssistantSpotlight';
 import { setAssistantNavigator, setAssistantProjectGetter, useAssistantStore } from './store/assistantStore';
@@ -57,16 +58,16 @@ function ElectronTitleBar() {
       {/* Компактный логотип слева, без названия */}
       <div className="flex items-center gap-2 pl-3">
         <div className="w-5 h-5 rounded-md bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-sm">
-          <span className="text-[9px] font-black text-white tracking-tight">M</span>
+          <span className="text-2xs font-black text-white tracking-tight">M</span>
         </div>
       </div>
 
       {/* Кнопки управления окном */}
       <div className="flex items-stretch h-full" style={noDrag}>
-        <button onClick={() => wc?.minimize?.()} className={`${btn} hover:bg-slate-800`} title="Свернуть" style={noDrag}>
+        <button type="button" onClick={() => wc?.minimize?.()} className={`${btn} hover:bg-slate-800`} title="Свернуть" style={noDrag}>
           <svg width="11" height="11" viewBox="0 0 11 11"><rect x="1" y="5" width="9" height="1.1" fill="currentColor" /></svg>
         </button>
-        <button onClick={() => wc?.maximize?.()} className={`${btn} hover:bg-slate-800`} title={maximized ? 'Восстановить' : 'Развернуть'} style={noDrag}>
+        <button type="button" onClick={() => wc?.maximize?.()} className={`${btn} hover:bg-slate-800`} title={maximized ? 'Восстановить' : 'Развернуть'} style={noDrag}>
           {maximized ? (
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.1">
               <rect x="2.4" y="1.2" width="6.4" height="6.4" rx="1" />
@@ -76,7 +77,7 @@ function ElectronTitleBar() {
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.1"><rect x="1.4" y="1.4" width="8.2" height="8.2" rx="1.2" /></svg>
           )}
         </button>
-        <button onClick={() => wc?.close?.()} className={`${btn} hover:bg-rose-600 rounded-tr-none`} title="Закрыть" style={noDrag}>
+        <button type="button" onClick={() => wc?.close?.()} className={`${btn} hover:bg-rose-600 rounded-tr-none`} title="Закрыть" style={noDrag}>
           <svg width="11" height="11" viewBox="0 0 11 11" stroke="currentColor" strokeWidth="1.2"><line x1="1.5" y1="1.5" x2="9.5" y2="9.5" /><line x1="9.5" y1="1.5" x2="1.5" y2="9.5" /></svg>
         </button>
       </div>
@@ -165,7 +166,9 @@ export default function App() {
           <div className="flex-1 min-h-0 overflow-hidden relative">
             {/* Пока встроенный сервер поднимается — анимированная заставка вместо пустого экрана */}
             <ServerGate>
-              <AnimatedRoutes />
+              <LicenseGate>
+                <AnimatedRoutes />
+              </LicenseGate>
             </ServerGate>
           </div>
         </div>

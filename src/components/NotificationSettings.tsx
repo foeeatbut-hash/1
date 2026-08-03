@@ -11,7 +11,7 @@ export default function NotificationSettings() {
   const Toggle = ({ on, onClick }: { on: boolean; onClick: () => void }) => (
     <button type="button" onClick={onClick}
       className={`relative w-9 h-5 rounded-full transition-colors shrink-0 cursor-pointer ${on ? 'bg-emerald-600' : 'bg-slate-300 dark:bg-slate-700'}`}>
-      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${on ? 'left-[18px]' : 'left-0.5'}`} />
+      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-ui ${on ? 'left-[18px]' : 'left-0.5'}`} />
     </button>
   );
 
@@ -31,7 +31,7 @@ export default function NotificationSettings() {
 
       {/* По категориям */}
       <div>
-        <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 px-1 mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+        <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 px-1 mb-1 text-2xs font-bold uppercase tracking-wider text-slate-400">
           <span>Категория</span><span>Показ</span><span>Звук</span>
         </div>
         <div className="space-y-1.5">
@@ -46,7 +46,7 @@ export default function NotificationSettings() {
             );
           })}
         </div>
-        <p className="text-[10px] text-slate-400 mt-2">«Показ» — отображать всплывашку и в разделе уведомлений. Ошибки показываются всегда.</p>
+        <p className="text-2xs text-slate-400 mt-2">«Показ» — отображать всплывашку и в разделе уведомлений. Ошибки показываются всегда.</p>
       </div>
     </div>
   );

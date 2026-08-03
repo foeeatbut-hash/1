@@ -66,14 +66,14 @@ export function ServerGate({ children }: { children: React.ReactNode }) {
               : 'Попробуйте перезапустить приложение. Если не помогает — посмотрите лог запуска (AppData/pdm-app/server-startup.log).'}
           </p>
           <div className="flex items-center justify-center gap-3 pt-1">
-            <button
+            <button type="button"
               onClick={() => window.location.reload()}
               className="px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold transition-colors cursor-pointer"
             >
               Повторить
             </button>
             {isRemote && (
-              <button
+              <button type="button"
                 onClick={async () => { await setConfiguredServerUrl(''); window.location.reload(); }}
                 className="px-5 py-2.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-sm font-semibold transition-colors cursor-pointer"
               >

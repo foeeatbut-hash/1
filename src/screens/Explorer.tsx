@@ -9,16 +9,29 @@ import {
   Search, MoreVertical, Copy, Edit2, Trash2, FolderPlus, RefreshCw, 
   ArrowLeft, ArrowRight, ArrowUp, Tag, Shield, PanelRight, LayoutGrid, List,
   Download, Image as ImageIcon, FileText, FileCode, FileSpreadsheet, Info, Boxes, Scissors, ClipboardPaste,
-  Grid3X3
+  Grid3X3, Clock
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import EquipmentImportPreview from '../components/EquipmentImportPreview';
+import { countOf } from '../lib/plural';
 
 // Виртуальные корневые разделы проводника: «Общий» и «Личный».
 // Они зашиты в программу: их нельзя удалить, переименовать или переместить.
 const SEC_SHARED = 'sec:shared';
+// Корзина Проводника: отдельный «раздел» в дереве. Удалённое хранится до
+// явной очистки — в системе документов случайно удалённый чертёж не должен
+// пропадать безвозвратно.
+const TRASH_ID = 'trash:root';
+// Умные подборки: не папки, а срезы по всем файлам проекта. Отвечают на
+// вопросы, которые в инженерном архиве возникают постоянно: «что я трогал
+// последним», «что забыли привязать к оборудованию», «где дубли».
+const SMART_RECENT = 'smart:recent';
+const SMART_UNTAGGED = 'smart:untagged';
+const SMART_DUPES = 'smart:dupes';
+const SMART_IDS = [SMART_RECENT, SMART_UNTAGGED, SMART_DUPES];
+const isSmartId = (id: string | null | undefined): boolean => !!id && SMART_IDS.includes(id);
 const personalSecId = (uid: string) => `sec:personal:${uid}`;
 const isSectionId = (id: string | null | undefined): boolean => !!id && id.startsWith('sec:');
 const parseSection = (id: string): { scope: 'SHARED' | 'PERSONAL'; ownerId: string | null } =>
@@ -66,7 +79,7 @@ const StatusChip = ({ code, onClick }: { code?: string; onClick?: (e: React.Mous
     <span
       onClick={onClick}
       title={onClick ? 'Сменить статус документа' : s.label}
-      className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${s.chip} ${onClick ? 'cursor-pointer hover:brightness-95' : ''}`}
+      className={`inline-flex items-center gap-1 text-2xs font-bold px-1.5 py-0.5 rounded-full ${s.chip} ${onClick ? 'cursor-pointer hover:brightness-95' : ''}`}
     >
       <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} /> {s.label}
     </span>
@@ -124,7 +137,56 @@ export default function Explorer() {
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [showPreviewPane, setShowPreviewPane] = useState(false);
+  // Панель свойств открыта по умолчанию: клик по файлу должен сразу
+  // показывать, что это за файл. Выбор запоминается.
+  // Фильтр по статусу документа: в архиве постоянно нужно «покажи только
+  // черновики» или «что уже выдано».
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+
+  // Ширины колонок таблицы: тянутся за границу заголовка и запоминаются.
+  // В архиве у одних длинные имена файлов, у других — длинные названия
+  // отделов; одна раскладка на всех не подходит.
+  const COL_KEYS = ['name', 'updatedAt', 'statusCode', 'size', 'tags', 'department'] as const;
+  const DEFAULT_COL_W: Record<string, number> = { name: 320, updatedAt: 150, statusCode: 120, size: 90, tags: 130, department: 120 };
+  const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('flux_explorer_cols') || '{}');
+      return { ...DEFAULT_COL_W, ...saved };
+    } catch (_) { return { ...DEFAULT_COL_W }; }
+  });
+  const resizeRef = useRef<{ key: string; startX: number; startW: number } | null>(null);
+
+  const startColResize = (key: string) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizeRef.current = { key, startX: e.clientX, startW: colWidths[key] || DEFAULT_COL_W[key] || 120 };
+    const onMove = (ev: MouseEvent) => {
+      const r = resizeRef.current;
+      if (!r) return;
+      const next = Math.max(60, r.startW + (ev.clientX - r.startX));
+      setColWidths((prev) => ({ ...prev, [r.key]: next }));
+    };
+    const onUp = () => {
+      resizeRef.current = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      setColWidths((prev) => {
+        try { localStorage.setItem('flux_explorer_cols', JSON.stringify(prev)); } catch (_) {}
+        return prev;
+      });
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  const colStyle = (key: string) => ({ width: colWidths[key] || DEFAULT_COL_W[key], minWidth: 60 });
+  const [showPreviewPane, setShowPreviewPaneState] = useState<boolean>(() => {
+    try { return localStorage.getItem('flux_explorer_details') !== '0'; } catch (_) { return true; }
+  });
+  const setShowPreviewPane = (v: boolean) => {
+    try { localStorage.setItem('flux_explorer_details', v ? '1' : '0'); } catch (_) {}
+    setShowPreviewPaneState(v);
+  };
 
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
 
@@ -137,6 +199,49 @@ export default function Explorer() {
   const [clipboard, setClipboard] = useState<{ ids: string[], type: 'copy' | 'cut' } | null>(null);
 
   const [uploadProgress, setUploadProgress] = useState<{current: number, total: number} | null>(null);
+  const [trash, setTrash] = useState<{ folders: any[]; files: any[] } | null>(null);
+  const [trashLoading, setTrashLoading] = useState(false);
+
+  const loadTrash = React.useCallback(async () => {
+    setTrashLoading(true);
+    try {
+      const r = await fetch(`/api/projects/${activeProject?.id || 'default'}/trash`);
+      const d = r.ok ? await r.json() : { folders: [], files: [] };
+      setTrash({ folders: d.folders || [], files: d.files || [] });
+    } catch (_) {
+      setTrash({ folders: [], files: [] });
+    } finally {
+      setTrashLoading(false);
+    }
+  }, [activeProject?.id]);
+
+  const restoreItem = async (kind: 'file' | 'folder', id: string, name: string) => {
+    try {
+      const r = await fetch(`/api/${kind === 'file' ? 'files' : 'folders'}/${id}/restore`, { method: 'POST' });
+      if (!r.ok) throw new Error('Сервер отказал в восстановлении');
+      addToast(`«${name}» возвращён${kind === 'folder' ? 'а' : ''} на место`, 'success');
+      await Promise.all([loadTrash(), fetchData()]);
+    } catch (e: any) {
+      addToast(e.message || 'Не удалось восстановить', 'error');
+    }
+  };
+
+  const purgeTrash = async () => {
+    const total = (trash?.files.length || 0) + (trash?.folders.length || 0);
+    if (!total) return;
+    const okToPurge = await openConfirm('Очистить корзину?',
+      `Будет безвозвратно удалено: ${countOf(total, 'элемент')}. Вернуть их будет нельзя.`,
+      { confirmLabel: 'Очистить корзину', tone: 'danger' });
+    if (!okToPurge) return;
+    try {
+      const r = await fetch(`/api/projects/${activeProject?.id || 'default'}/trash`, { method: 'DELETE' });
+      if (!r.ok) throw new Error('Сервер отказал в очистке');
+      addToast('Корзина очищена', 'success');
+      await loadTrash();
+    } catch (e: any) {
+      addToast(e.message || 'Не удалось очистить корзину', 'error');
+    }
+  };
   
   const [propertiesModal, setPropertiesModal] = useState<{item: any, isFile: boolean} | null>(null);
   
@@ -211,7 +316,7 @@ export default function Explorer() {
       }
       setLoadedMap(map);
     } catch (_) { setLoadedMap({}); }
-  }, [activeProject]);
+  }, [activeProject?.id]); // по идентификатору, а не по объекту: иначе перезапрос при каждой смене ссылки
 
   useEffect(() => { loadEquipMap(); }, [loadEquipMap]);
 
@@ -248,15 +353,24 @@ export default function Explorer() {
 
   useEffect(() => {
     fetchData();
-  }, [activeProject]);
+  }, [activeProject?.id]); // по идентификатору, а не по объекту: иначе перезапрос при каждой смене ссылки
 
   useEffect(() => {
+    // Меню закрывается кликом мимо и клавишей Esc — иначе оно оставалось
+    // висеть поверх содержимого, в том числе после перехода в другую папку.
     const handleGlobalClick = () => setContextMenu(null);
+    const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setContextMenu(null); };
     window.addEventListener('click', handleGlobalClick);
-    return () => window.removeEventListener('click', handleGlobalClick);
+    window.addEventListener('keydown', handleEsc);
+    return () => {
+      window.removeEventListener('click', handleGlobalClick);
+      window.removeEventListener('keydown', handleEsc);
+    };
   }, []);
 
   const navigateTo = (folderId: string | null) => {
+    setContextMenu(null);
+    if (folderId === TRASH_ID) loadTrash();
     pushHistory(folderId);
     setSearchQuery('');
     setSelectedIds(new Set());
@@ -596,18 +710,33 @@ export default function Explorer() {
     fetchData();
   };
 
-  const handleDelete = async (id: string, isFile: boolean) => {
+  // skipConfirm — когда подтверждение уже спросили один раз на всю пачку
+  // (удаление нескольких выделенных), иначе программа спрашивала бы про
+  // каждый файл отдельно.
+  const handleDelete = async (id: string, isFile: boolean, skipConfirm = false) => {
     if (isSectionId(id)) {
       addToast('Разделы «Общий» и «Личный» встроены в программу — их нельзя удалить.', 'error');
       return;
     }
-    const confirmed = await openConfirm("Подтверждение", "Вы уверены, что хотите удалить этот элемент?");
+    const confirmed = skipConfirm || await openConfirm(
+      isFile ? 'Удалить файл?' : 'Удалить папку?',
+      isFile
+        ? 'Файл попадёт в корзину Проводника — оттуда его можно вернуть.'
+        : 'Папка со всем содержимым попадёт в корзину Проводника — оттуда её можно вернуть.',
+      { confirmLabel: 'Удалить', tone: 'danger' },
+    );
     if (!confirmed) return;
     const endpoint = isFile ? `/api/files/${id}` : `/api/folders/${id}`;
-    await fetch(endpoint, { method: 'DELETE' });
+    const res = await fetch(endpoint, { method: 'DELETE' });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      addToast(d.error || 'Не удалось удалить', 'error');
+      return;
+    }
     if (!isFile && currentFolderId === id) navigateTo(null);
-    addToast('Удалено успешно', 'success');
+    if (!skipConfirm) addToast(isFile ? 'Файл перемещён в корзину' : 'Папка перемещена в корзину', 'success');
     fetchData();
+    if (trash) loadTrash();
   };
 
   const handleAssignTag = (fileId: string) => {
@@ -646,7 +775,7 @@ export default function Explorer() {
       return it && !it.isFolder;
     });
     if (fileTargets.length === 0) return;
-    const code = await openSelect('Статус документа', `Новый статус для ${fileTargets.length > 1 ? `${fileTargets.length} файлов` : 'файла'}:`,
+    const code = await openSelect('Статус документа', `Новый статус для ${fileTargets.length > 1 ? countOf(fileTargets.length, 'файл') : 'файла'}:`,
       STATUS_ORDER.map(c => ({ value: c, label: FILE_STATUSES[c].label })));
     if (code === null) return;
     await Promise.all(fileTargets.map(id => fetch(`/api/files/${id}`, {
@@ -712,6 +841,36 @@ export default function Explorer() {
   const allCurrentItems = useMemo(() => {
     const searchLower = searchQuery.toLowerCase();
 
+    // Умные подборки: срез по всем файлам, доступным пользователю
+    if (isSmartId(currentFolderId)) {
+      const folderName = new Map<string, string>(folders.map((f: any) => [f.id, f.name]));
+      const all = [
+        ...rootFiles.map((f: any) => ({ ...f, smartLocation: itemSection(f) === SEC_SHARED ? 'Общий' : 'Личный' })),
+        ...folders.flatMap((f: any) => (f.files || []).map((x: any) => ({ ...x, smartLocation: folderName.get(f.id) || '' }))),
+      ]
+        .filter((f: any) => f.type !== 'CHAT_FILE')
+        .filter((f: any) => !searchQuery || String(f.name || '').toLowerCase().includes(searchLower))
+        .map((f: any) => ({ ...f, isFolder: false }));
+
+      if (currentFolderId === SMART_RECENT) {
+        return [...all]
+          .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime())
+          .slice(0, 100);
+      }
+      if (currentFolderId === SMART_UNTAGGED) {
+        return all.filter((f: any) => !(f.mainTags || []).length && !(f.additionalTags || []).length);
+      }
+      // Дубли: одинаковое имя встречается больше одного раза
+      const byName = new Map<string, number>();
+      for (const f of all) {
+        const k = String(f.name || '').toLowerCase();
+        byName.set(k, (byName.get(k) || 0) + 1);
+      }
+      return all
+        .filter((f: any) => (byName.get(String(f.name || '').toLowerCase()) || 0) > 1)
+        .sort((a, b) => String(a.name).localeCompare(String(b.name), 'ru'));
+    }
+
     // Список разделов (корень проводника): «Общий», «Личный», у ГлавАдмина — личные всех
     if (currentFolderId === null && !searchQuery) {
       return sections.map(s => ({ ...s, type: 'Раздел' }));
@@ -736,7 +895,10 @@ export default function Explorer() {
       ).map((f: any) => ({ ...f, isFolder: false }))
     ];
 
-    items.sort((a, b) => {
+    const filtered = statusFilter
+      ? items.filter((i: any) => i.isFolder || (i.statusCode || 'D') === statusFilter)
+      : items;
+    filtered.sort((a, b) => {
       if (a.isFolder && !b.isFolder) return -1;
       if (!a.isFolder && b.isFolder) return 1;
 
@@ -753,8 +915,8 @@ export default function Explorer() {
       return 0;
     });
 
-    return items;
-  }, [folders, rootFiles, currentFolderId, currentSectionId, sections, searchQuery, sortConfig]);
+    return filtered;
+  }, [folders, rootFiles, currentFolderId, currentSectionId, sections, searchQuery, sortConfig, statusFilter]);
 
   useEffect(() => { allCurrentItemsRef.current = allCurrentItems; }, [allCurrentItems]);
 
@@ -916,14 +1078,17 @@ export default function Explorer() {
       } else if (e.key === 'Delete' && selected.size > 0) {
         const deletable = Array.from(selected).filter(id => !isSectionId(id));
         if (deletable.length === 0) return;
-        openConfirm("Удаление", `Удалить ${deletable.length} элементов?`).then(confirmed => {
+        openConfirm(`Удалить ${countOf(deletable.length, 'элемент')}?`,
+          'Удалённое попадёт в корзину Проводника — оттуда его можно вернуть.',
+          { confirmLabel: 'Удалить', tone: 'danger' }).then(confirmed => {
            if (confirmed) {
              deletable.forEach(id => {
                const item = items.find(i => i.id === id);
                const isFile = item ? !item.isFolder : false;
-               handleDeleteRef.current(id, isFile);
+               handleDeleteRef.current(id, isFile, true);
              });
              setSelectedIds(new Set());
+             addToast(`Перемещено в корзину: ${countOf(deletable.length, 'элемент')}`, 'success');
            }
         });
       } else if (e.key === 'F2' && selected.size === 1) {
@@ -1044,7 +1209,7 @@ export default function Explorer() {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
       transition={{ duration: 0.2 }}
-      className="h-full flex flex-col bg-white dark:bg-dark-bg border border-slate-205 dark:border-dark-border rounded-xl shadow-xs overflow-hidden text-sm transition-all" 
+      className="h-full flex flex-col bg-white dark:bg-dark-bg border border-slate-205 dark:border-dark-border rounded-xl shadow-xs overflow-hidden text-sm transition-ui" 
       onClick={() => setSelectedIds(new Set())}
     >
       
@@ -1052,11 +1217,11 @@ export default function Explorer() {
       <div className="flex flex-col bg-slate-100/95 dark:bg-slate-900/90 border-b border-slate-200 dark:border-slate-800">
         {/* Современный компактный тулбар */}
         <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-slate-850">
-           <button onClick={createFolder} title="Новая папка"
+           <button type="button" onClick={createFolder} title="Новая папка"
              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 shadow-xs cursor-pointer">
-              <FolderPlus className="w-4 h-4 text-amber-500" /> Папка
+              <FolderPlus className="w-4 h-4 text-amber-500" /> Новая папка
            </button>
-           <button onClick={() => fileInputRef.current?.click()} title="Загрузить файлы"
+           <button type="button" onClick={() => fileInputRef.current?.click()} title="Загрузить файлы"
              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm cursor-pointer">
               <Upload className="w-4 h-4" /> Загрузить
            </button>
@@ -1065,28 +1230,28 @@ export default function Explorer() {
            {selectedFileCount > 0 && (
              <>
                <div className="w-px h-6 bg-slate-300 dark:bg-slate-700 mx-1" />
-               <button onClick={() => openImportPicker()} title="Загрузить данные выбранных файлов в «Оборудование»"
+               <button type="button" onClick={() => openImportPicker()} title="Загрузить данные выбранных файлов в «Оборудование»"
                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 cursor-pointer">
                   <Boxes className="w-4 h-4" /> В оборудование
                </button>
-               <button onClick={() => handleChangeStatus(Array.from(selectedIds)[0])} title="Сменить статус выделенных"
+               <button type="button" onClick={() => handleChangeStatus(Array.from(selectedIds)[0])} title="Сменить статус выделенных"
                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 cursor-pointer">
                   <Info className="w-4 h-4" /> Статус
                </button>
-               <span className="text-[11px] text-slate-400 ml-1">выбрано: {selectedFileCount}</span>
+               <span className="text-xs text-slate-400 ml-1">выбрано: {selectedFileCount}</span>
              </>
            )}
 
            <div className="ml-auto flex items-center gap-2">
              <div className="flex border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-white dark:bg-slate-800">
-               <button onClick={() => setViewMode('list')} className={`p-1.5 cursor-pointer ${viewMode === 'list' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-750'}`} title="Списком">
+               <button type="button" onClick={() => setViewMode('list')} className={`p-1.5 cursor-pointer ${viewMode === 'list' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-750'}`} title="Списком">
                  <List className="w-4 h-4" />
                </button>
-               <button onClick={() => setViewMode('grid')} className={`p-1.5 cursor-pointer ${viewMode === 'grid' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-750'}`} title="Сеткой">
+               <button type="button" onClick={() => setViewMode('grid')} className={`p-1.5 cursor-pointer ${viewMode === 'grid' ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-750'}`} title="Сеткой">
                  <LayoutGrid className="w-4 h-4" />
                </button>
              </div>
-             <button onClick={() => setShowPreviewPane(!showPreviewPane)} title="Панель предпросмотра"
+             <button type="button" onClick={() => setShowPreviewPane(!showPreviewPane)} title="Панель предпросмотра"
                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${showPreviewPane ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' : 'text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750'}`}>
                <PanelRight className="w-4 h-4" /> Превью
              </button>
@@ -1096,13 +1261,13 @@ export default function Explorer() {
         {/* Address Bar Row */}
         <div className="flex items-center gap-2 px-2 py-1.5 border-b border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface">
           <div className="flex items-center gap-1 mr-2 text-slate-500 dark:text-dark-text-muted">
-            <button onClick={() => goBack()} disabled={explorerHistory.length <= 1} className="p-1.5 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-700 dark:text-dark-text-main disabled:opacity-30 cursor-pointer">
+            <button type="button" onClick={() => goBack()} disabled={explorerHistory.length <= 1} className="p-1.5 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-700 dark:text-dark-text-main disabled:opacity-30 cursor-pointer">
               <ArrowLeft className="w-4 h-4" />
             </button>
-            <button onClick={() => goForward()} disabled={explorerForward.length === 0} className="p-1.5 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-700 dark:text-dark-text-main disabled:opacity-30 cursor-pointer">
+            <button type="button" onClick={() => goForward()} disabled={explorerForward.length === 0} className="p-1.5 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-700 dark:text-dark-text-main disabled:opacity-30 cursor-pointer">
               <ArrowRight className="w-4 h-4" />
             </button>
-            <button onClick={handleNavigateUp} disabled={!currentFolderId} className="p-1.5 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-700 dark:text-dark-text-main disabled:opacity-30 cursor-pointer">
+            <button type="button" onClick={handleNavigateUp} disabled={!currentFolderId} className="p-1.5 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-700 dark:text-dark-text-main disabled:opacity-30 cursor-pointer">
               <ArrowUp className="w-4 h-4" />
             </button>
           </div>
@@ -1128,12 +1293,50 @@ export default function Explorer() {
            <Search className="w-4 h-4 absolute left-2.5 top-2 text-slate-400 dark:text-dark-text-muted" />
            <input 
              type="text" 
-             placeholder={currentFolder ? `Поиск в ${currentFolder.name}` : "Поиск в проводнике"} 
+             placeholder={currentFolder ? `Поиск в папке «${currentFolder.name}»` : 'Поиск по проводнику'} 
              value={searchQuery}
              onChange={(e) => setSearchQuery(e.target.value)}
-             className="pl-8 pr-4 py-1 w-full border border-slate-255 dark:border-dark-border focus:outline-none focus:border-emerald-500 bg-white dark:bg-dark-panel text-slate-800 dark:text-dark-text-main rounded-lg transition-all focus:ring-1 focus:ring-emerald-500/20"
+             className="pl-8 pr-4 py-1 w-full border border-slate-255 dark:border-dark-border focus:outline-none focus:border-emerald-500 bg-white dark:bg-dark-panel text-slate-800 dark:text-dark-text-main rounded-lg transition-ui focus:ring-1 focus:ring-emerald-500/20"
            />
           </div>
+        </div>
+
+        {/* Фильтр по статусу документа */}
+        <div className="flex items-center gap-1.5 px-3 pb-2">
+          <span className="text-2xs font-mono uppercase tracking-wider text-slate-400 mr-1">Статус</span>
+          <button
+            type="button"
+            onClick={() => setStatusFilter(null)}
+            aria-pressed={statusFilter === null}
+            className={`px-2 py-0.5 rounded-full text-2xs font-semibold transition-ui cursor-pointer ${
+              statusFilter === null
+                ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 ring-1 ring-emerald-600/40'
+                : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-panel'
+            }`}
+          >
+            Все
+          </button>
+          {STATUS_ORDER.map((code) => {
+            const st = FILE_STATUSES[code];
+            const active = statusFilter === code;
+            return (
+              <button
+                key={code}
+                type="button"
+                onClick={() => setStatusFilter(active ? null : code)}
+                aria-pressed={active}
+                title={`Показать только «${st.label}»`}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-2xs font-semibold transition-ui cursor-pointer ${
+                  active ? `${st.chip} ring-1 ring-slate-400/40` : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-panel'
+                }`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} /> {st.label}
+              </button>
+            );
+          })}
+          {statusFilter && (
+            <span className="text-2xs text-slate-400 ml-1">показаны только «{FILE_STATUSES[statusFilter].label}»</span>
+          )}
         </div>
       </div>
 
@@ -1183,12 +1386,57 @@ export default function Explorer() {
                 ))}
               </div>
             ))}
+
+            {/* Подборки: срезы по всем файлам, а не папки */}
+            <div className="mt-3 mb-1 px-4 text-2xs font-mono uppercase tracking-wider text-slate-400">Подборки</div>
+            {[
+              { id: SMART_RECENT, label: 'Недавние', icon: Clock, hint: 'Сто последних изменённых файлов проекта' },
+              { id: SMART_UNTAGGED, label: 'Без тегов', icon: Tag, hint: 'Файлы, не привязанные ни к одному тегу оборудования' },
+              { id: SMART_DUPES, label: 'Дубликаты', icon: Copy, hint: 'Файлы с одинаковыми именами — вероятные повторы' },
+            ].map((sm) => {
+              const Icon = sm.icon as any;
+              const active = currentFolderId === sm.id;
+              return (
+                <div
+                  key={sm.id}
+                  className={`flex items-center py-1.5 px-3 mx-2 rounded-lg cursor-pointer transition-ui ${
+                    active
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 font-semibold'
+                      : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900'
+                  }`}
+                  onClick={() => navigateTo(sm.id)}
+                  title={sm.hint}
+                >
+                  <Icon className="w-4 h-4 mr-2 text-slate-500 shrink-0" />
+                  <span className="text-sm">{sm.label}</span>
+                </div>
+              );
+            })}
+
+            {/* Корзина: удалённое хранится здесь до явной очистки */}
+            <div
+              className={`flex items-center py-1.5 px-3 mx-2 mt-2 rounded-lg cursor-pointer transition-ui ${
+                currentFolderId === TRASH_ID
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 font-semibold'
+                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900'
+              }`}
+              onClick={() => navigateTo(TRASH_ID)}
+              title="Удалённые файлы и папки — можно вернуть"
+            >
+              <Trash2 className="w-4 h-4 mr-2 text-slate-500 shrink-0" />
+              <span className="text-sm">Корзина</span>
+              {!!((trash?.files.length || 0) + (trash?.folders.length || 0)) && (
+                <span className="ml-auto text-2xs font-mono text-slate-400">
+                  {(trash?.files.length || 0) + (trash?.folders.length || 0)}
+                </span>
+              )}
+            </div>
         </div>
 
         {/* Main Pane - Table View */}
         <div 
           ref={mainPaneRef}
-          className={`flex-1 overflow-y-auto bg-white dark:bg-dark-bg relative select-none scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-850 ${isDragging ? 'bg-emerald-50/10' : ''}`}
+          className={`flex-1 overflow-y-auto overflow-x-auto bg-white dark:bg-dark-bg relative select-none scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-850 ${isDragging ? 'bg-emerald-50/10' : ''}`}
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           onDragOver={handleDragOver}
           onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
@@ -1198,28 +1446,103 @@ export default function Explorer() {
             {isDragging && (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-emerald-500/10 border-2 border-emerald-500 border-dashed m-2 pointer-events-none">
                  <div className="text-emerald-600 font-medium flex items-center gap-2 bg-white/90 dark:bg-slate-950/90 px-4 py-2 rounded-full shadow-sm">
-                   <Upload className="w-5 h-5" /> Копировать файлы...
+                   <Upload className="w-5 h-5" /> Отпустите — загрузим сюда
                  </div>
               </div>
             )}
 
+            {/* Подборка: короткое пояснение, что именно показано */}
+            {isSmartId(currentFolderId) && (
+              <div className="px-4 py-2.5 border-b border-slate-100 dark:border-dark-border bg-slate-50/60 dark:bg-dark-surface/40">
+                <p className="text-sm font-bold">
+                  {currentFolderId === SMART_RECENT ? 'Недавние'
+                    : currentFolderId === SMART_UNTAGGED ? 'Без тегов' : 'Дубликаты'}
+                </p>
+                <p className="text-xs text-slate-500 dark:text-dark-text-muted mt-0.5">
+                  {currentFolderId === SMART_RECENT
+                    ? 'Сто последних изменённых файлов проекта, независимо от папки.'
+                    : currentFolderId === SMART_UNTAGGED
+                      ? 'Файлы, не привязанные ни к одному тегу оборудования: их не найти через реестр и не увидеть в карточке узла.'
+                      : 'Файлы с одинаковыми именами — вероятные повторы одного документа.'}
+                </p>
+              </div>
+            )}
+
+            {/* Корзина: отдельный вид вместо таблицы файлов */}
+            {currentFolderId === TRASH_ID ? (
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h2 className="text-sm font-bold flex items-center gap-2">
+                      <Trash2 className="w-4 h-4 text-slate-500" /> Корзина
+                    </h2>
+                    <p className="text-xs text-slate-500 dark:text-dark-text-muted mt-0.5">
+                      Удалённое хранится здесь, пока корзину не очистят. Восстановленное возвращается в свою папку.
+                    </p>
+                  </div>
+                  {!!((trash?.files.length || 0) + (trash?.folders.length || 0)) && (
+                    <button type="button" onClick={purgeTrash}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-900 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-ui cursor-pointer">
+                      Очистить корзину
+                    </button>
+                  )}
+                </div>
+
+                {trashLoading && <p className="text-xs text-slate-400 py-6">Загружаю…</p>}
+
+                {!trashLoading && !((trash?.files.length || 0) + (trash?.folders.length || 0)) && (
+                  <div className="flex flex-col items-center justify-center py-20 text-slate-400 dark:text-slate-500">
+                    <div className="w-16 h-16 bg-slate-50 dark:bg-slate-950/60 rounded-full flex items-center justify-center mb-3">
+                      <Trash2 className="w-8 h-8" />
+                    </div>
+                    <p className="text-sm">Корзина пуста</p>
+                    <p className="text-2xs pt-1">Удалённые файлы и папки появятся здесь.</p>
+                  </div>
+                )}
+
+                <div className="flex flex-col divide-y divide-slate-100 dark:divide-dark-border">
+                  {(trash?.folders || []).map((f: any) => (
+                    <div key={f.id} className="flex items-center gap-3 py-2">
+                      <Folder className="w-4 h-4 text-amber-500 shrink-0" />
+                      <span className="text-sm font-medium flex-1 truncate">{f.name}</span>
+                      <span className="text-2xs text-slate-400 shrink-0">папка · удалена {f.deletedAt ? format(new Date(f.deletedAt), 'dd.MM.yyyy HH:mm') : ''}</span>
+                      <button type="button" onClick={() => restoreItem('folder', f.id, f.name)}
+                        className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer shrink-0">
+                        Восстановить
+                      </button>
+                    </div>
+                  ))}
+                  {(trash?.files || []).map((f: any) => (
+                    <div key={f.id} className="flex items-center gap-3 py-2">
+                      {getFileIcon(f, 'w-4 h-4 shrink-0')}
+                      <span className="text-sm font-medium flex-1 truncate">{f.name}</span>
+                      <span className="text-2xs text-slate-400 shrink-0">{formatSize(f.size)} · удалён {f.deletedAt ? format(new Date(f.deletedAt), 'dd.MM.yyyy HH:mm') : ''}</span>
+                      <button type="button" onClick={() => restoreItem('file', f.id, f.name)}
+                        className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer shrink-0">
+                        Восстановить
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
             <AnimatePresence mode="wait">
               {isLoading ? (
                 <motion.table
                   key="skeleton"
-                  className="w-full text-left border-collapse select-none"
+                  className="w-full text-left border-collapse select-none table-fixed"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
                 >
                   <thead className="sticky top-0 bg-white dark:bg-dark-surface shadow-xs border-b border-slate-200 dark:border-dark-border z-10 text-xs text-slate-500 dark:text-dark-text-muted font-medium">
                     <tr>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Имя</th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Дата изменения</th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Статус</th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Размер</th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Теги</th>
-                      <th className="py-2 px-3 font-medium cursor-default">Отдел</th>
+                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Имя</th>
+                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Дата изменения</th>
+                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Статус</th>
+                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Размер</th>
+                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Теги</th>
+                      <th className="flux-cell font-medium cursor-default">Отдел</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1233,27 +1556,39 @@ export default function Explorer() {
               ) : viewMode === 'list' ? (
                 <motion.table 
                   key="list"
-                  className="w-full text-left border-collapse"
+                  className="w-full text-left border-collapse table-fixed"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
                 >
                   <thead className="sticky top-0 bg-white dark:bg-dark-surface shadow-xs border-b border-slate-200 dark:border-dark-border z-10 text-xs text-slate-500 dark:text-dark-text-muted font-medium">
                     <tr>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('name')}>
+                      <th className="relative flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('name')} style={colStyle('name')}>
                         Имя {sortConfig.key === 'name' && (sortConfig.direction==='asc'?'↑':'↓')}
+                      
+                        <span onMouseDown={startColResize('name')} onClick={(e) => e.stopPropagation()}
+                          className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-emerald-400/60" title="Потянуть — изменить ширину колонки" />
                       </th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('updatedAt')}>
+                      <th className="relative flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('updatedAt')} style={colStyle('updatedAt')}>
                         Дата изменения {sortConfig.key === 'updatedAt' && (sortConfig.direction==='asc'?'↑':'↓')}
+                      
+                        <span onMouseDown={startColResize('updatedAt')} onClick={(e) => e.stopPropagation()}
+                          className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-emerald-400/60" title="Потянуть — изменить ширину колонки" />
                       </th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('statusCode')}>
+                      <th className="relative flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('statusCode')} style={colStyle('statusCode')}>
                         Статус {sortConfig.key === 'statusCode' && (sortConfig.direction==='asc'?'↑':'↓')}
+                      
+                        <span onMouseDown={startColResize('statusCode')} onClick={(e) => e.stopPropagation()}
+                          className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-emerald-400/60" title="Потянуть — изменить ширину колонки" />
                       </th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('size')}>
+                      <th className="relative flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('size')} style={colStyle('size')}>
                         Размер {sortConfig.key === 'size' && (sortConfig.direction==='asc'?'↑':'↓')}
+                      
+                        <span onMouseDown={startColResize('size')} onClick={(e) => e.stopPropagation()}
+                          className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-emerald-400/60" title="Потянуть — изменить ширину колонки" />
                       </th>
-                      <th className="py-2 px-3 border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel">Теги</th>
-                      <th className="py-2 px-3 font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel">Отдел</th>
+                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel">Теги</th>
+                      <th className="flux-cell font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel">Отдел</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1264,8 +1599,28 @@ export default function Explorer() {
                              <div className="w-16 h-16 bg-slate-50 dark:bg-slate-950/60 rounded-full flex items-center justify-center mb-3 text-slate-400 dark:text-slate-500">
                                   {searchQuery ? <Search className="w-8 h-8" /> : <Folder className="w-8 h-8" />}
                              </div>
-                             <p className="text-sm">{searchQuery ? "Нет элементов, соответствующих вашему поиску." : "Эта папка пуста."}</p>
-                             {!searchQuery && <p className="text-xs pt-1 text-slate-500 dark:text-slate-600">Перетащите файлы сюда или используйте кнопку 'Загрузить'.</p>}
+                             <p className="text-sm">{
+                               searchQuery ? 'Ничего не найдено — попробуйте другой запрос.'
+                               : currentFolderId === SMART_UNTAGGED ? 'Все файлы привязаны к тегам — это хорошо.'
+                               : currentFolderId === SMART_DUPES ? 'Повторов по именам не нашлось.'
+                               : currentFolderId === SMART_RECENT ? 'Пока ничего не менялось.'
+                               : 'Эта папка пуста.'
+                             }</p>
+                             {!searchQuery && !isSmartId(currentFolderId) && (
+                               <>
+                                 <div className="flex items-center gap-2 pt-3">
+                                   <button type="button" onClick={() => fileInputRef.current?.click()}
+                                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition-ui cursor-pointer">
+                                     <Upload className="w-3.5 h-3.5" /> Загрузить файлы
+                                   </button>
+                                   <button type="button" onClick={createFolder}
+                                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-200 dark:border-dark-border hover:bg-slate-50 dark:hover:bg-dark-panel transition-ui cursor-pointer">
+                                     <FolderPlus className="w-3.5 h-3.5 text-amber-500" /> Новая папка
+                                   </button>
+                                 </div>
+                                 <p className="text-2xs pt-2 text-slate-400 dark:text-slate-600">Файлы можно просто перетащить сюда из проводника Windows.</p>
+                               </>
+                             )}
                            </div>
                         </td>
                       </tr>
@@ -1332,7 +1687,7 @@ export default function Explorer() {
                        <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-3 text-slate-300">
                            {searchQuery ? <Search className="w-8 h-8" /> : <Folder className="w-8 h-8" />}
                        </div>
-                       <p className="text-sm">{searchQuery ? "Нет элементов, соответствующих вашему поиску." : "Эта папка пуста."}</p>
+                       <p className="text-sm">{searchQuery ? "Ничего не найдено — попробуйте другой запрос." : "Эта папка пуста."}</p>
                        {!searchQuery && <p className="text-xs pt-1 text-slate-400">Перетащите файлы сюда или используйте кнопку 'Загрузить'.</p>}
                     </div>
                   </div>
@@ -1391,6 +1746,7 @@ export default function Explorer() {
               </motion.div>
             )}
             </AnimatePresence>
+            )}
         </div>
 
         {/* Preview Pane */}
@@ -1398,7 +1754,7 @@ export default function Explorer() {
           <div className="w-64 border-l border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-surface overflow-y-auto flex flex-col flex-shrink-0">
              {(() => {
                 if (selectedIds.size === 0) return <div className="p-4 text-center text-slate-500 dark:text-dark-text-muted text-xs mt-10">Выберите файл для предпросмотра.</div>;
-                if (selectedIds.size > 1) return <div className="p-4 text-center text-slate-500 dark:text-dark-text-muted text-xs mt-10">Выбрано элементов: {selectedIds.size}.</div>;
+                if (selectedIds.size > 1) return <div className="p-4 text-center text-slate-500 dark:text-dark-text-muted text-xs mt-10">Выбрано: {countOf(selectedIds.size, 'элемент')}.</div>;
 
                 const id = Array.from(selectedIds)[0];
                 const item = allCurrentItems.find(i => i.id === id);
@@ -1426,7 +1782,7 @@ export default function Explorer() {
                         ) : isText && item.content ? (
                           // Текст декодируем как UTF-8 в <pre> — iframe с data:text
                           // без charset давал кракозябры на кириллице
-                          <pre className="w-full h-full overflow-auto text-left text-[11px] leading-relaxed p-3 text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words font-mono">{decodeTextContent(item.content)}</pre>
+                          <pre className="w-full h-full overflow-auto text-left text-xs leading-relaxed p-3 text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words font-mono">{decodeTextContent(item.content)}</pre>
                         ) : isPdf && item.content ? (
                           // B5: пустой sandbox ломал встроенный PDF-вьюер
                           <iframe src={item.content} className="w-full h-full border-0 bg-white dark:bg-dark-panel" title={item.name} sandbox="allow-scripts allow-same-origin" />
@@ -1476,6 +1832,40 @@ export default function Explorer() {
                          </div>
                        </div>
                        )}
+                       {/* Кто и когда: в общем архиве это первый вопрос к чужому файлу */}
+                       {(item.updatedBy?.name || item.createdBy?.name) && (
+                         <div className="flex justify-between border-b border-slate-100 dark:border-dark-border pb-1">
+                           <span className="text-slate-500 dark:text-dark-text-muted">Изменил</span>
+                           <span className="text-slate-800 dark:text-dark-text-main truncate ml-2">{(item.updatedBy?.name || item.createdBy?.name || '').replace(/\s*\(.*\)$/, '')}</span>
+                         </div>
+                       )}
+                       {item.createdAt && (
+                         <div className="flex justify-between border-b border-slate-100 dark:border-dark-border pb-1">
+                           <span className="text-slate-500 dark:text-dark-text-muted">Создан</span>
+                           <span className="text-slate-800 dark:text-dark-text-main">{format(new Date(item.createdAt), 'dd.MM.yyyy HH:mm')}</span>
+                         </div>
+                       )}
+                     </div>
+
+                     {/* Действия над файлом — закреплены внизу панели: на экране
+                         ноутбука они иначе уходят ниже видимой части. */}
+                     <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-1 bg-slate-50 dark:bg-dark-surface border-t border-slate-200 dark:border-dark-border grid grid-cols-2 gap-1.5 mt-3">
+                       <button type="button" onClick={() => handleDownload(item.id, false)}
+                         className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-2xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition-ui cursor-pointer">
+                         <Download className="w-3.5 h-3.5" /> Скачать
+                       </button>
+                       <button type="button" onClick={() => handleAssignTag(item.id)}
+                         className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-2xs font-semibold border border-slate-200 dark:border-dark-border hover:bg-white dark:hover:bg-dark-panel transition-ui cursor-pointer">
+                         <Tag className="w-3.5 h-3.5 text-amber-500" /> Теги
+                       </button>
+                       <button type="button" onClick={() => { setRenamingId(item.id); setRenameValue(item.name); }}
+                         className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-2xs font-semibold border border-slate-200 dark:border-dark-border hover:bg-white dark:hover:bg-dark-panel transition-ui cursor-pointer">
+                         <Edit2 className="w-3.5 h-3.5" /> Переименовать
+                       </button>
+                       <button type="button" onClick={() => handleDelete(item.id, true)}
+                         className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-2xs font-semibold text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-ui cursor-pointer">
+                         <Trash2 className="w-3.5 h-3.5" /> Удалить
+                       </button>
                      </div>
                   </div>
                 );
@@ -1486,7 +1876,7 @@ export default function Explorer() {
 
       {/* StatusBar */}
       <div className="h-6 bg-[#F3F4F6] dark:bg-dark-surface border-t border-slate-300 dark:border-dark-border flex items-center px-4 text-xs text-slate-600 dark:text-dark-text-muted gap-4 flex-shrink-0">
-          <span>{allCurrentItems.length} элементов</span>
+          <span>{countOf(allCurrentItems.length, 'элемент')}</span>
           {selectedIds.size > 0 && <span>выбрано: {selectedIds.size}</span>}
       </div>
 
@@ -1502,12 +1892,12 @@ export default function Explorer() {
               <MenuItem icon={<Folder />} label="Открыть" onClick={() => { navigateTo(contextMenu.targetId!); setContextMenu(null); }} />
               <MenuItem icon={<RefreshCw />} label="Обновить" onClick={() => { fetchData(); setContextMenu(null); }} />
               <div className="h-px bg-slate-300 dark:bg-dark-border my-1 mx-2" />
-              <div className="px-6 py-1 text-[10px] text-slate-400 select-none">Встроенный раздел: нельзя удалить или переименовать</div>
+              <div className="px-6 py-1 text-2xs text-slate-400 select-none">Встроенный раздел: нельзя удалить или переименовать</div>
             </>
           ) : contextMenu.isContainer ? (
             <>
               {/* «Создать» — как в Windows: правый клик по пустому месту */}
-              <div className="px-6 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 select-none">Создать</div>
+              <div className="px-6 py-1 text-2xs font-bold uppercase tracking-wider text-slate-400 select-none">Создать</div>
               <MenuItem icon={<FolderPlus />} label="Папку" onClick={() => { createFolder(); setContextMenu(null); }} />
               <MenuItem icon={<Grid3X3 />} label="Таблицу (Excel)" onClick={() => { createConstructorDoc('DOC'); setContextMenu(null); }} />
               <MenuItem icon={<FileText />} label="Документ (Word)" onClick={() => { createConstructorDoc('TEXT'); setContextMenu(null); }} />
@@ -1580,7 +1970,7 @@ export default function Explorer() {
            <div className="p-4">
               <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                  <div 
-                    className="bg-emerald-600 h-2 rounded-full transition-all duration-300 ease-out" 
+                    className="bg-emerald-600 h-2 rounded-full transition-ui duration-300 ease-out" 
                     style={{ width: `${Math.round((uploadProgress.current / uploadProgress.total) * 100)}%` }}
                  />
               </div>
@@ -1724,13 +2114,13 @@ export default function Explorer() {
               <div className="flex justify-between items-center mb-2">
                 <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Сортировка</span>
                 <div className="flex bg-slate-100 rounded p-0.5">
-                  <button onClick={() => setTagSortConfig({ key: 'createdAt', direction: tagSortConfig.key === 'createdAt' && tagSortConfig.direction === 'desc' ? 'asc' : 'desc'})} className={`px-2 py-1 text-xs rounded transition-colors ${tagSortConfig.key === 'createdAt' ? 'bg-white shadow-sm text-slate-800 font-medium' : 'text-slate-500 hover:text-slate-700'}`}>
+                  <button type="button" onClick={() => setTagSortConfig({ key: 'createdAt', direction: tagSortConfig.key === 'createdAt' && tagSortConfig.direction === 'desc' ? 'asc' : 'desc'})} className={`px-2 py-1 text-xs rounded transition-colors ${tagSortConfig.key === 'createdAt' ? 'bg-white shadow-sm text-slate-800 font-medium' : 'text-slate-500 hover:text-slate-700'}`}>
                     По дате {tagSortConfig.key === 'createdAt' && (tagSortConfig.direction === 'asc' ? '↑' : '↓')}
                   </button>
-                  <button onClick={() => setTagSortConfig({ key: 'identifier', direction: tagSortConfig.key === 'identifier' && tagSortConfig.direction === 'asc' ? 'desc' : 'asc'})} className={`px-2 py-1 text-xs rounded transition-colors ${tagSortConfig.key === 'identifier' ? 'bg-white shadow-sm text-slate-800 font-medium' : 'text-slate-500 hover:text-slate-700'}`}>
+                  <button type="button" onClick={() => setTagSortConfig({ key: 'identifier', direction: tagSortConfig.key === 'identifier' && tagSortConfig.direction === 'asc' ? 'desc' : 'asc'})} className={`px-2 py-1 text-xs rounded transition-colors ${tagSortConfig.key === 'identifier' ? 'bg-white shadow-sm text-slate-800 font-medium' : 'text-slate-500 hover:text-slate-700'}`}>
                     По имени {tagSortConfig.key === 'identifier' && (tagSortConfig.direction === 'asc' ? '↑' : '↓')}
                   </button>
-                  <button onClick={() => setTagSortConfig({ key: 'department', direction: tagSortConfig.key === 'department' && tagSortConfig.direction === 'asc' ? 'desc' : 'asc'})} className={`px-2 py-1 text-xs rounded transition-colors ${tagSortConfig.key === 'department' ? 'bg-white shadow-sm text-slate-800 font-medium' : 'text-slate-500 hover:text-slate-700'}`}>
+                  <button type="button" onClick={() => setTagSortConfig({ key: 'department', direction: tagSortConfig.key === 'department' && tagSortConfig.direction === 'asc' ? 'desc' : 'asc'})} className={`px-2 py-1 text-xs rounded transition-colors ${tagSortConfig.key === 'department' ? 'bg-white shadow-sm text-slate-800 font-medium' : 'text-slate-500 hover:text-slate-700'}`}>
                     По отделу {tagSortConfig.key === 'department' && (tagSortConfig.direction === 'asc' ? '↑' : '↓')}
                   </button>
                 </div>
@@ -1846,7 +2236,7 @@ export default function Explorer() {
             </div>
             <div className="p-3 overflow-y-auto scrollbar-thin grid grid-cols-1 gap-1.5">
               {equipCats.map(c => (
-                <button
+                <button type="button"
                   key={c.id}
                   onClick={() => importFilesToCategory(importPickerFiles, c.id)}
                   className="flex items-center gap-3 px-4 py-3 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:border-emerald-400 transition-colors text-left cursor-pointer"
@@ -1893,7 +2283,7 @@ export default function Explorer() {
 // Subcomponents
 
 const MenuItem = ({ icon, label, onClick, className = '' }: any) => (
-  <button onClick={onClick} className={`w-full flex items-center gap-3 px-6 py-1 hover:bg-[#91C9F7] dark:hover:bg-dark-surface/80 transition-colors text-slate-800 dark:text-dark-text-main focus:outline-none ${className}`}>
+  <button type="button" onClick={onClick} className={`w-full flex items-center gap-3 px-6 py-1 hover:bg-[#91C9F7] dark:hover:bg-dark-surface/80 transition-colors text-slate-800 dark:text-dark-text-main focus:outline-none ${className}`}>
     {React.cloneElement(icon, { className: 'w-4 h-4 text-slate-600 dark:text-dark-text-muted' })}
     <span>{label}</span>
   </button>
@@ -1951,23 +2341,23 @@ const TreeFolder = ({ folder, allFolders, currentFolderId, onSelect, depth = 1, 
 
 const SkeletonRow = () => (
   <tr className="animate-pulse border-b border-slate-100 dark:border-slate-800">
-    <td className="py-2.5 px-3 flex items-center gap-2">
+    <td className="flux-cell flex items-center gap-2">
       <div className="w-5 h-5 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
       <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-40 animate-pulse" />
     </td>
-    <td className="py-2.5 px-3">
+    <td className="flux-cell">
       <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-28 animate-pulse" />
     </td>
-    <td className="py-2.5 px-3">
+    <td className="flux-cell">
       <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-20 animate-pulse" />
     </td>
-    <td className="py-2.5 px-3">
+    <td className="flux-cell">
       <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-16 animate-pulse" />
     </td>
-    <td className="py-2.5 px-3">
+    <td className="flux-cell">
       <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-24 animate-pulse" />
     </td>
-    <td className="py-2.5 px-3">
+    <td className="flux-cell">
       <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-16 animate-pulse" />
     </td>
   </tr>
@@ -2021,7 +2411,7 @@ const FileRowItem = React.memo(({
       onContextMenu={onContextMenu}
       className={`cursor-default transition-colors ${isSelected ? 'bg-emerald-100 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-100' : 'hover:bg-slate-100 dark:hover:bg-dark-panel/65'} ${isCut ? 'opacity-50' : ''}`}
     >
-      <td className="py-1.5 px-3 flex items-center gap-2">
+      <td className="flux-cell flex items-center gap-2">
         <div className="relative shrink-0">
            {getFileIcon(item, "w-5 h-5")}
            {!item.isFolder && item.statusCode && (
@@ -2043,32 +2433,43 @@ const FileRowItem = React.memo(({
             className="border border-emerald-405 px-1 py-0 text-sm outline-none w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-white select-text"
           />
         ) : (
-          <span className="truncate max-w-[200px] text-slate-800 dark:text-slate-100">{item.name}</span>
+          <>
+            <span className="truncate max-w-[200px] text-slate-800 dark:text-slate-100">{item.name}</span>
+            {/* В подборках одинаковые имена не различить без места хранения */}
+            {item.smartLocation && (
+              <span className="ml-2 text-2xs text-slate-400 shrink-0" title="Где лежит файл">в папке «{item.smartLocation}»</span>
+            )}
+          </>
         )}
         {loaded && !isRenaming && (
           <span
-            className="ml-1 inline-flex items-center gap-1 shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+            className="ml-1 inline-flex items-center gap-1 shrink-0 text-2xs font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
             title={`Данные загружены в оборудование: ${catLabel(loaded.category)} (ревизия v${loaded.version})`}
           >
             <Boxes className="w-3 h-3" /> v{loaded.version}
           </span>
         )}
       </td>
-      <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted whitespace-nowrap">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : ''}</td>
-      <td className="py-1.5 px-3 text-sm">{!item.isFolder ? <StatusChip code={item.statusCode} onClick={onChangeStatus ? (e) => { e.stopPropagation(); onChangeStatus(item.id); } : undefined} /> : <span className="text-slate-400 text-xs">Папка</span>}</td>
-      <td className="py-1.5 px-3 text-sm text-slate-500 dark:text-dark-text-muted text-right whitespace-nowrap">{!item.isFolder ? formatSize(item.size) : ''}</td>
-      <td className="py-1.5 px-3">
+      <td className="flux-cell text-sm text-slate-500 dark:text-dark-text-muted whitespace-nowrap">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : <span className="text-slate-300 dark:text-slate-700">—</span>}</td>
+      <td className="flux-cell text-sm">{!item.isFolder ? <StatusChip code={item.statusCode} onClick={onChangeStatus ? (e) => { e.stopPropagation(); onChangeStatus(item.id); } : undefined} /> : <span className="text-slate-400 text-xs">Папка</span>}</td>
+      {/* У папки нет размера, у файла может не быть тегов и отдела: ставим
+          прочерк — пустая ячейка читается как «данные не загрузились». */}
+      <td className="flux-cell text-sm text-slate-500 dark:text-dark-text-muted text-right whitespace-nowrap">{!item.isFolder ? formatSize(item.size) : <span className="text-slate-300 dark:text-slate-700">—</span>}</td>
+      <td className="flux-cell">
          <div className="flex flex-wrap gap-1">
            {!item.isFolder && (item.mainTags || []).map((t: any) => (
              <span key={t.id} onClick={onOpenTag ? (e) => { e.stopPropagation(); onOpenTag(t.identifier); } : undefined}
-               className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400 ${onOpenTag ? 'cursor-pointer hover:brightness-95' : ''}`} title={`Основной тег ${t.identifier}`}>{t.identifier}</span>
+               className={`text-2xs font-mono font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400 ${onOpenTag ? 'cursor-pointer hover:brightness-95' : ''}`} title={`Основной тег ${t.identifier}`}>{t.identifier}</span>
            ))}
            {!item.isFolder && (item.additionalTags || []).map((t: any) => (
-             <span key={t.id} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400" title={`Доп. тег ${t.identifier}`}>{t.identifier}</span>
+             <span key={t.id} className="text-2xs font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400" title={`Доп. тег ${t.identifier}`}>{t.identifier}</span>
            ))}
+           {(item.isFolder || (!(item.mainTags || []).length && !(item.additionalTags || []).length)) && (
+             <span className="text-slate-300 dark:text-slate-700">—</span>
+           )}
          </div>
       </td>
-      <td className="py-1.5 px-3 text-xs text-slate-500 dark:text-dark-text-muted">{!item.isFolder && item.department !== 'Unassigned' ? item.department : ''}</td>
+      <td className="flux-cell text-xs text-slate-500 dark:text-dark-text-muted">{!item.isFolder && item.department !== 'Unassigned' ? item.department : ''}</td>
     </tr>
   );
 });
@@ -2114,7 +2515,7 @@ const FileCardItem = React.memo(({
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
-      className={`w-28 flex flex-col items-center gap-2 p-2 rounded border border-transparent cursor-default transition-all ${isSelected ? 'bg-emerald-105 dark:bg-emerald-950/35 border-emerald-300 dark:border-emerald-800' : 'hover:bg-slate-100 dark:hover:bg-dark-panel hover:border-slate-200 dark:hover:border-dark-border'} ${isCut ? 'opacity-50' : ''}`}
+      className={`w-28 flex flex-col items-center gap-2 p-2 rounded border border-transparent cursor-default transition-ui ${isSelected ? 'bg-emerald-105 dark:bg-emerald-950/35 border-emerald-300 dark:border-emerald-800' : 'hover:bg-slate-100 dark:hover:bg-dark-panel hover:border-slate-200 dark:hover:border-dark-border'} ${isCut ? 'opacity-50' : ''}`}
     >
        <div className="w-16 h-16 flex items-center justify-center relative select-none">
          {item.isFolder ? (
@@ -2129,7 +2530,7 @@ const FileCardItem = React.memo(({
          )}
          {loaded && (
             <span
-              className="absolute -top-1 -right-1 inline-flex items-center gap-0.5 text-[9px] font-bold px-1 py-0.5 rounded-full bg-emerald-600 text-white shadow"
+              className="absolute -top-1 -right-1 inline-flex items-center gap-0.5 text-2xs font-bold px-1 py-0.5 rounded-full bg-emerald-600 text-white shadow"
               title={`Данные загружены в оборудование: ${catLabel(loaded.category)} (ревизия v${loaded.version})`}
             >
               <Boxes className="w-2.5 h-2.5" />v{loaded.version}

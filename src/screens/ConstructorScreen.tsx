@@ -3,17 +3,23 @@ import { useSearchParams } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import { ENV_CONFIG, getAuthToken } from '../config/env';
 import { useStore } from '../store/store';
+import { PLACEHOLDERS, placeholderToken, fillSnapshot, countTokens } from '../lib/docPlaceholders';
 import { useToastStore } from '../store/toastStore';
 import * as XLSX from 'xlsx';
 import {
   Table2, Plus, ArrowLeft, Loader2, Download, FolderOpen, Copy, Trash2,
   RotateCcw, Lock, Users2, Search, ChevronRight, Database, X, CheckCircle2,
-  Boxes, RefreshCw, Unlink, AlertTriangle, Printer, History, FileText
+  Boxes, RefreshCw, Unlink, AlertTriangle, Printer, History, FileText, ChevronDown, Braces
 } from 'lucide-react';
 import TextDocEditor from './TextDocEditor';
 import TitleTemplateEditor from './TitleTemplateEditor';
 import TitlePanel, { fetchTitlePageHtml, buildPageTemplates, fetchRevisionsSheetHtml, TitleSettings } from './TitlePanel';
 import { Stamp } from 'lucide-react';
+import { countOf } from '../lib/plural';
+import { useModalStore } from '../store/modalStore';
+
+// Диалоги программы вместо системных окон Windows
+const { openConfirm, openPrompt } = useModalStore.getState();
 
 // ── Конструктор: сборка своих таблиц из данных проекта ──
 // Дизайн: docs/constructor-design-v0.25*.md. Реализация MVP (Фаза 1):
@@ -121,7 +127,7 @@ function DataWizard({ projectId, onInsert, onClose }: {
       .filter(s => s.path.startsWith('param:') && !s.path.startsWith('param:@'))
       .map(s => s.path.slice(6));
     if (members.length < 2) return;
-    const name = window.prompt('Название объединённого поля (напр. «Расход воздуха»):', selected[0]?.title?.split(',')[0] || '');
+    const name = await openPrompt('Объединить поля', 'Как назвать общее поле?', 'Например: Расход воздуха', selected[0]?.title?.split(',')[0] || '');
     if (!name || !name.trim()) return;
     try {
       const existing = catalog?.aliases?.map(a => ({ name: a.title, unit: a.unit, members: a.members })) || [];
@@ -211,7 +217,7 @@ function DataWizard({ projectId, onInsert, onClose }: {
           <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
             <Database className="w-4.5 h-4.5 text-emerald-600" /> Собрать данные — шаг {step} из 3
           </h3>
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded cursor-pointer"><X className="w-4.5 h-4.5" /></button>
+          <button type="button" onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded cursor-pointer"><X className="w-4.5 h-4.5" /></button>
         </div>
 
         <div className="flex-1 overflow-auto p-5">
@@ -221,8 +227,8 @@ function DataWizard({ projectId, onInsert, onClose }: {
                 { key: 'tag' as const, title: 'Теги', desc: 'Реестр тегов проекта: идентификаторы, марки, отделы + параметры связанного оборудования', count: catalog?.counts.tags },
                 { key: 'element' as const, title: 'Оборудование', desc: 'Элементы оборудования: позиции, типы, системы + все параметры из бланков', count: catalog?.counts.elements },
               ].map(c => (
-                <button key={c.key} onClick={() => { setEntity(c.key); setSelected([]); }}
-                  className={`text-left p-5 rounded-xl border-2 transition-all cursor-pointer ${entity === c.key ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20' : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'}`}>
+                <button type="button" key={c.key} onClick={() => { setEntity(c.key); setSelected([]); }}
+                  className={`text-left p-5 rounded-xl border-2 transition-ui cursor-pointer ${entity === c.key ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20' : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'}`}>
                   <div className="font-bold text-slate-800 dark:text-white text-lg">{c.title}</div>
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">{c.desc}</div>
                   <div className="text-xs font-bold text-emerald-600 dark:text-emerald-400 mt-3">{c.count ?? '…'} в проекте</div>
@@ -242,7 +248,7 @@ function DataWizard({ projectId, onInsert, onClose }: {
                 <span className="text-xs font-bold text-slate-500 shrink-0">Выбрано: {selected.length}</span>
               </div>
               {rawSelectedCount >= 2 && (
-                <button onClick={mergeSelectedIntoAlias}
+                <button type="button" onClick={mergeSelectedIntoAlias}
                   className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-400 text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-950/50 cursor-pointer">
                   ⚭ Объединить выбранные {rawSelectedCount} параметра в одно поле
                 </button>
@@ -257,7 +263,7 @@ function DataWizard({ projectId, onInsert, onClose }: {
                         {(f as any).alias && <span className="text-indigo-500" title="Объединённое поле (алиас)">⚭</span>}
                         {f.title}
                       </span>
-                      {(f as any).note && <span className="text-[11px] text-slate-400 ml-auto shrink-0">{(f as any).note}</span>}
+                      {(f as any).note && <span className="text-xs text-slate-400 ml-auto shrink-0">{(f as any).note}</span>}
                     </label>
                   );
                 })}
@@ -291,7 +297,7 @@ function DataWizard({ projectId, onInsert, onClose }: {
                     )}
                   </>
                 )}
-                <button onClick={loadPreview} disabled={busy}
+                <button type="button" onClick={loadPreview} disabled={busy}
                   className="ml-auto text-xs font-bold px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer flex items-center gap-1.5">
                   {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Предпросмотр
                 </button>
@@ -309,8 +315,8 @@ function DataWizard({ projectId, onInsert, onClose }: {
                       ))}
                     </tbody>
                   </table>
-                  <div className="px-3 py-2 text-[11px] text-slate-400 bg-slate-50 dark:bg-slate-850 sticky bottom-0">
-                    Показаны первые {preview.rows.length} из {preview.total} строк — вставятся все
+                  <div className="px-3 py-2 text-xs text-slate-400 bg-slate-50 dark:bg-slate-850 sticky bottom-0">
+                    Показаны первые {preview.rows.length} из {countOf(preview.total, 'строка')} — вставятся все
                   </div>
                 </div>
               )}
@@ -319,18 +325,18 @@ function DataWizard({ projectId, onInsert, onClose }: {
         </div>
 
         <div className="flex items-center justify-between px-5 py-3.5 border-t border-slate-200 dark:border-slate-800">
-          <button onClick={() => step > 1 ? setStep(step - 1) : onClose()}
+          <button type="button" onClick={() => step > 1 ? setStep(step - 1) : onClose()}
             className="text-sm font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer">
             {step > 1 ? '← Назад' : 'Отмена'}
           </button>
           {step < 3 ? (
-            <button onClick={() => { setStep(step + 1); if (step === 2 && selected.length === 0) return; }}
+            <button type="button" onClick={() => { setStep(step + 1); if (step === 2 && selected.length === 0) return; }}
               disabled={step === 2 && selected.length === 0}
               className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-sm font-bold cursor-pointer flex items-center gap-1.5">
               Далее <ChevronRight className="w-4 h-4" />
             </button>
           ) : (
-            <button onClick={insert} disabled={busy || selected.length === 0}
+            <button type="button" onClick={insert} disabled={busy || selected.length === 0}
               className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-sm font-bold cursor-pointer flex items-center gap-1.5">
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Вставить таблицу
             </button>
@@ -376,6 +382,9 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   const [versionsOpen, setVersionsOpen] = useState(false);
   // Титул: присвоенный шаблон + реквизиты этого документа (как у Ворда)
   const [titleOpen, setTitleOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [phOpen, setPhOpen] = useState(false);
+  const [phCount, setPhCount] = useState(0);
   const [titleSettings, setTitleSettings] = useState<TitleSettings>({});
   const [versions, setVersions] = useState<{ id: string; version: number; comment: string; createdAt: string }[]>([]);
   const [reloadTick, setReloadTick] = useState(0); // откат = переинициализация движка
@@ -398,6 +407,103 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       const data = wb?.save?.();
       return data ? JSON.stringify(data) : '';
     } catch (_) { return ''; }
+  };
+
+  // ═══════════════ Подстановки в шаблонах ═══════════════
+  // Шаблон — документ с метками вида {{документ.название}}. Здесь метки
+  // заменяются реальными данными. Обходим снимок документа целиком,
+  // поэтому одинаково работает и в таблице, и в текстовом документе.
+  const placeholderCtx = () => ({
+    documentName: doc?.name || '',
+    documentNumber: (titleSettings as any)?.docNumber || '',
+    revision: (titleSettings as any)?.revision || '',
+    projectName: activeProject?.name || '',
+    projectCode: (activeProject as any)?.code || '',
+    userName: user?.name || '',
+    userSymbol: user?.symbol || '',
+    userRole: user?.role === 'ADMIN' ? 'Администратор' : 'Инженер',
+    now: new Date(),
+  });
+
+  // Вставить метку туда, где стоит курсор. Для таблицы это активная
+  // ячейка; если движок не отдаёт выделение, кладём метку в буфер обмена,
+  // чтобы человек всё равно мог вставить её сам.
+  const insertPlaceholder = async (key: string) => {
+    const token = placeholderToken(key);
+    const api = univerRef.current?.univerAPI;
+    // Таблица: метка ложится в активную ячейку.
+    try {
+      const range = api?.getActiveWorkbook?.()?.getActiveSheet?.()?.getActiveRange?.();
+      if (range?.setValue) {
+        range.setValue(token);
+        addToast(`Метка вставлена: ${token}`, 'success');
+        setPhCount(c => c + 1); // счётчик незаполненных обновляем сразу
+        void saveNow();
+        return;
+      }
+    } catch (_) { /* ниже — текстовый документ, затем буфер обмена */ }
+    // Текстовый документ: метка встаёт туда, где стоит курсор. Без этого
+    // в Word-режиме лента работала только через буфер обмена.
+    try {
+      const activeDoc = api?.getActiveDocument?.();
+      if (activeDoc?.insertText) {
+        const ok = await activeDoc.insertText(token);
+        if (ok) {
+          addToast(`Метка вставлена: ${token}`, 'success');
+          setPhCount(c => c + 1);
+          void saveNow();
+          return;
+        }
+      }
+    } catch (_) { /* остаётся буфер обмена */ }
+    navigator.clipboard?.writeText(token).then(
+      () => addToast(`Метка ${token} скопирована — вставьте в нужное место (Ctrl+V)`, 'info'),
+      () => addToast(`Впишите вручную: ${token}`, 'info'),
+    );
+  };
+
+  // Пересчитываем метки при открытии ленты: человек должен видеть, есть
+  // ли в документе что заполнять, до нажатия кнопки.
+  useEffect(() => {
+    if (!phOpen) return;
+    try {
+      const raw = takeSnapshot();
+      setPhCount(raw ? countTokens(JSON.parse(raw)) : 0);
+    } catch (_) { setPhCount(0); }
+  }, [phOpen, reloadTick]);
+
+  // Что подставится прямо сейчас — считаем на момент открытия ленты,
+  // чтобы дата не «прыгала» на каждой перерисовке.
+  const phPreview = useMemo(() => {
+    if (!phOpen) return {} as Record<string, string>;
+    const ctx = placeholderCtx();
+    const out: Record<string, string> = {};
+    for (const ph of PLACEHOLDERS) {
+      try { out[ph.key] = ph.resolve(ctx as any); } catch (_) { out[ph.key] = ''; }
+    }
+    return out;
+  }, [phOpen, doc?.name, titleSettings, activeProject?.id, user?.id]);
+
+  const fillPlaceholders = async () => {
+    const raw = takeSnapshot();
+    if (!raw) { addToast('Документ ещё открывается — повторите через секунду', 'info'); return; }
+    let parsed: any;
+    try { parsed = JSON.parse(raw); } catch (_) { addToast('Не удалось прочитать документ', 'error'); return; }
+    const { result, replaced } = fillSnapshot(parsed, placeholderCtx());
+    if (!replaced) { addToast('Меток для заполнения не найдено', 'info'); return; }
+    setSaveState('saving');
+    const res = await fetch(`/api/constructor/docs/${docId}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workbook: JSON.stringify(result) }),
+    });
+    if (!res.ok) { setSaveState('idle'); addToast('Не удалось сохранить заполненный документ', 'error'); return; }
+    lastSavedRef.current = JSON.stringify(result);
+    setSaveState('saved');
+    addToast(`Заполнено меток: ${replaced}`, 'success');
+    setPhCount(0);
+    setPhOpen(false);
+    setLoading(true);
+    setReloadTick(t => t + 1); // редактор перечитывает документ уже с данными
   };
 
   const saveNow = async (extra?: Record<string, any>) => {
@@ -723,7 +829,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       });
       bindingsDirtyRef.current = true;
       setBlocksTick(t => t + 1);
-      addToast(`Вставлен блок «${r.suggestedName}»: ${r.rows.length} строк`, 'success');
+      addToast(`Вставлен блок «${r.suggestedName}»: ${countOf(r.rows.length, 'строка')}`, 'success');
       saveNow();
     } catch (err) {
       console.error('[Constructor] Ошибка вставки:', err);
@@ -852,7 +958,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
 
   // Откат: сервер сначала сохранит текущее состояние версией — откат отката возможен
   const restoreVersion = async (v: { id: string; version: number }) => {
-    if (!confirm(`Восстановить версию ${v.version}? Текущее состояние сохранится отдельной версией.`)) return;
+    if (!await openConfirm(`Восстановить версию ${v.version}?`, 'Текущее состояние сохранится отдельной версией — ничего не потеряется.', { confirmLabel: 'Восстановить' })) return;
     const r = await fetch(`/api/constructor/docs/${docId}/restore/${v.id}`, { method: 'POST' });
     if (!r.ok) { addToast('Не удалось восстановить версию', 'error'); return; }
     addToast(`Восстановлена версия ${v.version}`, 'success');
@@ -1055,7 +1161,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
     <div className="h-full flex flex-col">
       {/* Шапка редактора: все свойства файла в одну строку, без диалогов */}
       <div className="flex items-center gap-3 px-4 py-2.5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shrink-0">
-        <button onClick={handleClose} className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer">
+        <button type="button" onClick={handleClose} className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer">
           <ArrowLeft className="w-4 h-4" /> Закрыть
         </button>
         <input
@@ -1075,34 +1181,39 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
             <option value="PERSONAL">Личный</option>
           </select>
         )}
+        {/* Состояние сохранения держим рядом с названием: у правого края
+            оно уезжало за границу панели на ноутбуке. */}
+        <span className={`text-xs w-24 shrink-0 ${saveState === 'saving' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
+          {saveState === 'saving' ? 'сохраняю…' : saveState === 'saved' ? 'сохранено' : ''}
+        </span>
         <div className="flex-1" />
         {peers.length > 0 && (
           <div className="flex items-center mr-1" title={`В документе: ${peers.map(pp => pp.name).join(', ')}`}>
             <div className="flex -space-x-1.5">
               {peers.slice(0, 5).map(pp => (
                 <div key={pp.socketId}
-                  className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black text-white ring-2 ring-white dark:ring-slate-900"
+                  className="w-6 h-6 rounded-full flex items-center justify-center text-2xs font-black text-white ring-2 ring-white dark:ring-slate-900"
                   style={{ background: pp.color }} title={pp.name}>
                   {pp.name.trim().charAt(0).toUpperCase()}
                 </div>
               ))}
               {peers.length > 5 && (
-                <div className="w-6 h-6 rounded-full bg-slate-400 text-white text-[10px] font-black flex items-center justify-center ring-2 ring-white dark:ring-slate-900">+{peers.length - 5}</div>
+                <div className="w-6 h-6 rounded-full bg-slate-400 text-white text-2xs font-black flex items-center justify-center ring-2 ring-white dark:ring-slate-900">+{peers.length - 5}</div>
               )}
             </div>
-            <span className="ml-2 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">✏️ {peers.length + 1} в документе</span>
+            <span className="ml-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400">✏️ {peers.length + 1} в документе</span>
           </div>
         )}
-        <button onClick={() => setWizardOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer">
+        <button type="button" onClick={() => setWizardOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer">
           <Database className="w-3.5 h-3.5" /> Собрать данные
         </button>
-        <button onClick={() => { setVersionsOpen(v => !v); if (!versionsOpen) loadVersions(); }}
+        <button type="button" onClick={() => { setVersionsOpen(v => !v); if (!versionsOpen) loadVersions(); }}
           title="История версий: автоснимки перед обновлением данных и ручные сохранения"
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
           <History className="w-3.5 h-3.5" /> История
         </button>
         {bindingsRef.current.blocks.length > 0 && (
-          <button onClick={() => setBlocksOpen(v => !v)}
+          <button type="button" onClick={() => setBlocksOpen(v => !v)}
             className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
             <Boxes className="w-3.5 h-3.5" /> Блоки ({bindingsRef.current.blocks.length})
             {Object.values(staleMap).some(Boolean) && (
@@ -1110,7 +1221,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
             )}
           </button>
         )}
-        <button
+        <button type="button"
           onClick={async () => {
             await saveNow();
             const res = await fetch(`/api/constructor/docs/${docId}/duplicate`, {
@@ -1124,27 +1235,127 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
           <Copy className="w-3.5 h-3.5" /> Как шаблон
         </button>
-        <button onClick={() => setTitleOpen(v => !v)}
+        <button type="button" onClick={() => setTitleOpen(v => !v)}
           title="Присвоить шаблон титульного листа — заполнится данными этого документа"
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${titleSettings.titleTemplateId ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
           <Stamp className="w-3.5 h-3.5" /> Титул
         </button>
-        <button onClick={handlePrint} title="Печать активного листа" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
-          <Printer className="w-3.5 h-3.5" /> Печать
+        {/* Подстановки: переключатель отдельной ленты под панелью */}
+        <button type="button" onClick={() => setPhOpen(v => !v)}
+          aria-pressed={phOpen}
+          title="Лента подстановок: кнопки вставляют метку туда, где стоит курсор"
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-ui ${
+            phOpen
+              ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 ring-1 ring-emerald-600/40'
+              : 'border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900'
+          }`}>
+          <Braces className="w-3.5 h-3.5" /> Подстановки
         </button>
-        <button onClick={handlePdf} title="Сохранить активный лист в PDF" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
-          PDF
-        </button>
-        <button onClick={exportDownload} title="Скачать XLSX" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
-          <Download className="w-3.5 h-3.5" /> XLSX
-        </button>
-        <button onClick={exportToExplorer} title="Сохранить XLSX в Проводник программы" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
-          <FolderOpen className="w-3.5 h-3.5" /> В Проводник
-        </button>
-        <span className="text-[11px] text-slate-400 w-24 text-right">
-          {saveState === 'saving' ? 'сохраняю…' : saveState === 'saved' ? `сохранено` : ''}
-        </span>
+
+        {/* Выгрузка одной кнопкой: раньше четыре отдельные кнопки не
+            помещались в панель на ноутбуке, и индикатор сохранения уезжал
+            за край экрана. */}
+        <div className="relative">
+          <button type="button" onClick={() => setExportOpen(v => !v)}
+            aria-haspopup="menu" aria-expanded={exportOpen}
+            title="Печать, PDF, XLSX и сохранение в Проводник"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs font-bold cursor-pointer">
+            <Download className="w-3.5 h-3.5" /> Выгрузить
+            <ChevronDown className="w-3 h-3 opacity-60" />
+          </button>
+          {exportOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setExportOpen(false)} />
+              <div role="menu" className="absolute right-0 top-full mt-1 z-50 w-56 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-lg overflow-hidden">
+                {[
+                  { label: 'Печать листа', icon: Printer, hint: 'Активный лист на принтер', run: handlePrint },
+                  { label: 'Сохранить в PDF', icon: FileText, hint: 'Активный лист файлом PDF', run: handlePdf },
+                  { label: 'Скачать XLSX', icon: Download, hint: 'Книга целиком для Excel', run: exportDownload },
+                  { label: 'Сохранить в Проводник', icon: FolderOpen, hint: 'XLSX в архив программы', run: exportToExplorer },
+                ].map((it) => {
+                  const Icon = it.icon as any;
+                  return (
+                    <button key={it.label} type="button" role="menuitem"
+                      onClick={() => { setExportOpen(false); it.run(); }}
+                      className="w-full flex items-start gap-2.5 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-900 cursor-pointer">
+                      <Icon className="w-3.5 h-3.5 mt-0.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <span className="min-w-0">
+                        <span className="block text-xs font-semibold">{it.label}</span>
+                        <span className="block text-2xs text-slate-400">{it.hint}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+
       </div>
+
+      {/* ═══ Лента подстановок ═══
+          Отдельная полоса под панелью: кнопка = метка. Нажал «Дата
+          прописью» — в активной ячейке появилась метка, при заполнении она
+          станет реальной датой. Так шаблон собирается мышью, без
+          запоминания синтаксиса. */}
+      {phOpen && (
+        <div className="shrink-0 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/60 px-3 py-2">
+          <div className="flex items-start gap-4 flex-wrap">
+            {(['Документ', 'Проект', 'Дата', 'Сотрудник'] as const).map((group) => (
+              <div key={group} className="min-w-0">
+                <div className="text-2xs font-mono uppercase tracking-wider text-slate-400 mb-1">{group}</div>
+                <div className="flex items-center gap-1 flex-wrap">
+                  {PLACEHOLDERS.filter(ph => ph.group === group).map((ph) => {
+                    // Показываем не только название метки, но и то, что
+                    // подставится прямо сейчас: человек видит данные своей
+                    // программы и сразу замечает, если чего-то не хватает
+                    // (не задан код проекта, нет номера документа).
+                    const value = phPreview[ph.key] || '';
+                    const empty = !value;
+                    return (
+                      <button
+                        key={ph.key}
+                        type="button"
+                        onClick={() => insertPlaceholder(ph.key)}
+                        title={empty
+                          ? `${ph.hint}. Сейчас данных нет — метка ${placeholderToken(ph.key)} останется пустой до заполнения`
+                          : `${ph.hint}. Сейчас подставится: ${value}`}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border bg-white dark:bg-slate-900 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-ui cursor-pointer ${
+                          empty
+                            ? 'border-amber-300 dark:border-amber-800 hover:border-amber-500'
+                            : 'border-slate-200 dark:border-slate-800 hover:border-emerald-600 dark:hover:border-emerald-400'}`}
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-sm shrink-0 ${empty ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                        <span className="min-w-0 text-left">
+                          {ph.label}
+                          <span className={`block text-2xs font-normal truncate max-w-[11rem] ${empty ? 'text-amber-600 dark:text-amber-500' : 'text-slate-400'}`}>
+                            {empty ? 'нет данных' : value}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+
+            <div className="ml-auto flex items-center gap-2 self-end">
+              <span className="text-2xs text-slate-400 max-w-[16rem] hidden xl:block">
+                Кнопка вставляет метку в выбранную ячейку. Когда шаблон готов — «Заполнить данными».
+              </span>
+              {phCount > 0 && (
+                <span className="text-2xs font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-1 rounded-lg">
+                  незаполненных меток: {phCount}
+                </span>
+              )}
+              <button type="button" onClick={fillPlaceholders}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition-ui cursor-pointer">
+                <RefreshCw className="w-3.5 h-3.5" /> Заполнить данными
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Полотно движка */}
       <div className="flex-1 min-h-0 relative bg-white">
@@ -1153,7 +1364,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         {peerRects.map(r => (
           <div key={r.key} className="absolute pointer-events-none z-20"
             style={{ left: r.left, top: r.top, width: r.width, height: r.height, border: `2px solid ${r.color}` }}>
-            <span className="absolute -top-5 left-0 px-1.5 py-0.5 rounded text-[10px] font-bold text-white whitespace-nowrap shadow-sm"
+            <span className="absolute -top-5 left-0 px-1.5 py-0.5 rounded text-2xs font-bold text-white whitespace-nowrap shadow-sm"
               style={{ background: r.color }}>{r.name}</span>
           </div>
         ))}
@@ -1185,24 +1396,24 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-800">
             <span className="text-sm font-bold text-slate-800 dark:text-white">История версий</span>
             <div className="flex items-center gap-2">
-              <button
+              <button type="button"
                 onClick={async () => { await makeVersion('ручное сохранение'); await loadVersions(); addToast('Версия сохранена', 'success'); }}
-                className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer flex items-center gap-1">
+                className="text-xs font-bold px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer flex items-center gap-1">
                 <History className="w-3 h-3" /> Сохранить версию
               </button>
-              <button onClick={() => setVersionsOpen(false)} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
+              <button type="button" onClick={() => setVersionsOpen(false)} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
             </div>
           </div>
           <div className="max-h-80 overflow-auto divide-y divide-slate-100 dark:divide-slate-850">
             {versions.map(v => (
               <div key={v.id} className="px-4 py-2.5 flex items-center gap-3">
-                <div className="w-9 h-6 shrink-0 rounded bg-slate-100 dark:bg-slate-850 flex items-center justify-center text-[11px] font-bold text-slate-500">в{v.version}</div>
+                <div className="w-9 h-6 shrink-0 rounded bg-slate-100 dark:bg-slate-850 flex items-center justify-center text-xs font-bold text-slate-500">в{v.version}</div>
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{v.comment || 'без комментария'}</div>
-                  <div className="text-[10px] text-slate-400">{fmtDate(v.createdAt)}</div>
+                  <div className="text-2xs text-slate-400">{fmtDate(v.createdAt)}</div>
                 </div>
-                <button onClick={() => restoreVersion(v)} title="Восстановить эту версию"
-                  className="text-[11px] font-bold px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 hover:text-emerald-700 cursor-pointer">
+                <button type="button" onClick={() => restoreVersion(v)} title="Восстановить эту версию"
+                  className="text-xs font-bold px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 hover:text-emerald-700 cursor-pointer">
                   Восстановить
                 </button>
               </div>
@@ -1223,11 +1434,11 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-800">
             <span className="text-sm font-bold text-slate-800 dark:text-white">Умные блоки</span>
             <div className="flex items-center gap-2">
-              <button onClick={refreshAll} disabled={refreshingIds.length > 0}
-                className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white cursor-pointer flex items-center gap-1">
+              <button type="button" onClick={refreshAll} disabled={refreshingIds.length > 0}
+                className="text-xs font-bold px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white cursor-pointer flex items-center gap-1">
                 <RefreshCw className={`w-3 h-3 ${refreshingIds.length ? 'animate-spin' : ''}`} /> Обновить все
               </button>
-              <button onClick={() => setBlocksOpen(false)} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
+              <button type="button" onClick={() => setBlocksOpen(false)} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
             </div>
           </div>
           <div className="max-h-80 overflow-auto divide-y divide-slate-100 dark:divide-slate-850">
@@ -1238,16 +1449,16 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
                     {b.name}
                     {staleMap[b.id] && <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" title="Данные проекта изменились" />}
                   </div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">
-                    {b.rows.length} строк · обновлено {fmtDate(b.state.lastRefreshAt)}
+                  <div className="text-xs text-slate-400 mt-0.5">
+                    {countOf(b.rows.length, 'строка')} · обновлено {fmtDate(b.state.lastRefreshAt)}
                     {Object.keys(b.overrides).length > 0 && ` · правок: ${Object.keys(b.overrides).length}`}
                   </div>
                 </div>
-                <button onClick={() => refreshBlock(b.id)} disabled={refreshingIds.includes(b.id)} title="Обновить данные блока"
+                <button type="button" onClick={() => refreshBlock(b.id)} disabled={refreshingIds.includes(b.id)} title="Обновить данные блока"
                   className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 disabled:opacity-50 cursor-pointer">
                   <RefreshCw className={`w-4 h-4 ${refreshingIds.includes(b.id) ? 'animate-spin' : ''}`} />
                 </button>
-                <button onClick={() => unlinkBlock(b.id)} title="Отвязать: оставить как обычные ячейки"
+                <button type="button" onClick={() => unlinkBlock(b.id)} title="Отвязать: оставить как обычные ячейки"
                   className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer">
                   <Unlink className="w-4 h-4" />
                 </button>
@@ -1273,17 +1484,22 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
                     <span className="px-2 py-1 rounded bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 font-mono text-xs">моё: {String(item.userValue)}</span>
                     <span className="text-slate-400">против</span>
                     <span className="px-2 py-1 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 font-mono text-xs">из проекта: {String(item.liveValue)}</span>
-                    <div className="flex-1" />
-                    <button onClick={() => resolveConflict(item, 'mine')} className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Моё</button>
-                    <button onClick={() => resolveConflict(item, 'live')} className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer">Из проекта</button>
+                    {/* Состояние сохранения держим рядом с названием: у правого края
+            оно уезжало за границу панели на ноутбуке. */}
+        <span className={`text-xs w-24 shrink-0 ${saveState === 'saving' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
+          {saveState === 'saving' ? 'сохраняю…' : saveState === 'saved' ? 'сохранено' : ''}
+        </span>
+        <div className="flex-1" />
+                    <button type="button" onClick={() => resolveConflict(item, 'mine')} className="text-xs font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Моё</button>
+                    <button type="button" onClick={() => resolveConflict(item, 'live')} className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer">Из проекта</button>
                   </div>
                 </div>
               ))}
             </div>
             <div className="px-5 py-3 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2">
-              <button onClick={() => resolveAllConflicts('mine')}
+              <button type="button" onClick={() => resolveAllConflicts('mine')}
                 className="text-xs font-bold px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Все мои</button>
-              <button onClick={() => resolveAllConflicts('live')}
+              <button type="button" onClick={() => resolveAllConflicts('live')}
                 className="text-xs font-bold px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer">Все из проекта</button>
             </div>
           </div>
@@ -1310,10 +1526,10 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
               className="w-full px-3 py-2.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500"
             />
             <div className="flex items-center justify-end gap-2">
-              <button onClick={onClose} className="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">
+              <button type="button" onClick={onClose} className="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">
                 Оставить черновиком
               </button>
-              <button
+              <button type="button"
                 onClick={async () => {
                   const v = (document.getElementById('constructor-name-input') as HTMLInputElement)?.value?.trim();
                   if (v) await saveNow({ name: v });
@@ -1386,6 +1602,8 @@ export default function ConstructorScreen() {
   // Вкладки студии: все / таблицы (Эксель) / документы (Ворд). Заметки — в
   // отдельном разделе «Блокнот», в Конструкторе их нет.
   const [tab, setTab] = useState<'all' | 'sheet' | 'text'>('all');
+  const [docQuery, setDocQuery] = useState('');
+  const [docSort, setDocSort] = useState<'updated' | 'name'>('updated');
   const autoRefreshRef = useRef(false); // открыть следующий документ с обновлением блоков
 
   const projectId = activeProject?.id || 'default';
@@ -1404,7 +1622,19 @@ export default function ConstructorScreen() {
   // Фильтр по вкладке: sheet = таблицы (DOC), text = текстовые документы (TEXT)
   const matchesTab = (d: DocMeta) =>
     tab === 'all' ? true : tab === 'sheet' ? d.kind === 'DOC' : d.kind === 'TEXT';
-  const alive = docs.filter(d => !d.deletedAt && (d.kind === 'TEMPLATE' || d.kind === 'TITLE' || matchesTab(d)));
+  // Поиск и порядок в списке: при десятках документов вкладок «Все /
+  // Таблицы / Документы» уже мало.
+  const matchesQuery = (d: DocMeta) => {
+    const q = docQuery.trim().toLowerCase();
+    return !q || String(d.name || '').toLowerCase().includes(q);
+  };
+  const sortDocs = (list: DocMeta[]) => {
+    const arr = [...list];
+    if (docSort === 'name') arr.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ru'));
+    else arr.sort((a, b) => new Date((b as any).updatedAt || 0).getTime() - new Date((a as any).updatedAt || 0).getTime());
+    return arr;
+  };
+  const alive = sortDocs(docs.filter(d => !d.deletedAt && matchesQuery(d) && (d.kind === 'TEMPLATE' || d.kind === 'TITLE' || matchesTab(d))));
   const templates = alive.filter(d => d.kind === 'TEMPLATE');
   const titleTemplates = alive.filter(d => d.kind === 'TITLE');
   const recents = useMemo(() => {
@@ -1422,9 +1652,18 @@ export default function ConstructorScreen() {
 
   // Создание: таблица (DOC), документ (TEXT) или шаблон титула (TITLE)
   const createDoc = async (kind: 'DOC' | 'TEXT' | 'TITLE' = 'DOC') => {
+    // Имя спрашиваем сразу: иначе документ называется «Без названия — 2
+    // августа», и через неделю в списке невозможно понять, что это.
+    const what = kind === 'TEXT' ? 'документ' : kind === 'TITLE' ? 'шаблон титула' : 'таблицу';
+    const example = kind === 'TEXT' ? 'Например: Пояснительная записка'
+      : kind === 'TITLE' ? 'Например: Титул для заказчика «Азот»'
+      : 'Например: Ведомость вентиляции';
+    const name = await openPrompt(`Как назвать ${what}?`, 'Название можно изменить позже.', example);
+    if (name === null) return; // отмена — документ не создаём
+
     const res = await fetch('/api/constructor/docs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId, ...(kind !== 'DOC' ? { kind } : {}) }),
+      body: JSON.stringify({ projectId, ...(kind !== 'DOC' ? { kind } : {}), ...(name.trim() ? { name: name.trim() } : {}) }),
     });
     if (res.ok) {
       const { doc } = await res.json();
@@ -1460,7 +1699,7 @@ export default function ConstructorScreen() {
   };
 
   const deleteForever = async (id: string) => {
-    if (!confirm('Удалить документ окончательно? Это действие необратимо.')) return;
+    if (!await openConfirm('Удалить документ?', 'Документ и все его версии будут удалены. Действие необратимо.', { confirmLabel: 'Удалить', tone: 'danger' })) return;
     const res = await fetch(`/api/constructor/docs/${id}`, { method: 'DELETE' });
     if (res.ok) { addToast('Документ удалён', 'success'); loadDocs(); }
     else { const d = await res.json().catch(() => ({})); addToast(d.error || 'Ошибка', 'error'); }
@@ -1473,7 +1712,7 @@ export default function ConstructorScreen() {
   }
 
   const Card = ({ d, inTrash }: { d: DocMeta; inTrash?: boolean }) => (
-    <div className="group bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 hover:border-emerald-400 dark:hover:border-emerald-700 hover:shadow-md transition-all cursor-pointer"
+    <div className="group bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 hover:border-emerald-400 dark:hover:border-emerald-700 hover:shadow-md transition-ui cursor-pointer"
       onClick={() => !inTrash && setActiveDocId(d.id)}>
       <div className="flex items-start justify-between gap-2">
         {/* Тип видно по иконке: таблица — изумруд, документ — синий, титул — рамка */}
@@ -1485,14 +1724,14 @@ export default function ConstructorScreen() {
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
           {!inTrash && (
             <>
-              <button title="Дублировать" onClick={() => duplicateDoc(d.id)} className="p-1.5 text-slate-400 hover:text-emerald-600 rounded cursor-pointer"><Copy className="w-3.5 h-3.5" /></button>
-              <button title="В корзину" onClick={() => patchDoc(d.id, { deleted: true }, 'Перемещён в корзину')} className="p-1.5 text-slate-400 hover:text-rose-500 rounded cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>
+              <button type="button" title="Дублировать" onClick={() => duplicateDoc(d.id)} className="p-1.5 text-slate-400 hover:text-emerald-600 rounded cursor-pointer"><Copy className="w-3.5 h-3.5" /></button>
+              <button type="button" title="В корзину" onClick={() => patchDoc(d.id, { deleted: true }, 'Перемещён в корзину')} className="p-1.5 text-slate-400 hover:text-rose-500 rounded cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>
             </>
           )}
           {inTrash && (
             <>
-              <button title="Восстановить" onClick={() => patchDoc(d.id, { deleted: false }, 'Восстановлен')} className="p-1.5 text-slate-400 hover:text-emerald-600 rounded cursor-pointer"><RotateCcw className="w-3.5 h-3.5" /></button>
-              <button title="Удалить навсегда" onClick={() => deleteForever(d.id)} className="p-1.5 text-slate-400 hover:text-rose-500 rounded cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>
+              <button type="button" title="Восстановить" onClick={() => patchDoc(d.id, { deleted: false }, 'Восстановлен')} className="p-1.5 text-slate-400 hover:text-emerald-600 rounded cursor-pointer"><RotateCcw className="w-3.5 h-3.5" /></button>
+              <button type="button" title="Удалить навсегда" onClick={() => deleteForever(d.id)} className="p-1.5 text-slate-400 hover:text-rose-500 rounded cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>
             </>
           )}
         </div>
@@ -1501,16 +1740,16 @@ export default function ConstructorScreen() {
         {d.scope === 'PERSONAL' && <Lock className="w-3 h-3 text-slate-400 shrink-0" />}
         <span className="truncate">{d.name}</span>
       </div>
-      <div className="mt-1 text-[11px] text-slate-400 flex items-center gap-2">
+      <div className="mt-1 text-xs text-slate-400 flex items-center gap-2">
         <span>{fmtDate(d.updatedAt)}</span>
         {d.kind === 'TEMPLATE' && <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-bold">ШАБЛОН</span>}
         {d.kind === 'TITLE' && <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-bold">ТИТУЛ</span>}
         {!d.named && d.kind !== 'TEMPLATE' && d.kind !== 'TITLE' && <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 font-bold">ЧЕРНОВИК</span>}
       </div>
       {d.kind === 'TEMPLATE' && !inTrash && (
-        <button
+        <button type="button"
           onClick={e => { e.stopPropagation(); createFromTemplate(d); }}
-          className="mt-2.5 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold cursor-pointer">
+          className="mt-2.5 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer">
           <Plus className="w-3 h-3" /> Создать документ
         </button>
       )}
@@ -1527,7 +1766,25 @@ export default function ConstructorScreen() {
           {items.map((d: DocMeta) => <Card key={d.id} d={d} inTrash={inTrash} />)}
         </div>
       ) : (
-        <div className="text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl px-4 py-6 text-center">Пока пусто</div>
+        <div className="border border-dashed border-slate-200 dark:border-slate-800 rounded-xl px-4 py-7 text-center">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            {inTrash
+              ? 'В корзине пусто.'
+              : 'Здесь появятся ваши таблицы и документы. Таблица собирается из данных проекта — теги, оборудование, закупки подтягиваются сами.'}
+          </p>
+          {!inTrash && (
+            <div className="flex items-center justify-center gap-2 mt-3">
+              <button type="button" onClick={() => createDoc('DOC')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition-ui cursor-pointer">
+                <Table2 className="w-3.5 h-3.5" /> Создать таблицу
+              </button>
+              <button type="button" onClick={() => createDoc('TEXT')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-200 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-900 transition-ui cursor-pointer">
+                <FileText className="w-3.5 h-3.5" /> Создать документ
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -1543,31 +1800,54 @@ export default function ConstructorScreen() {
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Таблицы и текстовые документы из данных проекта — в одном месте</p>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => createDoc('DOC')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новая таблица: формулы, данные проекта, умные блоки">
+            <button type="button" onClick={() => createDoc('DOC')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новая таблица: формулы, данные проекта, умные блоки">
               <Table2 className="w-4 h-4" /> Таблица
             </button>
-            <button onClick={() => createDoc('TEXT')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новый текстовый документ: страницы, стили, списки — как в Word">
+            <button type="button" onClick={() => createDoc('TEXT')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-800 text-sm font-bold shadow-sm cursor-pointer" title="Новый текстовый документ: страницы, стили, списки — как в Word">
               <FileText className="w-4 h-4" /> Документ
             </button>
-            <button onClick={() => createDoc('TITLE')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white dark:bg-slate-950 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-sm font-bold shadow-sm cursor-pointer" title="Конструктор титула: ссылки на данные и формулы, присваивается документам">
+            <button type="button" onClick={() => createDoc('TITLE')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white dark:bg-slate-950 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-sm font-bold shadow-sm cursor-pointer" title="Конструктор титула: ссылки на данные и формулы, присваивается документам">
               <FileText className="w-4 h-4" /> Шаблон титула
             </button>
           </div>
         </div>
-        {/* Вкладки типов */}
-        <div className="flex items-center gap-1.5">
+        {/* Вкладки типов, поиск и порядок */}
+        <div className="flex items-center gap-1.5 flex-wrap">
           {([
             { id: 'all' as const, label: 'Все' },
             { id: 'sheet' as const, label: 'Таблицы' },
             { id: 'text' as const, label: 'Документы' },
           ]).map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-all ${tab === t.id
+            <button type="button" key={t.id} onClick={() => setTab(t.id)}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-ui ${tab === t.id
                 ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-800 dark:border-slate-100'
                 : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:border-slate-400'}`}>
               {t.label}
             </button>
           ))}
+          <div className="flex-1 min-w-[8rem]" />
+          <div className="flex items-center gap-1.5">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={docQuery}
+                onChange={(e) => setDocQuery(e.target.value)}
+                placeholder="Найти документ по названию"
+                aria-label="Поиск по документам"
+                className="pl-8 pr-3 py-1.5 w-56 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs outline-none focus:border-emerald-600 dark:focus:border-emerald-400"
+              />
+            </div>
+            <select
+              value={docSort}
+              onChange={(e) => setDocSort(e.target.value as 'updated' | 'name')}
+              aria-label="Порядок документов"
+              title="Порядок в списке"
+              className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs cursor-pointer"
+            >
+              <option value="updated">Сначала недавние</option>
+              <option value="name">По названию</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -1585,7 +1865,7 @@ export default function ConstructorScreen() {
 
           {trash.length > 0 && (
             <div>
-              <button onClick={() => setTrashOpen(v => !v)} className="text-sm font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-2 cursor-pointer">
+              <button type="button" onClick={() => setTrashOpen(v => !v)} className="text-sm font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-2 cursor-pointer">
                 <Trash2 className="w-4 h-4" /> Корзина ({trash.length}) {trashOpen ? '▾' : '▸'}
               </button>
               {trashOpen && (

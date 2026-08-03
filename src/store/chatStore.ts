@@ -363,8 +363,8 @@ export const useChatStore = create<ChatState>((set, get) => {
       await get().fetchGroups();
     },
 
-    // Вложение всегда уезжает на СЕРВЕР (диск сервера + раздача /chat_files/…) —
-    // так файл открывается у всех участников, а не только у отправителя
+    // Вложение хранится в базе данных (раздача /chat_files/{id}/{имя}) —
+    // так файл открывается у всех участников при любом режиме базы
     uploadFile: async (fileName, base64Data) => {
       try {
         const res = await fetch('/api/chat/upload', {

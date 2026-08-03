@@ -22,6 +22,11 @@ import {
 } from "lucide-react";
 import { useToastStore } from "../store/toastStore";
 import * as xlsx from "xlsx";
+import { countOf } from '../lib/plural';
+import { useModalStore } from '../store/modalStore';
+
+// Диалоги программы вместо системных окон Windows
+const { openConfirm } = useModalStore.getState();
 
 export default function DictionaryEditor() {
   const { activeProject } = useStore();
@@ -131,7 +136,7 @@ export default function DictionaryEditor() {
     if (activeProject) {
       fetchDictionaries();
     }
-  }, [activeProject]);
+  }, [activeProject?.id]); // по идентификатору, а не по объекту: иначе перезапрос при каждой смене ссылки
 
   const runAutoSeed = async (existingDicts: any[]) => {
     try {
@@ -157,24 +162,24 @@ export default function DictionaryEditor() {
 
       if (depCategory) {
         const defaultDeps = ["Отдел КИПиА", "Отдел АСУ ТП", "Технологический отдел", "Электротехнический отдел"];
-        for (const dep of defaultDeps) {
-          await fetch(`/api/projects/${activeProject!.id}/dictionaries/${newDict.id}/items`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ code: dep, nameRu: dep, parentId: depCategory.id })
-          });
-        }
+        // Одним заходом, а не по одному: на общей базе по сети каждый
+        // такой POST — отдельный круг до сервера.
+        await Promise.all(defaultDeps.map((dep) => fetch(`/api/projects/${activeProject!.id}/dictionaries/${newDict.id}/items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: dep, nameRu: dep, parentId: depCategory.id })
+        })));
       }
 
       if (fluidCategory) {
         const defaultFluids = ["Воздух", "Вода", "Пар", "Газ", "Нефть"];
-        for (const fluid of defaultFluids) {
-          await fetch(`/api/projects/${activeProject!.id}/dictionaries/${newDict.id}/items`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ code: fluid, nameRu: fluid, parentId: fluidCategory.id })
-          });
-        }
+        // Одним заходом, а не по одному: на общей базе по сети каждый
+        // такой POST — отдельный круг до сервера.
+        await Promise.all(defaultFluids.map((fluid) => fetch(`/api/projects/${activeProject!.id}/dictionaries/${newDict.id}/items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: fluid, nameRu: fluid, parentId: fluidCategory.id })
+        })));
       }
       
       // Update dictionaries from API again
@@ -369,7 +374,7 @@ export default function DictionaryEditor() {
       if (!res.ok) throw new Error("Failed to upload");
 
       addToast(
-        `Загружен справочник ${dictName} (${items.length} элементов)`,
+        `Загружен справочник ${dictName} (${countOf(items.length, 'элемент')})`,
         "success",
       );
       await fetchDictionaries();
@@ -412,7 +417,7 @@ export default function DictionaryEditor() {
   };
 
   const handleDeleteItem = async (itemId: string) => {
-    if (!window.confirm("Вы уверены, что хотите удалить элемент справочника?"))
+    if (!await openConfirm('Удалить элемент справочника?', 'Восстановить его будет нельзя.', { confirmLabel: 'Удалить', tone: 'danger' }))
       return;
     try {
       // Optimistic
@@ -585,7 +590,7 @@ export default function DictionaryEditor() {
 
   // Deleting category
   const handleDeleteCategory = async (categoryId: string) => {
-    if (!window.confirm("Вы уверены, что хотите удалить эту категорию вместе с её параметрами?")) return;
+    if (!await openConfirm('Удалить категорию?', 'Вместе с категорией удалятся все её параметры. Действие необратимо.', { confirmLabel: 'Удалить категорию', tone: 'danger' })) return;
     const configDict = dictionaries.find(d => d.name === '__tag_creation_config__');
     if (!configDict) return;
 
@@ -940,7 +945,7 @@ export default function DictionaryEditor() {
   };
 
   const handleDeletePreset = async (presetId: string) => {
-    if (!window.confirm("Вы уверены, что хотите удалить эту предустановку?")) return;
+    if (!await openConfirm('Удалить предустановку?', 'Восстановить её будет нельзя.', { confirmLabel: 'Удалить', tone: 'danger' })) return;
 
     try {
       const res = await fetch(`/api/dictionaries/items/${presetId}`, { method: 'DELETE' });
@@ -1053,7 +1058,7 @@ export default function DictionaryEditor() {
   };
 
   const handleDeleteSubOption = async (itemId: string) => {
-    if (!window.confirm("Вы уверены, что хотите удалить этот вариант?")) return;
+    if (!await openConfirm('Удалить вариант?', 'Восстановить его будет нельзя.', { confirmLabel: 'Удалить', tone: 'danger' })) return;
     try {
       const res = await fetch(`/api/dictionaries/items/${itemId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error("Delete sub option failed");
@@ -1119,7 +1124,7 @@ export default function DictionaryEditor() {
         <div className="w-full md:w-64 shrink-0 space-y-5 h-full overflow-y-auto pr-1">
           {/* SECTION: TAG CREATION */}
           <div className="space-y-2">
-            <button
+            <button type="button"
               onClick={() => setShowTagCreationSidebar(!showTagCreationSidebar)}
               className="w-full flex items-center justify-between text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 uppercase tracking-widest cursor-pointer select-none"
             >
@@ -1264,7 +1269,7 @@ export default function DictionaryEditor() {
                                       setActiveCategoryTab(cat.id);
                                     }
                                   }}
-                                  className={`p-3 rounded-lg border flex items-center justify-between transition-all cursor-pointer group ${
+                                  className={`p-3 rounded-lg border flex items-center justify-between transition-ui cursor-pointer group ${
                                     isActive
                                       ? "bg-white dark:bg-slate-900 border-emerald-555 shadow-xs text-slate-850 dark:text-white"
                                       : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-850 text-slate-600 dark:text-slate-350 hover:border-slate-300 hover:bg-slate-50/50"
@@ -1279,13 +1284,13 @@ export default function DictionaryEditor() {
                                         className="flex-1 px-2.5 py-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded text-xs text-slate-900 dark:text-slate-100 focus:outline-none"
                                         autoFocus
                                       />
-                                      <button
+                                      <button type="button"
                                         onClick={() => handleRenameCategory(cat.id)}
                                         className="p-1 text-emerald-600 hover:bg-emerald-100/30 rounded"
                                       >
                                         <Check className="w-3.5 h-3.5" />
                                       </button>
-                                      <button
+                                      <button type="button"
                                         onClick={() => setEditingCategoryId(null)}
                                         className="p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
                                       >
@@ -1301,7 +1306,7 @@ export default function DictionaryEditor() {
 
                                   {!isRenaming && (
                                     <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                                      <button
+                                      <button type="button"
                                         onClick={() => handleMoveCategory(index, 'up')}
                                         disabled={index === 0}
                                         className="p-1 text-slate-400 hover:text-slate-800 dark:hover:text-white disabled:opacity-20 rounded cursor-pointer"
@@ -1309,7 +1314,7 @@ export default function DictionaryEditor() {
                                       >
                                         <ArrowUp className="w-3.5 h-3.5" />
                                       </button>
-                                      <button
+                                      <button type="button"
                                         onClick={() => handleMoveCategory(index, 'down')}
                                         disabled={index === arr.length - 1}
                                         className="p-1 text-slate-400 hover:text-slate-800 dark:hover:text-white disabled:opacity-20 rounded cursor-pointer"
@@ -1317,7 +1322,7 @@ export default function DictionaryEditor() {
                                       >
                                         <ArrowDown className="w-3.5 h-3.5" />
                                       </button>
-                                      <button
+                                      <button type="button"
                                         onClick={() => {
                                           setEditingCategoryId(cat.id);
                                           setEditingCategoryName(cat.nameRu);
@@ -1327,7 +1332,7 @@ export default function DictionaryEditor() {
                                       >
                                         <Edit2 className="w-3.5 h-3.5" />
                                       </button>
-                                      <button
+                                      <button type="button"
                                         onClick={() => handleDeleteCategory(cat.id)}
                                         className="p-1 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 rounded cursor-pointer"
                                         title="Удалить"
@@ -1396,7 +1401,7 @@ export default function DictionaryEditor() {
                                       return (
                                         <div
                                           key={opt.id}
-                                          className="p-2.5 rounded-lg border border-slate-200/60 dark:border-slate-850 bg-white dark:bg-slate-900 flex items-center justify-between transition-all"
+                                          className="p-2.5 rounded-lg border border-slate-200/60 dark:border-slate-850 bg-white dark:bg-slate-900 flex items-center justify-between transition-ui"
                                         >
                                           {isEditingOpt ? (
                                             <div className="flex items-center gap-1 flex-1 mr-2" onClick={(e) => e.stopPropagation()}>
@@ -1407,13 +1412,13 @@ export default function DictionaryEditor() {
                                                 className="flex-1 px-2.5 py-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                                                 autoFocus
                                               />
-                                              <button
+                                              <button type="button"
                                                 onClick={() => handleSaveOptionName(opt.id)}
                                                 className="p-1 text-emerald-600 hover:bg-emerald-100/30 rounded"
                                               >
                                                 <Check className="w-3.5 h-3.5" />
                                               </button>
-                                              <button
+                                              <button type="button"
                                                 onClick={() => setEditingOptionId(null)}
                                                 className="p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
                                               >
@@ -1426,7 +1431,7 @@ export default function DictionaryEditor() {
 
                                           {!isEditingOpt && (
                                             <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                                              <button
+                                              <button type="button"
                                                 onClick={() => {
                                                   setEditingOptionId(opt.id);
                                                   setEditingOptionName(opt.nameRu);
@@ -1435,7 +1440,7 @@ export default function DictionaryEditor() {
                                               >
                                                 <Edit2 className="w-3.5 h-3.5" />
                                               </button>
-                                              <button
+                                              <button type="button"
                                                 onClick={() => handleDeleteOption(opt.id)}
                                                 className="p-1 text-red-650 hover:bg-red-50 dark:hover:bg-red-950/20 rounded cursor-pointer"
                                               >
@@ -1531,7 +1536,7 @@ export default function DictionaryEditor() {
                                 <div
                                   key={cat.id}
                                   onClick={() => !isEditing && setActiveMarkingTab(cat.id)}
-                                  className={`p-3 rounded-lg border flex items-center justify-between transition-all ${isSelected ? "bg-emerald-500/10 border-emerald-550/40" : "bg-white dark:bg-slate-900 border-slate-200/60 dark:border-slate-850 hover:bg-slate-100/40 dark:hover:bg-slate-800/40"} ${!isEditing ? "cursor-pointer" : ""}`}
+                                  className={`p-3 rounded-lg border flex items-center justify-between transition-ui ${isSelected ? "bg-emerald-500/10 border-emerald-550/40" : "bg-white dark:bg-slate-900 border-slate-200/60 dark:border-slate-850 hover:bg-slate-100/40 dark:hover:bg-slate-800/40"} ${!isEditing ? "cursor-pointer" : ""}`}
                                 >
                                   {isEditing ? (
                                     <div className="flex items-center gap-1 flex-1 mr-2" onClick={(e) => e.stopPropagation()}>
@@ -1542,13 +1547,13 @@ export default function DictionaryEditor() {
                                         className="flex-1 px-2.5 py-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                                         autoFocus
                                       />
-                                      <button
+                                      <button type="button"
                                         onClick={() => handleRenameMarkingCategory(cat.id)}
                                         className="p-1 text-emerald-600 hover:bg-emerald-100/30 rounded"
                                       >
                                         <Check className="w-3.5 h-3.5" />
                                       </button>
-                                      <button
+                                      <button type="button"
                                         onClick={() => setEditingMarkingCategoryId(null)}
                                         className="p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
                                       >
@@ -1660,7 +1665,7 @@ export default function DictionaryEditor() {
                                       return (
                                         <div
                                           key={opt.id}
-                                          className="p-2.5 rounded-lg border border-slate-200/60 dark:border-slate-850 bg-white dark:bg-slate-900 flex items-center justify-between transition-all"
+                                          className="p-2.5 rounded-lg border border-slate-200/60 dark:border-slate-850 bg-white dark:bg-slate-900 flex items-center justify-between transition-ui"
                                         >
                                           {isEditingOpt ? (
                                             <div className="flex items-center gap-1 flex-1 mr-2" onClick={(e) => e.stopPropagation()}>
@@ -1671,13 +1676,13 @@ export default function DictionaryEditor() {
                                                 className="flex-1 px-2.5 py-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                                                 autoFocus
                                               />
-                                              <button
+                                              <button type="button"
                                                 onClick={() => handleSaveMarkingOptionName(opt.id)}
                                                 className="p-1 text-emerald-600 hover:bg-emerald-100/30 rounded"
                                               >
                                                 <Check className="w-3.5 h-3.5" />
                                               </button>
-                                              <button
+                                              <button type="button"
                                                 onClick={() => setEditingMarkingOptionId(null)}
                                                 className="p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
                                               >
@@ -1690,7 +1695,7 @@ export default function DictionaryEditor() {
 
                                           {!isEditingOpt && (
                                             <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                                              <button
+                                              <button type="button"
                                                 onClick={() => {
                                                   setEditingMarkingOptionId(opt.id);
                                                   setEditingMarkingOptionName(opt.nameRu);
@@ -1699,7 +1704,7 @@ export default function DictionaryEditor() {
                                               >
                                                 <Edit2 className="w-3.5 h-3.5" />
                                               </button>
-                                              <button
+                                              <button type="button"
                                                 onClick={() => handleDeleteMarkingOption(opt.id)}
                                                 className="p-1 text-red-655 hover:bg-red-50 dark:hover:bg-red-950/20 rounded cursor-pointer"
                                               >
@@ -1801,7 +1806,7 @@ export default function DictionaryEditor() {
                               <div
                                 key={preset.id}
                                 onClick={() => !isEditing && setActivePresetId(preset.id)}
-                                className={`p-2.5 rounded-lg border flex items-center justify-between transition-all cursor-pointer ${isActive ? "bg-emerald-50/40 dark:bg-emerald-950/10 border-emerald-500" : "bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 border-slate-200/60 dark:border-slate-850"}`}
+                                className={`p-2.5 rounded-lg border flex items-center justify-between transition-ui cursor-pointer ${isActive ? "bg-emerald-50/40 dark:bg-emerald-950/10 border-emerald-500" : "bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 border-slate-200/60 dark:border-slate-850"}`}
                               >
                                 {isEditing ? (
                                   <div className="flex items-center gap-1.5 flex-1 mr-2" onClick={(e) => e.stopPropagation()}>
@@ -1818,13 +1823,13 @@ export default function DictionaryEditor() {
                                       onChange={(e) => setEditingPresetProjectNo(e.target.value)}
                                       className="w-1/2 px-2 py-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded text-xs text-slate-900 dark:text-slate-100 focus:outline-none"
                                     />
-                                    <button
+                                    <button type="button"
                                       onClick={() => handleSavePresetEdit(preset.id)}
                                       className="p-1 text-emerald-600 hover:bg-emerald-100/30 rounded"
                                     >
                                       <Check className="w-3.5 h-3.5" />
                                     </button>
-                                    <button
+                                    <button type="button"
                                       onClick={() => setEditingPresetId(null)}
                                       className="p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
                                     >
@@ -1840,7 +1845,7 @@ export default function DictionaryEditor() {
 
                                 {!isEditing && (
                                   <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                                    <button
+                                    <button type="button"
                                       onClick={() => {
                                         setEditingPresetId(preset.id);
                                         setEditingPresetName(preset.nameRu);
@@ -1850,7 +1855,7 @@ export default function DictionaryEditor() {
                                     >
                                       <Edit2 className="w-3.5 h-3.5" />
                                     </button>
-                                    <button
+                                    <button type="button"
                                       onClick={() => handleDeletePreset(preset.id)}
                                       className="p-1 text-red-655 hover:bg-red-50 dark:hover:bg-red-950/20 rounded cursor-pointer"
                                     >
@@ -1945,13 +1950,13 @@ export default function DictionaryEditor() {
                                               onChange={(e) => setEditingSubOptionCode(e.target.value)}
                                               className="w-1/2 px-2 py-0.5 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded text-xs text-slate-900 dark:text-slate-100 focus:outline-none"
                                             />
-                                            <button
+                                            <button type="button"
                                               onClick={() => handleSaveSubOptionEdit(opt.id)}
                                               className="p-1 text-emerald-600 hover:bg-emerald-100/30 rounded"
                                             >
                                               <Check className="w-3.5 h-3.5" />
                                             </button>
-                                            <button
+                                            <button type="button"
                                               onClick={() => setEditingSubOptionId(null)}
                                               className="p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
                                             >
@@ -1969,7 +1974,7 @@ export default function DictionaryEditor() {
 
                                         {!isEditingSub && (
                                           <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                                            <button
+                                            <button type="button"
                                               onClick={() => {
                                                 setEditingSubOptionId(opt.id);
                                                 setEditingSubOptionValue(opt.nameRu);
@@ -1979,7 +1984,7 @@ export default function DictionaryEditor() {
                                             >
                                               <Edit2 className="w-3.5 h-3.5" />
                                             </button>
-                                            <button
+                                            <button type="button"
                                               onClick={() => handleDeleteSubOption(opt.id)}
                                               className="p-1 text-red-655 hover:bg-red-50 dark:hover:bg-red-950/20 rounded cursor-pointer"
                                             >
@@ -2030,16 +2035,16 @@ export default function DictionaryEditor() {
                 <table className="w-full text-sm text-left">
                   <thead className="bg-white dark:bg-slate-900 text-slate-500 border-b border-slate-200 dark:border-slate-800 shadow-sm z-10 sticky top-0">
                     <tr>
-                      <th className="px-4 py-3 font-medium text-slate-700 dark:text-slate-300">
+                      <th className="flux-cell font-medium text-slate-700 dark:text-slate-300">
                         Код (A)
                       </th>
-                      <th className="px-4 py-3 font-medium text-slate-700 dark:text-slate-300">
+                      <th className="flux-cell font-medium text-slate-700 dark:text-slate-300">
                         Наименование (B)
                       </th>
-                      <th className="px-4 py-3 font-medium text-slate-700 dark:text-slate-300">
+                      <th className="flux-cell font-medium text-slate-700 dark:text-slate-300">
                         Родительская категория
                       </th>
-                      <th className="px-4 py-3 font-medium w-24 text-right text-slate-700 dark:text-slate-300">
+                      <th className="flux-cell font-medium w-24 text-right text-slate-700 dark:text-slate-300">
                         Действия
                       </th>
                     </tr>
@@ -2047,7 +2052,7 @@ export default function DictionaryEditor() {
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/40">
                     {isAdding && (
                       <tr className="bg-emerald-500/5">
-                        <td className="px-4 py-2">
+                        <td className="flux-cell">
                           <input
                             autoFocus
                             type="text"
@@ -2059,7 +2064,7 @@ export default function DictionaryEditor() {
                             placeholder="Код..."
                           />
                         </td>
-                        <td className="px-4 py-2">
+                        <td className="flux-cell">
                           <input
                             type="text"
                             value={addForm.nameRu}
@@ -2070,7 +2075,7 @@ export default function DictionaryEditor() {
                             placeholder="Наименование..."
                           />
                         </td>
-                        <td className="px-4 py-2">
+                        <td className="flux-cell">
                           <CustomSelect
                             value={addForm.parentId}
                             onChange={(val) =>
@@ -2088,15 +2093,15 @@ export default function DictionaryEditor() {
                             ]}
                           />
                         </td>
-                        <td className="px-4 py-2 text-right">
+                        <td className="flux-cell text-right">
                           <div className="flex items-center justify-end gap-2">
-                            <button
+                            <button type="button"
                               onClick={handleAddItem}
                               className="p-1.5 text-emerald-600 hover:bg-emerald-100 dark:hover:bg-emerald-950/40 rounded transition-colors"
                             >
                               <Check className="w-4 h-4" />
                             </button>
-                            <button
+                            <button type="button"
                               onClick={() => {
                                 setIsAdding(false);
                                 setAddForm({
@@ -2120,7 +2125,7 @@ export default function DictionaryEditor() {
                       if (isEditing) {
                         return (
                           <tr key={item.id} className="bg-emerald-500/5">
-                            <td className="px-4 py-2">
+                            <td className="flux-cell">
                               <input
                                 autoFocus
                                 type="text"
@@ -2134,7 +2139,7 @@ export default function DictionaryEditor() {
                                 className="w-full px-2 py-1 text-sm border border-emerald-300 dark:border-emerald-800 rounded focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                               />
                             </td>
-                            <td className="px-4 py-2">
+                            <td className="flux-cell">
                               <input
                                 type="text"
                                 value={editForm.nameRu}
@@ -2147,7 +2152,7 @@ export default function DictionaryEditor() {
                                 className="w-full px-2 py-1 text-sm border border-emerald-300 dark:border-emerald-800 rounded focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                               />
                             </td>
-                            <td className="px-4 py-2">
+                            <td className="flux-cell">
                               <CustomSelect
                                 value={editForm.parentId}
                                 onChange={(val) =>
@@ -2167,15 +2172,15 @@ export default function DictionaryEditor() {
                                 ]}
                               />
                             </td>
-                            <td className="px-4 py-2 text-right">
+                            <td className="flux-cell text-right">
                               <div className="flex items-center justify-end gap-2">
-                                <button
+                                <button type="button"
                                   onClick={() => handleSaveItem(item.id)}
                                   className="p-1.5 text-emerald-600 hover:bg-emerald-100 dark:hover:bg-emerald-950/40 rounded transition-colors"
                                 >
                                   <Check className="w-4 h-4" />
                                 </button>
-                                <button
+                                <button type="button"
                                   onClick={() => setEditingItemId(null)}
                                   className="p-1.5 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors"
                                 >
@@ -2197,7 +2202,7 @@ export default function DictionaryEditor() {
                           className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors group"
                         >
                           <td
-                            className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200 font-mono text-xs flex items-center shadow-none border-none outline-none"
+                            className="flux-cell font-semibold text-slate-800 dark:text-slate-200 font-mono text-xs flex items-center shadow-none border-none outline-none"
                             style={{ paddingLeft: `${depth * 24 + 16}px` }}
                           >
                             {depth > 0 && (
@@ -2207,10 +2212,10 @@ export default function DictionaryEditor() {
                             )}
                             {item.code}
                           </td>
-                          <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
+                          <td className="flux-cell text-slate-600 dark:text-slate-400">
                             {item.nameRu}
                           </td>
-                          <td className="px-4 py-3 text-slate-500 font-sans text-xs">
+                          <td className="flux-cell text-slate-500 font-sans text-xs">
                             {parentItem ? (
                               <span className="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-350 border border-slate-200 dark:border-slate-800 text-xs font-mono">
                                 {parentItem.code} ({parentItem.nameRu})
@@ -2221,9 +2226,9 @@ export default function DictionaryEditor() {
                               </span>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-right font-sans">
+                          <td className="flux-cell text-right font-sans">
                             <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button
+                              <button type="button"
                                 onClick={() => {
                                   setEditingItemId(item.id);
                                   setEditForm({
@@ -2236,7 +2241,7 @@ export default function DictionaryEditor() {
                               >
                                 <Edit2 className="w-4 h-4" />
                               </button>
-                              <button
+                              <button type="button"
                                 onClick={() => handleDeleteItem(item.id)}
                                 className="p-1.5 text-red-600 hover:bg-red-105 dark:hover:bg-red-950/20 rounded transition-colors"
                               >
