@@ -342,6 +342,12 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   outline-offset: 2px;
   border-radius: var(--flux-radius-sm);
 }
+/* Поле, у которого фокус показывает не оно само, а оболочка вокруг него.
+   Иначе на главном экране рисуются два кольца сразу: у строки поиска и у
+   поля внутри неё — и поиск выглядит обведённым дважды. */
+:where(input, textarea).flux-focus-outer:focus-visible {
+  outline: none;
+}
 
 /* ─────────────────────────────────────────────────────────────
    Плотность рабочего места. Класс ставится на <html> из настроек.
@@ -366,6 +372,59 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   --flux-cell-py: 10px;
   --flux-cell-px: 14px;
   --flux-control-h: 38px;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Поверхности главного экрана.
+
+   За плитками идёт живое небо, и сплошные белые карточки с чёткой
+   рамкой смотрелись на нём приклеенными: одинаково резкий контур
+   по всему периметру, а фон под ними полностью перекрыт. Здесь
+   поверхность полупрозрачная и размывает то, что под ней, — она
+   лежит в сцене, а не поверх неё. Контур мягкий, объём даёт тень,
+   а не линия.
+   ───────────────────────────────────────────────────────────── */
+/* Слой components — чтобы утилиты Tailwind (наведение, фокус) могли
+   перебить эти правила: у неслоёных стилей приоритет выше любых утилит. */
+@layer components {
+  .flux-surface {
+    background: color-mix(in oklab, white 80%, transparent);
+    border: 1px solid color-mix(in oklab, black 7%, transparent);
+    box-shadow: 0 1px 2px color-mix(in oklab, black 4%, transparent),
+                0 10px 28px -18px color-mix(in oklab, black 40%, transparent);
+    backdrop-filter: blur(12px) saturate(1.06);
+  }
+  .dark .flux-surface {
+    background: color-mix(in oklab, var(--color-dark-surface) 76%, transparent);
+    border-color: color-mix(in oklab, white 9%, transparent);
+    box-shadow: 0 1px 2px color-mix(in oklab, black 30%, transparent),
+                0 12px 30px -20px color-mix(in oklab, black 70%, transparent);
+  }
+
+  /* Плитка раздела: то же стекло, но реагирует на курсор подъёмом,
+     а не сменой цвета рамки на насыщенный зелёный. */
+  .flux-tile {
+    background: color-mix(in oklab, white 66%, transparent);
+    border: 1px solid color-mix(in oklab, black 6%, transparent);
+    backdrop-filter: blur(10px) saturate(1.05);
+  }
+  .flux-tile:hover {
+    background: color-mix(in oklab, white 92%, transparent);
+    border-color: color-mix(in oklab, var(--color-emerald-600) 35%, transparent);
+    box-shadow: 0 8px 20px -12px color-mix(in oklab, black 45%, transparent);
+    transform: translateY(-1px);
+  }
+  .dark .flux-tile {
+    background: color-mix(in oklab, var(--color-dark-surface) 62%, transparent);
+    border-color: color-mix(in oklab, white 8%, transparent);
+  }
+  .dark .flux-tile:hover {
+    background: color-mix(in oklab, var(--color-dark-panel) 88%, transparent);
+    border-color: color-mix(in oklab, var(--color-emerald-400) 40%, transparent);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .flux-tile:hover { transform: none; }
+  }
 }
 
 /* Табличная строка и ячейка: единая геометрия для всех разделов */
