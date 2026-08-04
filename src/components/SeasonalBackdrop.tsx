@@ -17,7 +17,7 @@ import React, { useMemo } from 'react';
  */
 
 export type Season = 'winter' | 'spring' | 'summer' | 'autumn';
-export type DayPart = 'night' | 'morning' | 'day' | 'evening';
+export type DayPart = 'night' | 'dawn' | 'morning' | 'day' | 'evening' | 'dusk';
 
 export function seasonOf(d: Date): Season {
   const m = d.getMonth();
@@ -30,9 +30,11 @@ export function seasonOf(d: Date): Season {
 export function dayPartOf(d: Date): DayPart {
   const h = d.getHours();
   if (h >= 22 || h < 5) return 'night';
+  if (h < 8) return 'dawn';       // рассвет: небо тёплое, солнце низко
   if (h < 11) return 'morning';
   if (h < 17) return 'day';
-  return 'evening';
+  if (h < 20) return 'evening';
+  return 'dusk';                  // сумерки: солнце село, звёзды ещё не видны
 }
 
 export const SEASON_LABEL: Record<Season, string> = {
@@ -56,24 +58,32 @@ const SKY: Record<Season, Record<DayPart, [string, string]>> = {
     morning: ['oklch(0.93 0.03 230)', 'oklch(0.97 0.02 170)'],
     day:     ['oklch(0.95 0.03 220)', 'oklch(0.98 0.02 165)'],
     evening: ['oklch(0.78 0.06 280)', 'oklch(0.88 0.04 200)'],
+    dawn:    ['oklch(0.72 0.07 300)', 'oklch(0.90 0.03 200)'],
+    dusk:    ['oklch(0.45 0.06 275)', 'oklch(0.60 0.04 210)'],
   },
   spring: {
     night:   ['oklch(0.32 0.05 260)', 'oklch(0.26 0.04 170)'],
     morning: ['oklch(0.95 0.04 130)', 'oklch(0.97 0.03 165)'],
     day:     ['oklch(0.94 0.05 140)', 'oklch(0.98 0.03 160)'],
     evening: ['oklch(0.84 0.06 60)',  'oklch(0.92 0.04 150)'],
+    dawn:    ['oklch(0.88 0.06 45)',  'oklch(0.95 0.04 150)'],
+    dusk:    ['oklch(0.52 0.07 285)', 'oklch(0.68 0.05 170)'],
   },
   summer: {
     night:   ['oklch(0.30 0.06 265)', 'oklch(0.24 0.04 200)'],
     morning: ['oklch(0.95 0.05 95)',  'oklch(0.97 0.03 160)'],
     day:     ['oklch(0.93 0.06 100)', 'oklch(0.98 0.03 165)'],
     evening: ['oklch(0.82 0.08 55)',  'oklch(0.93 0.04 130)'],
+    dawn:    ['oklch(0.90 0.07 55)',  'oklch(0.96 0.04 155)'],
+    dusk:    ['oklch(0.50 0.08 290)', 'oklch(0.66 0.05 180)'],
   },
   autumn: {
     night:   ['oklch(0.30 0.05 280)', 'oklch(0.24 0.03 160)'],
     morning: ['oklch(0.94 0.05 75)',  'oklch(0.97 0.03 150)'],
     day:     ['oklch(0.94 0.05 80)',  'oklch(0.98 0.02 160)'],
     evening: ['oklch(0.80 0.08 50)',  'oklch(0.90 0.04 120)'],
+    dawn:    ['oklch(0.86 0.08 40)',  'oklch(0.94 0.04 140)'],
+    dusk:    ['oklch(0.48 0.07 300)', 'oklch(0.63 0.05 160)'],
   },
 };
 
@@ -209,15 +219,26 @@ export default function SeasonalBackdrop({ now, birthday, className }: Props) {
       <div className="absolute inset-0 hidden dark:block opacity-60"
         style={{ background: `linear-gradient(160deg, ${d1} 0%, ${d2} 55%, transparent 100%)` }} />
 
-      {/* Солнце или луна — у самого края, чтобы не спорить с полем поиска */}
+      {/* Солнце или луна — у самого края, чтобы не спорить с полем поиска.
+          На рассвете и в сумерках светило стоит ниже: так время суток
+          читается даже без часов. */}
       {!birthday && (
-        <div className="absolute" style={{ right: '2.5%', top: night ? '4%' : '3%' }}>
-          {night ? <Moon /> : <Sun warm={part === 'evening' || season === 'summer'} />}
+        <div className="absolute" style={{
+          right: '2.5%',
+          top: night || part === 'dusk' ? '7%' : part === 'dawn' || part === 'evening' ? '9%' : '3%',
+        }}>
+          {night ? <Moon /> : <Sun warm={part !== 'day' && part !== 'morning'} />}
         </div>
       )}
 
+      {/* Туман осенним утром и ранней зимой — низкая полоса у горизонта */}
+      {!reduced && !birthday && (part === 'dawn' || part === 'morning')
+        && (season === 'autumn' || season === 'winter') && (
+        <span className="flux-fog" style={{ animationDuration: '70s' }} />
+      )}
+
       {/* Облака: днём небо без них выглядит пустым */}
-      {!reduced && !birthday && !night && (season === 'summer' || season === 'spring') && (
+      {!reduced && !birthday && !night && part !== 'dusk' && (season === 'summer' || season === 'spring') && (
         <>
           <span className="flux-cloud" style={{ top: '12%', width: 170, height: 46, animationDuration: '90s' }} />
           <span className="flux-cloud" style={{ top: '30%', width: 120, height: 34, animationDuration: '130s', animationDelay: '-40s', opacity: 0.5 }} />

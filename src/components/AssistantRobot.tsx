@@ -23,7 +23,16 @@ const SIZE = 76;          // видимый размер робота
 const EDGE = 12;          // отступ от края окна
 const SLEEP_AFTER = 75000; // через сколько без внимания он засыпает
 
-type Mood = 'idle' | 'happy' | 'talk' | 'sleep' | 'drag' | 'wave';
+type Mood = 'idle' | 'happy' | 'talk' | 'sleep' | 'drag' | 'wave' | 'work' | 'think' | 'peek';
+
+// Чем робот занят, пока его не трогают. Он не просто висит: то читает,
+// то что-то подкручивает, то задумывается. Занятие меняется само и
+// длится недолго, чтобы движение не превращалось в мельтешение.
+const BUSY: { mood: Mood; hint: string }[] = [
+  { mood: 'work',  hint: 'подкручивает' },
+  { mood: 'think', hint: 'думает' },
+  { mood: 'peek',  hint: 'подглядывает' },
+];
 
 // Реплики на щелчок. Короткие и по делу: робот — не болтун, а напоминание
 // о том, что помощник рядом.
@@ -43,6 +52,19 @@ const IDLE_LINES = [
   'Спросите: «покажи все теги»',
   'Могу выгрузить найденное в Excel',
   'Помню, где лежит корзина',
+  'Ищу по коду тега и по марке',
+  'Знаю, что просрочено по ВДР',
+];
+
+// Подсказка под раздел, в котором человек сейчас работает. Робот должен
+// быть к месту: в Проводнике говорить про файлы, а не про закупки.
+const BY_ROUTE: { match: RegExp; lines: string[] }[] = [
+  { match: /^\/registry/, lines: ['Связи тянутся мышью между карточками', 'Спросите «покажи дубли»'] },
+  { match: /^\/explorer/, lines: ['Удалённое лежит в корзине', 'Есть подборка «Без тегов»'] },
+  { match: /^\/management/, lines: ['Могу показать, что зависло дольше двух недель', 'Выгрузка в Excel — по видимому срезу'] },
+  { match: /^\/constructor/, lines: ['Метки в шаблоне заполняются сами', 'Кнопка «Подстановки» — в панели'] },
+  { match: /^\/notes/, lines: ['Блокнот личный, но заметкой можно поделиться'] },
+  { match: /^\/equipment/, lines: ['Конфликты ревизий подсвечиваются', 'Спросите «какой расход у 3700-K02»'] },
 ];
 
 export default function AssistantRobot() {
@@ -111,11 +133,24 @@ export default function AssistantRobot() {
     const lifeTimer = setInterval(() => {
       const idleFor = Date.now() - lastTouch.current;
       if (idleFor > SLEEP_AFTER) { setMood('sleep'); setBubble(''); return; }
+      if (mood === 'drag' || mood === 'talk') return;
+      const roll = Math.random();
       // Изредка подсказывает, что умеет — но только когда чат закрыт
-      if (!isOpen && Math.random() < 0.25) {
-        say(IDLE_LINES[Math.floor(Math.random() * IDLE_LINES.length)], 'talk', 4200);
+      if (!isOpen && roll < 0.28) {
+        const route = String(window.location?.hash || window.location?.pathname || '');
+        const forRoute = BY_ROUTE.find(r => r.match.test(route.replace('#', '')));
+        const pool = forRoute && Math.random() < 0.65 ? forRoute.lines : IDLE_LINES;
+        say(pool[Math.floor(Math.random() * pool.length)], 'talk', 4400);
+        return;
       }
-    }, 25000);
+      // Или просто занимается своим делом — так он выглядит живым, а не
+      // ждущим команды.
+      if (roll < 0.62) {
+        const busy = BUSY[Math.floor(Math.random() * BUSY.length)];
+        setMood(busy.mood);
+        setTimeout(() => setMood((m) => (m === busy.mood ? 'idle' : m)), 3200 + Math.random() * 2500);
+      }
+    }, 17000);
 
     return () => { clearInterval(blinkTimer); clearInterval(lookTimer); clearInterval(lifeTimer); };
   }, [mood, isOpen, say]);
@@ -204,7 +239,12 @@ export default function AssistantRobot() {
 function RobotFace({ mood, blink, look }: { mood: Mood; blink: boolean; look: number }) {
   const sleeping = mood === 'sleep';
   const happy = mood === 'happy' || mood === 'wave';
-  const eyeShift = look * 2.4;
+  const thinking = mood === 'think';
+  const working = mood === 'work';
+  const peeking = mood === 'peek';
+  // Занят делом — взгляд опущен на работу; подглядывает — скошен вбок
+  const eyeShift = peeking ? 3.2 : working ? -1.4 : look * 2.4;
+  const eyeDrop = working ? 1.6 : 0;
 
   return (
     <svg viewBox="0 0 80 80" width="76" height="76" className="drop-shadow-lg">
@@ -249,10 +289,10 @@ function RobotFace({ mood, blink, look }: { mood: Mood; blink: boolean; look: nu
         </>
       ) : (
         <>
-          <circle cx={31 + eyeShift} cy="35" r="4.4" fill="oklch(0.92 0.14 163)" />
-          <circle cx={49 + eyeShift} cy="35" r="4.4" fill="oklch(0.92 0.14 163)" />
-          <circle cx={32.6 + eyeShift} cy="33.4" r="1.5" fill="white" opacity="0.95" />
-          <circle cx={50.6 + eyeShift} cy="33.4" r="1.5" fill="white" opacity="0.95" />
+          <circle cx={31 + eyeShift} cy={35 + eyeDrop} r="4.4" fill="oklch(0.92 0.14 163)" />
+          <circle cx={49 + eyeShift} cy={35 + eyeDrop} r="4.4" fill="oklch(0.92 0.14 163)" />
+          <circle cx={32.6 + eyeShift} cy={33.4 + eyeDrop} r="1.5" fill="white" opacity="0.95" />
+          <circle cx={50.6 + eyeShift} cy={33.4 + eyeDrop} r="1.5" fill="white" opacity="0.95" />
         </>
       )}
 
@@ -269,6 +309,20 @@ function RobotFace({ mood, blink, look }: { mood: Mood; blink: boolean; look: nu
           <circle cx="24" cy="42" r="2.6" fill="oklch(0.78 0.12 20)" opacity="0.55" />
           <circle cx="56" cy="42" r="2.6" fill="oklch(0.78 0.12 20)" opacity="0.55" />
         </>
+      )}
+
+      {/* Занятия: думает — пузырьки над головой; работает — крутит ключ */}
+      {thinking && (
+        <>
+          <circle cx="62" cy="22" r="2.2" fill="oklch(0.80 0.10 163)" className="flux-robot-think1" />
+          <circle cx="68" cy="16" r="3" fill="oklch(0.80 0.10 163)" className="flux-robot-think2" />
+        </>
+      )}
+      {working && (
+        <g className="flux-robot-tool" style={{ transformOrigin: '62px 60px' }}>
+          <rect x="59" y="52" width="2.6" height="11" rx="1.3" fill="oklch(0.55 0.03 163)" />
+          <circle cx="60.3" cy="51" r="3.4" fill="none" stroke="oklch(0.55 0.03 163)" strokeWidth="2.2" />
+        </g>
       )}
 
       {/* Ушки-заклёпки */}
