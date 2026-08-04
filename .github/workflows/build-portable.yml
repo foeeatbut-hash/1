@@ -77,7 +77,23 @@ jobs:
             echo "Нет изменений в portable/"
           else
             git commit -m "build: портативный exe v$VERSION (собрано в GitHub Actions)" -m "Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
-            # --autostash: сборка меняет генерируемые файлы (prisma-клиенты) в рабочем дереве
-            git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
+            # Две сборки подряд наступают друг другу на пятки: пока идёт одна,
+            # вторая уже успевает запушить свои части, и наш push отлетает.
+            # Пробуем несколько раз, каждый раз перечитывая ветку. Части exe
+            # берём свои — они и есть результат этой сборки.
+            pushed=0
+            for attempt in 1 2 3 4 5; do
+              # --autostash: сборка меняет генерируемые файлы (prisma-клиенты) в рабочем дереве
+              if ! git pull --rebase --autostash -X ours origin "${GITHUB_REF_NAME}"; then
+                git rebase --abort || true
+                git fetch origin "${GITHUB_REF_NAME}"
+                git rebase -X ours "origin/${GITHUB_REF_NAME}" || { git rebase --abort || true; sleep 10; continue; }
+              fi
+              if git push origin "HEAD:${GITHUB_REF_NAME}"; then pushed=1; break; fi
+              echo "Ветку обновили раньше нас — пробую ещё раз (попытка $attempt)"
+              sleep 10
+            done
+            if [ "$pushed" != "1" ]; then
+              echo "::warning::Не удалось закоммитить части в ветку. Готовый exe остаётся артефактом сборки."
+            fi
           fi
