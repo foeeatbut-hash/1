@@ -4,12 +4,14 @@ import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { dataService, UserNote } from '../services/dataService';
 import RichTextEditor from '../components/RichTextEditor';
+import { ENV_CONFIG, getAuthToken } from '../config/env';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Plus, Search, BookOpen, Calendar, Trash2, ExternalLink,
   Save, FileText, CheckCircle2, RefreshCw, Pin, PinOff, Copy, Download, FileType2, Printer,
-  FolderPlus, Folder, ChevronDown, ChevronRight, X
+  FolderPlus, Folder, ChevronDown, ChevronRight, X, Users2, Share2, UserPlus2
 } from 'lucide-react';
+import NoteShareDialog from '../components/NoteShareDialog';
 import { useModalStore } from '../store/modalStore';
 
 // Диалоги программы вместо системных окон Windows
@@ -28,6 +30,8 @@ export default function NotesManagement() {
   const navigate = useNavigate();
 
   const [notes, setNotes] = useState<UserNote[]>([]);
+  const [scope, setScope] = useState<'mine' | 'shared' | 'common'>('mine');
+  const [shareFor, setShareFor] = useState<UserNote | null>(null);
   const [selectedNote, setSelectedNote] = useState<UserNote | null>(null);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -384,8 +388,33 @@ export default function NotesManagement() {
     };
   }, []);
 
+  // Забрать старую общую заметку себе: данные из прежних версий не должны
+  // висеть ничьими, но и раздавать их автоматически нельзя.
+  const claimNote = async (note: UserNote) => {
+    try {
+      const res = await fetch(`${ENV_CONFIG.apiUrl}/notes/${note.id}/claim`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}) },
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Не удалось забрать заметку');
+      addToast(`Заметка «${note.title || 'Без названия'}» теперь ваша`, 'success');
+      await loadNotes(note.id);
+      setScope('mine');
+    } catch (e: any) {
+      addToast(e.message, 'error');
+    }
+  };
+
   // Filter notes based on search query; закрепленные сверху, далее свежие
   const filteredNotes = notes
+    .filter(note => {
+      // Блокнот личный: раздельно показываем свои, открытые коллегами и
+      // старые общие — иначе непонятно, чья запись перед глазами.
+      if (scope === 'mine' && !note.mine) return false;
+      if (scope === 'shared' && (note.mine || note.legacy)) return false;
+      if (scope === 'common' && !note.legacy) return false;
+      return true;
+    })
     .filter(note =>
       note.title.toLowerCase().includes(search.toLowerCase()) ||
       note.content.toLowerCase().includes(search.toLowerCase())
@@ -449,6 +478,30 @@ export default function NotesManagement() {
             >
               <Plus className="w-4 h-4" />
             </button>
+          </div>
+          {/* Чей блокнот смотрим */}
+          <div className="flex items-center gap-1">
+            {(() => {
+              const counts = {
+                mine: notes.filter(n => n.mine).length,
+                shared: notes.filter(n => !n.mine && !n.legacy).length,
+                common: notes.filter(n => n.legacy).length,
+              };
+              return ([['mine', 'Мои'], ['shared', 'Со мной'], ['common', 'Общие']] as const)
+                .filter(([id]) => id !== 'common' || counts.common > 0)
+                .map(([id, label]) => (
+                  <button type="button" key={id} onClick={() => setScope(id)}
+                    title={id === 'shared' ? 'Заметки, которыми с вами поделились'
+                      : id === 'common' ? 'Заметки из версий до личного блокнота — видны всем'
+                      : 'Ваши личные заметки'}
+                    className={`px-2.5 py-1 rounded-lg text-2xs font-bold cursor-pointer transition-ui ${
+                      scope === id
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>
+                    {label} {counts[id] > 0 && <span className="opacity-70">{counts[id]}</span>}
+                  </button>
+                ));
+            })()}
           </div>
           <div className="relative">
             <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
@@ -514,6 +567,24 @@ export default function NotesManagement() {
                     <h3 className="text-xs font-bold text-slate-800 dark:text-white truncate flex-1 flex items-center gap-1">
                       {pinnedIds.includes(note.id) && <Pin className="w-3 h-3 text-amber-500 shrink-0" />}
                       <span className="truncate">{note.title || 'Новая заметка'}</span>
+                      {/* Кому ещё видна заметка — сразу в списке, чтобы личное
+                          не оказалось открытым по забывчивости */}
+                      {note.mine && (note.sharedWith?.length || 0) > 0 && (
+                        <span title={`Открыта ${note.sharedWith!.length} сотрудник(ам)`}
+                          className="shrink-0 inline-flex items-center gap-0.5 text-2xs font-semibold text-sky-600 dark:text-sky-400">
+                          <Users2 className="w-3 h-3" />{note.sharedWith!.length}
+                        </span>
+                      )}
+                      {!note.mine && !note.legacy && (
+                        <span title={note.canEdit ? 'Вам открыли на правку' : 'Вам открыли только на чтение'}
+                          className="shrink-0 text-2xs font-semibold text-violet-600 dark:text-violet-400">
+                          {note.canEdit ? 'правка' : 'чтение'}
+                        </span>
+                      )}
+                      {note.legacy && (
+                        <span title="Заметка из версий до личного блокнота — видна всем"
+                          className="shrink-0 text-2xs font-semibold text-amber-600 dark:text-amber-400">общая</span>
+                      )}
                     </h3>
                     
                     {/* Action buttons appear on hover */}
@@ -525,6 +596,29 @@ export default function NotesManagement() {
                       >
                         {pinnedIds.includes(note.id) ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
                       </button>
+                      {note.mine && (
+                        <button type="button"
+                          onClick={(e) => { e.stopPropagation(); setShareFor(note); }}
+                          className={`p-1 rounded transition-colors ${
+                            (note.sharedWith?.length || 0) > 0
+                              ? 'text-sky-500 hover:text-sky-600'
+                              : 'text-slate-400 hover:text-sky-600 dark:hover:text-sky-400'}`}
+                          title={(note.sharedWith?.length || 0) > 0
+                            ? `Открыта ${note.sharedWith!.length} сотрудник(ам) — изменить доступ`
+                            : 'Поделиться заметкой'}
+                        >
+                          <Share2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {note.legacy && (
+                        <button type="button"
+                          onClick={(e) => { e.stopPropagation(); void claimNote(note); }}
+                          className="p-1 text-amber-500 hover:text-amber-600 rounded transition-colors"
+                          title="Забрать заметку себе — она станет личной"
+                        >
+                          <UserPlus2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       <button type="button"
                         onClick={(e) => handleDuplicateNote(e, note)}
                         className="p-1 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded transition-colors"
@@ -787,6 +881,14 @@ export default function NotesManagement() {
           </div>
         )}
       </div>
+
+      {shareFor && (
+        <NoteShareDialog
+          note={shareFor}
+          onClose={() => setShareFor(null)}
+          onSaved={() => loadNotes(shareFor.id)}
+        />
+      )}
     </motion.div>
   );
 }

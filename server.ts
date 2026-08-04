@@ -1761,7 +1761,7 @@ app.get('/api/assistant/data', async (req: Request, res: Response) => {
         include: { monoblocks: { include: { components: { include: { tags: true } } } } }
       }) : Promise.resolve([]),
       prisma.user.count(),
-      prisma.userNote.count(),
+      prisma.userNote.count({ where: { OR: [{ ownerId: (req as any).authUser?.id || '' }, { ownerId: null }] } }),
       projectId ? prisma.folder.count({ where: { projectId } }) : Promise.resolve(0),
       projectId ? prisma.fileNode.count({ where: { folder: { projectId } } }) : Promise.resolve(0),
     ]);
@@ -1869,7 +1869,12 @@ app.get('/api/assistant/data', async (req: Request, res: Response) => {
 
     // Заметки (только заголовки) и последние изменения (логи)
     const [notesList, recentLogs] = await Promise.all([
-      prisma.userNote.findMany({ select: { id: true, title: true, updatedAt: true }, orderBy: { updatedAt: 'desc' }, take: 40 }),
+      // Только свои заметки и старые общие: помощник не должен показывать
+      // заголовки чужих личных записей.
+      prisma.userNote.findMany({
+        where: { OR: [{ ownerId: (req as any).authUser?.id || '' }, { ownerId: null }] },
+        select: { id: true, title: true, updatedAt: true }, orderBy: { updatedAt: 'desc' }, take: 40,
+      }),
       prisma.systemChangeLog.findMany({ orderBy: { createdAt: 'desc' }, take: 20 }),
     ]);
 

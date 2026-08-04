@@ -341,6 +341,7 @@ model EquipmentHistory {
 model UserNote {
   id          String   @id @default(uuid())
   title       String   @default("Новая заметка")
+  ownerId     String?  // Владелец заметки; null — заметка из версий до личного блокнота
   content     String   @db.LongText // HTML-строка или JSON-дерево Rich-text редактора
   color       String   @default("bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200")
   equipmentId String?  // Опциональная привязка к тегу/оборудованию
@@ -455,4 +456,18 @@ model Role {
   sortOrder   Int      @default(100)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+
+// С кем сотрудник поделился своей заметкой. Блокнот личный, но заметку
+// можно открыть коллегам: на просмотр или на совместную правку.
+model NoteShare {
+  id        String   @id @default(uuid())
+  noteId    String
+  userId    String   // кому открыт доступ
+  canEdit   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([noteId, userId])
+  @@index([userId])
 }

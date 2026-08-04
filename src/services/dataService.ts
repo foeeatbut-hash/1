@@ -44,6 +44,13 @@ export interface UserNote {
   groupName?: string | null;
   createdAt: string;
   updatedAt: string;
+  // Блокнот личный: заметка либо своя, либо открыта вам коллегой, либо
+  // осталась общей с версий до разделения.
+  ownerId?: string | null;
+  mine?: boolean;
+  legacy?: boolean;
+  canEdit?: boolean;
+  sharedWith?: { userId: string; canEdit: boolean }[];
 }
 
 export interface SystemChangeLog {
