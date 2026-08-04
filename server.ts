@@ -952,6 +952,10 @@ const verifyAuthToken = (token: string): string | null => {
 // Кэш пользователей на 30 с — проверка токена не ходит в БД на каждый запрос,
 // но отключение профиля администратором срабатывает в течение полуминуты
 const authUserCache = new Map<string, { user: any; at: number }>();
+/** Сброс кэша сессии: снятое право должно действовать сразу, а не через полминуты. */
+function invalidateAuthUser(userId?: string) {
+  if (userId) authUserCache.delete(userId); else authUserCache.clear();
+}
 const getAuthUser = async (userId: string) => {
   const hit = authUserCache.get(userId);
   if (hit && Date.now() - hit.at < 30000) return hit.user;
@@ -1077,6 +1081,64 @@ app.use('/chat_files', express.static(path.join(userDataPath, 'chat_files')));
 // Открыты только вход, проверка готовности и конфиг БД для экрана входа.
 // Настройка БД (/api/db/*) до входа разрешена только с самой машины сервера —
 // это функция встроенного режима, по сети её дергать нельзя.
+// ── Права по функциям ────────────────────────────────────────────────────────
+// Право приходит от роли (общее для должности) и лично (надбавка или запрет);
+// личное сильнее. Каталог функций живёт в src/lib/permissions.ts — здесь
+// только сопоставление «маршрут → функция». Проверяем одной таблицей, а не в
+// каждом обработчике: иначе новый эндпоинт легко забыть закрыть, и выданное
+// право окажется украшением.
+type PermRule = { method: RegExp; path: RegExp; perm: string; title: string };
+const PERM_ROUTES: PermRule[] = [
+  { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/projects\/?$|^\/api\/projects\/[^/]+$/,
+    perm: 'project.manage', title: 'Управление проектами' },
+  { method: /^(POST|PUT|PATCH)$/, path: /^\/api\/projects\/[^/]+\/tags/,
+    perm: 'tags.manage', title: 'Создание и правка тегов' },
+  { method: /^(PUT|PATCH)$/, path: /^\/api\/tags\//, perm: 'tags.manage', title: 'Создание и правка тегов' },
+  { method: /^DELETE$/, path: /^\/api\/tags\//, perm: 'tags.delete', title: 'Удаление тегов' },
+  { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/dictionaries|^\/api\/projects\/[^/]+\/(dictionaries|tag-template)/,
+    perm: 'dictionaries.manage', title: 'Справочники и шаблоны' },
+  { method: /^POST$/, path: /^\/api\/(equipment\/import|import\/)/,
+    perm: 'equipment.import', title: 'Импорт из бланков' },
+  { method: /^(PUT|PATCH)$/, path: /^\/api\/(components|equipment|monoblocks|systems)\//,
+    perm: 'equipment.manage', title: 'Правка характеристик оборудования' },
+  { method: /^POST$/, path: /^\/api\/(files|folders)/, perm: 'files.upload', title: 'Загрузка файлов' },
+  { method: /^DELETE$/, path: /^\/api\/(files|folders)/, perm: 'files.delete', title: 'Удаление файлов и папок' },
+  { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/settings\/(procurement_stages|stage_templates)/,
+    perm: 'procurement.setup', title: 'Настройка этапов закупки' },
+  { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/vdr\/standards/,
+    perm: 'vdr.standards', title: 'Стандарты документооборота' },
+  { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/vdr\//,
+    perm: 'vdr.manage', title: 'Реестр ВДР' },
+];
+
+const rolePermCache = new Map<string, { perms: any; at: number }>();
+async function rolePermissionsOf(code: string): Promise<Record<string, any>> {
+  const hit = rolePermCache.get(code);
+  if (hit && Date.now() - hit.at < 30000) return hit.perms;
+  let perms: Record<string, any> = {};
+  try {
+    const role = await prisma.role.findUnique({ where: { code } });
+    if (role?.permissions) perms = JSON.parse(role.permissions) || {};
+  } catch (_) { perms = {}; }
+  rolePermCache.set(code, { perms, at: Date.now() });
+  return perms;
+}
+function invalidateRolePerms() { rolePermCache.clear(); }
+
+async function effectivePermsOf(user: any): Promise<Record<string, any>> {
+  let personal: Record<string, any> = {};
+  try { personal = user.permissions ? JSON.parse(user.permissions) || {} : {}; } catch (_) {}
+  const fromRole = await rolePermissionsOf(String(user.role || ''));
+  return { ...fromRole, ...personal };   // личное сильнее роли
+}
+
+function permAllows(perms: Record<string, any>, feature: string): boolean {
+  const e = perms[feature] || (feature === 'project.manage' ? perms['project.create'] : null);
+  if (!e || !e.enabled) return false;
+  if (e.until && new Date(e.until).getTime() < Date.now()) return false;
+  return true;
+}
+
 const AUTH_EXEMPT = new Set(['/api/health', '/api/login', '/api/db/config', '/api/license/status', '/api/license/activate']);
 const isLoopbackRequest = (req: Request) => {
   const ip = String(req.ip || req.socket?.remoteAddress || '');
@@ -1123,6 +1185,20 @@ app.use(async (req: Request, res: Response, next) => {
           middleName: req.body?.middleName, gender: req.body?.gender,
           birthDate: req.body?.birthDate,
         };
+      }
+    }
+
+    // Права по функциям: одна таблица маршрутов на всю программу.
+    if (user.role !== 'ADMIN') {
+      const rule = PERM_ROUTES.find(r => r.method.test(req.method) && r.path.test(req.path));
+      if (rule) {
+        const perms = await effectivePermsOf(user);
+        if (!permAllows(perms, rule.perm)) {
+          return res.status(403).json({
+            error: `Недостаточно прав: «${rule.title}». Обратитесь к администратору.`,
+            feature: rule.perm,
+          });
+        }
       }
     }
 
@@ -1616,6 +1692,9 @@ app.post('/api/login', async (req: Request, res: Response) => {
           trustedNowSync();
         }
         const { password: _pw, ...safeUser } = user as any;
+        // Права роли отдаём вместе с профилем: интерфейс должен знать, что
+        // человеку можно, не запрашивая это на каждом экране.
+        (safeUser as any).rolePermissions = JSON.stringify(await rolePermissionsOf(String(user.role || '')));
         // Токен сессии: клиент шлёт его в Authorization на каждом запросе
         return res.json({ success: true, user: safeUser, token: issueAuthToken(user.id) });
       } else {
@@ -1887,8 +1966,12 @@ app.get('/api/users', async (req: Request, res: Response) => {
     const users = await prisma.user.findMany({
       orderBy: { createdAt: 'asc' },
     });
-    // Не отдаём хеши паролей наружу
-    res.json((users as any[]).map(({ password, ...u }) => u));
+    const roles = await prisma.role.findMany().catch(() => [] as any[]);
+    const byCode: Record<string, string> = {};
+    for (const r of roles as any[]) byCode[r.code] = r.permissions || '{}';
+    // Не отдаём хеши паролей наружу; права роли прикладываем, чтобы в карточке
+    // было видно, что человеку дано должностью, а что лично.
+    res.json((users as any[]).map(({ password, ...u }) => ({ ...u, rolePermissions: byCode[u.role] || '{}' })));
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -2011,6 +2094,7 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
 
     const permsChanged = permissions !== undefined && (data.permissions || null) !== (target.permissions || null);
     const updated = await prisma.user.update({ where: { id }, data });
+    invalidateAuthUser(id);   // права и роль применяются немедленно
     // Личное уведомление сотруднику об изменении его прав доступа
     if (permsChanged) {
       await notify(id, 'ДОСТУП', 'Изменены ваши права доступа', 'Администратор обновил доступные вам функции.', '/');
@@ -2147,6 +2231,8 @@ app.put('/api/roles/:id', async (req: Request, res: Response) => {
     // Уровень встроенной роли не трогаем: он определяет, кто главный админ
     if (req.body.level !== undefined && !role.isSystem) data.level = Math.max(2, Number(req.body.level) || 50);
     const updated = await prisma.role.update({ where: { id: role.id }, data });
+    invalidateRolePerms();
+    invalidateAuthUser();     // роль касается сразу нескольких сотрудников
     res.json({ success: true, role: updated });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
@@ -2166,6 +2252,7 @@ app.delete('/api/roles/:id', async (req: Request, res: Response) => {
       return res.status(400).json({ message: `Роль назначена ${inUse} сотрудник(ам). Сначала переведите их на другую роль.` });
     }
     await prisma.role.delete({ where: { id: role.id } });
+    invalidateRolePerms();
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ message: error.message });

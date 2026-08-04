@@ -3,6 +3,7 @@ import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { dataService, User } from '../services/dataService';
 import { FEATURES, parsePermissions, PermMap } from '../lib/permissions';
+import { Check } from 'lucide-react';
 import NameFields, { NameValue, EMPTY_NAME } from '../components/NameFields';
 import { Role, loadRoles, roleByCode, roleColorClass, isTopAdmin } from '../lib/roles';
 import { fullNameOf } from '../lib/declension';
@@ -688,6 +689,10 @@ export default function UsersManagement() {
                           const e = editPerms[f.id];
                           const on = !!e?.enabled;
                           const isExpired = !!e?.until && new Date(e.until).getTime() < Date.now();
+                          // Что уже даёт должность: иначе админ выдаёт лично то,
+                          // что у человека и так есть, и потом не понимает,
+                          // почему снятие галочки ничего не изменило.
+                          const fromRole = !!parsePermissions((editUser as any)?.rolePermissions)[f.id]?.enabled;
                           return (
                             <div key={f.id} className={`rounded-lg border p-2.5 transition-colors ${on ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20' : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950'}`}>
                               <label className="flex items-start gap-2.5 cursor-pointer select-none">
@@ -701,6 +706,13 @@ export default function UsersManagement() {
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <span className="text-sm font-semibold text-slate-800 dark:text-white">{f.label}</span>
+                                    <span className="text-2xs font-mono text-slate-400">{f.group}</span>
+                                    {fromRole && !on && (
+                                      <span className="text-2xs px-1.5 py-0.5 rounded-full bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-400 font-semibold border border-sky-200 dark:border-sky-900/60">
+                                        уже даёт роль
+                                      </span>
+                                    )}
+                                    {f.risky && <span className="text-2xs font-bold text-amber-600 dark:text-amber-400">осторожно</span>}
                                     {on && isExpired && <span className="text-xs px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 font-semibold">истекло</span>}
                                   </div>
                                   <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{f.desc}</p>

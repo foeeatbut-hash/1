@@ -18,6 +18,7 @@ import RoleIcon from '../components/RoleIcon';
 import {
   Role, ROLE_COLORS, ROLE_ICONS, roleColorClass, loadRoles, invalidateRoles, isTopAdmin,
 } from '../lib/roles';
+import { FEATURES, FEATURE_GROUPS, PermMap, parsePermissions } from '../lib/permissions';
 import { getAuthToken } from '../config/env';
 import { motion } from 'motion/react';
 import {
@@ -1381,6 +1382,7 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
               <div className="text-xs text-slate-500 dark:text-slate-400 truncate">{r.description || 'Без описания'}</div>
               <div className="text-2xs font-mono text-slate-400 mt-0.5">
                 {r.code} · уровень {r.level}
+                {r.level > 1 && ` · прав: ${Object.values(parsePermissions(r.permissions as any)).filter((e: any) => e?.enabled).length}`}
                 {r.level <= 1 && ' — главный администратор'}
                 {r.isSystem && ' · встроенная'}
               </div>
@@ -1477,6 +1479,53 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
                   </button>
                 ))}
               </div>
+            </div>
+          </div>
+
+          {/* Права роли: что можно всем, кто на этой должности. Личные права
+              сотрудника накладываются поверх и сильнее — так можно забрать
+              доступ у одного человека, не трогая всю роль. */}
+          <div>
+            <label className="block text-2xs font-semibold text-slate-500 uppercase tracking-widest mb-1.5">
+              Что разрешено этой роли
+            </label>
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              {FEATURE_GROUPS.map((g) => (
+                <div key={g}>
+                  <div className="text-2xs font-mono uppercase tracking-wider text-slate-400 mb-1">{g}</div>
+                  <div className="space-y-1">
+                    {FEATURES.filter((f) => f.group === g).map((f) => {
+                      const perms = parsePermissions(draft.permissions as any);
+                      const on = !!perms[f.id]?.enabled;
+                      return (
+                        <button key={f.id} type="button"
+                          onClick={() => {
+                            const next: PermMap = { ...perms };
+                            if (on) delete next[f.id];
+                            else next[f.id] = { enabled: true, until: null };
+                            setDraft({ ...draft, permissions: JSON.stringify(next) });
+                          }}
+                          className={`w-full flex items-start gap-2 p-2 rounded-lg border text-left transition-ui cursor-pointer ${
+                            on
+                              ? 'border-emerald-400 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/30'
+                              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 hover:border-slate-300'}`}>
+                          <span className={`mt-0.5 shrink-0 w-4 h-4 rounded border flex items-center justify-center ${
+                            on ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-slate-300 dark:border-slate-700'}`}>
+                            {on && <Check className="w-3 h-3" />}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block text-xs font-semibold text-slate-800 dark:text-slate-100">
+                              {f.label}
+                              {f.risky && <span className="ml-1.5 text-2xs font-bold text-amber-600 dark:text-amber-400">осторожно</span>}
+                            </span>
+                            <span className="block text-2xs text-slate-500 dark:text-slate-400 mt-0.5">{f.desc}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
