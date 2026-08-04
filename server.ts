@@ -2136,19 +2136,47 @@ app.delete('/api/users/:id', async (req: Request, res: Response) => {
 // называются по-разному. level = 1 — главный администратор, единственный,
 // кто управляет ролями и выдаёт доступ. Встроенные роли не удаляются,
 // иначе можно остаться без администратора.
+const grant = (...ids: string[]) =>
+  JSON.stringify(Object.fromEntries(ids.map(id => [id, { enabled: true, until: null }])));
+
+// Обычная инженерная работа: вести теги и оборудование, класть файлы,
+// отмечать этапы закупки и вести реестр. Опасное (удаление тегов и файлов,
+// настройка этапов и стандартов на всю компанию, управление проектами)
+// в набор по умолчанию не входит — это выдаёт администратор осознанно.
+const ENGINEER_GRANTS = grant(
+  'tags.manage', 'dictionaries.manage', 'equipment.import', 'equipment.manage',
+  'files.upload', 'procurement.manage', 'vdr.manage',
+);
+const MANAGER_GRANTS = grant(
+  'project.manage', 'tags.manage', 'dictionaries.manage', 'equipment.import',
+  'equipment.manage', 'files.upload', 'files.delete', 'procurement.manage',
+  'procurement.setup', 'vdr.manage', 'vdr.standards',
+);
+
 const BUILTIN_ROLES = [
-  { code: 'ADMIN',          name: 'Администратор',     color: 'rose',    icon: 'shield-check', level: 1,  sortOrder: 10, description: 'Полный доступ, управление сотрудниками и ролями' },
-  { code: 'MANAGER',        name: 'Менеджер проектов', color: 'amber',   icon: 'briefcase',    level: 20, sortOrder: 20, description: 'Проекты, закупки, документооборот' },
-  { code: 'ENGINEER_VENT',  name: 'Инженер ОВиК',      color: 'sky',     icon: 'airplay',      level: 50, sortOrder: 30, description: 'Вентиляция и кондиционирование' },
-  { code: 'ENGINEER_AUTO',  name: 'Инженер КИПиА',     color: 'emerald', icon: 'cpu',          level: 50, sortOrder: 40, description: 'Автоматика и приборы' },
+  { code: 'ADMIN',          name: 'Администратор',     color: 'rose',    icon: 'shield-check', level: 1,  sortOrder: 10, description: 'Полный доступ, управление сотрудниками и ролями', permissions: '{}' },
+  { code: 'MANAGER',        name: 'Менеджер проектов', color: 'amber',   icon: 'briefcase',    level: 20, sortOrder: 20, description: 'Проекты, закупки, документооборот', permissions: MANAGER_GRANTS },
+  { code: 'ENGINEER_VENT',  name: 'Инженер ОВиК',      color: 'sky',     icon: 'airplay',      level: 50, sortOrder: 30, description: 'Вентиляция и кондиционирование', permissions: ENGINEER_GRANTS },
+  { code: 'ENGINEER_AUTO',  name: 'Инженер КИПиА',     color: 'emerald', icon: 'cpu',          level: 50, sortOrder: 40, description: 'Автоматика и приборы', permissions: ENGINEER_GRANTS },
 ];
 
 async function seedRoles() {
   try {
     for (const r of BUILTIN_ROLES) {
       const existing = await prisma.role.findUnique({ where: { code: r.code } }).catch(() => null);
-      if (!existing) await prisma.role.create({ data: { ...r, isSystem: true } }).catch(() => {});
+      if (!existing) {
+        await prisma.role.create({ data: { ...r, isSystem: true } }).catch(() => {});
+        continue;
+      }
+      // Роль завели в предыдущей версии, когда прав у ролей ещё не было.
+      // Проставляем набор по умолчанию только пустым: если администратор уже
+      // настроил доступ, трогать его нельзя.
+      const empty = !existing.permissions || existing.permissions === '{}' || existing.permissions === 'null';
+      if (empty && r.permissions !== '{}') {
+        await prisma.role.update({ where: { id: existing.id }, data: { permissions: r.permissions } }).catch(() => {});
+      }
     }
+    invalidateRolePerms();
   } catch (_) { /* старая база без таблицы ролей — подхватится после синхронизации схемы */ }
 }
 
