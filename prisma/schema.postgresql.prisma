@@ -15,6 +15,11 @@ model User {
   symbol           String        @unique // Табельный номер сотрудника, используемый как логин
   password         String        @default("password") // Пароль доступа
   name             String        // ФИО сотрудника
+  lastName         String        @default("") // Фамилия — храним по частям, в именительном падеже
+  firstName        String        @default("") // Имя
+  middleName       String        @default("") // Отчество
+  gender           String        @default("") // "M" | "F" — нужен для склонения и поздравления
+  birthDate        DateTime?     // День рождения: поздравление на главном экране
   role             String        @default("ENGINEER_VENT") // "ADMIN", "MANAGER", "ENGINEER_VENT", "ENGINEER_AUTO"
   isActive         Boolean       @default(true) // Профиль включен администратором
   validUntil       DateTime?     // Срок действия профиля; null = бессрочно
@@ -348,6 +353,7 @@ model EquipmentHistory {
 model UserNote {
   id          String   @id @default(uuid())
   title       String   @default("Новая заметка")
+  ownerId     String?  // Владелец заметки; null — заметка из версий до личного блокнота
   content     String   // Хранение HTML-строки или JSON-дерева Rich-text редактора
   color       String   @default("bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200") // Предустанови slate, red, green, yellow
   equipmentId String?  // Опциональная привязка к тегу/оборудованию
@@ -441,4 +447,39 @@ model Notification {
   createdAt   DateTime @default(now())
 
   @@index([userId, isRead])
+}
+
+
+// Роль сотрудника. Раньше роли были зашиты в коде четырьмя строками; теперь
+// их заводит администратор в настройках, и они видны везде, где показывается
+// сотрудник. level = 1 — главный администратор: только он управляет ролями
+// и выдаёт доступ. Встроенные роли (isSystem) нельзя удалить, чтобы
+// программа не осталась без администратора.
+model Role {
+  id          String   @id @default(uuid())
+  code        String   @unique // ADMIN, MANAGER, ENGINEER_VENT… и пользовательские
+  name        String   // «Инженер ОВиК»
+  description String   @default("")
+  color       String   @default("slate") // цвет значка роли
+  icon        String   @default("user")  // имя значка lucide
+  level       Int      @default(50)      // 1 = главный администратор
+  isSystem    Boolean  @default(false)
+  permissions String   @default("{}")    // права по умолчанию при назначении роли
+  sortOrder   Int      @default(100)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+
+// С кем сотрудник поделился своей заметкой. Блокнот личный, но заметку
+// можно открыть коллегам: на просмотр или на совместную правку.
+model NoteShare {
+  id        String   @id @default(uuid())
+  noteId    String
+  userId    String   // кому открыт доступ
+  canEdit   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([noteId, userId])
+  @@index([userId])
 }

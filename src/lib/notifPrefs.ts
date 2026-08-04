@@ -1,14 +1,25 @@
-// Настройки уведомлений (персональные, хранятся локально по пользователю).
-// Используются всплывашками (тосты), разделом «Уведомления» и настройками профиля.
+// Настройки уведомлений — персональные, у каждого сотрудника свои.
+//
+// Хранятся на сервере (AppSetting, привязан к пользователю), а локально
+// держится копия: интерфейсу настройки нужны мгновенно, до ответа сети, и
+// программа должна работать, когда сервера нет. При входе копия
+// подтягивается с сервера — так настройки едут за человеком на любой
+// компьютер, а не заводятся заново на каждом рабочем месте.
+//
+// Список категорий ровно тот, что программа действительно присылает:
+// обещать в настройках то, что никогда не приходит, — обманывать человека.
 
-export type NotifCategory = 'СИСТЕМА' | 'ОБОРУДОВАНИЕ' | 'ЧАТ' | 'ПРОЕКТЫ' | 'ДОСТУП';
+import { ENV_CONFIG, getAuthToken } from '../config/env';
 
-export const NOTIF_CATEGORIES: { id: NotifCategory; label: string }[] = [
-  { id: 'СИСТЕМА',     label: 'Система и изменения' },
-  { id: 'ОБОРУДОВАНИЕ', label: 'Оборудование и конфликты' },
-  { id: 'ЧАТ',          label: 'Чат' },
-  { id: 'ПРОЕКТЫ',      label: 'Проекты' },
-  { id: 'ДОСТУП',       label: 'Доступ' },
+export type NotifCategory = 'ЧАТ' | 'ДОКУМЕНТЫ' | 'ОБОРУДОВАНИЕ' | 'ПРОЕКТЫ' | 'ДОСТУП' | 'СИСТЕМА';
+
+export const NOTIF_CATEGORIES: { id: NotifCategory; label: string; desc: string }[] = [
+  { id: 'ЧАТ',          label: 'Сообщения',    desc: 'Личные сообщения в рабочем чате' },
+  { id: 'ДОКУМЕНТЫ',    label: 'Документы',    desc: 'ВДР: документ готов, замечания заказчика, принят' },
+  { id: 'ОБОРУДОВАНИЕ', label: 'Оборудование', desc: 'Конфликты ревизий после повторного импорта' },
+  { id: 'ПРОЕКТЫ',      label: 'Проекты',      desc: 'Создан, переименован или удалён проект' },
+  { id: 'ДОСТУП',       label: 'Доступ',       desc: 'Изменены ваши права или срок действия профиля' },
+  { id: 'СИСТЕМА',      label: 'Система',      desc: 'Новая версия программы и служебные сообщения' },
 ];
 
 export interface NotifPrefs {
@@ -24,32 +35,71 @@ export function defaultPrefs(): NotifPrefs {
 }
 
 let currentUserId = '';
-export function setNotifUser(userId: string | undefined | null) { currentUserId = userId || ''; }
+export function setNotifUser(userId: string | undefined | null) {
+  currentUserId = userId || '';
+  if (currentUserId) void pullPrefs();
+}
 
 const keyFor = (uid: string) => `notif_prefs_${uid || 'default'}`;
+
+function normalize(parsed: any): NotifPrefs {
+  const base = defaultPrefs();
+  if (!parsed || typeof parsed !== 'object') return base;
+  return {
+    popups: parsed.popups !== false,
+    sound: parsed.sound !== false,
+    categories: { ...base.categories, ...(parsed.categories || {}) },
+  };
+}
 
 export function getPrefs(): NotifPrefs {
   try {
     const raw = localStorage.getItem(keyFor(currentUserId));
     if (!raw) return defaultPrefs();
-    const parsed = JSON.parse(raw);
-    const base = defaultPrefs();
-    return {
-      popups: parsed.popups !== false,
-      sound: parsed.sound !== false,
-      categories: { ...base.categories, ...(parsed.categories || {}) },
-    };
+    return normalize(JSON.parse(raw));
   } catch {
     return defaultPrefs();
   }
 }
 
-export function savePrefs(p: NotifPrefs) {
+function writeLocal(p: NotifPrefs) {
   try { localStorage.setItem(keyFor(currentUserId), JSON.stringify(p)); } catch {}
   try { window.dispatchEvent(new CustomEvent('notif-prefs-changed')); } catch {}
 }
 
-// Можно ли показать всплывашку этой категории
+export function savePrefs(p: NotifPrefs) {
+  writeLocal(p);
+  void pushPrefs(p);
+}
+
+const authHeaders = (): Record<string, string> => {
+  const t = getAuthToken();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+};
+
+/** Забрать настройки с сервера — при входе на новом компьютере. */
+export async function pullPrefs(): Promise<void> {
+  if (!currentUserId) return;
+  try {
+    const res = await fetch(`${ENV_CONFIG.apiUrl}/notif-prefs`, { headers: authHeaders() });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data && data.prefs) writeLocal(normalize(data.prefs));
+  } catch (_) { /* нет связи — работаем на локальной копии */ }
+}
+
+async function pushPrefs(p: NotifPrefs): Promise<void> {
+  if (!currentUserId) return;
+  try {
+    await fetch(`${ENV_CONFIG.apiUrl}/notif-prefs`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ prefs: p }),
+    });
+  } catch (_) { /* останется локально и уйдёт при следующем сохранении */ }
+}
+
+/** Можно ли показать всплывашку этой категории. */
 export function shouldPopup(category?: string): boolean {
   const p = getPrefs();
   if (!p.popups) return false;
@@ -58,7 +108,7 @@ export function shouldPopup(category?: string): boolean {
   return c ? c.show : true;
 }
 
-// Нужно ли звучать для этой категории
+/** Нужно ли звучать для этой категории. */
 export function shouldSound(category?: string): boolean {
   const p = getPrefs();
   if (!p.sound) return false;
@@ -67,18 +117,32 @@ export function shouldSound(category?: string): boolean {
   return c ? c.sound : true;
 }
 
-// Короткий мягкий сигнал через WebAudio (без файлов)
+/**
+ * Короткий мягкий сигнал через WebAudio, без файлов.
+ * Тон зависит от категории: сообщение в чате и замечание по документу
+ * звучат по-разному, и на слух понятно, стоит ли отрываться от работы.
+ */
 let audioCtx: AudioContext | null = null;
-export function playNotifSound() {
+const TONES: Record<string, [number, number]> = {
+  'ЧАТ':          [660, 880],
+  'ДОКУМЕНТЫ':    [520, 700],
+  'ОБОРУДОВАНИЕ': [440, 560],
+  'ПРОЕКТЫ':      [590, 740],
+  'ДОСТУП':       [740, 560],   // нисходящий — что-то изменилось у вас
+  'СИСТЕМА':      [500, 620],
+};
+
+export function playNotifSound(category?: string) {
   try {
     audioCtx = audioCtx || new (window.AudioContext || (window as any).webkitAudioContext)();
     const ctx = audioCtx;
+    const [from, to] = TONES[category || ''] || [660, 880];
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     o.connect(g); g.connect(ctx.destination);
     o.type = 'sine';
-    o.frequency.setValueAtTime(660, ctx.currentTime);
-    o.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.08);
+    o.frequency.setValueAtTime(from, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(to, ctx.currentTime + 0.08);
     g.gain.setValueAtTime(0.0001, ctx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + 0.02);
     g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25);

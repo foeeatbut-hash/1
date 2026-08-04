@@ -22,7 +22,7 @@ export const useToastStore = create<ToastState>((set) => ({
     const force = type === 'error';
     if (!force && !shouldPopup(category)) return;
     if (force || shouldSound(category)) {
-      try { playNotifSound(); } catch {}
+      try { playNotifSound(category); } catch {}
     }
     const id = Date.now().toString() + Math.random().toString();
     set((state) => ({ toasts: [...state.toasts, { id, message, type, onClick }] }));

@@ -92,6 +92,37 @@ function parseUserDate(value: unknown): Date | null | undefined {
   return isNaN(d.getTime()) ? undefined : d;
 }
 
+// ФИО сотрудника: части хранятся отдельно и в именительном падеже, единая
+// строка name — производная. Пол определяем по отчеству, если его не указали:
+// это надёжнее, чем заставлять выбирать вручную то, что и так однозначно.
+function nameParts(src: any): {
+  lastName: string; firstName: string; middleName: string;
+  name: string; gender: string; birthDate: Date | null;
+} {
+  const pick = (v: any) => String(v ?? '').trim();
+  let lastName = pick(src.lastName);
+  let firstName = pick(src.firstName);
+  let middleName = pick(src.middleName);
+  // Старый формат: пришла одна строка «Раупов Хусрав Хусравович»
+  if (!lastName && !firstName && pick(src.name)) {
+    const w = pick(src.name).replace(/\s*\(.*\)\s*$/, '').split(/\s+/).filter(Boolean);
+    lastName = w[0] || ''; firstName = w[1] || ''; middleName = w.slice(2).join(' ');
+  }
+  let gender = pick(src.gender).toUpperCase();
+  if (gender !== 'M' && gender !== 'F') {
+    const m = middleName.toLowerCase();
+    gender = /(овна|евна|ична|инична|кызы)$/.test(m) ? 'F'
+      : /(ович|евич|ич|оглы|углы|уулу)$/.test(m) ? 'M' : '';
+  }
+  const birth = parseUserDate(src.birthDate);
+  return {
+    lastName, firstName, middleName,
+    name: [lastName, firstName, middleName].filter(Boolean).join(' '),
+    gender,
+    birthDate: birth === undefined ? null : birth,
+  };
+}
+
 function getVentAppDataPath(): string {
   try {
     // Определяем, запущен ли сервер в продакшене/упакованной версии или в Electron
@@ -921,6 +952,10 @@ const verifyAuthToken = (token: string): string | null => {
 // Кэш пользователей на 30 с — проверка токена не ходит в БД на каждый запрос,
 // но отключение профиля администратором срабатывает в течение полуминуты
 const authUserCache = new Map<string, { user: any; at: number }>();
+/** Сброс кэша сессии: снятое право должно действовать сразу, а не через полминуты. */
+function invalidateAuthUser(userId?: string) {
+  if (userId) authUserCache.delete(userId); else authUserCache.clear();
+}
 const getAuthUser = async (userId: string) => {
   const hit = authUserCache.get(userId);
   if (hit && Date.now() - hit.at < 30000) return hit.user;
@@ -1046,6 +1081,64 @@ app.use('/chat_files', express.static(path.join(userDataPath, 'chat_files')));
 // Открыты только вход, проверка готовности и конфиг БД для экрана входа.
 // Настройка БД (/api/db/*) до входа разрешена только с самой машины сервера —
 // это функция встроенного режима, по сети её дергать нельзя.
+// ── Права по функциям ────────────────────────────────────────────────────────
+// Право приходит от роли (общее для должности) и лично (надбавка или запрет);
+// личное сильнее. Каталог функций живёт в src/lib/permissions.ts — здесь
+// только сопоставление «маршрут → функция». Проверяем одной таблицей, а не в
+// каждом обработчике: иначе новый эндпоинт легко забыть закрыть, и выданное
+// право окажется украшением.
+type PermRule = { method: RegExp; path: RegExp; perm: string; title: string };
+const PERM_ROUTES: PermRule[] = [
+  { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/projects\/?$|^\/api\/projects\/[^/]+$/,
+    perm: 'project.manage', title: 'Управление проектами' },
+  { method: /^(POST|PUT|PATCH)$/, path: /^\/api\/projects\/[^/]+\/tags/,
+    perm: 'tags.manage', title: 'Создание и правка тегов' },
+  { method: /^(PUT|PATCH)$/, path: /^\/api\/tags\//, perm: 'tags.manage', title: 'Создание и правка тегов' },
+  { method: /^DELETE$/, path: /^\/api\/tags\//, perm: 'tags.delete', title: 'Удаление тегов' },
+  { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/dictionaries|^\/api\/projects\/[^/]+\/(dictionaries|tag-template)/,
+    perm: 'dictionaries.manage', title: 'Справочники и шаблоны' },
+  { method: /^POST$/, path: /^\/api\/(equipment\/import|import\/)/,
+    perm: 'equipment.import', title: 'Импорт из бланков' },
+  { method: /^(PUT|PATCH)$/, path: /^\/api\/(components|equipment|monoblocks|systems)\//,
+    perm: 'equipment.manage', title: 'Правка характеристик оборудования' },
+  { method: /^POST$/, path: /^\/api\/(files|folders)/, perm: 'files.upload', title: 'Загрузка файлов' },
+  { method: /^DELETE$/, path: /^\/api\/(files|folders)/, perm: 'files.delete', title: 'Удаление файлов и папок' },
+  { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/settings\/(procurement_stages|stage_templates)/,
+    perm: 'procurement.setup', title: 'Настройка этапов закупки' },
+  { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/vdr\/standards/,
+    perm: 'vdr.standards', title: 'Стандарты документооборота' },
+  { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/vdr\//,
+    perm: 'vdr.manage', title: 'Реестр ВДР' },
+];
+
+const rolePermCache = new Map<string, { perms: any; at: number }>();
+async function rolePermissionsOf(code: string): Promise<Record<string, any>> {
+  const hit = rolePermCache.get(code);
+  if (hit && Date.now() - hit.at < 30000) return hit.perms;
+  let perms: Record<string, any> = {};
+  try {
+    const role = await prisma.role.findUnique({ where: { code } });
+    if (role?.permissions) perms = JSON.parse(role.permissions) || {};
+  } catch (_) { perms = {}; }
+  rolePermCache.set(code, { perms, at: Date.now() });
+  return perms;
+}
+function invalidateRolePerms() { rolePermCache.clear(); }
+
+async function effectivePermsOf(user: any): Promise<Record<string, any>> {
+  let personal: Record<string, any> = {};
+  try { personal = user.permissions ? JSON.parse(user.permissions) || {} : {}; } catch (_) {}
+  const fromRole = await rolePermissionsOf(String(user.role || ''));
+  return { ...fromRole, ...personal };   // личное сильнее роли
+}
+
+function permAllows(perms: Record<string, any>, feature: string): boolean {
+  const e = perms[feature] || (feature === 'project.manage' ? perms['project.create'] : null);
+  if (!e || !e.enabled) return false;
+  if (e.until && new Date(e.until).getTime() < Date.now()) return false;
+  return true;
+}
+
 const AUTH_EXEMPT = new Set(['/api/health', '/api/login', '/api/db/config', '/api/license/status', '/api/license/activate']);
 const isLoopbackRequest = (req: Request) => {
   const ip = String(req.ip || req.socket?.remoteAddress || '');
@@ -1084,7 +1177,28 @@ app.use(async (req: Request, res: Response, next) => {
         if (targetId !== user.id) {
           return res.status(403).json({ error: 'Доступно только администратору' });
         }
-        req.body = { name: req.body?.name, password: req.body?.password };
+        // Своё имя, пол и день рождения человек правит сам; роль, права и
+        // срок действия — нет, иначе доступ можно было бы выдать себе.
+        req.body = {
+          name: req.body?.name, password: req.body?.password,
+          lastName: req.body?.lastName, firstName: req.body?.firstName,
+          middleName: req.body?.middleName, gender: req.body?.gender,
+          birthDate: req.body?.birthDate,
+        };
+      }
+    }
+
+    // Права по функциям: одна таблица маршрутов на всю программу.
+    if (user.role !== 'ADMIN') {
+      const rule = PERM_ROUTES.find(r => r.method.test(req.method) && r.path.test(req.path));
+      if (rule) {
+        const perms = await effectivePermsOf(user);
+        if (!permAllows(perms, rule.perm)) {
+          return res.status(403).json({
+            error: `Недостаточно прав: «${rule.title}». Обратитесь к администратору.`,
+            feature: rule.perm,
+          });
+        }
       }
     }
 
@@ -1578,6 +1692,9 @@ app.post('/api/login', async (req: Request, res: Response) => {
           trustedNowSync();
         }
         const { password: _pw, ...safeUser } = user as any;
+        // Права роли отдаём вместе с профилем: интерфейс должен знать, что
+        // человеку можно, не запрашивая это на каждом экране.
+        (safeUser as any).rolePermissions = JSON.stringify(await rolePermissionsOf(String(user.role || '')));
         // Токен сессии: клиент шлёт его в Authorization на каждом запросе
         return res.json({ success: true, user: safeUser, token: issueAuthToken(user.id) });
       } else {
@@ -1644,7 +1761,7 @@ app.get('/api/assistant/data', async (req: Request, res: Response) => {
         include: { monoblocks: { include: { components: { include: { tags: true } } } } }
       }) : Promise.resolve([]),
       prisma.user.count(),
-      prisma.userNote.count(),
+      prisma.userNote.count({ where: { OR: [{ ownerId: (req as any).authUser?.id || '' }, { ownerId: null }] } }),
       projectId ? prisma.folder.count({ where: { projectId } }) : Promise.resolve(0),
       projectId ? prisma.fileNode.count({ where: { folder: { projectId } } }) : Promise.resolve(0),
     ]);
@@ -1752,7 +1869,12 @@ app.get('/api/assistant/data', async (req: Request, res: Response) => {
 
     // Заметки (только заголовки) и последние изменения (логи)
     const [notesList, recentLogs] = await Promise.all([
-      prisma.userNote.findMany({ select: { id: true, title: true, updatedAt: true }, orderBy: { updatedAt: 'desc' }, take: 40 }),
+      // Только свои заметки и старые общие: помощник не должен показывать
+      // заголовки чужих личных записей.
+      prisma.userNote.findMany({
+        where: { OR: [{ ownerId: (req as any).authUser?.id || '' }, { ownerId: null }] },
+        select: { id: true, title: true, updatedAt: true }, orderBy: { updatedAt: 'desc' }, take: 40,
+      }),
       prisma.systemChangeLog.findMany({ orderBy: { createdAt: 'desc' }, take: 20 }),
     ]);
 
@@ -1849,8 +1971,12 @@ app.get('/api/users', async (req: Request, res: Response) => {
     const users = await prisma.user.findMany({
       orderBy: { createdAt: 'asc' },
     });
-    // Не отдаём хеши паролей наружу
-    res.json((users as any[]).map(({ password, ...u }) => u));
+    const roles = await prisma.role.findMany().catch(() => [] as any[]);
+    const byCode: Record<string, string> = {};
+    for (const r of roles as any[]) byCode[r.code] = r.permissions || '{}';
+    // Не отдаём хеши паролей наружу; права роли прикладываем, чтобы в карточке
+    // было видно, что человеку дано должностью, а что лично.
+    res.json((users as any[]).map(({ password, ...u }) => ({ ...u, rolePermissions: byCode[u.role] || '{}' })));
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -1858,7 +1984,14 @@ app.get('/api/users', async (req: Request, res: Response) => {
 
 app.post('/api/users', async (req: Request, res: Response) => {
   try {
-    const { symbol, name, role, password } = req.body;
+    const { symbol, role, password } = req.body;
+    // ФИО приходит по частям; единая строка name остаётся производной —
+    // её показывают старые экраны и печатают документы.
+    const parts = nameParts(req.body);
+    const name = parts.name || String(req.body.name || '').trim();
+    if (!name) {
+      return res.status(400).json({ message: 'Укажите фамилию и имя сотрудника.' });
+    }
     const existing = await prisma.user.findUnique({
       where: { symbol: String(symbol) }
     });
@@ -1874,6 +2007,11 @@ app.post('/api/users', async (req: Request, res: Response) => {
       data: {
         symbol: String(symbol),
         name,
+        lastName: parts.lastName,
+        firstName: parts.firstName,
+        middleName: parts.middleName,
+        gender: parts.gender,
+        birthDate: parts.birthDate,
         role: role || 'ENGINEER_VENT',
         password: hashPassword(String(password || 'password')),
         isActive: typeof isActive === 'boolean' ? isActive : true,
@@ -1933,7 +2071,22 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
     }
 
     const data: any = {};
-    if (typeof name === 'string' && name.trim()) data.name = name.trim();
+    // ФИО: если пришли части — пересобираем и единую строку, чтобы два
+    // представления одного имени не разъезжались.
+    if (req.body.lastName !== undefined || req.body.firstName !== undefined || req.body.middleName !== undefined) {
+      const p = nameParts({ ...target, ...req.body });
+      data.lastName = p.lastName; data.firstName = p.firstName; data.middleName = p.middleName;
+      if (p.name) data.name = p.name;
+      data.gender = p.gender;
+    } else if (typeof name === 'string' && name.trim()) {
+      data.name = name.trim();
+    }
+    if (req.body.gender !== undefined) data.gender = req.body.gender === 'F' ? 'F' : req.body.gender === 'M' ? 'M' : '';
+    if (req.body.birthDate !== undefined) {
+      const b = parseUserDate(req.body.birthDate);
+      if (b === undefined) return res.status(400).json({ success: false, message: 'Некорректная дата рождения.' });
+      data.birthDate = b;
+    }
     if (typeof symbol === 'string' && symbol.trim()) data.symbol = symbol.trim();
     if (typeof role === 'string' && role) data.role = role;
     if (typeof password === 'string' && password) data.password = hashPassword(password);
@@ -1946,6 +2099,7 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
 
     const permsChanged = permissions !== undefined && (data.permissions || null) !== (target.permissions || null);
     const updated = await prisma.user.update({ where: { id }, data });
+    invalidateAuthUser(id);   // права и роль применяются немедленно
     // Личное уведомление сотруднику об изменении его прав доступа
     if (permsChanged) {
       await notify(id, 'ДОСТУП', 'Изменены ваши права доступа', 'Администратор обновил доступные вам функции.', '/');
@@ -1974,6 +2128,194 @@ app.delete('/api/users/:id', async (req: Request, res: Response) => {
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ── Роли сотрудников ────────────────────────────────────────────────────────
+// Роли заводит администратор, а не программист: в разных компаниях они
+// называются по-разному. level = 1 — главный администратор, единственный,
+// кто управляет ролями и выдаёт доступ. Встроенные роли не удаляются,
+// иначе можно остаться без администратора.
+const grant = (...ids: string[]) =>
+  JSON.stringify(Object.fromEntries(ids.map(id => [id, { enabled: true, until: null }])));
+
+// Обычная инженерная работа: вести теги и оборудование, класть файлы,
+// отмечать этапы закупки и вести реестр. Опасное (удаление тегов и файлов,
+// настройка этапов и стандартов на всю компанию, управление проектами)
+// в набор по умолчанию не входит — это выдаёт администратор осознанно.
+const ENGINEER_GRANTS = grant(
+  'tags.manage', 'dictionaries.manage', 'equipment.import', 'equipment.manage',
+  'files.upload', 'procurement.manage', 'vdr.manage',
+);
+const MANAGER_GRANTS = grant(
+  'project.manage', 'tags.manage', 'dictionaries.manage', 'equipment.import',
+  'equipment.manage', 'files.upload', 'files.delete', 'procurement.manage',
+  'procurement.setup', 'vdr.manage', 'vdr.standards',
+);
+
+const BUILTIN_ROLES = [
+  { code: 'ADMIN',          name: 'Администратор',     color: 'rose',    icon: 'shield-check', level: 1,  sortOrder: 10, description: 'Полный доступ, управление сотрудниками и ролями', permissions: '{}' },
+  { code: 'MANAGER',        name: 'Менеджер проектов', color: 'amber',   icon: 'briefcase',    level: 20, sortOrder: 20, description: 'Проекты, закупки, документооборот', permissions: MANAGER_GRANTS },
+  { code: 'ENGINEER_VENT',  name: 'Инженер ОВиК',      color: 'sky',     icon: 'airplay',      level: 50, sortOrder: 30, description: 'Вентиляция и кондиционирование', permissions: ENGINEER_GRANTS },
+  { code: 'ENGINEER_AUTO',  name: 'Инженер КИПиА',     color: 'emerald', icon: 'cpu',          level: 50, sortOrder: 40, description: 'Автоматика и приборы', permissions: ENGINEER_GRANTS },
+];
+
+async function seedRoles() {
+  try {
+    for (const r of BUILTIN_ROLES) {
+      const existing = await prisma.role.findUnique({ where: { code: r.code } }).catch(() => null);
+      if (!existing) {
+        await prisma.role.create({ data: { ...r, isSystem: true } }).catch(() => {});
+        continue;
+      }
+      // Роль завели в предыдущей версии, когда прав у ролей ещё не было.
+      // Проставляем набор по умолчанию только пустым: если администратор уже
+      // настроил доступ, трогать его нельзя.
+      const empty = !existing.permissions || existing.permissions === '{}' || existing.permissions === 'null';
+      if (empty && r.permissions !== '{}') {
+        await prisma.role.update({ where: { id: existing.id }, data: { permissions: r.permissions } }).catch(() => {});
+      }
+    }
+    invalidateRolePerms();
+  } catch (_) { /* старая база без таблицы ролей — подхватится после синхронизации схемы */ }
+}
+
+// Разбор ФИО на части у профилей, заведённых до раздельного хранения.
+async function backfillNameParts() {
+  try {
+    const users = await prisma.user.findMany({ where: { lastName: '' } }).catch(() => []);
+    for (const u of users as any[]) {
+      const p = nameParts({ name: u.name });
+      if (!p.lastName) continue;
+      await prisma.user.update({
+        where: { id: u.id },
+        data: { lastName: p.lastName, firstName: p.firstName, middleName: p.middleName, gender: p.gender },
+      }).catch(() => {});
+    }
+  } catch (_) {}
+}
+
+/** Главный администратор — тот, чья роль имеет уровень 1. */
+async function isTopAdmin(req: Request): Promise<boolean> {
+  const u = (req as any).authUser;
+  if (!u) return false;
+  if (u.role === 'ADMIN') return true;
+  const role = await prisma.role.findUnique({ where: { code: u.role } }).catch(() => null);
+  return !!role && role.level <= 1;
+}
+
+app.get('/api/roles', async (_req: Request, res: Response) => {
+  try {
+    const roles = await prisma.role.findMany({ orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] });
+    res.json({ roles });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/roles', async (req: Request, res: Response) => {
+  try {
+    if (!(await isTopAdmin(req))) {
+      return res.status(403).json({ message: 'Роли создаёт только главный администратор.' });
+    }
+    const name = String(req.body.name || '').trim();
+    if (!name) return res.status(400).json({ message: 'Укажите название роли.' });
+    // Код роли — латиницей: он попадает в данные и не должен зависеть от раскладки
+    let code = String(req.body.code || '').trim().toUpperCase().replace(/[^A-Z0-9_]/g, '');
+    if (!code) code = 'ROLE_' + Date.now().toString(36).toUpperCase();
+    const dup = await prisma.role.findUnique({ where: { code } });
+    if (dup) return res.status(400).json({ message: 'Роль с таким кодом уже есть.' });
+    const role = await prisma.role.create({
+      data: {
+        code, name,
+        description: String(req.body.description || ''),
+        color: String(req.body.color || 'slate'),
+        icon: String(req.body.icon || 'user'),
+        // Уровень 1 занят главным администратором: новую роль туда не пускаем,
+        // иначе управление доступом можно раздать себе же.
+        level: Math.max(2, Number(req.body.level) || 50),
+        permissions: typeof req.body.permissions === 'string' ? req.body.permissions : JSON.stringify(req.body.permissions || {}),
+        sortOrder: Number(req.body.sortOrder) || 100,
+        isSystem: false,
+      },
+    });
+    res.json({ success: true, role });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.put('/api/roles/:id', async (req: Request, res: Response) => {
+  try {
+    if (!(await isTopAdmin(req))) {
+      return res.status(403).json({ message: 'Роли меняет только главный администратор.' });
+    }
+    const role = await prisma.role.findUnique({ where: { id: req.params.id } });
+    if (!role) return res.status(404).json({ message: 'Роль не найдена.' });
+    const data: any = {};
+    if (req.body.name !== undefined) data.name = String(req.body.name).trim() || role.name;
+    if (req.body.description !== undefined) data.description = String(req.body.description);
+    if (req.body.color !== undefined) data.color = String(req.body.color);
+    if (req.body.icon !== undefined) data.icon = String(req.body.icon);
+    if (req.body.sortOrder !== undefined) data.sortOrder = Number(req.body.sortOrder) || role.sortOrder;
+    if (req.body.permissions !== undefined) {
+      data.permissions = typeof req.body.permissions === 'string' ? req.body.permissions : JSON.stringify(req.body.permissions || {});
+    }
+    // Уровень встроенной роли не трогаем: он определяет, кто главный админ
+    if (req.body.level !== undefined && !role.isSystem) data.level = Math.max(2, Number(req.body.level) || 50);
+    const updated = await prisma.role.update({ where: { id: role.id }, data });
+    invalidateRolePerms();
+    invalidateAuthUser();     // роль касается сразу нескольких сотрудников
+    res.json({ success: true, role: updated });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.delete('/api/roles/:id', async (req: Request, res: Response) => {
+  try {
+    if (!(await isTopAdmin(req))) {
+      return res.status(403).json({ message: 'Роли удаляет только главный администратор.' });
+    }
+    const role = await prisma.role.findUnique({ where: { id: req.params.id } });
+    if (!role) return res.status(404).json({ message: 'Роль не найдена.' });
+    if (role.isSystem) return res.status(400).json({ message: 'Встроенную роль удалить нельзя — её использует сама программа.' });
+    const inUse = await prisma.user.count({ where: { role: role.code } });
+    if (inUse > 0) {
+      return res.status(400).json({ message: `Роль назначена ${inUse} сотрудник(ам). Сначала переведите их на другую роль.` });
+    }
+    await prisma.role.delete({ where: { id: role.id } });
+    invalidateRolePerms();
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ── Настройки уведомлений сотрудника ────────────────────────────────────────
+// Хранятся на сервере, чтобы ехали за человеком на любой компьютер.
+app.get('/api/notif-prefs', async (req: Request, res: Response) => {
+  try {
+    const me = (req as any).authUser;
+    if (!me) return res.status(401).json({ error: 'Требуется вход в систему' });
+    const row = await prisma.appSetting.findFirst({ where: { key: 'notif_prefs', userId: me.id } });
+    res.json({ prefs: row?.value ? JSON.parse(row.value) : null });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/notif-prefs', async (req: Request, res: Response) => {
+  try {
+    const me = (req as any).authUser;
+    if (!me) return res.status(401).json({ error: 'Требуется вход в систему' });
+    const value = JSON.stringify(req.body?.prefs || {});
+    const existing = await prisma.appSetting.findFirst({ where: { key: 'notif_prefs', userId: me.id } });
+    if (existing) await prisma.appSetting.update({ where: { id: existing.id }, data: { value } });
+    else await prisma.appSetting.create({ data: { key: 'notif_prefs', userId: me.id, value } });
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -2083,6 +2425,10 @@ app.post('/api/updates', async (req: Request, res: Response) => {
     });
     // Мгновенное оповещение всем, кто сейчас онлайн
     try { io.emit('app:update-published', { version, changelog }); } catch (_) {}
+    // И запись в уведомления — чтобы узнал и тот, кто был не в программе
+    await notifyAll('СИСТЕМА', `Вышла версия ${version}`,
+      String(changelog || '').split('\n')[0].slice(0, 120),
+      '/settings?section=updates', String(u.id || ''));
     res.json({ success: true, update });
   } catch (e: any) {
     res.status(500).json({ error: e?.message || 'Не удалось опубликовать релиз' });
@@ -2117,16 +2463,31 @@ function userCan(user: any, feature: string): boolean {
 }
 
 async function loadActor(req: Request): Promise<any> {
+  // Кто действует: сначала владелец сессии (запрос уже прошёл проверку токена),
+  // и только потом явно переданный actorId — он остался от старых вызовов.
+  const fromSession = (req as any).authUser;
+  if (fromSession) return fromSession;
   const id = String((req.body && req.body.actorId) || req.query.actorId || req.headers['x-actor-id'] || '');
   if (!id) return null;
   try { return await prisma.user.findUnique({ where: { id } }); } catch { return null; }
 }
 
-// Страж эндпоинта: при отсутствии прав сам отправляет 401/403 и возвращает false
+// Страж эндпоинта: при отсутствии прав сам отправляет 401/403 и возвращает false.
+// Права считаются так же, как в общей таблице маршрутов: роль + личные поверх,
+// иначе один и тот же сотрудник проходил бы одну проверку и не проходил другую.
 async function enforce(req: Request, res: Response, feature: string): Promise<boolean> {
   const actor = await loadActor(req);
-  if (!actor) { res.status(401).json({ error: 'Не определён пользователь действия (actorId).' }); return false; }
-  if (!userCan(actor, feature)) { res.status(403).json({ error: 'Недостаточно прав для этого действия.' }); return false; }
+  if (!actor) { res.status(401).json({ error: 'Требуется вход в систему.' }); return false; }
+  if (actor.role === 'ADMIN') return true;
+  if (actor.isActive === false) { res.status(403).json({ error: 'Профиль отключён администратором.' }); return false; }
+  const now = trustedNowSync();
+  if (actor.validUntil && (timeTampered || new Date(actor.validUntil).getTime() < now)) {
+    res.status(403).json({ error: 'Срок действия профиля истёк.' }); return false;
+  }
+  const perms = await effectivePermsOf(actor);
+  if (!permAllows(perms, feature)) {
+    res.status(403).json({ error: 'Недостаточно прав для этого действия.' }); return false;
+  }
   return true;
 }
 
@@ -2149,6 +2510,11 @@ app.post('/api/projects', async (req: Request, res: Response) => {
       status: 'ACTIVE'
     }
   });
+  // Новый проект — событие для всей команды: люди должны узнать о нём
+  // из программы, а не из разговора в коридоре.
+  await notifyAll('ПРОЕКТЫ', `Новый проект: ${project.name}`,
+    project.customer ? `Заказчик: ${project.customer}` : '', '/projects',
+    String((req as any).authUser?.id || ''));
   res.json({ project });
 });
 
@@ -2176,9 +2542,15 @@ app.delete('/api/projects/:id', async (req: Request, res: Response) => {
   if (!(await enforce(req, res, 'project.manage'))) return;
   try {
     const { id } = req.params;
+    const doomed = await prisma.project.findUnique({ where: { id } });
     await prisma.project.delete({
       where: { id }
     });
+    if (doomed) {
+      await notifyAll('ПРОЕКТЫ', `Проект удалён: ${doomed.name}`,
+        'Все его теги, файлы и документы удалены вместе с ним.', '/projects',
+        String((req as any).authUser?.id || ''));
+    }
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -2195,6 +2567,24 @@ async function notify(userId: string, category: string, title: string, body = ''
   }
 }
 setNotifier(notify); // вынесенные роуты (ВДР и др.) шлют уведомления через контекст
+
+/**
+ * Оповестить всех сотрудников, кроме инициатора: события уровня компании —
+ * новый проект, опубликованная версия программы. Сам инициатор и так знает,
+ * что сделал, и получать об этом уведомление ему незачем.
+ */
+async function notifyAll(category: string, title: string, body = '', targetRoute = '', exceptUserId = '') {
+  try {
+    const users = await prisma.user.findMany({ where: { isActive: true }, select: { id: true } });
+    const rows = (users as any[])
+      .filter(u => u.id !== exceptUserId)
+      .map(u => ({ userId: u.id, category, title, body, targetRoute }));
+    if (!rows.length) return;
+    for (const r of rows) await prisma.notification.create({ data: r });
+  } catch (err: any) {
+    console.warn('[notifyAll] err:', err?.message);
+  }
+}
 
 app.get('/api/notifications', async (req: Request, res: Response) => {
   try {
@@ -2884,6 +3274,15 @@ app.post('/api/projects/:projectId/excel/parse-and-import', async (req: Request,
         message: msg,
         changeDetails: comp.conflictLog || 'Параметры изменены в ревизии файла'
       });
+    }
+
+    // Конфликты ревизий — повод уведомить команду: их разбирает не всегда
+    // тот, кто импортировал, и до сих пор о них узнавали только случайно.
+    if (conflictsCount > 0) {
+      await notifyAll('ОБОРУДОВАНИЕ',
+        `Конфликты ревизий: ${conflictsCount}`,
+        `После импорта «${fileName}» характеристики позиций разошлись — нужна сверка.`,
+        '/equipment', String((req as any).authUser?.id || ''));
     }
 
     res.json({ success: true, systems: importedData, conflictsCount });
@@ -4314,6 +4713,10 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  // Роли и разбор ФИО на части — в фоне: старт сервера не должен их ждать,
+  // а на старой базе таблица ролей появляется только после синхронизации схемы.
+  seedRoles().then(backfillNameParts).catch(() => {});
 
   httpServer.listen(PORT, "0.0.0.0", () => {
     logInit(`[Server listener started] Express backend server successfully running on port ${PORT}`);

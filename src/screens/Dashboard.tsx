@@ -21,10 +21,12 @@ import { useNotificationStore } from '../store/notificationStore';
 import { SECTIONS } from '../workspace/sections';
 import { countOf } from '../lib/plural';
 import { motion } from 'motion/react';
+import SeasonalBackdrop from '../components/SeasonalBackdrop';
+import { splitFullName } from '../lib/declension';
 import {
   Search, History, ExternalLink, ArrowRight, Plus, Check,
   FolderKanban, NotebookPen, CornerDownLeft, X, Clock,
-  AlertTriangle, CalendarClock, MessageSquareWarning, Bell,
+  AlertTriangle, CalendarClock, MessageSquareWarning, Bell, Cake,
 } from 'lucide-react';
 
 type Attention = {
@@ -218,6 +220,40 @@ export default function Dashboard() {
 
   const today = new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
 
+  // Обращаемся по имени, а не по строке «Фамилия Имя Отчество»: программой
+  // пользуется живой человек, и «С возвращением, Раупов Хусрав Хусравович»
+  // звучит как повестка.
+  const greetName = useMemo(() => {
+    const u: any = user || {};
+    const first = String(u.firstName || '').trim();
+    if (first) return first;
+    const parsed = splitFullName(String(u.name || ''));
+    return parsed.firstName || parsed.lastName || 'Инженер';
+  }, [user]);
+
+  // День рождения: сравниваем день и месяц, год не важен
+  const isBirthday = useMemo(() => {
+    const raw = (user as any)?.birthDate;
+    if (!raw) return false;
+    const b = new Date(raw);
+    if (isNaN(b.getTime())) return false;
+    const n = new Date();
+    return b.getDate() === n.getDate() && b.getMonth() === n.getMonth();
+  }, [user]);
+
+  // Фон можно выключить: на слабой машине и в режиме сосредоточенной работы
+  // движение за плитками мешает.
+  const [backdropOn, setBackdropOn] = useState<boolean>(() => {
+    try { return localStorage.getItem('flux_backdrop') !== '0'; } catch { return true; }
+  });
+  useEffect(() => {
+    const onChange = () => {
+      try { setBackdropOn(localStorage.getItem('flux_backdrop') !== '0'); } catch (_) {}
+    };
+    window.addEventListener('flux:backdrop-changed', onChange);
+    return () => window.removeEventListener('flux:backdrop-changed', onChange);
+  }, []);
+
   const openSticker = (e: React.MouseEvent, noteId: string) => {
     e.stopPropagation();
     const win = window as any;
@@ -247,16 +283,24 @@ export default function Dashboard() {
   };
 
   return (
+    <>
+      {/* Фон под плитками: время года и время суток, в день рождения — праздник */}
+      {backdropOn && (
+        <SeasonalBackdrop birthday={isBirthday} className="absolute inset-0 z-0" />
+      )}
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.18 }}
-      className="max-w-6xl mx-auto flex flex-col gap-4 text-slate-800 dark:text-dark-text-main"
+      className="relative z-10 max-w-6xl mx-auto flex flex-col gap-4 text-slate-800 dark:text-dark-text-main"
     >
       {/* ── Шапка: кто и когда ── */}
       <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h1 className="text-xl font-bold tracking-tight">
-          С возвращением, {(user?.name || 'Инженер').replace(/\s*\(.*\)$/, '')}
+        <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
+          {isBirthday && <Cake className="w-5 h-5 text-rose-500 shrink-0" />}
+          {isBirthday
+            ? `С днём рождения, ${greetName}!`
+            : `С возвращением, ${greetName}`}
         </h1>
         <span className="text-xs text-slate-500 dark:text-dark-text-muted first-letter:uppercase">{today}</span>
       </header>
@@ -556,5 +600,6 @@ export default function Dashboard() {
         />
       )}
     </motion.div>
+    </>
   );
 }
