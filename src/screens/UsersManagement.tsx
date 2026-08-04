@@ -3,6 +3,10 @@ import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { dataService, User } from '../services/dataService';
 import { FEATURES, parsePermissions, PermMap } from '../lib/permissions';
+import NameFields, { NameValue, EMPTY_NAME } from '../components/NameFields';
+import { Role, loadRoles, roleByCode, roleColorClass, isTopAdmin } from '../lib/roles';
+import { fullNameOf } from '../lib/declension';
+import RoleIcon from '../components/RoleIcon';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Users, 
@@ -33,6 +37,8 @@ export default function UsersManagement() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   
   // New User Form State
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [nameValue, setNameValue] = useState<NameValue>(EMPTY_NAME);
   const [name, setName] = useState('');
   const [symbol, setSymbol] = useState('');
   const [password, setPassword] = useState('');
@@ -43,6 +49,7 @@ export default function UsersManagement() {
 
   // Редактирование существующего сотрудника
   const [editUser, setEditUser] = useState<User | null>(null);
+  const [editNameValue, setEditNameValue] = useState<NameValue>(EMPTY_NAME);
   const [editName, setEditName] = useState('');
   const [editSymbol, setEditSymbol] = useState('');
   const [editRole, setEditRole] = useState('ENGINEER_VENT');
@@ -86,8 +93,34 @@ export default function UsersManagement() {
     return toDateInputValue(d);
   };
 
+  const toDateOnly = (v: any): string => {
+    if (!v) return '';
+    const d = new Date(v);
+    if (isNaN(d.getTime())) return '';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  };
+
+  useEffect(() => {
+    let alive = true;
+    loadRoles().then((list) => { if (alive) setRoles(list); });
+    const onChanged = () => loadRoles(true).then((list) => { if (alive) setRoles(list); });
+    window.addEventListener('flux:roles-changed', onChanged);
+    return () => { alive = false; window.removeEventListener('flux:roles-changed', onChanged); };
+  }, []);
+
   const openEdit = (emp: User) => {
     setEditUser(emp);
+    // У профилей, заведённых до раздельного хранения, частей может не быть —
+    // разбираем единую строку, чтобы форма не открылась пустой.
+    const w = String(emp.name || '').replace(/\s*\(.*\)\s*$/, '').split(/\s+/).filter(Boolean);
+    setEditNameValue({
+      lastName: emp.lastName || w[0] || '',
+      firstName: emp.firstName || w[1] || '',
+      middleName: emp.middleName || w.slice(2).join(' ') || '',
+      gender: emp.gender || '',
+      birthDate: toDateOnly(emp.birthDate),
+    });
     setEditName(emp.name);
     setEditSymbol(emp.symbol);
     setEditRole(emp.role);
@@ -112,7 +145,11 @@ export default function UsersManagement() {
     }
     try {
       const res = await dataService.updateUser(editUser.id, {
-        name: editName.trim(),
+        lastName: editNameValue.lastName.trim(),
+        firstName: editNameValue.firstName.trim(),
+        middleName: editNameValue.middleName.trim(),
+        gender: editNameValue.gender,
+        birthDate: editNameValue.birthDate || null,
         symbol: editSymbol.trim(),
         role: editRole,
         ...(editPassword.trim() ? { password: editPassword.trim() } : {}),
@@ -192,12 +229,12 @@ export default function UsersManagement() {
     e.preventDefault();
     setFormError('');
 
-    const trimmedName = name.trim();
+    const trimmedName = fullNameOf(nameValue);
     const trimmedSymbol = symbol.trim();
     const trimmedPassword = password.trim();
 
-    if (!trimmedName) {
-      setFormError('Укажите ФИО сотрудника');
+    if (!nameValue.lastName.trim() || !nameValue.firstName.trim()) {
+      setFormError('Укажите фамилию и имя сотрудника');
       return;
     }
     if (!trimmedSymbol) {
@@ -218,7 +255,11 @@ export default function UsersManagement() {
     setIsSubmitting(true);
     try {
       await dataService.createUser({
-        name: trimmedName,
+        lastName: nameValue.lastName.trim(),
+        firstName: nameValue.firstName.trim(),
+        middleName: nameValue.middleName.trim(),
+        gender: nameValue.gender,
+        birthDate: nameValue.birthDate || null,
         symbol: trimmedSymbol,
         password: trimmedPassword,
         role: role,
@@ -228,6 +269,7 @@ export default function UsersManagement() {
       
       // Close modal and reset fields
       setIsModalOpen(false);
+      setNameValue(EMPTY_NAME);
       setName('');
       setSymbol('');
       setPassword('');
@@ -251,42 +293,14 @@ export default function UsersManagement() {
 
   // 3. User-friendly role localization names with customized icon visual tags
   const getRoleBadge = (userRole: string) => {
-    switch (userRole) {
-      case 'ADMIN':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50">
-            <ShieldCheck className="w-3.5 h-3.5" />
-            Администратор
-          </span>
-        );
-      case 'MANAGER':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/40">
-            <Briefcase className="w-3.5 h-3.5" />
-            Менеджер проектов
-          </span>
-        );
-      case 'ENGINEER_VENT':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-sky-50 dark:bg-sky-950/20 text-sky-700 dark:text-sky-400 border border-sky-200 dark:border-sky-850">
-            <Airplay className="w-3.5 h-3.5" />
-            Инженер ОВиК
-          </span>
-        );
-      case 'ENGINEER_AUTO':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40">
-            <Cpu className="w-3.5 h-3.5" />
-            Инженер КИПиА
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded">
-            {userRole}
-          </span>
-        );
-    }
+    const r = roleByCode(userRole, roles);
+    return (
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${roleColorClass(r.color)}`}>
+        <RoleIcon name={r.icon} className="w-3.5 h-3.5" />
+        {r.name}
+        {r.level <= 1 && <span className="text-2xs opacity-70">· 1 уровень</span>}
+      </span>
+    );
   };
 
   return (
@@ -449,20 +463,7 @@ export default function UsersManagement() {
 
                 {/* Form */}
                 <form onSubmit={handleCreateUser} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1">
-                      ФИО сотрудника
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      disabled={isSubmitting}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui"
-                      placeholder="Фрузенко Анатолий Петрович"
-                    />
-                  </div>
+                  <NameFields value={nameValue} onChange={setNameValue} disabled={isSubmitting} />
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1 font-mono">
@@ -507,10 +508,9 @@ export default function UsersManagement() {
                       disabled={isSubmitting}
                       className="w-full h-[38px] px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-850 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui cursor-pointer"
                     >
-                      <option value="ENGINEER_VENT">ENGINEER_VENT (Инженер вентиляции)</option>
-                      <option value="ENGINEER_AUTO">ENGINEER_AUTO (Инженер автоматики)</option>
-                      <option value="MANAGER">MANAGER (Менеджер проектов)</option>
-                      <option value="ADMIN">ADMIN (Администратор)</option>
+                      {roles.map((r) => (
+                        <option key={r.code} value={r.code}>{r.name}</option>
+                      ))}
                     </select>
                   </div>
 
@@ -603,16 +603,7 @@ export default function UsersManagement() {
                 )}
 
                 <form onSubmit={handleSaveEdit} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1">ФИО сотрудника</label>
-                    <input
-                      type="text"
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      disabled={isEditSubmitting}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui"
-                    />
-                  </div>
+                  <NameFields value={editNameValue} onChange={setEditNameValue} disabled={isEditSubmitting} />
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 uppercase tracking-widest mb-1 font-mono">Табельный номер (логин)</label>
@@ -635,10 +626,9 @@ export default function UsersManagement() {
                         disabled={isEditSubmitting}
                         className="w-full h-[38px] px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm text-slate-850 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui cursor-pointer"
                       >
-                        <option value="ENGINEER_VENT">Инженер вентиляции</option>
-                        <option value="ENGINEER_AUTO">Инженер автоматики</option>
-                        <option value="MANAGER">Менеджер проектов</option>
-                        <option value="ADMIN">Администратор</option>
+                        {roles.map((r) => (
+                          <option key={r.code} value={r.code}>{r.name}</option>
+                        ))}
                       </select>
                     </div>
                     <div>

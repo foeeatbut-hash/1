@@ -11,8 +11,14 @@ import { ENV_CONFIG } from '../config/env';
 import {
   Settings, Sun, Moon, Database, Terminal, Bell, Briefcase, Fan, DownloadCloud,
   Plus, Trash2, ChevronUp, ChevronDown, RotateCcw, Loader2, Check,
-  Tag, MousePointerClick, Link2, Archive, PlayCircle, FolderOpen, FileSpreadsheet, X
+  Tag, MousePointerClick, Link2, Archive, PlayCircle, FolderOpen, FileSpreadsheet, X,
+  ShieldCheck, Lock, Pencil
 } from 'lucide-react';
+import RoleIcon from '../components/RoleIcon';
+import {
+  Role, ROLE_COLORS, ROLE_ICONS, roleColorClass, loadRoles, invalidateRoles, isTopAdmin,
+} from '../lib/roles';
+import { getAuthToken } from '../config/env';
 import { motion } from 'motion/react';
 import {
   ProcurementStage, StageTemplate, DEFAULT_STAGES, STAGE_ICONS, STAGE_COLORS,
@@ -30,10 +36,11 @@ const { openConfirm, openAlert, openPrompt } = useModalStore.getState();
 // Windows/iOS), содержимое выбранной категории справа. Сюда перенесены
 // настройки из профиля и из отдельных разделов.
 
-type SectionId = 'general' | 'management' | 'docflow' | 'equipment' | 'tags' | 'notifications' | 'database' | 'backup' | 'logs' | 'updates';
+type SectionId = 'general' | 'roles' | 'management' | 'docflow' | 'equipment' | 'tags' | 'notifications' | 'database' | 'backup' | 'logs' | 'updates';
 
 const SECTIONS: Array<{ id: SectionId; label: string; icon: any; desc: string }> = [
   { id: 'general', label: 'Общие', icon: Settings, desc: 'Тема и плотность' },
+  { id: 'roles', label: 'Роли сотрудников', icon: ShieldCheck, desc: 'Кто кем работает' },
   { id: 'management', label: 'Менеджмент', icon: Briefcase, desc: 'Этапы закупки' },
   { id: 'docflow', label: 'Документооборот', icon: FileSpreadsheet, desc: 'Стандарты ВДР' },
   { id: 'equipment', label: 'Оборудование', icon: Fan, desc: 'Категории оборудования' },
@@ -112,6 +119,7 @@ export default function SettingsScreen() {
       {/* Содержимое категории */}
       <div className="flex-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-2xl shadow-xs overflow-y-auto p-6">
         {section === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} density={density} setDensity={setDensity} />}
+        {section === 'roles' && <RolesSection user={user} addToast={addToast} />}
         {section === 'management' && <ManagementSection isAdmin={isAdmin} addToast={addToast} />}
         {section === 'equipment' && <EquipmentSection isAdmin={isAdmin} addToast={addToast} />}
         {section === 'docflow' && <DocflowSection isAdmin={isAdmin} addToast={addToast} />}
@@ -200,6 +208,27 @@ function GeneralSection({ theme, toggleTheme, density, setDensity }: any) {
                 {opt.label}
               </button>
             ))}
+          </div>
+        </div>
+
+        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Главный экран и помощник</div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+            Живой фон по времени года и робот-помощник поверх окна. Если они отвлекают — выключите.
+          </p>
+          <div className="space-y-2">
+            <ToggleRow
+              storageKey="flux_backdrop"
+              event="flux:backdrop-changed"
+              title="Фон главного экрана"
+              desc="Снег зимой, листья осенью, солнце и луна по времени суток. В день рождения — шарики."
+            />
+            <ToggleRow
+              storageKey="flux_robot"
+              event="flux:robot-changed"
+              title="Робот-помощник"
+              desc="Маленький робот поверх программы: перетаскивается мышью, двойной щелчок открывает чат."
+            />
           </div>
         </div>
 
@@ -1261,5 +1290,243 @@ function DocflowSection({ isAdmin, addToast }: any) {
         </button>
       </div>
     </SectionShell>
+  );
+}
+
+// ── Роли сотрудников ───────────────────────────────────────────────────────────
+// Роли перестали быть четырьмя строками в коде: их заводит главный
+// администратор (уровень 1), и они видны везде, где показан сотрудник.
+// Остальные роли доступ не раздают — иначе право можно было бы выписать себе,
+// придумав новую роль.
+function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?: any) => void }) {
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<Role | null>(null);
+  const [draft, setDraft] = useState<Partial<Role> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const top = isTopAdmin(user, roles);
+
+  const reload = async (force = true) => {
+    setLoading(true);
+    const list = await loadRoles(force);
+    setRoles(list);
+    setLoading(false);
+  };
+  useEffect(() => { reload(false); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const api = async (path: string, method: string, body?: any) => {
+    const token = getAuthToken();
+    const res = await fetch(`${ENV_CONFIG.apiUrl}${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'Не удалось выполнить действие');
+    return data;
+  };
+
+  const startNew = () => {
+    setEditing(null);
+    setDraft({ name: '', code: '', description: '', color: 'sky', icon: 'user', level: 50 });
+  };
+
+  const save = async () => {
+    if (!draft) return;
+    const name = String(draft.name || '').trim();
+    if (!name) { addToast('Укажите название роли', 'error'); return; }
+    setBusy(true);
+    try {
+      if (editing) await api(`/roles/${editing.id}`, 'PUT', draft);
+      else await api('/roles', 'POST', draft);
+      invalidateRoles();
+      await reload();
+      setDraft(null); setEditing(null);
+      addToast(editing ? 'Роль обновлена' : `Роль «${name}» создана`, 'success');
+    } catch (e: any) {
+      addToast(e.message, 'error');
+    } finally { setBusy(false); }
+  };
+
+  const remove = async (r: Role) => {
+    setBusy(true);
+    try {
+      await api(`/roles/${r.id}`, 'DELETE');
+      invalidateRoles();
+      await reload();
+      addToast(`Роль «${r.name}» удалена`, 'success');
+    } catch (e: any) {
+      addToast(e.message, 'error');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <SectionShell title="Роли сотрудников" desc="Кем работают люди в программе. Роль видна в списке сотрудников, в подписях документов и в журнале действий.">
+      {!top && (
+        <div className="mb-4 flex items-start gap-2 p-3 rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/20 text-amber-800 dark:text-amber-300 text-xs">
+          <Lock className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>Роли создаёт и меняет только главный администратор (уровень 1). Здесь вы видите текущий список.</span>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {loading && <div className="text-xs text-slate-400 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Загружаю роли…</div>}
+        {roles.map((r) => (
+          <div key={r.id} className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-850 bg-white dark:bg-slate-950">
+            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border shrink-0 ${roleColorClass(r.color)}`}>
+              <RoleIcon name={r.icon} className="w-3.5 h-3.5" />
+              {r.name}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-xs text-slate-500 dark:text-slate-400 truncate">{r.description || 'Без описания'}</div>
+              <div className="text-2xs font-mono text-slate-400 mt-0.5">
+                {r.code} · уровень {r.level}
+                {r.level <= 1 && ' — главный администратор'}
+                {r.isSystem && ' · встроенная'}
+              </div>
+            </div>
+            {top && (
+              <div className="flex items-center gap-1 shrink-0">
+                <button type="button" disabled={busy}
+                  onClick={() => { setEditing(r); setDraft({ ...r }); }}
+                  className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-500 cursor-pointer" title="Изменить роль">
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+                <button type="button" disabled={busy || r.isSystem}
+                  onClick={() => remove(r)}
+                  className={`p-1.5 rounded-lg cursor-pointer ${r.isSystem
+                    ? 'text-slate-300 dark:text-slate-700 cursor-not-allowed'
+                    : 'hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-500'}`}
+                  title={r.isSystem ? 'Встроенную роль удалить нельзя' : 'Удалить роль'}>
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {top && !draft && (
+        <button type="button" onClick={startNew}
+          className="mt-4 inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-ui cursor-pointer">
+          <Plus className="w-4 h-4" /> Добавить роль
+        </button>
+      )}
+
+      {top && draft && (
+        <div className="mt-4 p-4 rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/20 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+              {editing ? `Роль «${editing.name}»` : 'Новая роль'}
+            </h3>
+            <button type="button" onClick={() => { setDraft(null); setEditing(null); }}
+              className="p-1 rounded-lg hover:bg-white/60 dark:hover:bg-slate-900 text-slate-400 cursor-pointer">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-2xs font-semibold text-slate-500 uppercase tracking-widest mb-1">Название</label>
+              <input type="text" value={draft.name || ''} autoFocus
+                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                placeholder="Инженер-конструктор"
+                className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
+            </div>
+            <div>
+              <label className="block text-2xs font-semibold text-slate-500 uppercase tracking-widest mb-1">Код</label>
+              <input type="text" value={draft.code || ''} disabled={!!editing}
+                onChange={(e) => setDraft({ ...draft, code: e.target.value.toUpperCase() })}
+                placeholder="ENGINEER_CAD"
+                className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm font-mono disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
+              <p className="text-2xs text-slate-400 mt-1">Латиницей. Пусто — программа придумает сама. Потом не меняется.</p>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-2xs font-semibold text-slate-500 uppercase tracking-widest mb-1">Описание</label>
+            <input type="text" value={draft.description || ''}
+              onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+              placeholder="Чем занимается: разделы, зона ответственности"
+              className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-2xs font-semibold text-slate-500 uppercase tracking-widest mb-1.5">Цвет значка</label>
+              <div className="flex flex-wrap gap-1.5">
+                {ROLE_COLORS.map((c) => (
+                  <button key={c.id} type="button" title={c.label}
+                    onClick={() => setDraft({ ...draft, color: c.id })}
+                    className={`w-7 h-7 rounded-lg ${c.dot} transition-ui cursor-pointer ${
+                      draft.color === c.id ? 'ring-2 ring-offset-2 dark:ring-offset-slate-950 ring-slate-500 scale-110' : 'opacity-70 hover:opacity-100'}`} />
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-2xs font-semibold text-slate-500 uppercase tracking-widest mb-1.5">Значок</label>
+              <div className="flex flex-wrap gap-1.5">
+                {ROLE_ICONS.map((ic) => (
+                  <button key={ic} type="button"
+                    onClick={() => setDraft({ ...draft, icon: ic })}
+                    className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-ui cursor-pointer ${
+                      draft.icon === ic
+                        ? 'bg-emerald-600 border-emerald-600 text-white'
+                        : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-500 hover:border-emerald-500'}`}>
+                    <RoleIcon name={ic} className="w-3.5 h-3.5" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between pt-1">
+            <span className="text-2xs text-slate-400 max-w-[22rem]">
+              Так роль будет выглядеть в списке сотрудников и в подписях документов.
+            </span>
+            <div className="flex items-center gap-2">
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${roleColorClass(draft.color)}`}>
+                <RoleIcon name={draft.icon} className="w-3.5 h-3.5" />
+                {draft.name || 'Название роли'}
+              </span>
+              <button type="button" onClick={save} disabled={busy}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-ui cursor-pointer disabled:opacity-60">
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                Сохранить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
+// Переключатель «включено/выключено», который живёт в localStorage и сообщает
+// об изменении событием: так его слышат и главный экран, и рабочая область,
+// не завися от того, где он нарисован.
+function ToggleRow({ storageKey, event, title, desc }: {
+  storageKey: string; event: string; title: string; desc: string;
+}) {
+  const [on, setOn] = useState<boolean>(() => {
+    try { return localStorage.getItem(storageKey) !== '0'; } catch { return true; }
+  });
+  const flip = () => {
+    const next = !on;
+    setOn(next);
+    try { localStorage.setItem(storageKey, next ? '1' : '0'); } catch (_) {}
+    try { window.dispatchEvent(new CustomEvent(event)); } catch (_) {}
+  };
+  return (
+    <button type="button" onClick={flip} role="switch" aria-checked={on}
+      className="w-full flex items-start gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-left hover:border-emerald-500 transition-ui cursor-pointer">
+      <span className={`mt-0.5 shrink-0 w-9 h-5 rounded-full p-0.5 transition-colors ${on ? 'bg-emerald-600' : 'bg-slate-300 dark:bg-slate-700'}`}>
+        <span className={`block w-4 h-4 rounded-full bg-white transition-transform ${on ? 'translate-x-4' : ''}`} />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</span>
+        <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">{desc}</span>
+      </span>
+    </button>
   );
 }

@@ -444,3 +444,221 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
 .dark .scrollbar-thin::-webkit-scrollbar-thumb:hover {
   background-color: oklch(38% 0.018 163);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Живой фон главного экрана: время года, время суток, день рождения.
+   Двигаем только transform и opacity — эти свойства браузер считает на
+   видеокарте и не пересобирает раскладку страницы. Частицы лежат в потоке
+   отдельным слоем позади плиток и не перехватывают мышь.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.flux-snow, .flux-rain, .flux-petal, .flux-leaf,
+.flux-firefly, .flux-spark, .flux-star,
+.flux-confetti, .flux-balloon {
+  position: absolute;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+/* ── Снег: падает и покачивается ── */
+@keyframes flux-fall-snow {
+  0%   { transform: translate3d(0, -12vh, 0) rotate(0deg); }
+  100% { transform: translate3d(2.5vw, 112vh, 0) rotate(220deg); }
+}
+.flux-snow {
+  top: 0;
+  border-radius: 9999px;
+  background: white;
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.8);
+  animation: flux-fall-snow linear infinite;
+}
+.dark .flux-snow { box-shadow: 0 0 5px oklch(0.9 0.03 230 / 0.6); }
+
+/* ── Дождь: короткие косые штрихи ── */
+@keyframes flux-fall-rain {
+  0%   { transform: translate3d(0, -14vh, 0); }
+  100% { transform: translate3d(3vw, 110vh, 0); }
+}
+.flux-rain {
+  top: 0;
+  width: 1px;
+  border-radius: 1px;
+  background: linear-gradient(to bottom, transparent, oklch(0.55 0.05 235));
+  animation: flux-fall-rain linear infinite;
+}
+.dark .flux-rain { background: linear-gradient(to bottom, transparent, oklch(0.78 0.05 230)); }
+
+/* ── Лепестки: планируют вбок ── */
+@keyframes flux-fall-petal {
+  0%   { transform: translate3d(0, -10vh, 0) rotate(0deg); }
+  50%  { transform: translate3d(6vw, 50vh, 0) rotate(180deg); }
+  100% { transform: translate3d(-2vw, 110vh, 0) rotate(360deg); }
+}
+.flux-petal {
+  top: 0;
+  border-radius: 60% 40% 55% 45%;
+  background: oklch(0.88 0.07 350);
+  animation: flux-fall-petal linear infinite;
+}
+.dark .flux-petal { background: oklch(0.72 0.08 345); }
+
+/* ── Листья: падают с переворотом ── */
+@keyframes flux-fall-leaf {
+  0%   { transform: translate3d(0, -10vh, 0) rotate(0deg); }
+  35%  { transform: translate3d(-4vw, 35vh, 0) rotate(140deg); }
+  70%  { transform: translate3d(5vw, 72vh, 0) rotate(280deg); }
+  100% { transform: translate3d(0, 110vh, 0) rotate(400deg); }
+}
+.flux-leaf {
+  top: 0;
+  border-radius: 0 70% 0 70%;
+  background: linear-gradient(135deg, oklch(0.72 0.15 60), oklch(0.62 0.16 40));
+  animation: flux-fall-leaf linear infinite;
+}
+
+/* ── Светлячки: медленный дрейф с пульсацией ── */
+@keyframes flux-drift {
+  0%   { transform: translate3d(0, 0, 0); opacity: 0.15; }
+  25%  { opacity: 0.75; }
+  50%  { transform: translate3d(4vw, -3vh, 0); opacity: 0.3; }
+  75%  { opacity: 0.7; }
+  100% { transform: translate3d(0, 0, 0); opacity: 0.15; }
+}
+.flux-firefly {
+  border-radius: 9999px;
+  background: oklch(0.92 0.15 110);
+  box-shadow: 0 0 8px oklch(0.9 0.16 110 / 0.9);
+  animation: flux-drift ease-in-out infinite;
+}
+.flux-spark {
+  border-radius: 9999px;
+  background: oklch(0.95 0.09 95);
+  box-shadow: 0 0 10px oklch(0.93 0.12 95 / 0.6);
+  animation: flux-drift ease-in-out infinite;
+}
+
+/* ── Звёзды ── */
+@keyframes flux-twinkle {
+  0%, 100% { opacity: 0.15; transform: scale(0.8); }
+  50%      { opacity: 0.9;  transform: scale(1.15); }
+}
+.flux-star {
+  height: 2px;
+  border-radius: 9999px;
+  background: white;
+  animation: flux-twinkle ease-in-out infinite;
+}
+
+/* ── Небесные тела ── */
+@keyframes flux-breathe {
+  0%, 100% { opacity: 0.75; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.04); }
+}
+.flux-sun  { animation: flux-breathe 9s ease-in-out infinite; }
+.flux-moon { animation: flux-breathe 12s ease-in-out infinite; }
+
+/* ── День рождения ── */
+@keyframes flux-rise {
+  0%   { transform: translate3d(0, 115vh, 0) rotate(-6deg); }
+  50%  { transform: translate3d(3vw, 55vh, 0) rotate(6deg); }
+  100% { transform: translate3d(-1vw, -25vh, 0) rotate(-4deg); }
+}
+.flux-balloon {
+  bottom: 0;
+  width: 34px;
+  height: 42px;
+  border-radius: 50% 50% 46% 46%;
+  background: oklch(0.78 0.16 calc(var(--flux-hue) * 1deg));
+  box-shadow: inset -6px -4px 10px oklch(0.45 0.12 calc(var(--flux-hue) * 1deg) / 0.35);
+  animation: flux-rise linear infinite;
+}
+/* Ниточка шарика */
+.flux-balloon::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 1px;
+  height: 26px;
+  background: oklch(0.65 0.02 250 / 0.5);
+}
+@keyframes flux-confetti-fall {
+  0%   { transform: translate3d(0, -12vh, 0) rotate(0deg); }
+  100% { transform: translate3d(4vw, 112vh, 0) rotate(540deg); }
+}
+.flux-confetti {
+  top: 0;
+  border-radius: 2px;
+  background: oklch(0.80 0.18 calc(var(--flux-hue) * 1deg));
+  animation: flux-confetti-fall linear infinite;
+}
+
+/* Уважение к «уменьшить движение»: небо остаётся, движение — нет */
+@media (prefers-reduced-motion: reduce) {
+  .flux-snow, .flux-rain, .flux-petal, .flux-leaf, .flux-firefly,
+  .flux-spark, .flux-star, .flux-confetti, .flux-balloon,
+  .flux-sun, .flux-moon {
+    animation: none !important;
+  }
+}
+
+/* ═══ Робот-помощник ═══════════════════════════════════════════════════════
+   Живой, но ненавязчивый: покачивается на месте, антенна мигает, во сне
+   выпускает «z». Всё движение — transform и opacity, чтобы робот не стоил
+   программе ни кадра при прокрутке. */
+@keyframes flux-robot-float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50%      { transform: translateY(-5px) rotate(-1.5deg); }
+}
+.flux-robot-float { animation: flux-robot-float 4s ease-in-out infinite; }
+.flux-robot-dragging { transform: scale(1.08) rotate(4deg); transition: transform 120ms ease-out; }
+
+@keyframes flux-robot-antenna {
+  0%, 100% { opacity: 0.55; r: 3.2; }
+  50%      { opacity: 1;    r: 4.2; }
+}
+.flux-robot-antenna { animation: flux-robot-antenna 2.4s ease-in-out infinite; }
+
+@keyframes flux-robot-wave {
+  0%, 100% { transform: rotate(0deg); }
+  25%      { transform: rotate(-22deg); }
+  75%      { transform: rotate(18deg); }
+}
+.flux-robot-wave { animation: flux-robot-wave 0.7s ease-in-out 3; }
+
+@keyframes flux-robot-z {
+  0%   { opacity: 0; transform: translate(0, 4px); }
+  40%  { opacity: 0.9; }
+  100% { opacity: 0; transform: translate(5px, -10px); }
+}
+.flux-robot-z  { animation: flux-robot-z 3s ease-out infinite; }
+.flux-robot-z2 { animation: flux-robot-z 3s ease-out 1.2s infinite; }
+
+@keyframes flux-bubble-in {
+  from { opacity: 0; transform: translate(-50%, 6px) scale(0.9); }
+  to   { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+.flux-robot-bubble { animation: flux-bubble-in 180ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .flux-robot-float, .flux-robot-antenna, .flux-robot-wave,
+  .flux-robot-z, .flux-robot-z2, .flux-robot-bubble { animation: none !important; }
+}
+
+/* Облака: очень медленный проход через экран, размытые края */
+@keyframes flux-cloud-drift {
+  0%   { transform: translate3d(-30vw, 0, 0); }
+  100% { transform: translate3d(115vw, 0, 0); }
+}
+.flux-cloud {
+  position: absolute;
+  left: 0;
+  border-radius: 9999px;
+  background: white;
+  opacity: 0.65;
+  filter: blur(14px);
+  animation: flux-cloud-drift linear infinite;
+  pointer-events: none;
+}
+.dark .flux-cloud { background: oklch(0.72 0.02 230); opacity: 0.22; }
+@media (prefers-reduced-motion: reduce) { .flux-cloud { animation: none !important; } }

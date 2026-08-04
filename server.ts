@@ -92,6 +92,37 @@ function parseUserDate(value: unknown): Date | null | undefined {
   return isNaN(d.getTime()) ? undefined : d;
 }
 
+// ФИО сотрудника: части хранятся отдельно и в именительном падеже, единая
+// строка name — производная. Пол определяем по отчеству, если его не указали:
+// это надёжнее, чем заставлять выбирать вручную то, что и так однозначно.
+function nameParts(src: any): {
+  lastName: string; firstName: string; middleName: string;
+  name: string; gender: string; birthDate: Date | null;
+} {
+  const pick = (v: any) => String(v ?? '').trim();
+  let lastName = pick(src.lastName);
+  let firstName = pick(src.firstName);
+  let middleName = pick(src.middleName);
+  // Старый формат: пришла одна строка «Раупов Хусрав Хусравович»
+  if (!lastName && !firstName && pick(src.name)) {
+    const w = pick(src.name).replace(/\s*\(.*\)\s*$/, '').split(/\s+/).filter(Boolean);
+    lastName = w[0] || ''; firstName = w[1] || ''; middleName = w.slice(2).join(' ');
+  }
+  let gender = pick(src.gender).toUpperCase();
+  if (gender !== 'M' && gender !== 'F') {
+    const m = middleName.toLowerCase();
+    gender = /(овна|евна|ична|инична|кызы)$/.test(m) ? 'F'
+      : /(ович|евич|ич|оглы|углы|уулу)$/.test(m) ? 'M' : '';
+  }
+  const birth = parseUserDate(src.birthDate);
+  return {
+    lastName, firstName, middleName,
+    name: [lastName, firstName, middleName].filter(Boolean).join(' '),
+    gender,
+    birthDate: birth === undefined ? null : birth,
+  };
+}
+
 function getVentAppDataPath(): string {
   try {
     // Определяем, запущен ли сервер в продакшене/упакованной версии или в Electron
@@ -1084,7 +1115,14 @@ app.use(async (req: Request, res: Response, next) => {
         if (targetId !== user.id) {
           return res.status(403).json({ error: 'Доступно только администратору' });
         }
-        req.body = { name: req.body?.name, password: req.body?.password };
+        // Своё имя, пол и день рождения человек правит сам; роль, права и
+        // срок действия — нет, иначе доступ можно было бы выдать себе.
+        req.body = {
+          name: req.body?.name, password: req.body?.password,
+          lastName: req.body?.lastName, firstName: req.body?.firstName,
+          middleName: req.body?.middleName, gender: req.body?.gender,
+          birthDate: req.body?.birthDate,
+        };
       }
     }
 
@@ -1858,7 +1896,14 @@ app.get('/api/users', async (req: Request, res: Response) => {
 
 app.post('/api/users', async (req: Request, res: Response) => {
   try {
-    const { symbol, name, role, password } = req.body;
+    const { symbol, role, password } = req.body;
+    // ФИО приходит по частям; единая строка name остаётся производной —
+    // её показывают старые экраны и печатают документы.
+    const parts = nameParts(req.body);
+    const name = parts.name || String(req.body.name || '').trim();
+    if (!name) {
+      return res.status(400).json({ message: 'Укажите фамилию и имя сотрудника.' });
+    }
     const existing = await prisma.user.findUnique({
       where: { symbol: String(symbol) }
     });
@@ -1874,6 +1919,11 @@ app.post('/api/users', async (req: Request, res: Response) => {
       data: {
         symbol: String(symbol),
         name,
+        lastName: parts.lastName,
+        firstName: parts.firstName,
+        middleName: parts.middleName,
+        gender: parts.gender,
+        birthDate: parts.birthDate,
         role: role || 'ENGINEER_VENT',
         password: hashPassword(String(password || 'password')),
         isActive: typeof isActive === 'boolean' ? isActive : true,
@@ -1933,7 +1983,22 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
     }
 
     const data: any = {};
-    if (typeof name === 'string' && name.trim()) data.name = name.trim();
+    // ФИО: если пришли части — пересобираем и единую строку, чтобы два
+    // представления одного имени не разъезжались.
+    if (req.body.lastName !== undefined || req.body.firstName !== undefined || req.body.middleName !== undefined) {
+      const p = nameParts({ ...target, ...req.body });
+      data.lastName = p.lastName; data.firstName = p.firstName; data.middleName = p.middleName;
+      if (p.name) data.name = p.name;
+      data.gender = p.gender;
+    } else if (typeof name === 'string' && name.trim()) {
+      data.name = name.trim();
+    }
+    if (req.body.gender !== undefined) data.gender = req.body.gender === 'F' ? 'F' : req.body.gender === 'M' ? 'M' : '';
+    if (req.body.birthDate !== undefined) {
+      const b = parseUserDate(req.body.birthDate);
+      if (b === undefined) return res.status(400).json({ success: false, message: 'Некорректная дата рождения.' });
+      data.birthDate = b;
+    }
     if (typeof symbol === 'string' && symbol.trim()) data.symbol = symbol.trim();
     if (typeof role === 'string' && role) data.role = role;
     if (typeof password === 'string' && password) data.password = hashPassword(password);
@@ -1974,6 +2039,136 @@ app.delete('/api/users/:id', async (req: Request, res: Response) => {
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ── Роли сотрудников ────────────────────────────────────────────────────────
+// Роли заводит администратор, а не программист: в разных компаниях они
+// называются по-разному. level = 1 — главный администратор, единственный,
+// кто управляет ролями и выдаёт доступ. Встроенные роли не удаляются,
+// иначе можно остаться без администратора.
+const BUILTIN_ROLES = [
+  { code: 'ADMIN',          name: 'Администратор',     color: 'rose',    icon: 'shield-check', level: 1,  sortOrder: 10, description: 'Полный доступ, управление сотрудниками и ролями' },
+  { code: 'MANAGER',        name: 'Менеджер проектов', color: 'amber',   icon: 'briefcase',    level: 20, sortOrder: 20, description: 'Проекты, закупки, документооборот' },
+  { code: 'ENGINEER_VENT',  name: 'Инженер ОВиК',      color: 'sky',     icon: 'airplay',      level: 50, sortOrder: 30, description: 'Вентиляция и кондиционирование' },
+  { code: 'ENGINEER_AUTO',  name: 'Инженер КИПиА',     color: 'emerald', icon: 'cpu',          level: 50, sortOrder: 40, description: 'Автоматика и приборы' },
+];
+
+async function seedRoles() {
+  try {
+    for (const r of BUILTIN_ROLES) {
+      const existing = await prisma.role.findUnique({ where: { code: r.code } }).catch(() => null);
+      if (!existing) await prisma.role.create({ data: { ...r, isSystem: true } }).catch(() => {});
+    }
+  } catch (_) { /* старая база без таблицы ролей — подхватится после синхронизации схемы */ }
+}
+
+// Разбор ФИО на части у профилей, заведённых до раздельного хранения.
+async function backfillNameParts() {
+  try {
+    const users = await prisma.user.findMany({ where: { lastName: '' } }).catch(() => []);
+    for (const u of users as any[]) {
+      const p = nameParts({ name: u.name });
+      if (!p.lastName) continue;
+      await prisma.user.update({
+        where: { id: u.id },
+        data: { lastName: p.lastName, firstName: p.firstName, middleName: p.middleName, gender: p.gender },
+      }).catch(() => {});
+    }
+  } catch (_) {}
+}
+
+/** Главный администратор — тот, чья роль имеет уровень 1. */
+async function isTopAdmin(req: Request): Promise<boolean> {
+  const u = (req as any).authUser;
+  if (!u) return false;
+  if (u.role === 'ADMIN') return true;
+  const role = await prisma.role.findUnique({ where: { code: u.role } }).catch(() => null);
+  return !!role && role.level <= 1;
+}
+
+app.get('/api/roles', async (_req: Request, res: Response) => {
+  try {
+    const roles = await prisma.role.findMany({ orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] });
+    res.json({ roles });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/roles', async (req: Request, res: Response) => {
+  try {
+    if (!(await isTopAdmin(req))) {
+      return res.status(403).json({ message: 'Роли создаёт только главный администратор.' });
+    }
+    const name = String(req.body.name || '').trim();
+    if (!name) return res.status(400).json({ message: 'Укажите название роли.' });
+    // Код роли — латиницей: он попадает в данные и не должен зависеть от раскладки
+    let code = String(req.body.code || '').trim().toUpperCase().replace(/[^A-Z0-9_]/g, '');
+    if (!code) code = 'ROLE_' + Date.now().toString(36).toUpperCase();
+    const dup = await prisma.role.findUnique({ where: { code } });
+    if (dup) return res.status(400).json({ message: 'Роль с таким кодом уже есть.' });
+    const role = await prisma.role.create({
+      data: {
+        code, name,
+        description: String(req.body.description || ''),
+        color: String(req.body.color || 'slate'),
+        icon: String(req.body.icon || 'user'),
+        // Уровень 1 занят главным администратором: новую роль туда не пускаем,
+        // иначе управление доступом можно раздать себе же.
+        level: Math.max(2, Number(req.body.level) || 50),
+        permissions: typeof req.body.permissions === 'string' ? req.body.permissions : JSON.stringify(req.body.permissions || {}),
+        sortOrder: Number(req.body.sortOrder) || 100,
+        isSystem: false,
+      },
+    });
+    res.json({ success: true, role });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.put('/api/roles/:id', async (req: Request, res: Response) => {
+  try {
+    if (!(await isTopAdmin(req))) {
+      return res.status(403).json({ message: 'Роли меняет только главный администратор.' });
+    }
+    const role = await prisma.role.findUnique({ where: { id: req.params.id } });
+    if (!role) return res.status(404).json({ message: 'Роль не найдена.' });
+    const data: any = {};
+    if (req.body.name !== undefined) data.name = String(req.body.name).trim() || role.name;
+    if (req.body.description !== undefined) data.description = String(req.body.description);
+    if (req.body.color !== undefined) data.color = String(req.body.color);
+    if (req.body.icon !== undefined) data.icon = String(req.body.icon);
+    if (req.body.sortOrder !== undefined) data.sortOrder = Number(req.body.sortOrder) || role.sortOrder;
+    if (req.body.permissions !== undefined) {
+      data.permissions = typeof req.body.permissions === 'string' ? req.body.permissions : JSON.stringify(req.body.permissions || {});
+    }
+    // Уровень встроенной роли не трогаем: он определяет, кто главный админ
+    if (req.body.level !== undefined && !role.isSystem) data.level = Math.max(2, Number(req.body.level) || 50);
+    const updated = await prisma.role.update({ where: { id: role.id }, data });
+    res.json({ success: true, role: updated });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.delete('/api/roles/:id', async (req: Request, res: Response) => {
+  try {
+    if (!(await isTopAdmin(req))) {
+      return res.status(403).json({ message: 'Роли удаляет только главный администратор.' });
+    }
+    const role = await prisma.role.findUnique({ where: { id: req.params.id } });
+    if (!role) return res.status(404).json({ message: 'Роль не найдена.' });
+    if (role.isSystem) return res.status(400).json({ message: 'Встроенную роль удалить нельзя — её использует сама программа.' });
+    const inUse = await prisma.user.count({ where: { role: role.code } });
+    if (inUse > 0) {
+      return res.status(400).json({ message: `Роль назначена ${inUse} сотрудник(ам). Сначала переведите их на другую роль.` });
+    }
+    await prisma.role.delete({ where: { id: role.id } });
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
   }
 });
 
@@ -4314,6 +4509,10 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  // Роли и разбор ФИО на части — в фоне: старт сервера не должен их ждать,
+  // а на старой базе таблица ролей появляется только после синхронизации схемы.
+  seedRoles().then(backfillNameParts).catch(() => {});
 
   httpServer.listen(PORT, "0.0.0.0", () => {
     logInit(`[Server listener started] Express backend server successfully running on port ${PORT}`);

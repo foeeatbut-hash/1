@@ -5,7 +5,12 @@ import { useLogStore } from '../store/logStore';
 
 export interface User {
   id: string;
-  name: string;
+  name: string;            // производная строка «Фамилия Имя Отчество»
+  lastName?: string;
+  firstName?: string;
+  middleName?: string;
+  gender?: string;         // 'M' | 'F' | '' — нужен для склонения ФИО
+  birthDate?: string | Date | null;
   symbol: string;
   login?: string;
   role: string;
@@ -14,6 +19,20 @@ export interface User {
   validUntil?: string | Date | null;
   permissions?: string | null;
   createdAt?: string | Date;
+}
+
+// Роль сотрудника — заводится администратором в настройках
+export interface Role {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  color: string;
+  icon: string;
+  level: number;          // 1 = главный администратор
+  isSystem: boolean;
+  permissions?: string;
+  sortOrder: number;
 }
 
 export interface UserNote {
@@ -425,14 +444,14 @@ export const dataService = {
     return request<User[]>('/users');
   },
 
-  async createUser(userData: { symbol: string; name: string; role: string; password?: string; validUntil?: string | null; isActive?: boolean; permissions?: string | null }): Promise<User> {
+  async createUser(userData: { symbol: string; name?: string; lastName?: string; firstName?: string; middleName?: string; gender?: string; birthDate?: string | null; role: string; password?: string; validUntil?: string | null; isActive?: boolean; permissions?: string | null }): Promise<User> {
     return request<User>('/users', {
       method: 'POST',
       body: JSON.stringify(userData),
     });
   },
 
-  async updateUser(id: string, data: { name?: string; symbol?: string; role?: string; password?: string; isActive?: boolean; validUntil?: string | null; permissions?: string | null }): Promise<{ success: boolean; user?: User; message?: string }> {
+  async updateUser(id: string, data: { name?: string; lastName?: string; firstName?: string; middleName?: string; gender?: string; birthDate?: string | null; symbol?: string; role?: string; password?: string; isActive?: boolean; validUntil?: string | null; permissions?: string | null }): Promise<{ success: boolean; user?: User; message?: string }> {
     return request(`/users/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),

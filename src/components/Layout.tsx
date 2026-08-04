@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
@@ -10,6 +10,7 @@ import { dataService } from '../services/dataService';
 import { useLogStore } from '../store/logStore';
 import { useAssistantStore } from '../store/assistantStore';
 import AssistantPanel from './AssistantPanel';
+import AssistantRobot from './AssistantRobot';
 import NotificationsPanel from './NotificationsPanel';
 import RightRail from './RightRail';
 import ShareLayer from './ShareLayer';
@@ -28,6 +29,18 @@ export default function Layout() {
   const { user, setUser, activeProject, theme, toggleTheme, syncStatus, sidebarCompact, toggleSidebarCompact } = useStore();
   const navigate = useNavigate();
   const [eqOpen, setEqOpen] = useState(true);
+  // Робот-помощник: его можно выключить в настройках — тогда он не создаётся
+  // вовсе, а не прячется, чтобы не тратить ни таймеров, ни отрисовки.
+  const [robotOn, setRobotOn] = useState<boolean>(() => {
+    try { return localStorage.getItem('flux_robot') !== '0'; } catch { return true; }
+  });
+  useEffect(() => {
+    const onChange = () => {
+      try { setRobotOn(localStorage.getItem('flux_robot') !== '0'); } catch (_) {}
+    };
+    window.addEventListener('flux:robot-changed', onChange);
+    return () => window.removeEventListener('flux:robot-changed', onChange);
+  }, []);
   // Активный раздел активной панели рабочего стола (для подсветки меню)
   const wsLayout = useWorkspaceStore((s) => s.layout);
   const wsActivePath = useWorkspaceStore((s) => {
@@ -566,6 +579,8 @@ export default function Layout() {
       <NotificationsPanel />
       <AssistantPanel />
       <RightRail />
+
+      {robotOn && <AssistantRobot />}
 
       <ToastProvider />
       <ModalProvider />
