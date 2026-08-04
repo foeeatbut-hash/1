@@ -2259,6 +2259,33 @@ app.delete('/api/roles/:id', async (req: Request, res: Response) => {
   }
 });
 
+// ── Настройки уведомлений сотрудника ────────────────────────────────────────
+// Хранятся на сервере, чтобы ехали за человеком на любой компьютер.
+app.get('/api/notif-prefs', async (req: Request, res: Response) => {
+  try {
+    const me = (req as any).authUser;
+    if (!me) return res.status(401).json({ error: 'Требуется вход в систему' });
+    const row = await prisma.appSetting.findFirst({ where: { key: 'notif_prefs', userId: me.id } });
+    res.json({ prefs: row?.value ? JSON.parse(row.value) : null });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/notif-prefs', async (req: Request, res: Response) => {
+  try {
+    const me = (req as any).authUser;
+    if (!me) return res.status(401).json({ error: 'Требуется вход в систему' });
+    const value = JSON.stringify(req.body?.prefs || {});
+    const existing = await prisma.appSetting.findFirst({ where: { key: 'notif_prefs', userId: me.id } });
+    if (existing) await prisma.appSetting.update({ where: { id: existing.id }, data: { value } });
+    else await prisma.appSetting.create({ data: { key: 'notif_prefs', userId: me.id, value } });
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // For dummy data generation so we can test the app
 app.post('/api/seed', async (req: Request, res: Response) => {
   try {
@@ -2365,6 +2392,10 @@ app.post('/api/updates', async (req: Request, res: Response) => {
     });
     // Мгновенное оповещение всем, кто сейчас онлайн
     try { io.emit('app:update-published', { version, changelog }); } catch (_) {}
+    // И запись в уведомления — чтобы узнал и тот, кто был не в программе
+    await notifyAll('СИСТЕМА', `Вышла версия ${version}`,
+      String(changelog || '').split('\n')[0].slice(0, 120),
+      '/settings?section=updates', String(u.id || ''));
     res.json({ success: true, update });
   } catch (e: any) {
     res.status(500).json({ error: e?.message || 'Не удалось опубликовать релиз' });
@@ -2399,16 +2430,31 @@ function userCan(user: any, feature: string): boolean {
 }
 
 async function loadActor(req: Request): Promise<any> {
+  // Кто действует: сначала владелец сессии (запрос уже прошёл проверку токена),
+  // и только потом явно переданный actorId — он остался от старых вызовов.
+  const fromSession = (req as any).authUser;
+  if (fromSession) return fromSession;
   const id = String((req.body && req.body.actorId) || req.query.actorId || req.headers['x-actor-id'] || '');
   if (!id) return null;
   try { return await prisma.user.findUnique({ where: { id } }); } catch { return null; }
 }
 
-// Страж эндпоинта: при отсутствии прав сам отправляет 401/403 и возвращает false
+// Страж эндпоинта: при отсутствии прав сам отправляет 401/403 и возвращает false.
+// Права считаются так же, как в общей таблице маршрутов: роль + личные поверх,
+// иначе один и тот же сотрудник проходил бы одну проверку и не проходил другую.
 async function enforce(req: Request, res: Response, feature: string): Promise<boolean> {
   const actor = await loadActor(req);
-  if (!actor) { res.status(401).json({ error: 'Не определён пользователь действия (actorId).' }); return false; }
-  if (!userCan(actor, feature)) { res.status(403).json({ error: 'Недостаточно прав для этого действия.' }); return false; }
+  if (!actor) { res.status(401).json({ error: 'Требуется вход в систему.' }); return false; }
+  if (actor.role === 'ADMIN') return true;
+  if (actor.isActive === false) { res.status(403).json({ error: 'Профиль отключён администратором.' }); return false; }
+  const now = trustedNowSync();
+  if (actor.validUntil && (timeTampered || new Date(actor.validUntil).getTime() < now)) {
+    res.status(403).json({ error: 'Срок действия профиля истёк.' }); return false;
+  }
+  const perms = await effectivePermsOf(actor);
+  if (!permAllows(perms, feature)) {
+    res.status(403).json({ error: 'Недостаточно прав для этого действия.' }); return false;
+  }
   return true;
 }
 
@@ -2431,6 +2477,11 @@ app.post('/api/projects', async (req: Request, res: Response) => {
       status: 'ACTIVE'
     }
   });
+  // Новый проект — событие для всей команды: люди должны узнать о нём
+  // из программы, а не из разговора в коридоре.
+  await notifyAll('ПРОЕКТЫ', `Новый проект: ${project.name}`,
+    project.customer ? `Заказчик: ${project.customer}` : '', '/projects',
+    String((req as any).authUser?.id || ''));
   res.json({ project });
 });
 
@@ -2458,9 +2509,15 @@ app.delete('/api/projects/:id', async (req: Request, res: Response) => {
   if (!(await enforce(req, res, 'project.manage'))) return;
   try {
     const { id } = req.params;
+    const doomed = await prisma.project.findUnique({ where: { id } });
     await prisma.project.delete({
       where: { id }
     });
+    if (doomed) {
+      await notifyAll('ПРОЕКТЫ', `Проект удалён: ${doomed.name}`,
+        'Все его теги, файлы и документы удалены вместе с ним.', '/projects',
+        String((req as any).authUser?.id || ''));
+    }
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -2477,6 +2534,24 @@ async function notify(userId: string, category: string, title: string, body = ''
   }
 }
 setNotifier(notify); // вынесенные роуты (ВДР и др.) шлют уведомления через контекст
+
+/**
+ * Оповестить всех сотрудников, кроме инициатора: события уровня компании —
+ * новый проект, опубликованная версия программы. Сам инициатор и так знает,
+ * что сделал, и получать об этом уведомление ему незачем.
+ */
+async function notifyAll(category: string, title: string, body = '', targetRoute = '', exceptUserId = '') {
+  try {
+    const users = await prisma.user.findMany({ where: { isActive: true }, select: { id: true } });
+    const rows = (users as any[])
+      .filter(u => u.id !== exceptUserId)
+      .map(u => ({ userId: u.id, category, title, body, targetRoute }));
+    if (!rows.length) return;
+    for (const r of rows) await prisma.notification.create({ data: r });
+  } catch (err: any) {
+    console.warn('[notifyAll] err:', err?.message);
+  }
+}
 
 app.get('/api/notifications', async (req: Request, res: Response) => {
   try {
@@ -3166,6 +3241,15 @@ app.post('/api/projects/:projectId/excel/parse-and-import', async (req: Request,
         message: msg,
         changeDetails: comp.conflictLog || 'Параметры изменены в ревизии файла'
       });
+    }
+
+    // Конфликты ревизий — повод уведомить команду: их разбирает не всегда
+    // тот, кто импортировал, и до сих пор о них узнавали только случайно.
+    if (conflictsCount > 0) {
+      await notifyAll('ОБОРУДОВАНИЕ',
+        `Конфликты ревизий: ${conflictsCount}`,
+        `После импорта «${fileName}» характеристики позиций разошлись — нужна сверка.`,
+        '/equipment', String((req as any).authUser?.id || ''));
     }
 
     res.json({ success: true, systems: importedData, conflictsCount });
