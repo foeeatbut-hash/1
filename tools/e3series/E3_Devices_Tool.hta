@@ -1,0 +1,2613 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=windows-1251">
+<title>E3.series — Изделия: экспорт и импорт</title>
+<HTA:APPLICATION
+    ID="app"
+    APPLICATIONNAME="E3 Devices Tool"
+    BORDER="thin"
+    BORDERSTYLE="complex"
+    CAPTION="yes"
+    WINDOWSTATE="normal"
+    SCROLL="yes"
+    WIDTH="1120"
+    HEIGHT="880"
+    MAXIMIZEBUTTON="yes"
+    MINIMIZEBUTTON="yes"
+    RESIZE="yes">
+<style>
+    body { font-family: Segoe UI, Arial, sans-serif; font-size: 13px; background: #eef1f4; padding: 14px; }
+    .wrap { max-width: 1060px; margin: 0 auto; background: #fff; padding: 18px 22px; border-radius: 8px; }
+    h1 { font-size: 20px; margin: 0 0 4px 0; color: #223; }
+    .sub { color: #778; margin: 0 0 14px 0; }
+    .card { border: 1px solid #dde2e7; border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; }
+    .card h3 { font-size: 14px; margin: 0 0 8px 0; color: #334; }
+    button { font-family: inherit; font-size: 13px; padding: 6px 14px; border: 1px solid #b8c0c8;
+             background: #f7f9fb; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #eaf0f6; }
+    button[disabled] { color: #aab; cursor: default; background: #f2f4f6; }
+    button.prim { background: #2f6fb5; border-color: #2a629f; color: #fff; }
+    button.prim:hover { background: #3a7fc8; }
+    button.stop { background: #c9483f; border-color: #b03d35; color: #fff; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .opt { margin-right: 16px; white-space: nowrap; }
+    input[type=text] { font-family: Consolas, monospace; font-size: 12px; padding: 4px; width: 66%;
+                       border: 1px solid #ccd3da; border-radius: 3px; }
+    #log { background: #1b1f24; color: #d8dee6; padding: 8px 10px; height: 300px; overflow: auto;
+           font-family: Consolas, monospace; font-size: 12px; border-radius: 4px; }
+    #api { background: #f6f8fa; border: 1px solid #e2e6ea; padding: 6px 8px; font-family: Consolas, monospace;
+           font-size: 11px; color: #445; border-radius: 4px; margin-top: 8px; display: none; }
+    .bar { background: #e2e6ea; border-radius: 4px; height: 16px; overflow: hidden; }
+    .bar > div { background: #4c9a5a; height: 100%; width: 0%; }
+    .st { margin-left: 10px; color: #667; }
+    .ok { color: #6fdc8c; font-weight: bold; }
+    .err { color: #ff8a80; font-weight: bold; }
+    .okd { color: #2c7a3f; font-weight: bold; }
+    .errd { color: #c0392b; font-weight: bold; }
+    .hint { color: #778; font-size: 12px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+    <h1>E3.series — изделия: экспорт в Excel и импорт на листы</h1>
+    <p class="sub">Один инструмент вместо двух. Координаты читаются и записываются одной и той же величиной —
+       точкой привязки символа, той же, которой оперирует Place.</p>
+
+    <div class="card">
+        <h3>1. Подключение к E3.series</h3>
+        <div class="row">
+            <button onclick="uiConnect()" class="prim">Подключиться</button>
+            <span id="ctStatus" class="st">не подключено</span>
+            <button onclick="uiToggleApi()">Методы API</button>
+        </div>
+        <div id="api"></div>
+        <div class="hint">Проект должен быть открыт в E3 до подключения. Повторное нажатие перечитывает изделия и листы.</div>
+    </div>
+
+    <div class="card">
+        <h3>2. Файл Excel</h3>
+        <div class="row">
+            <input type="text" id="filePath" readonly>
+            <button onclick="uiSelectFile()">Выбрать...</button>
+            <button onclick="uiCreateTemplate()">Создать шаблон</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>3. Экспорт из E3 в Excel</h3>
+        <div class="row">
+            <button onclick="uiExport()" id="btnExport" class="prim" disabled>Выгрузить изделия</button>
+            <label class="opt"><input type="checkbox" id="chkPlacements" checked> лист «Размещения» (все символы)</label>
+            <label class="opt"><input type="checkbox" id="chkOnlyPlaced"> только размещённые изделия</label>
+        </div>
+        <div class="hint">Файл сохраняется на рабочий стол. Колонки «Имя листа / X / Y» пригодны для обратного импорта
+            без правок и остаются числами, а не текстом.</div>
+    </div>
+
+    <div class="card">
+        <h3>4. Импорт из Excel в E3</h3>
+        <div class="row" style="margin-bottom:6px">
+            <label class="opt"><input type="checkbox" id="chkAttrs" checked> обновлять атрибуты</label>
+            <label class="opt"><input type="checkbox" id="chkCreate" checked> создавать отсутствующие</label>
+            <label class="opt"><input type="checkbox" id="chkPlace"> размещать и перемещать символы</label>
+            <label class="opt"><input type="checkbox" id="chkSave"> сохранить проект в конце</label>
+            <label class="opt"><input type="checkbox" id="chkDry"> только проверка (ничего не менять)</label>
+        </div>
+        <div class="row">
+            <button onclick="uiImport()" id="btnImport" class="prim" disabled>Запустить импорт</button>
+            <button onclick="uiStop()" id="btnStop" class="stop" disabled>Стоп</button>
+        </div>
+        <div class="hint">Перемещение работает и для уже существующих изделий: символ переносится в заданные
+            координаты, результат проверяется обратным чтением и попадает в лог при расхождении.</div>
+    </div>
+
+    <div class="card">
+        <h3>5. Диагностика координат</h3>
+        <div class="row">
+            <button onclick="uiDiag()" id="btnDiag" disabled>Показать координаты символов</button>
+            <button onclick="uiRoundTrip()" id="btnRT" disabled>Тест «чтение - запись - чтение»</button>
+        </div>
+        <div class="hint">Первая кнопка проект не меняет. Вторая сдвигает один символ на +10/+10 мм и возвращает назад.</div>
+    </div>
+
+    <div class="card">
+        <h3>6. Ход работы</h3>
+        <div id="progressContainer" style="display:none; margin-bottom:8px">
+            <div style="display:flex; justify-content:space-between; margin-bottom:3px">
+                <span id="progressText" style="font-size:12px; color:#667">готово</span>
+                <span id="progressPercent" style="font-size:12px; color:#667">0%</span>
+            </div>
+            <div class="bar"><div id="progressBar"></div></div>
+        </div>
+        <div id="log">Готов к работе.</div>
+        <div class="row" style="margin-top:8px">
+            <button onclick="uiSaveLog()">Сохранить лог</button>
+            <button onclick="uiClearLog()">Очистить</button>
+            <label class="opt"><input type="checkbox" id="chkVerbose" checked> подробный лог</label>
+        </div>
+    </div>
+</div>
+
+<script language="VBScript">
+'==============================================================================
+'  E3.series — единый инструмент выгрузки и загрузки изделий.
+'  Писалось под E3.series 2022 SP2 (build 23.20), модуль E3.cable.
+'
+'  Главный принцип: координаты читаются и записываются ОДНОЙ величиной —
+'  точкой привязки символа. Прежний экспорт брал центр габаритного
+'  прямоугольника (GetArea), поэтому обратный импорт сдвигал символы.
+'  Разбор причин — в README.md рядом с этим файлом.
+'==============================================================================
+
+'--- Раскладка колонок листа «Изделия» (1..53 совпадают со старым шаблоном) ---
+Const C_POZ        = 1
+Const C_COMP       = 2
+Const C_ATTR_FIRST = 3
+Const C_ATTR_LAST  = 53
+Const C_SHEET      = 54
+Const C_X          = 55
+Const C_Y          = 56
+Const C_ROT        = 57
+Const C_MIR        = 58
+Const C_SYMID      = 59
+Const C_SYMNAME    = 60
+Const C_SYMCOUNT   = 61
+Const C_SHEETID    = 62
+Const C_DEVID      = 63
+Const COLS         = 63
+
+'--- Раскладка листа «Размещения» --------------------------------------------
+Const P_POZ   = 1
+Const P_NR    = 2
+Const P_SYMID = 3
+Const P_SNAME = 4
+Const P_SHEET = 5
+Const P_SHID  = 6
+Const P_X     = 7
+Const P_Y     = 8
+Const P_ROT   = 9
+Const P_MIR   = 10
+Const P_DEVID = 11
+Const PCOLS   = 11
+
+Const XL_XLSX   = 51
+Const XL_UP     = -4162
+Const XL_LEFT   = -4159
+Const XL_CENTER = -4108
+Const XL_MANUAL = -4135
+Const XL_AUTO   = -4105
+Const XL_SHIFTUP = -4162
+Const SH_PLACE  = "Размещения"
+Const SH_DEV    = "Изделия"
+Const EPS       = 0.05
+
+'--- Состояние ---------------------------------------------------------------
+Dim ctApp, ctJob, isConnected
+Dim excelFile
+Dim devIdByPoz, devIdByName
+Dim sheetIdByName, sheetNameById
+Dim HDR(), PHDR()
+Dim stopRequested, jobBusy, jobKind, jobPhase, jobDone, asyncOk, verboseFlag
+Dim logCount
+
+' Сигнатуры API, подобранные на этой сборке E3
+Dim mLoc, mSetLoc, mPlace, mDevId, mSheetId, mRot, mSetRot, mMir, mDevSym, mDevGetId
+Dim areaWarned, getIdWarned
+
+' Экспорт
+Dim exIds, exIdx, exArr(), exRows, exRowCursor, exPozById
+Dim exPlaceMap, exPlaceCols(), exPlaceCnt, exPlaceCap
+Dim exSheetIds, exSheetIdx, exSheetTotal, exSymTotal
+Dim exExcel, exWb, exWs, exWithPlacements, exOnlyPlaced, exStart, exSkipped
+
+' Импорт
+Dim imExcel, imWb, imWs, imVals, imPVals, imMap, imPMap
+Dim imRow, imLastRow, imPRow, imPLastRow, imStart
+Dim imCreated, imUpdated, imPlaced, imMoved, imErrors, imBadCoord, imSkipped
+Dim imDoAttrs, imDoCreate, imDoPlace, imDoSave, imDryRun
+
+isConnected = False
+stopRequested = False
+jobBusy = False
+logCount = 0
+areaWarned = False
+getIdWarned = False
+verboseFlag = True
+exRowCursor = 0
+BuildHeaders
+
+'==============================================================================
+'  Заголовки
+'==============================================================================
+Sub BuildHeaders()
+    ReDim HDR(COLS)
+    HDR(1)  = "Поз. обозначение"
+    HDR(2)  = "ComponentName"
+    HDR(3)  = "*TAG титула"
+    HDR(4)  = "*TAG титула вторичный"
+    HDR(5)  = "*Система управления"
+    HDR(6)  = "*TAG установки"
+    HDR(7)  = "*TAG Шкафа"
+    HDR(8)  = "*Контур"
+    HDR(9)  = "*Модель/Заказной номер"
+    HDR(10) = "*Номер изделия на ФСА"
+    HDR(11) = "*Тип изделия"
+    HDR(12) = "*Поставщик/Завод-изготовитель"
+    HDR(13) = "*Описание полное"
+    HDR(14) = "*Описание краткое"
+    HDR(15) = "*Номер изделия"
+    HDR(16) = "*TAG изделия короткий"
+    HDR(17) = "*TAG изделия полный"
+    HDR(18) = "*TAG оборудования/узла"
+    HDR(19) = "*Сигнал (Характеристика)"
+    HDR(20) = "*Сигнал (Тип I/O)"
+    HDR(21) = "*Сигнал (Тип подключения)"
+    HDR(22) = "*TAG сигнала"
+    HDR(23) = "*TAG сигнала_2"
+    HDR(24) = "*Внешнее питание"
+    HDR(25) = "*Технологическая среда"
+    HDR(26) = "*Тип взрывозащиты"
+    HDR(27) = "*Тип обогрева"
+    HDR(28) = "*Рабочая уставка"
+    HDR(29) = "*Единицы измерения"
+    HDR(30) = "*Уставка L"
+    HDR(31) = "*Уставка LL"
+    HDR(32) = "*Уставка H"
+    HDR(33) = "*Уставка HH"
+    HDR(34) = "*Диапазон измерений MIN"
+    HDR(35) = "*Диапазон измерений MAX"
+    HDR(36) = "*Погрешность измерений"
+    HDR(37) = "*Калибровочный диапазон MIN"
+    HDR(38) = "*Калибровочный диапазон MAX"
+    HDR(39) = "*Корпус/Кожух"
+    HDR(40) = "*Комплектность"
+    HDR(41) = "*Сведения о сертификате"
+    HDR(42) = "*Примечание"
+    HDR(43) = "*TAG кабеля подключения"
+    HDR(44) = "*Общая длина кабеля"
+    HDR(45) = "*Диаметр и сечение жил"
+    HDR(46) = "*Диаметр металлорукава/гофры и прч"
+    HDR(47) = "*Общая длина металлорукава/гофры и прч"
+    HDR(48) = "*Тип металлорукава/гофры и прч"
+    HDR(49) = "*Manual Tag"
+    HDR(50) = "Концевой выключатель (1)"
+    HDR(51) = "Концевой выключатель (2)"
+    HDR(52) = "Клемма (1)"
+    HDR(53) = "Клемма (2)"
+    HDR(54) = "Имя листа"
+    HDR(55) = "X"
+    HDR(56) = "Y"
+    HDR(57) = "Поворот"
+    HDR(58) = "Зеркало"
+    HDR(59) = "ID символа"
+    HDR(60) = "Имя символа"
+    HDR(61) = "Символов у изделия"
+    HDR(62) = "ID листа"
+    HDR(63) = "ID изделия"
+
+    ReDim PHDR(PCOLS)
+    PHDR(1)  = "Поз. обозначение"
+    PHDR(2)  = "№ символа"
+    PHDR(3)  = "ID символа"
+    PHDR(4)  = "Имя символа"
+    PHDR(5)  = "Имя листа"
+    PHDR(6)  = "ID листа"
+    PHDR(7)  = "X"
+    PHDR(8)  = "Y"
+    PHDR(9)  = "Поворот"
+    PHDR(10) = "Зеркало"
+    PHDR(11) = "ID изделия"
+End Sub
+
+' Служебные заголовки — в изделие как атрибуты не пишутся
+Function IsServiceHeader(h)
+    Dim s
+    s = LCase(Trim(h & ""))
+    IsServiceHeader = True
+    If s = "" Then Exit Function
+    If s = LCase(HDR(C_COMP)) Then Exit Function
+    If s = LCase(HDR(C_SHEET)) Then Exit Function
+    If s = "x" Or s = "y" Then Exit Function
+    If s = LCase(HDR(C_ROT)) Then Exit Function
+    If s = LCase(HDR(C_MIR)) Then Exit Function
+    If s = LCase(HDR(C_SYMID)) Then Exit Function
+    If s = LCase(HDR(C_SYMNAME)) Then Exit Function
+    If s = LCase(HDR(C_SYMCOUNT)) Then Exit Function
+    If s = LCase(HDR(C_SHEETID)) Then Exit Function
+    If s = LCase(HDR(C_DEVID)) Then Exit Function
+    If s = LCase(PHDR(P_NR)) Then Exit Function
+    IsServiceHeader = False
+End Function
+
+'==============================================================================
+'  Лог, прогресс, мелкие утилиты
+'==============================================================================
+Sub LogMsg(msg)
+    Dim d, t
+    t = Right("0" & Hour(Now), 2) & ":" & Right("0" & Minute(Now), 2) & ":" & Right("0" & Second(Now), 2)
+    Set d = document.getElementById("log")
+    logCount = logCount + 1
+    If logCount > 4000 Then
+        d.innerHTML = "(лог очищен: слишком много строк)<br>"
+        logCount = 1
+    End If
+    d.innerHTML = d.innerHTML & "[" & t & "] " & msg & "<br>"
+    d.scrollTop = d.scrollHeight
+End Sub
+
+Sub LogV(msg)
+    If verboseFlag Then LogMsg msg
+End Sub
+
+Sub LogBad(msg)
+    LogMsg "<span class=""err"">" & msg & "</span>"
+End Sub
+
+Sub LogErrNum(prefix, n, d)
+    LogBad prefix & " (ошибка " & n & ": " & d & ")"
+End Sub
+
+Sub ReadVerbose()
+    On Error Resume Next
+    verboseFlag = document.getElementById("chkVerbose").checked
+    If Err.Number <> 0 Then verboseFlag = True : Err.Clear
+End Sub
+
+Sub Progress(cur, total, status)
+    Dim p
+    If total <= 0 Then total = 1
+    p = Int((cur / total) * 100)
+    If p > 100 Then p = 100
+    If p < 0 Then p = 0
+    document.getElementById("progressBar").style.width = p & "%"
+    document.getElementById("progressPercent").innerHTML = p & "%"
+    document.getElementById("progressText").innerHTML = status & " (" & cur & " / " & total & ")"
+End Sub
+
+Sub ShowProgress(vis)
+    If vis Then
+        document.getElementById("progressContainer").style.display = "block"
+    Else
+        document.getElementById("progressContainer").style.display = "none"
+    End If
+End Sub
+
+' Empty тоже проходит IsNumeric, поэтому проверяем отдельно —
+' именно на этом старый экспорт молча получал нули.
+Function IsNum(v)
+    IsNum = False
+    If IsEmpty(v) Then Exit Function
+    If IsNull(v) Then Exit Function
+    If IsObject(v) Then Exit Function
+    If IsArray(v) Then Exit Function
+    If VarType(v) = vbString Then
+        If Trim(v) = "" Then Exit Function
+    End If
+    If IsNumeric(v) Then IsNum = True
+End Function
+
+Function NumOr(v, def)
+    If IsNum(v) Then NumOr = CDbl(v) Else NumOr = def
+End Function
+
+' Разбор числа, устойчивый к разделителю дробной части (точка/запятая)
+Function ParseNum(v, ByRef ok)
+    Dim s, dec
+    ok = False
+    ParseNum = 0
+    If IsEmpty(v) Or IsNull(v) Then Exit Function
+    If IsArray(v) Or IsObject(v) Then Exit Function
+    If IsNumeric(v) Then
+        ParseNum = CDbl(v)
+        ok = True
+        Exit Function
+    End If
+    s = Replace(Trim(CStr(v)), " ", "")
+    If s = "" Then Exit Function
+    dec = Mid(CStr(1.5), 2, 1)
+    s = Replace(Replace(s, ",", dec), ".", dec)
+    If IsNumeric(s) Then
+        ParseNum = CDbl(s)
+        ok = True
+    End If
+End Function
+
+Function SafeStr(v)
+    SafeStr = ""
+    If IsNull(v) Or IsEmpty(v) Then Exit Function
+    If IsArray(v) Or IsObject(v) Then Exit Function
+    SafeStr = CStr(v)
+End Function
+
+Function StripDash(s)
+    StripDash = s
+    If Len(s) > 1 Then
+        If Left(s, 1) = "-" Then StripDash = Mid(s, 2)
+    End If
+End Function
+
+Function GetCell(arr, r, c)
+    GetCell = Empty
+    On Error Resume Next
+    If c <= 0 Then Exit Function
+    GetCell = arr(r, c)
+    Err.Clear
+End Function
+
+Function CellStr(arr, r, c)
+    CellStr = Trim(SafeStr(GetCell(arr, r, c)))
+End Function
+
+Function ParseIntCell(arr, r, c, def)
+    Dim ok, v
+    v = ParseNum(GetCell(arr, r, c), ok)
+    If ok Then ParseIntCell = CLng(v) Else ParseIntCell = def
+End Function
+
+Function Fmt(v)
+    If IsNum(v) Then
+        Fmt = Replace(CStr(Round(CDbl(v), 3)), ",", ".")
+    Else
+        Fmt = "-"
+    End If
+End Function
+
+Function MaxI(a, b)
+    If a > b Then MaxI = a Else MaxI = b
+End Function
+
+Function IIfStr(cond, a, b)
+    If cond Then IIfStr = a Else IIfStr = b
+End Function
+
+' Количество реальных (положительных) идентификаторов в массиве API.
+' Работает и с 0-based, и с 1-based массивами — не надо угадывать базу.
+Function IdCount(arr)
+    Dim i, n
+    IdCount = 0
+    If Not IsArray(arr) Then Exit Function
+    n = 0
+    For i = LBound(arr) To UBound(arr)
+        If NumOr(arr(i), 0) > 0 Then n = n + 1
+    Next
+    IdCount = n
+End Function
+
+'==============================================================================
+'  Подключение
+'==============================================================================
+Sub uiConnect()
+    On Error Resume Next
+    ReadVerbose
+    LogMsg "Подключение к E3.series..."
+
+    Set ctApp = CreateObject("CT.Application")
+    If Err.Number <> 0 Then
+        LogErrNum "E3.series не отвечает — проект открыт?", Err.Number, Err.Description
+        document.getElementById("ctStatus").innerHTML = "<span class=""errd"">нет связи</span>"
+        isConnected = False
+        Err.Clear
+        Exit Sub
+    End If
+
+    Set ctJob = ctApp.CreateJobObject()
+    If Err.Number <> 0 Then
+        LogErrNum "Не удалось создать объект проекта", Err.Number, Err.Description
+        document.getElementById("ctStatus").innerHTML = "<span class=""errd"">ошибка</span>"
+        isConnected = False
+        Err.Clear
+        Exit Sub
+    End If
+    Err.Clear
+
+    isConnected = True
+    document.getElementById("ctStatus").innerHTML = "<span class=""okd"">подключено</span>"
+
+    Dim jn
+    jn = ""
+    jn = ctJob.GetName()
+    If Err.Number <> 0 Then Err.Clear
+    If Trim(jn & "") <> "" Then LogMsg "Проект: " & jn
+
+    ' сигнатуры могли отличаться в другой сборке — подбираем заново
+    mLoc = "" : mSetLoc = "" : mPlace = "" : mDevId = "" : mSheetId = ""
+    mRot = "" : mSetRot = "" : mMir = "" : mDevSym = "" : mDevGetId = ""
+    areaWarned = False
+    getIdWarned = False
+
+    LoadSheets
+    LoadDevices
+    ProbeApi
+
+    document.getElementById("btnExport").disabled = False
+    document.getElementById("btnDiag").disabled = False
+    document.getElementById("btnRT").disabled = False
+    If excelFile <> "" Then document.getElementById("btnImport").disabled = False
+End Sub
+
+Sub uiToggleApi()
+    Dim d
+    Set d = document.getElementById("api")
+    If d.style.display = "block" Then
+        d.style.display = "none"
+    Else
+        d.innerHTML = ApiReport()
+        d.style.display = "block"
+    End If
+End Sub
+
+Function ApiReport()
+    Dim s
+    s = "Сигнатуры, подобранные на этой сборке E3:<br>"
+    s = s & "чтение координат символа ... " & IIfStr(mLoc = "", "не определено", mLoc) & "<br>"
+    s = s & "запись координат символа ... " & IIfStr(mSetLoc = "", "не определено", mSetLoc) & "<br>"
+    s = s & "размещение (Place) ......... " & IIfStr(mPlace = "", "не определено", mPlace) & "<br>"
+    s = s & "символ в изделие ........... " & IIfStr(mDevId = "", "не определено", mDevId) & "<br>"
+    s = s & "символ в лист .............. " & IIfStr(mSheetId = "", "не определено", mSheetId) & "<br>"
+    s = s & "поворот: чтение / запись ... " & IIfStr(mRot = "", "нет", mRot) & " / " & IIfStr(mSetRot = "", "нет", mSetRot) & "<br>"
+    s = s & "зеркало .................... " & IIfStr(mMir = "", "нет", mMir) & "<br>"
+    s = s & "изделие в символы .......... " & IIfStr(mDevSym = "", "не определено", mDevSym) & "<br>"
+    s = s & "ID нового изделия .......... " & IIfStr(mDevGetId = "", "не проверялось", mDevGetId)
+    ApiReport = s
+End Function
+
+' Подбор сигнатур на первом размещённом символе проекта
+Sub ProbeApi()
+    On Error Resume Next
+    Dim sIds, i, j, shObj, symObj, symIds, sid, x, y, found, shId, symId
+
+    found = False
+    ctJob.GetSheetIds sIds
+    Err.Clear
+    If Not IsArray(sIds) Then
+        LogMsg "Листов нет — часть проверок API отложена."
+        Exit Sub
+    End If
+
+    Set shObj = ctJob.CreateSheetObject()
+    Set symObj = ctJob.CreateSymbolObject()
+
+    For i = LBound(sIds) To UBound(sIds)
+        If found Then Exit For
+        shId = NumOr(sIds(i), 0)
+        If shId > 0 Then
+            shObj.SetId shId
+            symIds = Empty
+            shObj.GetSymbolIds symIds
+            Err.Clear
+            If IsArray(symIds) Then
+                For j = LBound(symIds) To UBound(symIds)
+                    If found Then Exit For
+                    symId = NumOr(symIds(j), 0)
+                    If symId > 0 Then
+                        symObj.SetId symId
+                        Err.Clear
+                        If SymGetDeviceId(symObj) > 0 Then
+                            If SymGetLocation(symObj, sid, x, y) Then
+                                SymGetSheetId symObj
+                                SymGetRotation symObj
+                                SymGetMirror symObj
+                                found = True
+                            End If
+                        End If
+                    End If
+                Next
+            End If
+        End If
+    Next
+
+    If mLoc = "" Then
+        LogBad "Метод чтения координат символа определить не удалось."
+        LogMsg "Нажмите «Показать координаты символов», сохраните лог и пришлите его."
+    Else
+        LogMsg "Координаты символов читаются как: " & mLoc
+    End If
+    Err.Clear
+End Sub
+
+'==============================================================================
+'  Обёртки над API символа: каждая один раз подбирает рабочую сигнатуру
+'  и дальше пользуется только ей.
+'==============================================================================
+
+' Точка привязки символа — ровно та величина, которую принимает Place.
+Function SymGetLocation(sym, ByRef sid, ByRef x, ByRef y)
+    Dim tx, ty, ts, g, r, x1, y1, x2, y2
+    SymGetLocation = False
+    sid = 0
+    x = Empty
+    y = Empty
+    On Error Resume Next
+
+    If mLoc = "" Or mLoc = "GetSchemaLocation(x,y,grid)" Then
+        Err.Clear
+        tx = Empty : ty = Empty : g = Empty
+        r = sym.GetSchemaLocation(tx, ty, g)
+        If Err.Number = 0 And IsNum(tx) And IsNum(ty) Then
+            mLoc = "GetSchemaLocation(x,y,grid)"
+            sid = NumOr(r, 0)
+            x = CDbl(tx)
+            y = CDbl(ty)
+            SymGetLocation = True
+            Err.Clear
+            Exit Function
+        End If
+        Err.Clear
+        If mLoc <> "" Then Exit Function
+    End If
+
+    If mLoc = "" Or mLoc = "GetSchemaLocation(sheet,x,y,grid)" Then
+        Err.Clear
+        ts = Empty : tx = Empty : ty = Empty : g = Empty
+        sym.GetSchemaLocation ts, tx, ty, g
+        If Err.Number = 0 And IsNum(tx) And IsNum(ty) Then
+            mLoc = "GetSchemaLocation(sheet,x,y,grid)"
+            sid = NumOr(ts, 0)
+            x = CDbl(tx)
+            y = CDbl(ty)
+            SymGetLocation = True
+            Err.Clear
+            Exit Function
+        End If
+        Err.Clear
+        If mLoc <> "" Then Exit Function
+    End If
+
+    If mLoc = "" Or mLoc = "GetSchemaLocation(x,y)" Then
+        Err.Clear
+        tx = Empty : ty = Empty
+        r = sym.GetSchemaLocation(tx, ty)
+        If Err.Number = 0 And IsNum(tx) And IsNum(ty) Then
+            mLoc = "GetSchemaLocation(x,y)"
+            sid = NumOr(r, 0)
+            x = CDbl(tx)
+            y = CDbl(ty)
+            SymGetLocation = True
+            Err.Clear
+            Exit Function
+        End If
+        Err.Clear
+        If mLoc <> "" Then Exit Function
+    End If
+
+    If mLoc = "" Or mLoc = "GetPosition(x,y)" Then
+        Err.Clear
+        tx = Empty : ty = Empty
+        sym.GetPosition tx, ty
+        If Err.Number = 0 And IsNum(tx) And IsNum(ty) Then
+            mLoc = "GetPosition(x,y)"
+            sid = 0
+            x = CDbl(tx)
+            y = CDbl(ty)
+            SymGetLocation = True
+            Err.Clear
+            Exit Function
+        End If
+        Err.Clear
+        If mLoc <> "" Then Exit Function
+    End If
+
+    ' Последний резерв: габарит. Для обратного импорта неточен — предупреждаем один раз.
+    If mLoc = "" Or mLoc = "GetArea (ненадёжно)" Then
+        Err.Clear
+        x1 = Empty : y1 = Empty : x2 = Empty : y2 = Empty
+        sym.GetArea x1, y1, x2, y2
+        If Err.Number = 0 And IsNum(x1) And IsNum(y1) And IsNum(x2) And IsNum(y2) Then
+            mLoc = "GetArea (ненадёжно)"
+            sid = 0
+            x = CDbl(x1)
+            y = CDbl(y1)
+            SymGetLocation = True
+            If Not areaWarned Then
+                areaWarned = True
+                LogBad "Внимание: координаты берутся из габарита (GetArea) — обратный импорт даст сдвиг."
+                LogMsg "Сохраните вывод «Показать координаты символов» и пришлите — подберём точный метод."
+            End If
+            Err.Clear
+            Exit Function
+        End If
+        Err.Clear
+    End If
+End Function
+
+' Перемещение уже размещённого символа. True — только если запись
+' подтверждена обратным чтением.
+Function SymSetLocation(sym, sheetId, x, y, ByRef gotX, ByRef gotY)
+    Dim tries, t, sid2, x2, y2
+    SymSetLocation = False
+    gotX = Empty
+    gotY = Empty
+    On Error Resume Next
+
+    If mSetLoc <> "" Then
+        tries = Array(mSetLoc)
+    Else
+        tries = Array("SetSchemaLocation(sheet,x,y)", "SetSchemaLocation(x,y)", "Place(sheet,x,y)")
+    End If
+
+    For Each t In tries
+        Err.Clear
+        Select Case t
+            Case "SetSchemaLocation(sheet,x,y)" : sym.SetSchemaLocation sheetId, x, y
+            Case "SetSchemaLocation(x,y)"       : sym.SetSchemaLocation x, y
+            Case "Place(sheet,x,y)"             : sym.Place sheetId, x, y
+        End Select
+        If Err.Number = 0 Then
+            Err.Clear
+            If SymGetLocation(sym, sid2, x2, y2) Then
+                gotX = x2
+                gotY = y2
+                If Abs(NumOr(x2, -999999) - x) < EPS And Abs(NumOr(y2, -999999) - y) < EPS Then
+                    mSetLoc = t
+                    SymSetLocation = True
+                    Err.Clear
+                    Exit Function
+                End If
+            End If
+        End If
+        Err.Clear
+    Next
+End Function
+
+' Размещение ещё не размещённого символа
+Function SymPlace(sym, sheetId, x, y, ByRef newId)
+    Dim r
+    SymPlace = False
+    newId = 0
+    On Error Resume Next
+    Err.Clear
+    r = sym.Place(sheetId, x, y)
+    If Err.Number = 0 Then
+        mPlace = "Place(sheetId,x,y)"
+        newId = NumOr(r, 0)
+        SymPlace = True
+        Err.Clear
+        Exit Function
+    End If
+    Err.Clear
+    sym.Place sheetId, x, y
+    If Err.Number = 0 Then
+        mPlace = "Place sheetId,x,y"
+        SymPlace = True
+    End If
+    Err.Clear
+End Function
+
+Function SymGetDeviceId(sym)
+    Dim v
+    SymGetDeviceId = 0
+    On Error Resume Next
+
+    If mDevId = "" Or mDevId = "GetDeviceId" Then
+        Err.Clear
+        v = sym.GetDeviceId()
+        If Err.Number = 0 And IsNum(v) Then
+            mDevId = "GetDeviceId"
+            SymGetDeviceId = CLng(v)
+            Err.Clear
+            Exit Function
+        End If
+        Err.Clear
+        If mDevId <> "" Then Exit Function
+    End If
+
+    If mDevId = "" Or mDevId = "GetOwnerDeviceId" Then
+        Err.Clear
+        v = sym.GetOwnerDeviceId()
+        If Err.Number = 0 And IsNum(v) Then
+            mDevId = "GetOwnerDeviceId"
+            SymGetDeviceId = CLng(v)
+            Err.Clear
+            Exit Function
+        End If
+        Err.Clear
+        If mDevId <> "" Then Exit Function
+    End If
+
+    If mDevId = "" Or mDevId = "DeviceID" Then
+        Err.Clear
+        v = sym.DeviceID
+        If Err.Number = 0 And IsNum(v) Then
+            mDevId = "DeviceID"
+            SymGetDeviceId = CLng(v)
+        End If
+        Err.Clear
+    End If
+End Function
+
+Function SymGetSheetId(sym)
+    Dim v, sid, x, y
+    SymGetSheetId = 0
+    On Error Resume Next
+
+    If mSheetId = "" Or mSheetId = "GetSheetId" Then
+        Err.Clear
+        v = sym.GetSheetId()
+        If Err.Number = 0 And IsNum(v) Then
+            mSheetId = "GetSheetId"
+            SymGetSheetId = CLng(v)
+            Err.Clear
+            Exit Function
+        End If
+        Err.Clear
+        If mSheetId <> "" Then Exit Function
+    End If
+
+    If SymGetLocation(sym, sid, x, y) Then
+        If NumOr(sid, 0) > 0 Then
+            mSheetId = "из " & mLoc
+            SymGetSheetId = CLng(sid)
+        End If
+    End If
+    Err.Clear
+End Function
+
+Function SymGetRotation(sym)
+    Dim v
+    SymGetRotation = Empty
+    On Error Resume Next
+
+    If mRot = "" Or mRot = "GetRotation" Then
+        Err.Clear
+        v = sym.GetRotation()
+        If Err.Number = 0 And IsNum(v) Then
+            mRot = "GetRotation"
+            SymGetRotation = CDbl(v)
+            Err.Clear
+            Exit Function
+        End If
+        Err.Clear
+        If mRot <> "" Then Exit Function
+    End If
+
+    If mRot = "" Or mRot = "GetAngle" Then
+        Err.Clear
+        v = sym.GetAngle()
+        If Err.Number = 0 And IsNum(v) Then
+            mRot = "GetAngle"
+            SymGetRotation = CDbl(v)
+        End If
+        Err.Clear
+    End If
+End Function
+
+Function SymSetRotation(sym, ang)
+    SymSetRotation = False
+    On Error Resume Next
+
+    If mSetRot = "" Or mSetRot = "SetRotation" Then
+        Err.Clear
+        sym.SetRotation ang
+        If Err.Number = 0 Then
+            mSetRot = "SetRotation"
+            SymSetRotation = True
+            Err.Clear
+            Exit Function
+        End If
+        Err.Clear
+        If mSetRot <> "" Then Exit Function
+    End If
+
+    If mSetRot = "" Or mSetRot = "SetAngle" Then
+        Err.Clear
+        sym.SetAngle ang
+        If Err.Number = 0 Then
+            mSetRot = "SetAngle"
+            SymSetRotation = True
+        End If
+        Err.Clear
+    End If
+End Function
+
+Function SymGetMirror(sym)
+    Dim v
+    SymGetMirror = Empty
+    On Error Resume Next
+
+    If mMir = "" Or mMir = "IsMirrored" Then
+        Err.Clear
+        v = sym.IsMirrored()
+        If Err.Number = 0 And IsNum(v) Then
+            mMir = "IsMirrored"
+            SymGetMirror = CLng(v)
+            Err.Clear
+            Exit Function
+        End If
+        Err.Clear
+        If mMir <> "" Then Exit Function
+    End If
+
+    If mMir = "" Or mMir = "GetMirrorMode" Then
+        Err.Clear
+        v = sym.GetMirrorMode()
+        If Err.Number = 0 And IsNum(v) Then
+            mMir = "GetMirrorMode"
+            SymGetMirror = CLng(v)
+        End If
+        Err.Clear
+    End If
+End Function
+
+' Символы изделия: сначала сигнатура с типом, затем без него
+Function DevSymbolIds(dev, ByRef ids)
+    DevSymbolIds = 0
+    ids = Empty
+    On Error Resume Next
+
+    If mDevSym = "" Or mDevSym = "GetSymbolIds(ids,0)" Then
+        Err.Clear
+        dev.GetSymbolIds ids, 0
+        If Err.Number = 0 And IsArray(ids) Then
+            mDevSym = "GetSymbolIds(ids,0)"
+            DevSymbolIds = IdCount(ids)
+            Err.Clear
+            Exit Function
+        End If
+        Err.Clear
+        If mDevSym <> "" Then Exit Function
+    End If
+
+    If mDevSym = "" Or mDevSym = "GetSymbolIds(ids)" Then
+        Err.Clear
+        ids = Empty
+        dev.GetSymbolIds ids
+        If Err.Number = 0 And IsArray(ids) Then
+            mDevSym = "GetSymbolIds(ids)"
+            DevSymbolIds = IdCount(ids)
+        End If
+        Err.Clear
+    End If
+End Function
+
+'==============================================================================
+'  Кэш проекта
+'==============================================================================
+Sub LoadSheets()
+    On Error Resume Next
+    Dim ids, i, id, nm, sObj
+
+    Set sheetIdByName = CreateObject("Scripting.Dictionary")
+    Set sheetNameById = CreateObject("Scripting.Dictionary")
+
+    ctJob.GetSheetIds ids
+    If Err.Number <> 0 Or Not IsArray(ids) Then
+        LogBad "Листы получить не удалось."
+        Err.Clear
+        Exit Sub
+    End If
+
+    Set sObj = ctJob.CreateSheetObject()
+    For i = LBound(ids) To UBound(ids)
+        id = NumOr(ids(i), 0)
+        If id > 0 Then
+            sObj.SetId id
+            nm = sObj.GetName()
+            If Err.Number <> 0 Then
+                nm = ""
+                Err.Clear
+            End If
+            nm = Trim(nm & "")
+            If nm <> "" Then
+                If sheetIdByName.Exists(nm) Then
+                    LogV "Лист с повторяющимся именем «" & nm & "» (ID " & id & ") — при импорте берётся первый."
+                Else
+                    sheetIdByName.Add nm, CLng(id)
+                End If
+                If Not sheetNameById.Exists(CStr(CLng(id))) Then sheetNameById.Add CStr(CLng(id)), nm
+            End If
+        End If
+    Next
+    LogMsg "Листов в проекте: " & sheetIdByName.Count
+    Err.Clear
+End Sub
+
+Sub LoadDevices()
+    On Error Resume Next
+    Dim ids, i, id, dev, nm, poz
+
+    Set devIdByPoz = CreateObject("Scripting.Dictionary")
+    Set devIdByName = CreateObject("Scripting.Dictionary")
+
+    ctJob.GetAllDeviceIds ids
+    If Err.Number <> 0 Or Not IsArray(ids) Then
+        LogBad "Изделия получить не удалось."
+        Err.Clear
+        Exit Sub
+    End If
+
+    Set dev = ctJob.CreateDeviceObject()
+    For i = LBound(ids) To UBound(ids)
+        id = NumOr(ids(i), 0)
+        If id > 0 Then
+            dev.SetId id
+            nm = dev.GetName()
+            If Err.Number <> 0 Then
+                nm = ""
+                Err.Clear
+            End If
+            nm = StripDash(Trim(nm & ""))
+            If nm <> "" Then
+                If Not devIdByName.Exists(nm) Then devIdByName.Add nm, CLng(id)
+            End If
+            poz = dev.GetAttributeValue(HDR(C_POZ))
+            If Err.Number <> 0 Then
+                poz = ""
+                Err.Clear
+            End If
+            poz = Trim(poz & "")
+            If poz <> "" Then
+                If Not devIdByPoz.Exists(poz) Then devIdByPoz.Add poz, CLng(id)
+            End If
+        End If
+    Next
+    LogMsg "Изделий в проекте: " & IdCount(ids) & " (по «" & HDR(C_POZ) & "»: " & devIdByPoz.Count & _
+           ", по имени: " & devIdByName.Count & ")"
+    Err.Clear
+End Sub
+
+Function FindDeviceId(poz)
+    FindDeviceId = 0
+    If poz = "" Then Exit Function
+    If devIdByPoz.Exists(poz) Then
+        FindDeviceId = devIdByPoz(poz)
+        Exit Function
+    End If
+    Dim nm
+    nm = StripDash(poz)
+    If devIdByName.Exists(nm) Then FindDeviceId = devIdByName(nm)
+End Function
+
+Function FindSheetId(nm)
+    Dim k, ok, ok2, num, n2
+    FindSheetId = 0
+    If nm = "" Then Exit Function
+    If sheetIdByName.Exists(nm) Then
+        FindSheetId = sheetIdByName(nm)
+        Exit Function
+    End If
+    ' имя листа «1» из Excel могло приехать как «1,0» или «1.0»
+    num = ParseNum(nm, ok)
+    If ok Then
+        For Each k In sheetIdByName.Keys
+            n2 = ParseNum(k, ok2)
+            If ok2 Then
+                If Abs(n2 - num) < 0.0000001 Then
+                    FindSheetId = sheetIdByName(k)
+                    Exit Function
+                End If
+            End If
+        Next
+    End If
+End Function
+
+Function SheetNameOf(id)
+    SheetNameOf = ""
+    If id <= 0 Then Exit Function
+    If sheetNameById.Exists(CStr(CLng(id))) Then SheetNameOf = sheetNameById(CStr(CLng(id)))
+End Function
+
+'==============================================================================
+'  Движок пошаговой обработки: живой прогресс и работающая кнопка «Стоп».
+'  (VBScript не знает DoEvents, поэтому цикл нарезан на порции и
+'   прокручивается через window.setTimeout.)
+'==============================================================================
+Sub StartJob(kind)
+    stopRequested = False
+    jobBusy = True
+    jobDone = False
+    jobKind = kind
+    asyncOk = True
+    ReadVerbose
+    SetBusyUi True
+    ShowProgress True
+    Progress 0, 1, "подготовка"
+    PumpOnce
+End Sub
+
+Sub PumpOnce()
+    On Error Resume Next
+
+    Err.Clear
+    JobChunk
+    If Err.Number <> 0 Then
+        LogErrNum "Сбой в шаге обработки", Err.Number, Err.Description
+        Err.Clear
+        jobDone = True
+    End If
+
+    If jobDone Then
+        JobFinish
+        Exit Sub
+    End If
+
+    If asyncOk Then
+        Err.Clear
+        window.setTimeout "Call PumpOnce", 1, "VBScript"
+        If Err.Number = 0 Then Exit Sub
+        Err.Clear
+        asyncOk = False
+        LogMsg "Пошаговый режим недоступен: дальше без обновления интерфейса."
+    End If
+
+    Do While Not jobDone
+        Err.Clear
+        JobChunk
+        If Err.Number <> 0 Then
+            LogErrNum "Сбой в шаге обработки", Err.Number, Err.Description
+            Err.Clear
+            jobDone = True
+        End If
+    Loop
+    JobFinish
+End Sub
+
+Sub JobChunk()
+    If jobKind = "export" Then
+        ExportChunk
+    Else
+        ImportChunk
+    End If
+End Sub
+
+Sub JobFinish()
+    jobBusy = False
+    ShowProgress False
+    SetBusyUi False
+    stopRequested = False
+End Sub
+
+Sub SetBusyUi(busy)
+    On Error Resume Next
+    document.getElementById("btnExport").disabled = busy Or Not isConnected
+    document.getElementById("btnImport").disabled = busy Or Not isConnected Or (excelFile = "")
+    document.getElementById("btnDiag").disabled = busy Or Not isConnected
+    document.getElementById("btnRT").disabled = busy Or Not isConnected
+    document.getElementById("btnStop").disabled = Not busy
+    Err.Clear
+End Sub
+
+Sub uiStop()
+    stopRequested = True
+    LogMsg "Запрошена остановка..."
+    document.getElementById("btnStop").disabled = True
+    document.getElementById("progressText").innerHTML = "останавливаюсь..."
+End Sub
+
+'==============================================================================
+'  ЭКСПОРТ
+'==============================================================================
+Sub uiExport()
+    If Not isConnected Then
+        MsgBox "Сначала подключитесь к E3.series.", 48, "Экспорт"
+        Exit Sub
+    End If
+    If jobBusy Then Exit Sub
+
+    On Error Resume Next
+    exWithPlacements = document.getElementById("chkPlacements").checked
+    exOnlyPlaced = document.getElementById("chkOnlyPlaced").checked
+    exStart = Timer
+    exSkipped = 0
+    exRowCursor = 0
+    exSymTotal = 0
+    exPlaceCnt = 0
+
+    LogMsg "===================================="
+    LogMsg "Экспорт изделий"
+
+    exIds = Empty
+    ctJob.GetAllDeviceIds exIds
+    If Err.Number <> 0 Or Not IsArray(exIds) Then
+        LogErrNum "Список изделий получить не удалось", Err.Number, Err.Description
+        Err.Clear
+        Exit Sub
+    End If
+    Err.Clear
+
+    exRows = IdCount(exIds)
+    If exRows = 0 Then
+        LogMsg "В проекте нет изделий."
+        Exit Sub
+    End If
+    LogMsg "Изделий к выгрузке: " & exRows & " (индексы массива API " & LBound(exIds) & ".." & UBound(exIds) & ")"
+
+    exSheetIds = Empty
+    ctJob.GetSheetIds exSheetIds
+    Err.Clear
+    exSheetTotal = 0
+    exSheetIdx = 0
+    If IsArray(exSheetIds) Then
+        exSheetIdx = LBound(exSheetIds)
+        exSheetTotal = UBound(exSheetIds) - LBound(exSheetIds) + 1
+    End If
+
+    Set exPlaceMap = CreateObject("Scripting.Dictionary")
+    Set exPozById = CreateObject("Scripting.Dictionary")
+
+    ' Порядок размерностей: (столбец, строка). ReDim Preserve в VBScript
+    ' умеет наращивать только последнюю размерность.
+    exPlaceCap = MaxI(exRows * 2, 256)
+    ReDim exPlaceCols(PCOLS, exPlaceCap)
+
+    ReDim exArr(exRows - 1, COLS - 1)
+    exIdx = LBound(exIds)
+
+    jobPhase = 1
+    StartJob "export"
+End Sub
+
+Sub ExportChunk()
+    Select Case jobPhase
+        Case 1
+            ExportPhaseSheets
+        Case 2
+            ExportPhaseDevices
+        Case 3
+            ExportPhaseWrite
+        Case Else
+            jobDone = True
+    End Select
+End Sub
+
+' Фаза 1: обход листов, сбор размещений символов
+Sub ExportPhaseSheets()
+    On Error Resume Next
+    Dim shObj, symObj, symIds, j, symId, devId, sid, x, y, nm, rot, mir, sName, per, shId
+
+    If stopRequested Then
+        LogMsg "Экспорт прерван."
+        jobDone = True
+        Exit Sub
+    End If
+
+    If Not IsArray(exSheetIds) Then
+        jobPhase = 2
+        Exit Sub
+    End If
+
+    Set shObj = ctJob.CreateSheetObject()
+    Set symObj = ctJob.CreateSymbolObject()
+    per = 0
+
+    Do While exSheetIdx <= UBound(exSheetIds) And per < 3
+        shId = NumOr(exSheetIds(exSheetIdx), 0)
+        exSheetIdx = exSheetIdx + 1
+        If shId > 0 Then
+            per = per + 1
+            shObj.SetId shId
+            sName = shObj.GetName()
+            If Err.Number <> 0 Then
+                sName = ""
+                Err.Clear
+            End If
+
+            symIds = Empty
+            shObj.GetSymbolIds symIds
+            Err.Clear
+
+            If IsArray(symIds) Then
+                For j = LBound(symIds) To UBound(symIds)
+                    symId = NumOr(symIds(j), 0)
+                    If symId > 0 Then
+                        symObj.SetId symId
+                        Err.Clear
+                        devId = SymGetDeviceId(symObj)
+                        If devId > 0 Then
+                            If SymGetLocation(symObj, sid, x, y) Then
+                                Dim useShId, useName
+                                useShId = shId
+                                useName = sName
+                                If NumOr(sid, 0) > 0 And CLng(NumOr(sid, 0)) <> CLng(shId) Then
+                                    useShId = CLng(sid)
+                                    useName = SheetNameOf(useShId)
+                                    If useName = "" Then useName = sName
+                                End If
+
+                                exSymTotal = exSymTotal + 1
+                                nm = symObj.GetName()
+                                If Err.Number <> 0 Then
+                                    nm = ""
+                                    Err.Clear
+                                End If
+                                rot = SymGetRotation(symObj)
+                                mir = SymGetMirror(symObj)
+
+                                If Not exPlaceMap.Exists(CStr(devId)) Then
+                                    exPlaceMap.Add CStr(devId), Array(useName, x, y, rot, mir, symId, nm, useShId)
+                                End If
+
+                                If exWithPlacements Then
+                                    If exPlaceCnt + 1 > exPlaceCap Then
+                                        exPlaceCap = exPlaceCap + 1024
+                                        ReDim Preserve exPlaceCols(PCOLS, exPlaceCap)
+                                    End If
+                                    exPlaceCnt = exPlaceCnt + 1
+                                    exPlaceCols(P_SYMID, exPlaceCnt) = symId
+                                    exPlaceCols(P_SNAME, exPlaceCnt) = nm
+                                    exPlaceCols(P_SHEET, exPlaceCnt) = useName
+                                    exPlaceCols(P_SHID,  exPlaceCnt) = useShId
+                                    exPlaceCols(P_X,     exPlaceCnt) = x
+                                    exPlaceCols(P_Y,     exPlaceCnt) = y
+                                    exPlaceCols(P_ROT,   exPlaceCnt) = rot
+                                    exPlaceCols(P_MIR,   exPlaceCnt) = mir
+                                    exPlaceCols(P_DEVID, exPlaceCnt) = devId
+                                End If
+                            End If
+                        End If
+                    End If
+                Next
+            End If
+        End If
+    Loop
+
+    Progress exSheetIdx - LBound(exSheetIds), MaxI(exSheetTotal, 1), "обход листов"
+
+    If exSheetIdx > UBound(exSheetIds) Then
+        LogMsg "Найдено размещений: " & exSymTotal & " символов; изделий с координатами: " & exPlaceMap.Count
+        jobPhase = 2
+    End If
+    Err.Clear
+End Sub
+
+' Фаза 2: чтение изделий и атрибутов
+Sub ExportPhaseDevices()
+    On Error Resume Next
+    Dim dev, per, id, r, k, v, pl, ids2, cnt2, poz
+
+    If stopRequested Then
+        LogMsg "Экспорт прерван, пишу собранное."
+        jobPhase = 3
+        Exit Sub
+    End If
+
+    Set dev = ctJob.CreateDeviceObject()
+    per = 0
+
+    Do While exIdx <= UBound(exIds) And per < 40
+        id = NumOr(exIds(exIdx), 0)
+        exIdx = exIdx + 1
+        If id > 0 Then
+            pl = Empty
+            If exPlaceMap.Exists(CStr(CLng(id))) Then pl = exPlaceMap(CStr(CLng(id)))
+
+            If exOnlyPlaced And Not IsArray(pl) Then
+                exSkipped = exSkipped + 1
+            Else
+                per = per + 1
+                r = exRowCursor
+                dev.SetId id
+                Err.Clear
+
+                poz = StripDash(Trim(SafeStr(dev.GetName())))
+                Err.Clear
+                v = dev.GetAttributeValue(HDR(C_POZ))
+                If Err.Number = 0 Then
+                    If Trim(v & "") <> "" Then poz = Trim(v & "")
+                End If
+                Err.Clear
+
+                exArr(r, C_POZ - 1) = poz
+                If Not exPozById.Exists(CStr(CLng(id))) Then exPozById.Add CStr(CLng(id)), poz
+
+                exArr(r, C_COMP - 1) = SafeStr(dev.GetComponentName())
+                Err.Clear
+
+                For k = C_ATTR_FIRST To C_ATTR_LAST
+                    v = dev.GetAttributeValue(HDR(k))
+                    If Err.Number = 0 Then
+                        exArr(r, k - 1) = SafeStr(v)
+                    Else
+                        exArr(r, k - 1) = ""
+                        Err.Clear
+                    End If
+                Next
+
+                exArr(r, C_DEVID - 1) = CLng(id)
+
+                If IsArray(pl) Then
+                    exArr(r, C_SHEET - 1)   = pl(0)
+                    exArr(r, C_X - 1)       = pl(1)    ' число, не строка: без локальных запятых
+                    exArr(r, C_Y - 1)       = pl(2)
+                    exArr(r, C_ROT - 1)     = pl(3)
+                    exArr(r, C_MIR - 1)     = pl(4)
+                    exArr(r, C_SYMID - 1)   = pl(5)
+                    exArr(r, C_SYMNAME - 1) = pl(6)
+                    exArr(r, C_SHEETID - 1) = pl(7)
+                End If
+
+                cnt2 = DevSymbolIds(dev, ids2)
+                exArr(r, C_SYMCOUNT - 1) = cnt2
+                Err.Clear
+
+                exRowCursor = exRowCursor + 1
+            End If
+        End If
+    Loop
+
+    Progress exIdx - LBound(exIds), MaxI(UBound(exIds) - LBound(exIds) + 1, 1), "чтение изделий"
+
+    If exIdx > UBound(exIds) Then jobPhase = 3
+    Err.Clear
+End Sub
+
+' Фаза 3: запись книги Excel
+Sub ExportPhaseWrite()
+    On Error Resume Next
+    Dim ws2, hdrArr(), ph(), pArr(), j, i, filePath, sh, dt, dur
+    Dim symsByDev, ids3, dev3, key, nr, t
+
+    Progress 0, 1, "создание книги Excel"
+
+    Set exExcel = CreateObject("Excel.Application")
+    If Err.Number <> 0 Then
+        LogErrNum "Excel не запускается", Err.Number, Err.Description
+        Err.Clear
+        jobDone = True
+        Exit Sub
+    End If
+    exExcel.Visible = False
+    exExcel.DisplayAlerts = False
+    exExcel.ScreenUpdating = False
+
+    Set exWb = exExcel.Workbooks.Add
+    exExcel.Calculation = XL_MANUAL
+    Err.Clear
+
+    Set exWs = exWb.Sheets(1)
+    exWs.Name = SH_DEV
+
+    ReDim hdrArr(0, COLS - 1)
+    For j = 1 To COLS
+        hdrArr(0, j - 1) = HDR(j)
+    Next
+    exWs.Range(exWs.Cells(1, 1), exWs.Cells(1, COLS)).Value = hdrArr
+
+    ' Массив рассчитан на exRows строк; если часть пропущена фильтром,
+    ' лишние строки удаляем после записи.
+    If exRows > 0 Then
+        exWs.Range(exWs.Cells(2, 1), exWs.Cells(exRows + 1, COLS)).Value = exArr
+        If Err.Number <> 0 Then
+            LogErrNum "Запись массива в Excel не удалась", Err.Number, Err.Description
+            Err.Clear
+        End If
+        If exRowCursor < exRows Then
+            exWs.Range(exWs.Rows(exRowCursor + 2), exWs.Rows(exRows + 1)).Delete XL_SHIFTUP
+            Err.Clear
+        End If
+    End If
+    LogMsg "Записано изделий: " & exRowCursor
+
+    ' лист «Размещения»
+    If exWithPlacements And exPlaceCnt > 0 Then
+        Progress 0, 1, "лист «" & SH_PLACE & "»"
+        Set ws2 = exWb.Worksheets.Add
+        ws2.Name = SH_PLACE
+        exWs.Move ws2                       ' «Изделия» перед «Размещениями»
+        Err.Clear
+
+        ReDim ph(0, PCOLS - 1)
+        For j = 1 To PCOLS
+            ph(0, j - 1) = PHDR(j)
+        Next
+        ws2.Range(ws2.Cells(1, 1), ws2.Cells(1, PCOLS)).Value = ph
+
+        ' номер символа внутри изделия — позиция в списке GetSymbolIds,
+        ' чтобы импорт нашёл тот же символ
+        Set symsByDev = CreateObject("Scripting.Dictionary")
+        Set dev3 = ctJob.CreateDeviceObject()
+
+        ReDim pArr(exPlaceCnt - 1, PCOLS - 1)
+        For i = 1 To exPlaceCnt
+            key = CStr(CLng(NumOr(exPlaceCols(P_DEVID, i), 0)))
+            If Not symsByDev.Exists(key) Then
+                dev3.SetId CLng(NumOr(exPlaceCols(P_DEVID, i), 0))
+                ids3 = Empty
+                DevSymbolIds dev3, ids3
+                Err.Clear
+                symsByDev.Add key, ids3
+            End If
+
+            nr = SymbolNrIn(symsByDev(key), NumOr(exPlaceCols(P_SYMID, i), 0))
+
+            pArr(i - 1, P_POZ - 1)   = PozOf(NumOr(exPlaceCols(P_DEVID, i), 0))
+            pArr(i - 1, P_NR - 1)    = nr
+            pArr(i - 1, P_SYMID - 1) = exPlaceCols(P_SYMID, i)
+            pArr(i - 1, P_SNAME - 1) = exPlaceCols(P_SNAME, i)
+            pArr(i - 1, P_SHEET - 1) = exPlaceCols(P_SHEET, i)
+            pArr(i - 1, P_SHID - 1)  = exPlaceCols(P_SHID, i)
+            pArr(i - 1, P_X - 1)     = exPlaceCols(P_X, i)
+            pArr(i - 1, P_Y - 1)     = exPlaceCols(P_Y, i)
+            pArr(i - 1, P_ROT - 1)   = exPlaceCols(P_ROT, i)
+            pArr(i - 1, P_MIR - 1)   = exPlaceCols(P_MIR, i)
+            pArr(i - 1, P_DEVID - 1) = exPlaceCols(P_DEVID, i)
+        Next
+        ws2.Range(ws2.Cells(2, 1), ws2.Cells(exPlaceCnt + 1, PCOLS)).Value = pArr
+        If Err.Number <> 0 Then
+            LogErrNum "Запись листа «" & SH_PLACE & "» не удалась", Err.Number, Err.Description
+            Err.Clear
+        End If
+        FormatSheet ws2, PCOLS, exPlaceCnt, Array(P_X, P_Y)
+        LogMsg "Записано размещений: " & exPlaceCnt
+    End If
+
+    Progress 0, 1, "оформление"
+    FormatSheet exWs, COLS, exRowCursor, Array(C_X, C_Y)
+
+    Progress 0, 1, "сохранение"
+    Set sh = CreateObject("WScript.Shell")
+    dt = Year(Now) & Right("0" & Month(Now), 2) & Right("0" & Day(Now), 2) & "_" & _
+         Right("0" & Hour(Now), 2) & Right("0" & Minute(Now), 2) & Right("0" & Second(Now), 2)
+    filePath = sh.SpecialFolders("Desktop") & "\E3_Export_" & dt & ".xlsx"
+
+    exWb.SaveAs filePath, XL_XLSX
+    If Err.Number <> 0 Then
+        LogErrNum "Файл сохранить не удалось", Err.Number, Err.Description
+        Err.Clear
+    End If
+
+    exExcel.Calculation = XL_AUTO
+    exExcel.ScreenUpdating = True
+    exExcel.Visible = True
+    Err.Clear
+
+    dur = Round(Timer - exStart, 2)
+    LogMsg "------------------------------------"
+    LogMsg "Экспорт завершён за " & dur & " с"
+    If exSkipped > 0 Then LogMsg "Пропущено изделий без размещения: " & exSkipped
+    LogMsg "Файл: " & filePath
+    LogMsg "===================================="
+
+    excelFile = filePath
+    document.getElementById("filePath").value = filePath
+
+    MsgBox "Экспорт завершён." & vbCrLf & vbCrLf & _
+           "Изделий: " & exRowCursor & vbCrLf & _
+           "Размещений: " & exPlaceCnt & vbCrLf & _
+           "Время: " & dur & " с" & vbCrLf & vbCrLf & filePath, 64, "Экспорт"
+
+    Set exWs = Nothing
+    Set exWb = Nothing
+    Set exExcel = Nothing
+    jobDone = True
+    Err.Clear
+End Sub
+
+Function SymbolNrIn(ids, symId)
+    Dim i, k
+    SymbolNrIn = 1
+    If Not IsArray(ids) Then Exit Function
+    k = 0
+    For i = LBound(ids) To UBound(ids)
+        If NumOr(ids(i), 0) > 0 Then
+            k = k + 1
+            If CLng(NumOr(ids(i), 0)) = CLng(symId) Then
+                SymbolNrIn = k
+                Exit Function
+            End If
+        End If
+    Next
+End Function
+
+Function PozOf(devId)
+    Dim dev, v
+    PozOf = ""
+    If devId <= 0 Then Exit Function
+    If exPozById.Exists(CStr(CLng(devId))) Then
+        PozOf = exPozById(CStr(CLng(devId)))
+        Exit Function
+    End If
+    On Error Resume Next
+    Set dev = ctJob.CreateDeviceObject()
+    dev.SetId CLng(devId)
+    v = dev.GetAttributeValue(HDR(C_POZ))
+    If Err.Number = 0 And Trim(v & "") <> "" Then
+        PozOf = Trim(v & "")
+    Else
+        Err.Clear
+        PozOf = StripDash(Trim(SafeStr(dev.GetName())))
+    End If
+    Err.Clear
+End Function
+
+Sub FormatSheet(ws, colCount, rowCount, numCols)
+    On Error Resume Next
+    Dim j, w, c
+    With ws.Rows(1)
+        .Font.Bold = True
+        .Font.Color = RGB(255, 255, 255)
+        .Interior.Color = RGB(79, 129, 189)
+        .HorizontalAlignment = XL_CENTER
+        .VerticalAlignment = XL_CENTER
+        .RowHeight = 24
+    End With
+    For j = 1 To colCount
+        ws.Columns(j).AutoFit
+        w = ws.Columns(j).ColumnWidth
+        If IsNum(w) Then
+            If w < 10 Then ws.Columns(j).ColumnWidth = 10
+            If w > 34 Then ws.Columns(j).ColumnWidth = 34
+        End If
+    Next
+    For Each c In numCols
+        ws.Columns(c).NumberFormat = "0.00"
+    Next
+    If rowCount > 0 Then
+        ws.Range(ws.Cells(1, 1), ws.Cells(rowCount + 1, colCount)).AutoFilter
+    End If
+    ws.Activate
+    ws.Range("A2").Select
+    ws.Parent.Windows(1).FreezePanes = True
+    ws.Range("A1").Select
+    Err.Clear
+End Sub
+
+'==============================================================================
+'  ИМПОРТ
+'==============================================================================
+Sub uiImport()
+    If excelFile = "" Then
+        MsgBox "Выберите файл Excel.", 48, "Импорт"
+        Exit Sub
+    End If
+    If Not isConnected Then
+        MsgBox "Сначала подключитесь к E3.series.", 48, "Импорт"
+        Exit Sub
+    End If
+    If jobBusy Then Exit Sub
+
+    On Error Resume Next
+    Dim wsP
+
+    imDoAttrs  = document.getElementById("chkAttrs").checked
+    imDoCreate = document.getElementById("chkCreate").checked
+    imDoPlace  = document.getElementById("chkPlace").checked
+    imDoSave   = document.getElementById("chkSave").checked
+    imDryRun   = document.getElementById("chkDry").checked
+
+    imCreated = 0
+    imUpdated = 0
+    imPlaced = 0
+    imMoved = 0
+    imErrors = 0
+    imBadCoord = 0
+    imSkipped = 0
+    imStart = Timer
+
+    LogMsg "===================================="
+    If imDryRun Then
+        LogMsg "Импорт: ТОЛЬКО ПРОВЕРКА, проект не изменяется"
+    Else
+        LogMsg "Импорт в проект"
+    End If
+    LogMsg "Файл: " & excelFile
+
+    Set imExcel = CreateObject("Excel.Application")
+    If Err.Number <> 0 Then
+        LogErrNum "Excel не запускается", Err.Number, Err.Description
+        Err.Clear
+        Exit Sub
+    End If
+    imExcel.Visible = False
+    imExcel.DisplayAlerts = False
+    imExcel.ScreenUpdating = False
+
+    Set imWb = imExcel.Workbooks.Open(excelFile)
+    If Err.Number <> 0 Then
+        LogErrNum "Файл открыть не удалось", Err.Number, Err.Description
+        Err.Clear
+        imExcel.Quit
+        Set imExcel = Nothing
+        Exit Sub
+    End If
+
+    Set imWs = FindWorksheet(imWb, SH_DEV)
+    If imWs Is Nothing Then Set imWs = imWb.Sheets(1)
+    LogMsg "Лист изделий: «" & imWs.Name & "»"
+
+    If Not ReadSheetToArray(imWs, imVals, imLastRow) Then
+        LogBad "На листе нет строк данных."
+        CloseImportBook
+        Exit Sub
+    End If
+
+    Set imMap = BuildColMap(imVals)
+    If ColOf(imMap, HDR(C_POZ)) = 0 Then
+        LogBad "В шапке нет столбца «" & HDR(C_POZ) & "» — импорт невозможен."
+        CloseImportBook
+        Exit Sub
+    End If
+    LogMsg "Строк данных: " & (imLastRow - 1) & ", распознано столбцов: " & imMap.Count
+
+    imRow = 2
+    imPRow = 2
+    imPLastRow = 0
+    Set imPMap = Nothing
+    imPVals = Empty
+
+    If imDoPlace Then
+        Set wsP = FindWorksheet(imWb, SH_PLACE)
+        If Not (wsP Is Nothing) Then
+            If ReadSheetToArray(wsP, imPVals, imPLastRow) Then
+                Set imPMap = BuildColMap(imPVals)
+                If ColOf(imPMap, PHDR(P_POZ)) = 0 Then
+                    Set imPMap = Nothing
+                    LogBad "На листе «" & SH_PLACE & "» нет столбца «" & PHDR(P_POZ) & "» — размещаю по основному листу."
+                Else
+                    LogMsg "Лист «" & SH_PLACE & "»: строк " & (imPLastRow - 1) & _
+                           " — размещение пойдёт по нему, посимвольно."
+                End If
+            End If
+        End If
+        If ColOf(imMap, HDR(C_SHEET)) = 0 And imPMap Is Nothing Then
+            LogBad "Нет столбца «" & HDR(C_SHEET) & "» и листа «" & SH_PLACE & "» — размещать нечем."
+        End If
+    End If
+
+    jobPhase = 1
+    StartJob "import"
+End Sub
+
+Sub ImportChunk()
+    Select Case jobPhase
+        Case 1
+            ImportPhaseRows
+        Case 2
+            ImportPhasePlacements
+        Case 3
+            ImportPhaseFinish
+        Case Else
+            jobDone = True
+    End Select
+End Sub
+
+Sub ImportPhaseRows()
+    On Error Resume Next
+    Dim per, poz, comp, devId, dev, cPoz, cComp, cur
+
+    If stopRequested Then
+        LogMsg "Импорт прерван пользователем."
+        imSkipped = imSkipped + (imLastRow - imRow + 1)
+        jobPhase = 3
+        Exit Sub
+    End If
+
+    cPoz = ColOf(imMap, HDR(C_POZ))
+    cComp = ColOf(imMap, HDR(C_COMP))
+    per = 0
+
+    Do While imRow <= imLastRow And per < 20
+        poz = CellStr(imVals, imRow, cPoz)
+        comp = CellStr(imVals, imRow, cComp)
+
+        If poz <> "" And LCase(poz) <> LCase(HDR(C_POZ)) Then
+            per = per + 1
+            devId = FindDeviceId(poz)
+
+            If devId <= 0 Then
+                If imDoCreate Then
+                    devId = CreateDevice(poz, comp, imRow)
+                    If devId > 0 Or imDryRun Then
+                        imCreated = imCreated + 1
+                        LogV "[" & (imRow - 1) & "] создано: " & poz
+                    Else
+                        imErrors = imErrors + 1
+                    End If
+                Else
+                    imSkipped = imSkipped + 1
+                    LogV "[" & (imRow - 1) & "] в проекте нет, создание отключено: " & poz
+                End If
+            Else
+                If imDoAttrs Then
+                    If ApplyAttributes(devId, imRow) Then
+                        imUpdated = imUpdated + 1
+                        LogV "[" & (imRow - 1) & "] обновлено: " & poz
+                    Else
+                        imErrors = imErrors + 1
+                    End If
+                End If
+                If comp <> "" Then
+                    Set dev = ctJob.CreateDeviceObject()
+                    dev.SetId devId
+                    cur = SafeStr(dev.GetComponentName())
+                    Err.Clear
+                    If cur <> "" And cur <> comp Then
+                        LogV "  " & poz & ": компонент в проекте «" & cur & "», в Excel «" & comp & _
+                             "» — замена компонента через API не выполняется."
+                    End If
+                End If
+            End If
+
+            ' размещение по основному листу — только если нет листа «Размещения»
+            If imDoPlace And devId > 0 And (imPMap Is Nothing) Then
+                PlaceFromMainRow devId, poz, imRow
+            End If
+        End If
+
+        imRow = imRow + 1
+    Loop
+
+    Progress imRow - 2, MaxI(imLastRow - 1, 1), "обработка строк"
+
+    If imRow > imLastRow Then
+        If imDoPlace And Not (imPMap Is Nothing) Then
+            jobPhase = 2
+        Else
+            jobPhase = 3
+        End If
+    End If
+    Err.Clear
+End Sub
+
+Sub ImportPhasePlacements()
+    On Error Resume Next
+    Dim per, poz, nr, symId, devId
+
+    If stopRequested Then
+        LogMsg "Размещение прервано пользователем."
+        jobPhase = 3
+        Exit Sub
+    End If
+
+    per = 0
+    Do While imPRow <= imPLastRow And per < 20
+        poz = CellStr(imPVals, imPRow, ColOf(imPMap, PHDR(P_POZ)))
+        If poz <> "" And LCase(poz) <> LCase(PHDR(P_POZ)) Then
+            per = per + 1
+            devId = FindDeviceId(poz)
+            If devId <= 0 Then
+                LogV "[разм. " & (imPRow - 1) & "] изделие не найдено: " & poz
+                imErrors = imErrors + 1
+            Else
+                nr = ParseIntCell(imPVals, imPRow, ColOf(imPMap, PHDR(P_NR)), 1)
+                symId = ParseIntCell(imPVals, imPRow, ColOf(imPMap, PHDR(P_SYMID)), 0)
+                PlaceOne devId, poz, symId, nr, _
+                         CellStr(imPVals, imPRow, ColOf(imPMap, PHDR(P_SHEET))), _
+                         ColOf(imPMap, PHDR(P_X)), ColOf(imPMap, PHDR(P_Y)), _
+                         ColOf(imPMap, PHDR(P_ROT)), imPVals, imPRow
+            End If
+        End If
+        imPRow = imPRow + 1
+    Loop
+
+    Progress imPRow - 2, MaxI(imPLastRow - 1, 1), "размещение символов"
+    If imPRow > imPLastRow Then jobPhase = 3
+    Err.Clear
+End Sub
+
+Sub PlaceFromMainRow(devId, poz, row)
+    PlaceOne devId, poz, ParseIntCell(imVals, row, ColOf(imMap, HDR(C_SYMID)), 0), 1, _
+             CellStr(imVals, row, ColOf(imMap, HDR(C_SHEET))), _
+             ColOf(imMap, HDR(C_X)), ColOf(imMap, HDR(C_Y)), ColOf(imMap, HDR(C_ROT)), _
+             imVals, row
+End Sub
+
+' Единая точка размещения/перемещения одного символа
+Sub PlaceOne(devId, poz, wantSymId, symNr, sheetName, cX, cY, cRot, arr, row)
+    On Error Resume Next
+    Dim okX, okY, okR, x, y, shId, dev, ids, cnt, symId, sym
+    Dim curSheet, sid0, x0, y0, gotX, gotY, rot, newId, i, k
+
+    x = ParseNum(GetCell(arr, row, cX), okX)
+    y = ParseNum(GetCell(arr, row, cY), okY)
+
+    If sheetName = "" Or Not okX Or Not okY Then
+        LogV "  " & poz & ": размещение пропущено — не заданы лист или координаты"
+        Exit Sub
+    End If
+
+    shId = FindSheetId(sheetName)
+    If shId <= 0 Then
+        LogBad "  " & poz & ": лист «" & sheetName & "» в проекте не найден."
+        imErrors = imErrors + 1
+        Exit Sub
+    End If
+
+    Set dev = ctJob.CreateDeviceObject()
+    dev.SetId devId
+    cnt = DevSymbolIds(dev, ids)
+    Err.Clear
+    If cnt <= 0 Or Not IsArray(ids) Then
+        LogBad "  " & poz & ": у изделия нет символов."
+        imErrors = imErrors + 1
+        Exit Sub
+    End If
+
+    ' символ: сначала по ID (если он принадлежит этому изделию), иначе по номеру
+    symId = 0
+    If wantSymId > 0 Then
+        For i = LBound(ids) To UBound(ids)
+            If CLng(NumOr(ids(i), 0)) = CLng(wantSymId) Then symId = CLng(wantSymId)
+        Next
+    End If
+    If symId <= 0 Then
+        k = 0
+        For i = LBound(ids) To UBound(ids)
+            If NumOr(ids(i), 0) > 0 Then
+                k = k + 1
+                If k = symNr Then
+                    symId = CLng(NumOr(ids(i), 0))
+                    Exit For
+                End If
+            End If
+        Next
+    End If
+    If symId <= 0 Then
+        LogBad "  " & poz & ": символ №" & symNr & " не найден (символов у изделия " & cnt & ")."
+        imErrors = imErrors + 1
+        Exit Sub
+    End If
+
+    If imDryRun Then
+        LogV "  проверка: " & poz & " символ №" & symNr & " -> лист «" & sheetName & "» (" & _
+             Fmt(x) & ", " & Fmt(y) & "), данные корректны"
+        Exit Sub
+    End If
+
+    Set sym = ctJob.CreateSymbolObject()
+    sym.SetId symId
+    Err.Clear
+
+    curSheet = 0
+    If SymGetLocation(sym, sid0, x0, y0) Then
+        curSheet = CLng(NumOr(sid0, 0))
+        If curSheet <= 0 Then curSheet = SymGetSheetId(sym)
+    End If
+    Err.Clear
+
+    If curSheet > 0 Then
+        If SymSetLocation(sym, shId, x, y, gotX, gotY) Then
+            imMoved = imMoved + 1
+            LogV "  перемещён " & poz & " символ №" & symNr & ": (" & Fmt(x0) & ", " & Fmt(y0) & _
+                 ") -> (" & Fmt(x) & ", " & Fmt(y) & ")"
+        Else
+            imBadCoord = imBadCoord + 1
+            LogBad "  " & poz & " символ №" & symNr & ": после записи прочитано (" & Fmt(gotX) & ", " & _
+                   Fmt(gotY) & ") вместо (" & Fmt(x) & ", " & Fmt(y) & ")."
+        End If
+    Else
+        If SymPlace(sym, shId, x, y, newId) Then
+            imPlaced = imPlaced + 1
+            If SymGetLocation(sym, sid0, x0, y0) Then
+                If Abs(NumOr(x0, -999999) - x) > EPS Or Abs(NumOr(y0, -999999) - y) > EPS Then
+                    imBadCoord = imBadCoord + 1
+                    LogBad "  " & poz & ": размещён в (" & Fmt(x0) & ", " & Fmt(y0) & ") вместо (" & _
+                           Fmt(x) & ", " & Fmt(y) & ") — похоже на привязку к сетке."
+                Else
+                    LogV "  размещён " & poz & " символ №" & symNr & " на «" & sheetName & "» (" & _
+                         Fmt(x) & ", " & Fmt(y) & ")"
+                End If
+            End If
+        Else
+            imErrors = imErrors + 1
+            LogBad "  " & poz & ": разместить не удалось."
+        End If
+    End If
+
+    If cRot > 0 Then
+        rot = ParseNum(GetCell(arr, row, cRot), okR)
+        If okR Then
+            If Not SymSetRotation(sym, rot) Then
+                LogV "  (поворот " & Fmt(rot) & " не применён: метод недоступен)"
+            End If
+        End If
+    End If
+    Err.Clear
+End Sub
+
+' Создание изделия. Сигнатура Create — та же, что работала в прежнем скрипте.
+Function CreateDevice(poz, comp, row)
+    On Error Resume Next
+    Dim dev, newId
+
+    CreateDevice = 0
+
+    If comp = "" Then
+        LogBad "  " & poz & ": не задан ComponentName — изделие не создано."
+        Exit Function
+    End If
+
+    If imDryRun Then
+        LogV "  проверка: " & poz & " было бы создано из компонента «" & comp & "»"
+        Exit Function
+    End If
+
+    Set dev = ctJob.CreateDeviceObject()
+    Err.Clear
+    dev.Create poz, "", "", comp, "", 0
+    If Err.Number <> 0 Then
+        LogBad "  " & poz & ": ошибка создания — " & Err.Description
+        Err.Clear
+        Exit Function
+    End If
+
+    ' атрибуты пишем в тот же объект — идентификатор для этого не нужен
+    ApplyAttributesToObject dev, row, True
+
+    newId = 0
+    newId = dev.GetId()
+    If Err.Number <> 0 Or Not IsNum(newId) Then
+        newId = 0
+        Err.Clear
+        mDevGetId = "GetId недоступен"
+    Else
+        newId = CLng(newId)
+        mDevGetId = "GetId"
+    End If
+
+    If newId <= 0 Then
+        If imDoPlace Then
+            If Not getIdWarned Then
+                getIdWarned = True
+                LogMsg "GetId для нового изделия недоступен — перед размещением перечитываю список изделий (медленнее)."
+            End If
+            LoadDevices
+            newId = FindDeviceId(poz)
+        End If
+    Else
+        If Not devIdByPoz.Exists(poz) Then devIdByPoz.Add poz, newId
+        If Not devIdByName.Exists(StripDash(poz)) Then devIdByName.Add StripDash(poz), newId
+    End If
+
+    CreateDevice = newId
+    Err.Clear
+End Function
+
+Function ApplyAttributes(devId, row)
+    On Error Resume Next
+    Dim dev
+    ApplyAttributes = False
+    If imDryRun Then
+        ApplyAttributes = True
+        Exit Function
+    End If
+    Set dev = ctJob.CreateDeviceObject()
+    dev.SetId devId
+    Err.Clear
+    ApplyAttributes = ApplyAttributesToObject(dev, row, False)
+End Function
+
+' Пишем атрибуты пакетом, при отказе — поштучно.
+' Массивы 1-based с неиспользуемым нулевым элементом: так работало исходно.
+Function ApplyAttributesToObject(dev, row, includePoz)
+    On Error Resume Next
+    Dim names(), vals(), n, hName, hVal, i, k, idx, okAny
+
+    ApplyAttributesToObject = False
+    n = 0
+    ReDim names(1)
+    ReDim vals(1)
+
+    If includePoz Then
+        n = 1
+        names(1) = HDR(C_POZ)
+        vals(1) = CellStr(imVals, row, ColOf(imMap, HDR(C_POZ)))
+    End If
+
+    For Each k In imMap.Keys
+        idx = imMap(k)
+        hName = CellStr(imVals, 1, idx)
+        If hName <> "" Then
+            If Not IsServiceHeader(hName) Then
+                If Not (includePoz And LCase(hName) = LCase(HDR(C_POZ))) Then
+                    hVal = CellStr(imVals, row, idx)
+                    If hVal <> "" Then
+                        n = n + 1
+                        ReDim Preserve names(n)
+                        ReDim Preserve vals(n)
+                        names(n) = hName
+                        vals(n) = hVal
+                    End If
+                End If
+            End If
+        End If
+    Next
+
+    If n = 0 Then
+        ApplyAttributesToObject = True
+        Exit Function
+    End If
+
+    Err.Clear
+    dev.SetAttributeValues names, vals
+    If Err.Number = 0 Then
+        ApplyAttributesToObject = True
+        Err.Clear
+        Exit Function
+    End If
+    Err.Clear
+
+    okAny = False
+    For i = 1 To n
+        Err.Clear
+        dev.SetAttributeValue names(i), vals(i)
+        If Err.Number = 0 Then
+            okAny = True
+        Else
+            LogV "    атрибут «" & names(i) & "» не записан: " & Err.Description
+            Err.Clear
+        End If
+    Next
+    ApplyAttributesToObject = okAny
+    Err.Clear
+End Function
+
+Sub ImportPhaseFinish()
+    On Error Resume Next
+    Dim dur, msg
+
+    CloseImportBook
+
+    If imDoSave And Not imDryRun And (imCreated + imUpdated + imPlaced + imMoved) > 0 Then
+        ctJob.Save
+        If Err.Number = 0 Then
+            LogMsg "Проект сохранён."
+        Else
+            LogErrNum "Сохранить проект не удалось", Err.Number, Err.Description
+            Err.Clear
+        End If
+    End If
+
+    dur = Round(Timer - imStart, 2)
+    LogMsg "------------------------------------"
+    LogMsg "Время: " & dur & " с"
+    LogMsg "Создано изделий: " & imCreated
+    LogMsg "Обновлено изделий: " & imUpdated
+    If imDoPlace Then
+        LogMsg "Размещено символов: " & imPlaced
+        LogMsg "Перемещено символов: " & imMoved
+        If imBadCoord > 0 Then LogBad "Координаты не совпали после записи: " & imBadCoord
+    End If
+    If imSkipped > 0 Then LogMsg "Пропущено строк: " & imSkipped
+    If imErrors > 0 Then LogMsg "Ошибок: " & imErrors
+    LogMsg "===================================="
+
+    msg = "Импорт завершён." & vbCrLf & vbCrLf & "Создано: " & imCreated & vbCrLf & "Обновлено: " & imUpdated
+    If imDoPlace Then msg = msg & vbCrLf & "Размещено: " & imPlaced & vbCrLf & "Перемещено: " & imMoved
+    If imBadCoord > 0 Then msg = msg & vbCrLf & "Координаты не совпали: " & imBadCoord
+    If imErrors > 0 Then msg = msg & vbCrLf & "Ошибок: " & imErrors
+    msg = msg & vbCrLf & "Время: " & dur & " с"
+    If imDryRun Then msg = "Проверка завершена, проект не изменялся." & vbCrLf & vbCrLf & msg
+
+    If Not imDryRun Then
+        LoadDevices
+        LoadSheets
+    End If
+
+    MsgBox msg, 64, "Импорт"
+    jobDone = True
+    Err.Clear
+End Sub
+
+Sub CloseImportBook()
+    On Error Resume Next
+    imWb.Close False
+    Err.Clear
+    imExcel.Quit
+    Err.Clear
+    Set imWs = Nothing
+    Set imWb = Nothing
+    Set imExcel = Nothing
+    Err.Clear
+End Sub
+
+'==============================================================================
+'  Excel: чтение листа целиком, карта столбцов по заголовкам
+'==============================================================================
+Function FindWorksheet(wb, nm)
+    On Error Resume Next
+    Dim ws
+    Set FindWorksheet = Nothing
+    For Each ws In wb.Worksheets
+        If LCase(Trim(ws.Name)) = LCase(nm) Then
+            Set FindWorksheet = ws
+            Exit Function
+        End If
+    Next
+    Err.Clear
+End Function
+
+' Читаем блок A1:<последняя>, чтобы индексы массива совпали с номерами строк и столбцов
+Function ReadSheetToArray(ws, ByRef vals, ByRef lastRow)
+    On Error Resume Next
+    Dim lastCol, rng
+
+    ReadSheetToArray = False
+    vals = Empty
+
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(XL_UP).Row
+    If Err.Number <> 0 Or Not IsNum(lastRow) Then
+        Err.Clear
+        lastRow = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
+        Err.Clear
+    End If
+
+    lastCol = ws.Cells(1, ws.Columns.Count).End(XL_LEFT).Column
+    If Err.Number <> 0 Or Not IsNum(lastCol) Then
+        Err.Clear
+        lastCol = COLS
+    End If
+    If lastCol < 1 Then lastCol = 1
+    If lastRow < 2 Then Exit Function
+
+    Set rng = ws.Range(ws.Cells(1, 1), ws.Cells(lastRow, lastCol))
+    vals = rng.Value
+    If Err.Number <> 0 Or Not IsArray(vals) Then
+        Err.Clear
+        Exit Function
+    End If
+    ReadSheetToArray = True
+    Err.Clear
+End Function
+
+Function BuildColMap(vals)
+    On Error Resume Next
+    Dim d, c, h, cols
+    Set d = CreateObject("Scripting.Dictionary")
+    cols = UBound(vals, 2)
+    If Err.Number <> 0 Then
+        Err.Clear
+        cols = 0
+    End If
+    For c = 1 To cols
+        h = CellStr(vals, 1, c)
+        If h <> "" Then
+            If Not d.Exists(LCase(h)) Then d.Add LCase(h), c
+        End If
+    Next
+    Set BuildColMap = d
+    Err.Clear
+End Function
+
+Function ColOf(map, nm)
+    ColOf = 0
+    If map Is Nothing Then Exit Function
+    If map.Exists(LCase(Trim(nm))) Then ColOf = map(LCase(Trim(nm)))
+End Function
+
+'==============================================================================
+'  Шаблон и выбор файла
+'==============================================================================
+Sub uiCreateTemplate()
+    On Error Resume Next
+    Dim fso, path, excel, wb, ws, j
+
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    path = Replace(window.location.pathname, "/", "\")
+    If Left(LCase(path), 5) = "file:" Then path = Mid(path, 6)
+    path = fso.GetParentFolderName(path)
+    If Trim(path & "") = "" Then path = CreateObject("WScript.Shell").SpecialFolders("Desktop")
+    Err.Clear
+    path = path & "\template.xlsx"
+
+    Set excel = CreateObject("Excel.Application")
+    If Err.Number <> 0 Then
+        LogErrNum "Excel не запускается", Err.Number, Err.Description
+        Err.Clear
+        Exit Sub
+    End If
+    excel.Visible = False
+    excel.DisplayAlerts = False
+
+    Set wb = excel.Workbooks.Add
+    Set ws = wb.Sheets(1)
+    ws.Name = SH_DEV
+
+    For j = 1 To COLS
+        ws.Cells(1, j).Value = HDR(j)
+    Next
+
+    ws.Cells(2, C_POZ).Value   = "ВЕНТ-01-DI-001"
+    ws.Cells(2, C_COMP).Value  = "внешние_сигналы_DI"
+    ws.Cells(2, 6).Value       = "ВЕНТ-01"
+    ws.Cells(2, 13).Value      = "Тестовое описание"
+    ws.Cells(2, C_SHEET).Value = "1"
+    ws.Cells(2, C_X).Value     = 100
+    ws.Cells(2, C_Y).Value     = 100
+
+    FormatSheet ws, COLS, 1, Array(C_X, C_Y)
+
+    wb.SaveAs path, XL_XLSX
+    wb.Close False
+    excel.Quit
+
+    If Err.Number <> 0 Then
+        LogErrNum "Шаблон сохранить не удалось", Err.Number, Err.Description
+        Err.Clear
+        Exit Sub
+    End If
+
+    excelFile = path
+    document.getElementById("filePath").value = path
+    If isConnected Then document.getElementById("btnImport").disabled = False
+    LogMsg "Шаблон создан: " & path
+    MsgBox "Шаблон создан:" & vbCrLf & path, 64, "Шаблон"
+End Sub
+
+Sub uiSelectFile()
+    On Error Resume Next
+    Dim shell, folder, fso, f, list, cnt, arr(), ext, choice, num, full, fpath
+
+    Set shell = CreateObject("Shell.Application")
+    Set folder = shell.BrowseForFolder(0, "Папка с файлом Excel:", 0, 0)
+    If folder Is Nothing Then Exit Sub
+
+    fpath = folder.Self.Path
+    Set fso = CreateObject("Scripting.FileSystemObject")
+
+    cnt = 0
+    list = ""
+    For Each f In fso.GetFolder(fpath).Files
+        ext = LCase(fso.GetExtensionName(f.Name))
+        If ext = "xlsx" Or ext = "xls" Or ext = "xlsm" Then
+            If Left(f.Name, 2) <> "~$" Then
+                cnt = cnt + 1
+                ReDim Preserve arr(cnt)
+                arr(cnt) = f.Name
+                list = list & cnt & ". " & f.Name & vbCrLf
+            End If
+        End If
+    Next
+
+    If cnt = 0 Then
+        MsgBox "В папке нет файлов Excel.", 48, "Выбор файла"
+        Exit Sub
+    End If
+
+    If cnt = 1 Then
+        num = 1
+    Else
+        choice = InputBox("Файлы:" & vbCrLf & vbCrLf & list & vbCrLf & "Номер (1-" & cnt & "):", "Выбор файла", "1")
+        If choice = "" Then Exit Sub
+        If Not IsNumeric(choice) Then
+            MsgBox "Нужен номер.", 48, "Выбор файла"
+            Exit Sub
+        End If
+        num = CInt(choice)
+        If num < 1 Or num > cnt Then
+            MsgBox "Номер вне диапазона.", 48, "Выбор файла"
+            Exit Sub
+        End If
+    End If
+
+    full = fpath & "\" & arr(num)
+    If Not fso.FileExists(full) Then
+        MsgBox "Файл не найден.", 48, "Выбор файла"
+        Exit Sub
+    End If
+
+    excelFile = full
+    document.getElementById("filePath").value = full
+    LogMsg "Выбран файл: " & full
+    If isConnected Then document.getElementById("btnImport").disabled = False
+    Err.Clear
+End Sub
+
+'==============================================================================
+'  ДИАГНОСТИКА
+'==============================================================================
+Sub uiDiag()
+    If Not isConnected Then Exit Sub
+    On Error Resume Next
+    Dim sIds, i, j, shObj, symObj, symIds, shown, shId, sName, symId
+    Dim sid, x, y, x1, y1, x2, y2, devId, nm, r, g
+
+    ReadVerbose
+    LogMsg "===================================="
+    LogMsg "Диагностика координат (проект не изменяется)"
+
+    ctJob.GetSheetIds sIds
+    Err.Clear
+    If Not IsArray(sIds) Then
+        LogBad "Листов нет."
+        Exit Sub
+    End If
+
+    Set shObj = ctJob.CreateSheetObject()
+    Set symObj = ctJob.CreateSymbolObject()
+    shown = 0
+
+    For i = LBound(sIds) To UBound(sIds)
+        If shown >= 5 Then Exit For
+        shId = NumOr(sIds(i), 0)
+        If shId > 0 Then
+            shObj.SetId shId
+            sName = shObj.GetName()
+            If Err.Number <> 0 Then
+                sName = "?"
+                Err.Clear
+            End If
+            symIds = Empty
+            shObj.GetSymbolIds symIds
+            Err.Clear
+            If IsArray(symIds) Then
+                For j = LBound(symIds) To UBound(symIds)
+                    If shown >= 5 Then Exit For
+                    symId = NumOr(symIds(j), 0)
+                    If symId > 0 Then
+                        symObj.SetId symId
+                        Err.Clear
+                        devId = SymGetDeviceId(symObj)
+                        If devId > 0 Then
+                            shown = shown + 1
+                            nm = symObj.GetName()
+                            If Err.Number <> 0 Then
+                                nm = "?"
+                                Err.Clear
+                            End If
+
+                            LogMsg "--- символ ID " & symId & " («" & nm & "»), изделие " & devId & _
+                                   ", лист «" & sName & "» (ID " & shId & ")"
+
+                            Err.Clear
+                            x = Empty : y = Empty : g = Empty
+                            r = symObj.GetSchemaLocation(x, y, g)
+                            LogMsg "    GetSchemaLocation(x,y,grid) -> лист " & Fmt(r) & ", x=" & Fmt(x) & _
+                                   ", y=" & Fmt(y) & ", сетка=" & SafeStr(g) & DiagErr()
+
+                            Err.Clear
+                            sid = Empty : x = Empty : y = Empty : g = Empty
+                            symObj.GetSchemaLocation sid, x, y, g
+                            LogMsg "    GetSchemaLocation(sheet,x,y,grid) -> лист " & Fmt(sid) & ", x=" & _
+                                   Fmt(x) & ", y=" & Fmt(y) & DiagErr()
+
+                            Err.Clear
+                            x = Empty : y = Empty
+                            symObj.GetPosition x, y
+                            LogMsg "    GetPosition(x,y) -> x=" & Fmt(x) & ", y=" & Fmt(y) & DiagErr()
+
+                            Err.Clear
+                            x1 = Empty : y1 = Empty : x2 = Empty : y2 = Empty
+                            symObj.GetArea x1, y1, x2, y2
+                            LogMsg "    GetArea -> (" & Fmt(x1) & ", " & Fmt(y1) & ") .. (" & Fmt(x2) & ", " & _
+                                   Fmt(y2) & ")" & DiagErr()
+                            If IsNum(x1) And IsNum(x2) And IsNum(y2) Then
+                                LogMsg "    старая формула экспорта дала бы: X=(minX+maxX)/2=" & _
+                                       Fmt((CDbl(x1) + CDbl(x2)) / 2) & ", Y=maxY=" & Fmt(y2)
+                            End If
+
+                            If SymGetLocation(symObj, sid, x, y) Then
+                                LogMsg "    <span class=""ok"">инструмент берёт (" & Fmt(x) & ", " & Fmt(y) & _
+                                       ") методом " & mLoc & "</span>"
+                                If IsNum(x1) And IsNum(x2) And IsNum(y2) Then
+                                    LogMsg "    расхождение со старой формулой: dX=" & _
+                                           Fmt((CDbl(x1) + CDbl(x2)) / 2 - CDbl(x)) & " мм, dY=" & _
+                                           Fmt(CDbl(y2) - CDbl(y)) & " мм"
+                                End If
+                            Else
+                                LogBad "    позицию прочитать не удалось"
+                            End If
+
+                            Err.Clear
+                            r = Empty
+                            r = symObj.GetRotation()
+                            LogMsg "    GetRotation -> " & Fmt(r) & DiagErr()
+                        End If
+                    End If
+                Next
+            End If
+        End If
+    Next
+
+    If shown = 0 Then LogBad "Размещённых символов изделий не найдено."
+    LogMsg "Сравните строки выше с координатами, которые E3 показывает в свойствах символа."
+    LogMsg "===================================="
+    Err.Clear
+End Sub
+
+Function DiagErr()
+    If Err.Number <> 0 Then
+        DiagErr = "   [ошибка " & Err.Number & ": " & Err.Description & "]"
+        Err.Clear
+    Else
+        DiagErr = ""
+    End If
+End Function
+
+Sub uiRoundTrip()
+    If Not isConnected Then Exit Sub
+    If MsgBox("Тест сдвинет один символ на +10/+10 мм и вернёт обратно." & vbCrLf & "Продолжить?", _
+              33, "Тест координат") <> 1 Then Exit Sub
+
+    On Error Resume Next
+    Dim sIds, i, j, shObj, symObj, symIds, shId, symId, sid, x, y, gx, gy, done
+
+    LogMsg "===================================="
+    LogMsg "Тест «чтение - запись - чтение»"
+
+    ctJob.GetSheetIds sIds
+    Err.Clear
+    If Not IsArray(sIds) Then
+        LogBad "Листов нет."
+        Exit Sub
+    End If
+
+    Set shObj = ctJob.CreateSheetObject()
+    Set symObj = ctJob.CreateSymbolObject()
+    done = False
+
+    For i = LBound(sIds) To UBound(sIds)
+        If done Then Exit For
+        shId = NumOr(sIds(i), 0)
+        If shId > 0 Then
+            shObj.SetId shId
+            symIds = Empty
+            shObj.GetSymbolIds symIds
+            Err.Clear
+            If IsArray(symIds) Then
+                For j = LBound(symIds) To UBound(symIds)
+                    If done Then Exit For
+                    symId = NumOr(symIds(j), 0)
+                    If symId > 0 Then
+                        symObj.SetId symId
+                        Err.Clear
+                        If SymGetDeviceId(symObj) > 0 Then
+                            If SymGetLocation(symObj, sid, x, y) Then
+                                done = True
+                                LogMsg "Символ ID " & symId & " на листе ID " & shId & ", исходно (" & _
+                                       Fmt(x) & ", " & Fmt(y) & "), метод чтения " & mLoc
+
+                                If SymSetLocation(symObj, shId, CDbl(x) + 10, CDbl(y) + 10, gx, gy) Then
+                                    LogMsg "<span class=""ok"">запись подтверждена</span>: получилось (" & _
+                                           Fmt(gx) & ", " & Fmt(gy) & "), метод записи " & mSetLoc
+                                Else
+                                    LogBad "после записи прочитано (" & Fmt(gx) & ", " & Fmt(gy) & _
+                                           ") вместо (" & Fmt(CDbl(x) + 10) & ", " & Fmt(CDbl(y) + 10) & ")"
+                                End If
+
+                                If SymSetLocation(symObj, shId, CDbl(x), CDbl(y), gx, gy) Then
+                                    LogMsg "Символ возвращён в (" & Fmt(x) & ", " & Fmt(y) & ")."
+                                Else
+                                    LogBad "Вернуть символ не удалось — отмените изменение в E3 (Ctrl+Z)."
+                                End If
+                            End If
+                        End If
+                    End If
+                Next
+            End If
+        End If
+    Next
+
+    If Not done Then LogBad "Подходящий символ не найден."
+    LogMsg "===================================="
+    Err.Clear
+End Sub
+
+'==============================================================================
+'  Лог
+'==============================================================================
+Sub uiClearLog()
+    document.getElementById("log").innerHTML = ""
+    logCount = 0
+End Sub
+
+Sub uiSaveLog()
+    On Error Resume Next
+    Dim fso, sh, path, f, txt
+
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Set sh = CreateObject("WScript.Shell")
+    path = sh.SpecialFolders("Desktop") & "\E3_Tool_log_" & Year(Now) & Right("0" & Month(Now), 2) & _
+           Right("0" & Day(Now), 2) & "_" & Right("0" & Hour(Now), 2) & Right("0" & Minute(Now), 2) & ".txt"
+
+    txt = document.getElementById("log").innerText
+    If Trim(txt & "") = "" Then txt = document.getElementById("log").innerHTML
+
+    Set f = fso.CreateTextFile(path, True, True)
+    f.Write txt
+    f.Close
+    If Err.Number <> 0 Then
+        LogErrNum "Лог сохранить не удалось", Err.Number, Err.Description
+        Err.Clear
+        Exit Sub
+    End If
+    LogMsg "Лог сохранён: " & path
+End Sub
+
+Sub Window_OnLoad()
+    LogMsg "E3.series — инструмент выгрузки и загрузки изделий."
+    LogMsg "Порядок: откройте проект в E3, нажмите «Подключиться», затем экспорт или импорт."
+End Sub
+</script>
+</body>
+</html>
