@@ -79,6 +79,7 @@
         <div class="row">
             <button onclick="uiExport()" id="btnExport" class="prim" disabled>Выгрузить изделия</button>
             <label class="opt"><input type="checkbox" id="chkPlacements" checked> лист «Размещения» (все символы)</label>
+            <label class="opt"><input type="checkbox" id="chkConn" checked> лист «Соединения» (провода)</label>
             <label class="opt"><input type="checkbox" id="chkOnlyPlaced"> только размещённые изделия</label>
         </div>
         <div class="hint">Файл сохраняется на рабочий стол. Колонки «Имя листа / X / Y» пригодны для обратного импорта
@@ -91,6 +92,7 @@
             <label class="opt"><input type="checkbox" id="chkAttrs" checked> обновлять атрибуты</label>
             <label class="opt"><input type="checkbox" id="chkCreate" checked> создавать отсутствующие</label>
             <label class="opt"><input type="checkbox" id="chkPlace"> размещать и перемещать символы</label>
+            <label class="opt"><input type="checkbox" id="chkImpConn"> создавать соединения (провода)</label>
             <label class="opt"><input type="checkbox" id="chkSave"> сохранить проект в конце</label>
             <label class="opt"><input type="checkbox" id="chkDry"> только проверка (ничего не менять)</label>
         </div>
@@ -172,6 +174,18 @@ Const P_DEVID = 11
 Const P_TYPE  = 12
 Const PCOLS   = 12
 
+'--- Раскладка листа «Соединения» (по строке на точку ломаной) ------------
+Const N_NUM    = 1
+Const N_PT     = 2
+Const N_SHEET  = 3
+Const N_SHID   = 4
+Const N_X      = 5
+Const N_Y      = 6
+Const N_TYPE   = 7
+Const N_SIGNAL = 8
+Const N_SEGID  = 9
+Const NCOLS    = 9
+
 Const XL_XLSX   = 51
 Const XL_UP     = -4162
 Const XL_LEFT   = -4159
@@ -181,6 +195,7 @@ Const XL_AUTO   = -4105
 Const XL_SHIFTUP = -4162
 Const SH_PLACE  = "Размещения"
 Const SH_DEV    = "Изделия"
+Const SH_CONN   = "Соединения"
 Const EPS       = 0.05
 
 '--- Состояние ---------------------------------------------------------------
@@ -188,19 +203,21 @@ Dim ctApp, ctJob, isConnected
 Dim excelFile
 Dim devIdByPoz, devIdByName, devTypeById, devIdByNorm
 Dim sheetIdByName, sheetNameById
-Dim HDR(), PHDR()
+Dim HDR(), PHDR(), NHDR()
 Dim stopRequested, jobBusy, jobKind, jobPhase, jobDone, asyncOk, verboseFlag
 Dim logCount
 
 ' Сигнатуры API, подобранные на этой сборке E3
 Dim mLoc, mSetLoc, mPlace, mDevId, mSheetId, mRot, mSetRot, mMir, mDevSym, mDevGetId, mPlaced
 Dim mDevSymAll, mDevSymFree     ' варианты Device.GetSymbolIds: все символы / для размещения
+Dim mConnCreate                 ' рабочая сигнатура Connection.Create
 Dim areaWarned, getIdWarned
 
 ' Экспорт
 Dim exIds, exIdx, exPlIdx, exAllKeys, exArr(), exRows, exRowCursor, exPozById
 Dim exPlaceMap, exPlaceCols(), exPlaceCnt, exPlaceCap, exSymByDev, exNoDev, exSeenSym
 Dim exByText, exTxtObj
+Dim exConnCols(), exConnCnt, exConnCap, exSegCnt, exWithConn
 Dim exSheetIds, exSheetIdx, exSheetTotal, exSymTotal
 Dim exExcel, exWb, exWs, exWithPlacements, exOnlyPlaced, exStart, exSkipped
 
@@ -208,6 +225,8 @@ Dim exExcel, exWb, exWs, exWithPlacements, exOnlyPlaced, exStart, exSkipped
 Dim imExcel, imWb, imWs, imVals, imPVals, imMap, imPMap
 Dim imRow, imLastRow, imPRow, imPLastRow, imStart
 Dim imCreated, imUpdated, imPlaced, imMoved, imErrors, imBadCoord, imSkipped
+Dim imConnMade, imConnFail, imNoSymComp, imNoComp
+Dim imNVals, imNMap, imNRow, imNLastRow, imDoConn
 Dim imDoAttrs, imDoCreate, imDoPlace, imDoSave, imDryRun
 
 isConnected = False
@@ -302,6 +321,17 @@ Sub BuildHeaders()
     PHDR(10) = "Зеркало"
     PHDR(11) = "ID изделия"
     PHDR(12) = "Тип объекта"
+
+    ReDim NHDR(NCOLS)
+    NHDR(1) = "№ соединения"
+    NHDR(2) = "№ точки"
+    NHDR(3) = "Имя листа"
+    NHDR(4) = "ID листа"
+    NHDR(5) = "X"
+    NHDR(6) = "Y"
+    NHDR(7) = "Тип точки"
+    NHDR(8) = "Сигнал"
+    NHDR(9) = "ID сегмента"
 End Sub
 
 ' Служебные заголовки — в изделие как атрибуты не пишутся
@@ -465,6 +495,15 @@ Function IIfStr(cond, a, b)
     If cond Then IIfStr = a Else IIfStr = b
 End Function
 
+' Массивы E3 бывают 1-based с неиспользуемым нулевым элементом. Для координат
+' нулевое значение осмысленно, поэтому опираемся на количество, а не на «> 0».
+Function ApiArrStart(arr, n)
+    ApiArrStart = 0
+    If Not IsArray(arr) Then Exit Function
+    ApiArrStart = LBound(arr)
+    If (UBound(arr) - LBound(arr) + 1) > n Then ApiArrStart = LBound(arr) + 1
+End Function
+
 ' Количество реальных (положительных) идентификаторов в массиве API.
 ' Работает и с 0-based, и с 1-based массивами — не надо угадывать базу.
 Function IdCount(arr)
@@ -517,7 +556,7 @@ Sub uiConnect()
     ' сигнатуры могли отличаться в другой сборке — подбираем заново
     mLoc = "" : mSetLoc = "" : mPlace = "" : mDevId = "" : mSheetId = ""
     mRot = "" : mSetRot = "" : mMir = "" : mDevSym = "" : mDevGetId = "" : mPlaced = ""
-    mDevSymAll = "" : mDevSymFree = ""
+    mDevSymAll = "" : mDevSymFree = "" : mConnCreate = ""
     areaWarned = False
     getIdWarned = False
 
@@ -554,7 +593,8 @@ Function ApiReport()
     s = s & "поворот (чтение) ........... " & IIfStr(mRot = "", "нет", mRot) & ", запись — 4-м аргументом Place<br>"
     s = s & "символы изделия: чтение .... " & VarName(mDevSymAll) & "<br>"
     s = s & "символы изделия: размещение  " & VarName(mDevSymFree) & "<br>"
-    s = s & "ID нового изделия .......... " & IIfStr(mDevGetId = "", "не проверялось", mDevGetId)
+    s = s & "ID нового изделия .......... " & IIfStr(mDevGetId = "", "не проверялось", mDevGetId) & "<br>"
+    s = s & "создание соединений ........ " & IIfStr(mConnCreate = "", "не проверялось", mConnCreate)
     ApiReport = s
 End Function
 
@@ -804,22 +844,29 @@ Function SymPlaceAt(sym, sheetId, x, y, rot, ByRef newId)
     Err.Clear
 End Function
 
-' Перемещение с проверкой: True только если обратное чтение дало заданные координаты
+' Перемещение. Возвращает: 2 — записано и подтверждено обратным чтением,
+' 1 — записано, но проверить нельзя (GetSchemaLocation отдаёт 0 для gate),
+' 0 — записать не удалось.
 Function SymSetLocation(sym, sheetId, x, y, rot, ByRef gotX, ByRef gotY)
     Dim sid2, x2, y2, newId
-    SymSetLocation = False
+    SymSetLocation = 0
     gotX = Empty
     gotY = Empty
     On Error Resume Next
 
     If Not SymPlaceAt(sym, sheetId, x, y, rot, newId) Then Exit Function
     mSetLoc = mPlace
+    SymSetLocation = 1
 
     If SymGetLocation(sym, sid2, x2, y2) Then
-        gotX = x2
-        gotY = y2
-        If Abs(NumOr(x2, -999999) - x) < EPS And Abs(NumOr(y2, -999999) - y) < EPS Then
-            SymSetLocation = True
+        If NumOr(sid2, 0) > 0 Then
+            gotX = x2
+            gotY = y2
+            If Abs(NumOr(x2, -999999) - x) < EPS And Abs(NumOr(y2, -999999) - y) < EPS Then
+                SymSetLocation = 2
+            Else
+                SymSetLocation = 0      ' реальное расхождение
+            End If
         End If
     End If
     Err.Clear
@@ -1435,6 +1482,7 @@ Sub uiExport()
     On Error Resume Next
     exWithPlacements = document.getElementById("chkPlacements").checked
     exOnlyPlaced = document.getElementById("chkOnlyPlaced").checked
+    exWithConn = document.getElementById("chkConn").checked
     exStart = Timer
     exSkipped = 0
     exRowCursor = 0
@@ -1477,6 +1525,10 @@ Sub uiExport()
     exNoDev = 0
     exByText = 0
     Set exTxtObj = Nothing
+    exConnCnt = 0
+    exSegCnt = 0
+    exConnCap = 4096
+    ReDim exConnCols(NCOLS, exConnCap)
 
     ' Порядок размерностей: (столбец, строка). ReDim Preserve в VBScript
     ' умеет наращивать только последнюю размерность.
@@ -1605,6 +1657,71 @@ Sub ExportPhaseByDevice()
     Err.Clear
 End Sub
 
+' Геометрия проводов листа: NetSegment.GetLineSegments отдаёт ломаную,
+' Connection.Create умеет нарисовать её обратно точка в точку.
+Sub CollectSheetConnections(shId, sName)
+    On Error Resume Next
+    Dim shObj2, nsObj, nsIds, i, segId, n, shtid, xarr, yarr, tarr, k, st, sig
+
+    Set shObj2 = ctJob.CreateSheetObject()
+    shObj2.SetId shId
+    nsIds = Empty
+    shObj2.GetNetSegmentIds nsIds
+    If Err.Number <> 0 Or Not IsArray(nsIds) Then
+        Err.Clear
+        Exit Sub
+    End If
+
+    Set nsObj = ctJob.CreateNetSegmentObject()
+    If Err.Number <> 0 Then
+        Err.Clear
+        Exit Sub
+    End If
+
+    For i = LBound(nsIds) To UBound(nsIds)
+        segId = NumOr(nsIds(i), 0)
+        If segId > 0 Then
+            nsObj.SetId segId
+            Err.Clear
+            shtid = Empty : xarr = Empty : yarr = Empty : tarr = Empty
+            n = nsObj.GetLineSegments(shtid, xarr, yarr, tarr)
+            If Err.Number = 0 And IsNum(n) Then
+                n = CLng(n)
+                If n >= 2 And IsArray(xarr) And IsArray(yarr) Then
+                    sig = nsObj.GetSignalName()
+                    If Err.Number <> 0 Then
+                        sig = ""
+                        Err.Clear
+                    End If
+                    exSegCnt = exSegCnt + 1
+                    st = ApiArrStart(xarr, n)
+                    For k = 0 To n - 1
+                        If st + k > UBound(xarr) Then Exit For
+                        If exConnCnt + 1 > exConnCap Then
+                            exConnCap = exConnCap + 2048
+                            ReDim Preserve exConnCols(NCOLS, exConnCap)
+                        End If
+                        exConnCnt = exConnCnt + 1
+                        exConnCols(N_NUM,    exConnCnt) = exSegCnt
+                        exConnCols(N_PT,     exConnCnt) = k + 1
+                        exConnCols(N_SHEET,  exConnCnt) = sName
+                        exConnCols(N_SHID,   exConnCnt) = CLng(NumOr(shtid, shId))
+                        exConnCols(N_X,      exConnCnt) = NumOr(xarr(st + k), 0)
+                        exConnCols(N_Y,      exConnCnt) = NumOr(yarr(st + k), 0)
+                        If IsArray(tarr) Then
+                            If st + k <= UBound(tarr) Then exConnCols(N_TYPE, exConnCnt) = NumOr(tarr(st + k), 0)
+                        End If
+                        exConnCols(N_SIGNAL, exConnCnt) = sig
+                        exConnCols(N_SEGID,  exConnCnt) = segId
+                    Next
+                End If
+            End If
+            Err.Clear
+        End If
+    Next
+    Err.Clear
+End Sub
+
 ' Фаза 2: обход листов. Изделие символа берём из обратной карты, построенной
 ' в фазе 1, — Symbol.GetDeviceId в этой сборке отсутствует.
 Sub ExportPhaseSheets()
@@ -1649,6 +1766,8 @@ Sub ExportPhaseSheets()
             symIds = Empty
             shObj.GetSymbolIds symIds
             Err.Clear
+
+            If exWithConn Then CollectSheetConnections shId, sName
 
             If IsArray(symIds) Then
                 For j = LBound(symIds) To UBound(symIds)
@@ -1731,10 +1850,12 @@ Sub ExportPhaseSheets()
     Loop
 
     Progress exSheetIdx - LBound(exSheetIds), MaxI(exSheetTotal, 1), "обход листов"
+    Err.Clear
 
     If exSheetIdx > UBound(exSheetIds) Then
         LogMsg "Итого размещений: " & exPlaceCnt & " символов у " & exPlaceMap.Count & " объектов"
         If exByText > 0 Then LogMsg "Из них опознано по надписи на символе: " & exByText
+        If exWithConn Then LogMsg "Соединений (сегментов проводов): " & exSegCnt & ", точек ломаных: " & exConnCnt
         If exNoDev > 0 Then
             LogMsg "Символов на листах без связи с изделием: " & exNoDev & _
                    " (рамки, таблицы, соединители и т. п. — либо изделие не попало в список)"
@@ -1935,6 +2056,35 @@ Sub ExportPhaseWrite()
         LogMsg "Записано размещений: " & exPlaceCnt
     End If
 
+    ' лист «Соединения»
+    If exWithConn And exConnCnt > 0 Then
+        Progress 0, 1, "лист «" & SH_CONN & "»"
+        Dim ws3, nh(), nArr(), q
+        Set ws3 = exWb.Worksheets.Add
+        ws3.Name = SH_CONN
+        Err.Clear
+
+        ReDim nh(0, NCOLS - 1)
+        For j = 1 To NCOLS
+            nh(0, j - 1) = NHDR(j)
+        Next
+        ws3.Range(ws3.Cells(1, 1), ws3.Cells(1, NCOLS)).Value = nh
+
+        ReDim nArr(exConnCnt - 1, NCOLS - 1)
+        For i = 1 To exConnCnt
+            For q = 1 To NCOLS
+                nArr(i - 1, q - 1) = exConnCols(q, i)
+            Next
+        Next
+        ws3.Range(ws3.Cells(2, 1), ws3.Cells(exConnCnt + 1, NCOLS)).Value = nArr
+        If Err.Number <> 0 Then
+            LogErrNum "Запись листа «" & SH_CONN & "» не удалась", Err.Number, Err.Description
+            Err.Clear
+        End If
+        FormatSheet ws3, NCOLS, exConnCnt, Array(N_X, N_Y)
+        LogMsg "Записано точек соединений: " & exConnCnt & " (сегментов " & exSegCnt & ")"
+    End If
+
     Progress 0, 1, "оформление"
     FormatSheet exWs, COLS, exRowCursor, Array(C_X, C_Y)
 
@@ -2076,7 +2226,12 @@ Sub uiImport()
     imErrors = 0
     imBadCoord = 0
     imSkipped = 0
+    imConnMade = 0
+    imConnFail = 0
+    imNoComp = 0
+    Set imNoSymComp = CreateObject("Scripting.Dictionary")
     imStart = Timer
+    imDoConn = document.getElementById("chkImpConn").checked
 
     LogMsg "===================================="
     If imDryRun Then
@@ -2148,6 +2303,28 @@ Sub uiImport()
         End If
     End If
 
+    imNRow = 2
+    imNLastRow = 0
+    Set imNMap = Nothing
+    imNVals = Empty
+    If imDoConn Then
+        Dim wsN
+        Set wsN = FindWorksheet(imWb, SH_CONN)
+        If wsN Is Nothing Then
+            LogMsg "Лист «" & SH_CONN & "» в файле не найден — соединения создаваться не будут."
+        Else
+            If ReadSheetToArray(wsN, imNVals, imNLastRow) Then
+                Set imNMap = BuildColMap(imNVals)
+                If ColOf(imNMap, NHDR(N_NUM)) = 0 Or ColOf(imNMap, NHDR(N_X)) = 0 Then
+                    Set imNMap = Nothing
+                    LogBad "На листе «" & SH_CONN & "» нет нужных столбцов — соединения пропускаю."
+                Else
+                    LogMsg "Лист «" & SH_CONN & "»: точек " & (imNLastRow - 1)
+                End If
+            End If
+        End If
+    End If
+
     jobPhase = 1
     StartJob "import"
 End Sub
@@ -2159,6 +2336,8 @@ Sub ImportChunk()
         Case 2
             ImportPhasePlacements
         Case 3
+            ImportPhaseConnections
+        Case 4
             ImportPhaseFinish
         Case Else
             jobDone = True
@@ -2172,7 +2351,7 @@ Sub ImportPhaseRows()
     If stopRequested Then
         LogMsg "Импорт прерван пользователем."
         imSkipped = imSkipped + (imLastRow - imRow + 1)
-        jobPhase = 3
+        jobPhase = 4
         Exit Sub
     End If
 
@@ -2249,7 +2428,7 @@ Sub ImportPhasePlacements()
 
     If stopRequested Then
         LogMsg "Размещение прервано пользователем."
-        jobPhase = 3
+        jobPhase = 4
         Exit Sub
     End If
 
@@ -2332,7 +2511,16 @@ Sub PlaceOne(devId, poz, wantSymId, symNr, sheetName, wantSheetId, cX, cY, cRot,
     If cnt <= 0 Then cnt = DevSymbolIdsFree(dev, ids)
     Err.Clear
     If cnt <= 0 Or Not IsArray(ids) Then
-        LogBad "  " & poz & ": у изделия нет символов."
+        Dim compNm
+        compNm = SafeStr(dev.GetComponentName())
+        Err.Clear
+        If compNm = "" Then compNm = "(без компонента)"
+        If imNoSymComp.Exists(compNm) Then
+            imNoSymComp(compNm) = imNoSymComp(compNm) + 1
+        Else
+            imNoSymComp.Add compNm, 1
+        End If
+        LogV "  " & poz & ": у изделия нет символов (компонент «" & compNm & "»)"
         imErrors = imErrors + 1
         Exit Sub
     End If
@@ -2384,10 +2572,12 @@ Sub PlaceOne(devId, poz, wantSymId, symNr, sheetName, wantSheetId, cX, cY, cRot,
     If cRot > 0 Then rot = Trim(SafeStr(GetCell(arr, row, cRot)))
 
     If curSheet > 0 Then
-        If SymSetLocation(sym, shId, x, y, rot, gotX, gotY) Then
+        Dim st
+        st = SymSetLocation(sym, shId, x, y, rot, gotX, gotY)
+        If st > 0 Then
             imMoved = imMoved + 1
             LogV "  перемещён " & poz & " символ №" & symNr & ": (" & Fmt(x0) & ", " & Fmt(y0) & _
-                 ") -> (" & Fmt(x) & ", " & Fmt(y) & ")"
+                 ") -> (" & Fmt(x) & ", " & Fmt(y) & ")" & IIfStr(st = 1, " (проверить нельзя)", "")
         Else
             imBadCoord = imBadCoord + 1
             LogBad "  " & poz & " символ №" & symNr & ": после записи прочитано (" & Fmt(gotX) & ", " & _
@@ -2396,14 +2586,21 @@ Sub PlaceOne(devId, poz, wantSymId, symNr, sheetName, wantSheetId, cX, cY, cRot,
     Else
         If SymPlaceAt(sym, shId, x, y, rot, newId) Then
             imPlaced = imPlaced + 1
+            ' Обратное чтение возможно не всегда: по документации GetSchemaLocation
+            ' отдаёт 0 и для gate. Считаем расхождением только читаемый результат.
             If SymGetLocation(sym, sid0, x0, y0) Then
-                If Abs(NumOr(x0, -999999) - x) > EPS Or Abs(NumOr(y0, -999999) - y) > EPS Then
-                    imBadCoord = imBadCoord + 1
-                    LogBad "  " & poz & ": размещён в (" & Fmt(x0) & ", " & Fmt(y0) & ") вместо (" & _
-                           Fmt(x) & ", " & Fmt(y) & ") — похоже на привязку к сетке."
+                If NumOr(sid0, 0) > 0 Then
+                    If Abs(NumOr(x0, -999999) - x) > EPS Or Abs(NumOr(y0, -999999) - y) > EPS Then
+                        imBadCoord = imBadCoord + 1
+                        LogBad "  " & poz & ": размещён в (" & Fmt(x0) & ", " & Fmt(y0) & ") вместо (" & _
+                               Fmt(x) & ", " & Fmt(y) & ")."
+                    Else
+                        LogV "  размещён " & poz & " символ №" & symNr & " на «" & sheetName & "» (" & _
+                             Fmt(x) & ", " & Fmt(y) & ")"
+                    End If
                 Else
                     LogV "  размещён " & poz & " символ №" & symNr & " на «" & sheetName & "» (" & _
-                         Fmt(x) & ", " & Fmt(y) & ")"
+                         Fmt(x) & ", " & Fmt(y) & "), позиция не перечитывается (gate)"
                 End If
             End If
         Else
@@ -2422,7 +2619,8 @@ Function CreateDevice(poz, comp, row)
     CreateDevice = 0
 
     If comp = "" Then
-        LogBad "  " & poz & ": не задан ComponentName — изделие не создано."
+        imNoComp = imNoComp + 1
+        LogV "  " & poz & ": не задан ComponentName — изделие не создано."
         Exit Function
     End If
 
@@ -2551,13 +2749,171 @@ Function ApplyAttributesToObject(dev, row, includePoz)
     Err.Clear
 End Function
 
+' Фаза 3: воссоздание проводов. Строки листа «Соединения» сгруппированы
+' по «№ соединения»; каждая группа рисуется одним Connection.Create.
+Sub ImportPhaseConnections()
+    On Error Resume Next
+    Dim per, num, curNum, shId, sName, cnt, r
+    Dim xs(), ys(), ts(), i, ok
+
+    If imNMap Is Nothing Or imNLastRow < 2 Then
+        jobPhase = 4
+        Exit Sub
+    End If
+
+    If stopRequested Then
+        LogMsg "Создание соединений прервано пользователем."
+        jobPhase = 4
+        Exit Sub
+    End If
+
+    per = 0
+    Do While imNRow <= imNLastRow And per < 8
+        curNum = CellStr(imNVals, imNRow, ColOf(imNMap, NHDR(N_NUM)))
+        If curNum = "" Or LCase(curNum) = LCase(NHDR(N_NUM)) Then
+            imNRow = imNRow + 1
+        Else
+            ' собираем все точки одного соединения
+            cnt = 0
+            sName = ""
+            shId = 0
+            ReDim xs(1)
+            ReDim ys(1)
+            ReDim ts(1)
+            r = imNRow
+            Do While r <= imNLastRow
+                num = CellStr(imNVals, r, ColOf(imNMap, NHDR(N_NUM)))
+                If num <> curNum Then Exit Do
+                Dim okx, oky, px, py
+                px = ParseNum(GetCell(imNVals, r, ColOf(imNMap, NHDR(N_X))), okx)
+                py = ParseNum(GetCell(imNVals, r, ColOf(imNMap, NHDR(N_Y))), oky)
+                If okx And oky Then
+                    cnt = cnt + 1
+                    ReDim Preserve xs(cnt)
+                    ReDim Preserve ys(cnt)
+                    ReDim Preserve ts(cnt)
+                    xs(cnt) = px
+                    ys(cnt) = py
+                    ts(cnt) = ParseIntCell(imNVals, r, ColOf(imNMap, NHDR(N_TYPE)), 0)
+                    If shId <= 0 Then
+                        shId = ResolveSheet(CellStr(imNVals, r, ColOf(imNMap, NHDR(N_SHEET))), _
+                                            ParseIntCell(imNVals, r, ColOf(imNMap, NHDR(N_SHID)), 0))
+                        sName = CellStr(imNVals, r, ColOf(imNMap, NHDR(N_SHEET)))
+                    End If
+                End If
+                r = r + 1
+            Loop
+            imNRow = r
+            per = per + 1
+
+            If cnt >= 2 And shId > 0 Then
+                If imDryRun Then
+                    LogV "  проверка: соединение " & curNum & " из " & cnt & " точек на листе «" & sName & "»"
+                Else
+                    If CreateConnPath(shId, cnt, xs, ys, ts) Then
+                        imConnMade = imConnMade + 1
+                        If imConnMade = 1 Then LogMsg "Соединения создаются методом: " & mConnCreate
+                    Else
+                        imConnFail = imConnFail + 1
+                        If imConnFail <= 5 Then
+                            LogV "  соединение " & curNum & " (" & cnt & " точек, лист «" & sName & "») не создано"
+                        End If
+                    End If
+                End If
+            ElseIf cnt >= 2 Then
+                imConnFail = imConnFail + 1
+                If imConnFail <= 5 Then LogBad "  соединение " & curNum & ": лист «" & sName & "» не найден"
+            End If
+        End If
+    Loop
+
+    Progress imNRow - 2, MaxI(imNLastRow - 1, 1), "создание соединений"
+    If imNRow > imNLastRow Then jobPhase = 4
+    Err.Clear
+End Sub
+
+' Лист по ID, если он есть в проекте, иначе по имени
+Function ResolveSheet(sheetName, sheetId)
+    ResolveSheet = 0
+    If sheetId > 0 Then
+        If sheetNameById.Exists(CStr(CLng(sheetId))) Then
+            ResolveSheet = CLng(sheetId)
+            Exit Function
+        End If
+    End If
+    ResolveSheet = FindSheetId(sheetName)
+End Function
+
+' Connection.Create рисует ломаную по массивам координат.
+' Массивы НА ВХОД в E3 нульбазные (в обёртке Zuken срезается первый элемент
+' только у возвращаемых), поэтому 0-based пробуем первым: при неверной базе
+' первая точка провода ушла бы в ноль.
+Function CreateConnPath(shId, cnt, xs, ys, ts)
+    On Error Resume Next
+    Dim conn, res, i, x0(), y0(), t0()
+
+    CreateConnPath = False
+    Set conn = ctJob.CreateConnectionObject()
+    If Err.Number <> 0 Then
+        Err.Clear
+        Exit Function
+    End If
+
+    ReDim x0(cnt - 1)
+    ReDim y0(cnt - 1)
+    ReDim t0(cnt - 1)
+    For i = 1 To cnt
+        x0(i - 1) = CDbl(xs(i))
+        y0(i - 1) = CDbl(ys(i))
+        t0(i - 1) = CLng(ts(i))
+    Next
+
+    Err.Clear
+    res = conn.Create(shId, cnt, x0, y0, t0)
+    If Err.Number = 0 And NumOr(res, 0) > 0 Then
+        mConnCreate = "Create(0-based)"
+        CreateConnPath = True
+        Err.Clear
+        Exit Function
+    End If
+    Err.Clear
+
+    ' без массива типов точек
+    res = conn.Create(shId, cnt, x0, y0)
+    If Err.Number = 0 And NumOr(res, 0) > 0 Then
+        mConnCreate = "Create(0-based, без типов)"
+        CreateConnPath = True
+        Err.Clear
+        Exit Function
+    End If
+    Err.Clear
+
+    ' 1-based, если сборка ждёт именно её
+    res = conn.Create(shId, cnt, xs, ys, ts)
+    If Err.Number = 0 And NumOr(res, 0) > 0 Then
+        mConnCreate = "Create(1-based)"
+        CreateConnPath = True
+        Err.Clear
+        Exit Function
+    End If
+    Err.Clear
+
+    ' последний резерв: прямая линия между крайними точками
+    res = conn.CreateConnectionBetweenPoints(shId, CDbl(xs(1)), CDbl(ys(1)), CDbl(xs(cnt)), CDbl(ys(cnt)), 0)
+    If Err.Number = 0 And NumOr(res, 0) > 0 Then
+        mConnCreate = "CreateConnectionBetweenPoints"
+        CreateConnPath = True
+    End If
+    Err.Clear
+End Function
+
 Sub ImportPhaseFinish()
     On Error Resume Next
     Dim dur, msg
 
     CloseImportBook
 
-    If imDoSave And Not imDryRun And (imCreated + imUpdated + imPlaced + imMoved) > 0 Then
+    If imDoSave And Not imDryRun And (imCreated + imUpdated + imPlaced + imMoved + imConnMade) > 0 Then
         ctJob.Save
         If Err.Number = 0 Then
             LogMsg "Проект сохранён."
@@ -2577,12 +2933,35 @@ Sub ImportPhaseFinish()
         LogMsg "Перемещено символов: " & imMoved
         If imBadCoord > 0 Then LogBad "Координаты не совпали после записи: " & imBadCoord
     End If
+    If imDoConn Then
+        LogMsg "Создано соединений: " & imConnMade
+        If imConnFail > 0 Then LogMsg "Соединений не создано: " & imConnFail
+    End If
     If imSkipped > 0 Then LogMsg "Пропущено строк: " & imSkipped
     If imErrors > 0 Then LogMsg "Ошибок: " & imErrors
+
+    ' что именно помешало — списком, чтобы было понятно куда смотреть
+    If imNoComp > 0 Then
+        LogMsg "Не создано из-за пустого ComponentName: " & imNoComp & " строк"
+    End If
+    If Not (imNoSymComp Is Nothing) Then
+        If imNoSymComp.Count > 0 Then
+            Dim ck, cline, cn2
+            cline = ""
+            cn2 = 0
+            For Each ck In imNoSymComp.Keys
+                cn2 = cn2 + 1
+                If cn2 <= 8 Then cline = cline & "«" & ck & "» x " & imNoSymComp(ck) & "; "
+            Next
+            LogMsg "У компонентов нет схемного символа, размещать нечего: " & cline & _
+                   IIfStr(imNoSymComp.Count > 8, "и ещё " & (imNoSymComp.Count - 8) & " компонентов", "")
+        End If
+    End If
     LogMsg "===================================="
 
     msg = "Импорт завершён." & vbCrLf & vbCrLf & "Создано: " & imCreated & vbCrLf & "Обновлено: " & imUpdated
     If imDoPlace Then msg = msg & vbCrLf & "Размещено: " & imPlaced & vbCrLf & "Перемещено: " & imMoved
+    If imDoConn Then msg = msg & vbCrLf & "Соединений создано: " & imConnMade
     If imBadCoord > 0 Then msg = msg & vbCrLf & "Координаты не совпали: " & imBadCoord
     If imErrors > 0 Then msg = msg & vbCrLf & "Ошибок: " & imErrors
     msg = msg & vbCrLf & "Время: " & dur & " с"
