@@ -21,7 +21,7 @@ import { execSync } from 'child_process';
 // Публичный ключ лицензии (raw ed25519, 32 байта). Безопасно быть в открытом
 // виде — это ключ ПРОВЕРКИ. Соответствующий приватный ключ подписи хранится
 // только в офлайн-генераторе у владельца.
-const LICENSE_PUBLIC_KEY_HEX = '9600e7e170eaf2909ad8aae13846eacc1976716f8ce479e9323502edba5e01a9';
+const LICENSE_PUBLIC_KEY_HEX = '034c455f3a226cfa50729e7ed45ba166f76403a738399f82b9df0c64bb3a5b2d';
 
 const DER_PUB_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 

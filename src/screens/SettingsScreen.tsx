@@ -227,9 +227,10 @@ function GeneralSection({ theme, toggleTheme, density, setDensity }: any) {
             <ToggleRow
               storageKey="flux_robot"
               event="flux:robot-changed"
-              title="Робот-помощник"
-              desc="Маленький робот поверх программы: перетаскивается мышью, двойной щелчок открывает чат."
+              title="Робот-помощник Флакси"
+              desc="Живёт в шапке чата: сидит, играет, читает, реагирует на уведомления. Пока чат закрыт — выглядывает у правого края."
             />
+            <RobotLevelRow />
           </div>
         </div>
 
@@ -1577,5 +1578,43 @@ function ToggleRow({ storageKey, event, title, desc }: {
         <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">{desc}</span>
       </span>
     </button>
+  );
+}
+
+/** Насколько часто Флакси занимается своими делами. */
+function RobotLevelRow() {
+  const OPTS: { key: string; label: string; hint: string }[] = [
+    { key: 'calm', label: 'Спокойный', hint: 'реже и только тихие занятия' },
+    { key: 'normal', label: 'Обычный', hint: 'занятие раз в полминуты' },
+    { key: 'lively', label: 'Живой', hint: 'почти всё время чем-то занят' },
+  ];
+  const [level, setLevel] = useState<string>(() => {
+    try { return localStorage.getItem('flux_robot_level') || 'normal'; } catch { return 'normal'; }
+  });
+  const pick = (key: string) => {
+    setLevel(key);
+    try { localStorage.setItem('flux_robot_level', key); } catch (_) {}
+    try { window.dispatchEvent(new CustomEvent('flux:robot-changed')); } catch (_) {}
+  };
+  return (
+    <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
+      <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">Активность робота</div>
+      <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 mb-2">
+        Пока вы печатаете или идёт запрос, он в любом случае не отвлекается на игры.
+      </div>
+      <div className="flex gap-1.5">
+        {OPTS.map((o) => (
+          <button key={o.key} type="button" onClick={() => pick(o.key)} aria-pressed={level === o.key}
+            title={o.hint}
+            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
+              level === o.key
+                ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
+            }`}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }

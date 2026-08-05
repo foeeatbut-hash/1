@@ -81,8 +81,8 @@ export default function Dashboard() {
       dataService.getNotes(),
       dataService.getProjects(),
     ]);
-    if (l.status === 'fulfilled') setLogs((l.value || []).slice(0, 6));
-    if (n.status === 'fulfilled') setNotes((n.value || []).slice(0, 3));
+    if (l.status === 'fulfilled') setLogs((l.value || []).slice(0, 9));
+    if (n.status === 'fulfilled') setNotes((n.value || []).slice(0, 6));
     if (p.status === 'fulfilled') setProjects(p.value || []);
     setLoading(false);
   };
@@ -286,29 +286,51 @@ export default function Dashboard() {
     <>
       {/* Фон под плитками: время года и время суток, в день рождения — праздник */}
       {backdropOn && (
-        <SeasonalBackdrop birthday={isBirthday} className="absolute inset-0 z-0" />
+        <>
+          <SeasonalBackdrop birthday={isBirthday} className="absolute inset-0 z-0" />
+          {/* Дымка поверх неба. Без неё небо спорит с текстом: заголовок и
+              мелкие подписи ложатся прямо на градиент и теряют контраст. */}
+          <div aria-hidden className="absolute inset-0 z-0 pointer-events-none
+            bg-gradient-to-b from-white/55 via-white/25 to-white/65
+            dark:from-dark-bg/60 dark:via-dark-bg/30 dark:to-dark-bg/70" />
+        </>
       )}
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.18 }}
-      className="relative z-10 max-w-6xl mx-auto flex flex-col gap-4 text-slate-800 dark:text-dark-text-main"
+      className="relative z-10 max-w-6xl mx-auto min-h-full flex flex-col gap-5 text-slate-800 dark:text-dark-text-main"
     >
       {/* ── Шапка: кто и когда ── */}
-      <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
-          {isBirthday && <Cake className="w-5 h-5 text-rose-500 shrink-0" />}
-          {isBirthday
-            ? `С днём рождения, ${greetName}!`
-            : `С возвращением, ${greetName}`}
-        </h1>
-        <span className="text-xs text-slate-500 dark:text-dark-text-muted first-letter:uppercase">{today}</span>
+      <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+        <div className="min-w-0">
+          <h1 className="text-[26px] leading-[1.15] font-bold tracking-[-0.02em] text-slate-900 dark:text-white flex items-center gap-2">
+            {isBirthday && <Cake className="w-6 h-6 text-rose-500 shrink-0" />}
+            {isBirthday
+              ? `С днём рождения, ${greetName}!`
+              : `С возвращением, ${greetName}`}
+          </h1>
+          <p className="mt-1 text-[13px] text-slate-600 dark:text-dark-text-muted first-letter:uppercase">
+            {today}
+            <span className="mx-2 text-slate-300 dark:text-slate-700">·</span>
+            {activeProject ? (
+              <>Проект: <span className="font-semibold text-slate-700 dark:text-dark-text-main">{activeProject.name}</span></>
+            ) : (
+              <button type="button" onClick={() => open('/projects')}
+                className="font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer">
+                проект не выбран
+              </button>
+            )}
+          </p>
+        </div>
       </header>
 
       {/* ── Поиск: одна дверь во всё ── */}
       <div className="relative">
-        <div className="flex items-center gap-2.5 px-3.5 h-12 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface focus-within:border-emerald-600 dark:focus-within:border-emerald-400">
-          <Search className="w-4 h-4 text-slate-400 shrink-0" />
+        <div className="flex items-center gap-3 px-4 h-12 rounded-2xl flux-surface transition-ui
+                        focus-within:border-emerald-600/60 dark:focus-within:border-emerald-400/60
+                        focus-within:shadow-[0_0_0_4px_color-mix(in_oklab,var(--color-emerald-500)_18%,transparent)]">
+          <Search className="w-[18px] h-[18px] text-slate-400 shrink-0" />
           <input
             ref={inputRef}
             value={query}
@@ -317,7 +339,7 @@ export default function Dashboard() {
             onKeyDown={onSearchKey}
             placeholder={activeProject ? 'Найти тег, заметку, проект или раздел' : 'Найти заметку, проект или раздел'}
             aria-label="Поиск по программе"
-            className="flex-1 bg-transparent outline-none text-sm placeholder:text-slate-400"
+            className="flux-focus-outer flex-1 bg-transparent outline-none text-[15px] placeholder:text-slate-400 placeholder:font-normal"
           />
           {query ? (
             <button type="button" onClick={() => { setQuery(''); inputRef.current?.focus(); }} aria-label="Очистить поиск"
@@ -325,13 +347,15 @@ export default function Dashboard() {
               <X className="w-4 h-4" />
             </button>
           ) : (
-            <span className="hidden sm:inline text-2xs text-slate-400">просто начните печатать</span>
+            <span className="hidden sm:inline text-2xs text-slate-400 shrink-0">просто начните печатать</span>
           )}
         </div>
 
+        {/* Список результатов непрозрачный: сквозь стекло просвечивали плитки
+            под ним, и читать найденное было невозможно. */}
         {query.trim() && (
           <div role="listbox" aria-label="Результаты поиска"
-            className="absolute z-30 left-0 right-0 mt-1.5 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-panel shadow-lg overflow-hidden">
+            className="absolute z-30 left-0 right-0 mt-1.5 rounded-2xl flux-surface bg-white dark:bg-dark-panel shadow-xl overflow-hidden">
             {hits.length === 0 ? (
               <p className="px-3.5 py-3 text-xs text-slate-500 dark:text-dark-text-muted">
                 Ничего не нашлось. Попробуйте код тега, название заметки или раздела.
@@ -388,24 +412,33 @@ export default function Dashboard() {
         });
         if (!rows.length) return null;
 
+        // Тон задаёт цветная полоса слева и лёгкая подсветка, а не сплошная
+        // заливка во всю строку: срочное видно сразу, но экран не пестрит.
         const tones: Record<string, string> = {
-          crit: 'border-rose-300 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300',
-          warn: 'border-amber-300 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-300',
-          info: 'border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface text-slate-700 dark:text-dark-text-main',
+          crit: 'before:bg-rose-500 bg-rose-50/70 dark:bg-rose-950/25 text-rose-900 dark:text-rose-200',
+          warn: 'before:bg-amber-500 bg-amber-50/70 dark:bg-amber-950/25 text-amber-900 dark:text-amber-200',
+          info: 'before:bg-emerald-500 text-slate-700 dark:text-dark-text-main',
+        };
+        const toneIcon: Record<string, string> = {
+          crit: 'text-rose-600 dark:text-rose-400',
+          warn: 'text-amber-600 dark:text-amber-400',
+          info: 'text-emerald-700 dark:text-emerald-400',
         };
         return (
           <section aria-label="Требует внимания">
-            <h2 className="text-2xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">Требует внимания</h2>
+            <h2 className="text-[11px] font-bold uppercase tracking-[0.13em] text-slate-500 dark:text-slate-400 mb-2 select-none">Требует внимания</h2>
             <div className="flex flex-col gap-1.5">
               {rows.map((r) => {
                 const Icon = r.icon;
                 return (
-                  <div key={r.key} className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border ${tones[r.tone]}`}>
-                    <Icon className="w-4 h-4 shrink-0" />
-                    <span className="text-sm font-semibold flex-1 min-w-0 truncate">{r.text}</span>
+                  <div key={r.key}
+                    className={`relative flex items-center gap-3 pl-4 pr-3 py-2.5 rounded-xl flux-surface overflow-hidden
+                                before:content-[''] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 ${tones[r.tone]}`}>
+                    <Icon className={`w-[18px] h-[18px] shrink-0 ${toneIcon[r.tone]}`} />
+                    <span className="text-[14px] font-semibold flex-1 min-w-0 truncate">{r.text}</span>
                     <button type="button" onClick={r.go}
-                      className="text-xs font-bold underline underline-offset-2 hover:no-underline cursor-pointer shrink-0">
-                      {r.action}
+                      className="text-xs font-bold px-2 py-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer shrink-0 transition-ui">
+                      {r.action} →
                     </button>
                   </div>
                 );
@@ -437,8 +470,8 @@ export default function Dashboard() {
       {/* ── Продолжить: где человек был в прошлый раз ── */}
       {recent.length > 0 && (
         <section>
-          <h2 className="text-2xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">Продолжить</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <h2 className="text-[11px] font-bold uppercase tracking-[0.13em] text-slate-500 dark:text-slate-400 mb-2 select-none">Продолжить</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             {recent.map((s) => {
               const Icon = s.icon as any;
               return (
@@ -448,10 +481,14 @@ export default function Dashboard() {
                   onClick={() => open(s.path)}
                   data-share-route={s.path}
                   data-share-label={s.title}
-                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface hover:border-emerald-600 dark:hover:border-emerald-400 transition-ui cursor-pointer text-left"
+                  className="flex items-center gap-3 px-3 py-3 rounded-xl flux-tile transition-ui cursor-pointer text-left"
                 >
-                  {Icon && <Icon className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />}
-                  <span className="text-sm font-semibold truncate">{s.title}</span>
+                  {Icon && (
+                    <span className="w-8 h-8 rounded-lg bg-emerald-600/12 dark:bg-emerald-400/15 flex items-center justify-center shrink-0">
+                      <Icon className="w-[18px] h-[18px] text-emerald-700 dark:text-emerald-300" />
+                    </span>
+                  )}
+                  <span className="text-[14px] font-semibold truncate">{s.title}</span>
                 </button>
               );
             })}
@@ -461,8 +498,10 @@ export default function Dashboard() {
 
       {/* ── Разделы: часто используемые впереди ── */}
       <section>
-        <h2 className="text-2xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">Разделы</h2>
-        <div className="flex flex-wrap gap-1.5">
+        <h2 className="text-[11px] font-bold uppercase tracking-[0.13em] text-slate-500 dark:text-slate-400 mb-2 select-none">Разделы</h2>
+        {/* Ровная сетка вместо переносящихся пилюль: раньше последний раздел
+            уезжал на вторую строку в одиночестве и блок выглядел обрывком. */}
+        <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">
           {sections.map((s) => {
             const Icon = s.icon as any;
             return (
@@ -472,38 +511,37 @@ export default function Dashboard() {
                 onClick={() => open(s.path)}
                 data-share-route={s.path}
                 data-share-label={s.title}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:border-emerald-600 dark:hover:border-emerald-400 transition-ui cursor-pointer"
+                className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl flux-tile transition-ui cursor-pointer text-left min-w-0"
               >
-                {Icon && <Icon className="w-3.5 h-3.5 text-slate-400" />}
-                <span className="text-xs font-semibold">{s.title}</span>
+                {Icon && <Icon className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />}
+                <span className="text-[13px] font-semibold truncate">{s.title}</span>
               </button>
             );
           })}
         </div>
       </section>
 
-      {/* ── Три колонки: изменения, заметки, проекты ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start">
+      {/* ── Три колонки: изменения, заметки, проекты ──
+           Колонки одной высоты и по содержимому: раньше они кончались на
+           разных уровнях и низ блока выглядел обрывком. Ниже — небо, и это
+           лучше, чем растянутая до края пустая карточка. */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5 items-stretch pb-1">
         {/* Последние изменения */}
-        <section className="rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
-          <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-slate-100 dark:border-dark-border">
-            <h2 className="text-sm font-bold flex items-center gap-2"><History className="w-4 h-4 text-emerald-700 dark:text-emerald-400" /> Последние изменения</h2>
-            <button type="button" onClick={() => open('/logs')} className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer">Все</button>
-          </div>
-          <div className="divide-y divide-slate-100 dark:divide-dark-border">
-            {loading && <p className="px-3.5 py-4 text-xs text-slate-400">Загружаю…</p>}
-            {!loading && logs.length === 0 && (
-              <p className="px-3.5 py-4 text-xs text-slate-500 dark:text-dark-text-muted">Пока ничего не менялось.</p>
-            )}
+        <section className="rounded-2xl flux-surface overflow-hidden flex flex-col min-h-[240px]">
+          <CardHead icon={History} title="Последние изменения"
+            action={<CardLink onClick={() => open('/logs')}>Все</CardLink>} />
+          <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin divide-y divide-black/[0.05] dark:divide-white/[0.06]">
+            {loading && <p className="px-4 py-5 text-[13px] text-slate-400">Загружаю…</p>}
+            {!loading && logs.length === 0 && <CardEmpty>Пока ничего не менялось.</CardEmpty>}
             {logs.map((log) => (
               <button
                 key={log.id}
                 type="button"
                 onClick={() => { const r = (log as any).targetRoute; if (r && r !== '#') open(r); }}
-                className="w-full text-left px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-dark-panel transition-ui cursor-pointer"
+                className="w-full text-left px-4 py-2.5 hover:bg-black/[0.03] dark:hover:bg-white/[0.04] transition-ui cursor-pointer"
               >
-                <p className="text-xs text-slate-700 dark:text-dark-text-main line-clamp-2">{log.description}</p>
-                <p className="mt-0.5 text-2xs text-slate-400 flex items-center gap-1.5">
+                <p className="text-[13px] leading-snug text-slate-700 dark:text-dark-text-main line-clamp-2">{log.description}</p>
+                <p className="mt-1 text-2xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                   <Clock className="w-3 h-3 shrink-0" />
                   {relTime((log as any).createdAt)}
                   <span className="truncate">· {(log.userName || '').replace(/\s*\(.*\)$/, '')}</span>
@@ -514,26 +552,24 @@ export default function Dashboard() {
         </section>
 
         {/* Мои заметки */}
-        <section className="rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
-          <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-slate-100 dark:border-dark-border">
-            <h2 className="text-sm font-bold flex items-center gap-2"><NotebookPen className="w-4 h-4 text-emerald-700 dark:text-emerald-400" /> Мои заметки</h2>
-            <button type="button" onClick={() => open('/notes')} className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer">Все</button>
-          </div>
-          <div className="divide-y divide-slate-100 dark:divide-dark-border">
+        <section className="rounded-2xl flux-surface overflow-hidden flex flex-col min-h-[240px]">
+          <CardHead icon={NotebookPen} title="Мои заметки"
+            action={<CardLink onClick={() => open('/notes')}>Все</CardLink>} />
+          <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin divide-y divide-black/[0.05] dark:divide-white/[0.06]">
             {!loading && notes.length === 0 && (
-              <div className="px-3.5 py-4">
-                <p className="text-xs text-slate-500 dark:text-dark-text-muted mb-2">Заметок пока нет.</p>
+              <CardEmpty>
+                Заметок пока нет.
                 <button type="button" onClick={() => open('/notes')}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400 cursor-pointer hover:underline">
+                  className="mt-2 inline-flex items-center gap-1.5 text-[13px] font-semibold text-emerald-700 dark:text-emerald-400 cursor-pointer hover:underline">
                   <Plus className="w-3.5 h-3.5" /> Создать первую
                 </button>
-              </div>
+              </CardEmpty>
             )}
             {notes.map((note) => (
-              <div key={note.id} className="px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-dark-panel transition-ui group">
+              <div key={note.id} className="px-4 py-2.5 hover:bg-black/[0.03] dark:hover:bg-white/[0.04] transition-ui group">
                 <button type="button" onClick={() => open('/notes')} className="w-full text-left cursor-pointer">
-                  <p className="text-xs font-semibold truncate">{note.title || 'Без названия'}</p>
-                  <p className="text-2xs text-slate-500 dark:text-dark-text-muted line-clamp-2 mt-0.5">
+                  <p className="text-[13px] font-semibold truncate">{note.title || 'Без названия'}</p>
+                  <p className="text-xs leading-snug text-slate-500 dark:text-dark-text-muted line-clamp-2 mt-0.5">
                     {(note.content || '').replace(/<[^>]*>/g, ' ').trim() || 'Заметка не заполнена'}
                   </p>
                 </button>
@@ -541,7 +577,7 @@ export default function Dashboard() {
                   type="button"
                   onClick={(e) => openSticker(e, note.id)}
                   title="Открыть заметку отдельным окном поверх других"
-                  className="mt-1 inline-flex items-center gap-1 text-2xs font-semibold text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400 opacity-0 group-hover:opacity-100 transition-ui cursor-pointer"
+                  className="mt-1.5 inline-flex items-center gap-1 text-2xs font-semibold text-slate-500 hover:text-emerald-700 dark:hover:text-emerald-400 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-ui cursor-pointer"
                 >
                   <ExternalLink className="w-3 h-3" /> На экран
                 </button>
@@ -551,19 +587,16 @@ export default function Dashboard() {
         </section>
 
         {/* Проекты */}
-        <section className="rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
-          <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-slate-100 dark:border-dark-border">
-            <h2 className="text-sm font-bold flex items-center gap-2"><FolderKanban className="w-4 h-4 text-emerald-700 dark:text-emerald-400" /> Проекты</h2>
-            <button type="button" onClick={() => setShowCreate(true)}
-              className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer">
-              <Plus className="w-3.5 h-3.5" /> Создать
-            </button>
-          </div>
-          <div className="divide-y divide-slate-100 dark:divide-dark-border max-h-56 overflow-y-auto scrollbar-thin">
+        <section className="rounded-2xl flux-surface overflow-hidden flex flex-col min-h-[240px]">
+          <CardHead icon={FolderKanban} title="Проекты"
+            action={(
+              <CardLink onClick={() => setShowCreate(true)}>
+                <Plus className="w-3.5 h-3.5" /> Создать
+              </CardLink>
+            )} />
+          <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin divide-y divide-black/[0.05] dark:divide-white/[0.06]">
             {!loading && projects.length === 0 && (
-              <p className="px-3.5 py-4 text-xs text-slate-500 dark:text-dark-text-muted">
-                Проектов пока нет. Создайте первый — без него не работают теги, оборудование и закупки.
-              </p>
+              <CardEmpty>Проектов пока нет. Создайте первый — без него не работают теги, оборудование и закупки.</CardEmpty>
             )}
             {projects.map((p) => {
               const active = activeProject?.id === p.id;
@@ -574,19 +607,19 @@ export default function Dashboard() {
                   onClick={() => setActiveProject(active ? null : (p as any))}
                   aria-pressed={active}
                   title={active ? 'Снять как активный' : 'Сделать активным'}
-                  className={`w-full flex items-center gap-2 px-3.5 py-2 text-left transition-ui cursor-pointer ${
-                    active ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'hover:bg-slate-50 dark:hover:bg-dark-panel'
+                  className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-left transition-ui cursor-pointer ${
+                    active ? 'bg-emerald-500/10' : 'hover:bg-black/[0.03] dark:hover:bg-white/[0.04]'
                   }`}
                 >
-                  <Check className={`w-3.5 h-3.5 shrink-0 ${active ? 'text-emerald-700 dark:text-emerald-400' : 'opacity-0'}`} />
-                  <span className={`text-xs truncate flex-1 ${active ? 'font-bold text-emerald-900 dark:text-emerald-200' : 'font-medium'}`}>{p.name}</span>
-                  {active && <span className="text-2xs font-mono uppercase text-emerald-700 dark:text-emerald-400 shrink-0">активный</span>}
+                  <Check className={`w-4 h-4 shrink-0 ${active ? 'text-emerald-700 dark:text-emerald-400' : 'opacity-0'}`} />
+                  <span className={`text-[13px] truncate flex-1 ${active ? 'font-bold text-emerald-900 dark:text-emerald-200' : 'font-medium'}`}>{p.name}</span>
+                  {active && <span className="text-2xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 shrink-0">активный</span>}
                 </button>
               );
             })}
           </div>
           <button type="button" onClick={() => open('/projects')}
-            className="w-full px-3.5 py-2 text-xs font-semibold text-slate-500 dark:text-dark-text-muted hover:bg-slate-50 dark:hover:bg-dark-panel border-t border-slate-100 dark:border-dark-border flex items-center justify-center gap-1 cursor-pointer">
+            className="shrink-0 w-full px-4 py-2.5 text-[13px] font-semibold text-slate-600 dark:text-dark-text-muted hover:bg-black/[0.03] dark:hover:bg-white/[0.04] border-t border-black/[0.05] dark:border-white/[0.06] flex items-center justify-center gap-1.5 cursor-pointer transition-ui">
             Управление проектами <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </section>
@@ -601,5 +634,42 @@ export default function Dashboard() {
       )}
     </motion.div>
     </>
+  );
+}
+
+/** Шапка карточки: значок в мягком квадрате, название и одно действие справа. */
+function CardHead({ icon: Icon, title, action }: { icon: any; title: string; action?: React.ReactNode }) {
+  return (
+    <div className="shrink-0 flex items-center justify-between gap-2 px-4 py-3 border-b border-black/[0.05] dark:border-white/[0.06]">
+      <h2 className="text-[14px] font-bold flex items-center gap-2.5 min-w-0">
+        <span className="w-7 h-7 rounded-lg bg-emerald-600/12 dark:bg-emerald-400/15 flex items-center justify-center shrink-0">
+          <Icon className="w-4 h-4 text-emerald-700 dark:text-emerald-300" />
+        </span>
+        <span className="truncate">{title}</span>
+      </h2>
+      {action}
+    </div>
+  );
+}
+
+/** Тихая ссылка-действие в шапке карточки. */
+function CardLink({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button type="button" onClick={onClick}
+      className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-lg
+                 text-slate-600 dark:text-dark-text-muted hover:text-emerald-700 dark:hover:text-emerald-400
+                 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] cursor-pointer transition-ui">
+      {children}
+    </button>
+  );
+}
+
+/** Пустая карточка: подпись по центру свободного места, а не прижатая к шапке. */
+function CardEmpty({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="h-full min-h-[140px] flex flex-col items-center justify-center text-center px-6 py-6
+                    text-[13px] leading-relaxed text-slate-500 dark:text-dark-text-muted">
+      {children}
+    </div>
   );
 }

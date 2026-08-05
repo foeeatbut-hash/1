@@ -10,7 +10,7 @@ import { dataService } from '../services/dataService';
 import { useLogStore } from '../store/logStore';
 import { useAssistantStore } from '../store/assistantStore';
 import AssistantPanel from './AssistantPanel';
-import AssistantRobot from './AssistantRobot';
+import RobotDock from './RobotDock';
 import NotificationsPanel from './NotificationsPanel';
 import RightRail from './RightRail';
 import ShareLayer from './ShareLayer';
@@ -60,6 +60,7 @@ export default function Layout() {
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const addLog = useLogStore((state) => state.addLog);
   const toggleAssistant = useAssistantStore((s) => s.toggleOpen);
+  const assistantOpen = useAssistantStore((s) => s.isOpen);
 
   // Глобальный перехват событий для детального логирования действий пользователя.
   // Пишем КАЖДЫЙ клик (кнопка, поле, строка, пустое место) — чтобы при ошибке
@@ -580,7 +581,9 @@ export default function Layout() {
       <AssistantPanel />
       <RightRail />
 
-      {robotOn && <AssistantRobot />}
+      {/* Пока чат закрыт, Флакси выглядывает из-за правого края; когда чат
+          открыт, он живёт в шапке панели помощника и здесь не нужен. */}
+      {robotOn && !assistantOpen && <RobotDock />}
 
       <ToastProvider />
       <ModalProvider />

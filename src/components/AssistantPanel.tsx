@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAssistantStore, AssistantMessage, AssistantAction } from '../store/assistantStore';
 import { getSection } from '../assistant/sections';
-import { Sparkles, Send, X, FileSpreadsheet, FileText, Play, HelpCircle, Loader2, GraduationCap, MessageCircleQuestion, Info, Pencil, MapPin, Tag as TagIcon } from 'lucide-react';
+import RobotStage from './RobotStage';
+import { Send, X, FileSpreadsheet, FileText, Play, HelpCircle, Loader2, GraduationCap, MessageCircleQuestion, Info, Pencil, MapPin, Tag as TagIcon } from 'lucide-react';
 
 function actionIcon(kind: AssistantAction['kind']) {
   switch (kind) {
@@ -117,7 +118,27 @@ export default function AssistantPanel() {
 
   const section = getSection(currentRoute);
 
+  // Сигнал роботу: человек печатает — он бросает своё занятие и слушает.
+  const typedAt = useRef(0);
+  const notifyTyping = () => {
+    const now = Date.now();
+    if (now - typedAt.current < 4000) return;
+    typedAt.current = now;
+    window.dispatchEvent(new CustomEvent('flux:assistant-typing'));
+  };
+
   const [input, setInput] = useState('');
+  // Робота можно выключить в настройках — тогда шапка сжимается в узкую полосу
+  const [robotOn, setRobotOn] = useState<boolean>(() => {
+    try { return localStorage.getItem('flux_robot') !== '0'; } catch { return true; }
+  });
+  useEffect(() => {
+    const onChange = () => {
+      try { setRobotOn(localStorage.getItem('flux_robot') !== '0'); } catch (_) {}
+    };
+    window.addEventListener('flux:robot-changed', onChange);
+    return () => window.removeEventListener('flux:robot-changed', onChange);
+  }, []);
   const endRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -188,21 +209,19 @@ export default function AssistantPanel() {
       className={`${isOpen ? 'w-[380px] opacity-100' : 'w-0 opacity-0 pointer-events-none'} shrink-0 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col transition-ui duration-300 overflow-hidden`}
     >
       <div className="w-[380px] h-full flex flex-col shrink-0">
-      {/* Шапка */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-emerald-600/10 to-transparent shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center shrink-0">
-            <Sparkles className="w-4 h-4 text-white" />
+      {/* Шапка — она же полка робота: заголовок и подпись убраны, панель
+          узнаётся по самому Флакси, а место отдано ему. */}
+      {robotOn
+        ? <RobotStage onClose={() => setOpen(false)} />
+        : (
+          <div className="shrink-0 h-9 flex items-center justify-end px-2 border-b border-slate-200 dark:border-slate-800">
+            <button type="button" onClick={() => setOpen(false)}
+              className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-black/[0.06] dark:hover:bg-white/[0.08] cursor-pointer transition-ui"
+              title="Закрыть" aria-label="Закрыть помощника">
+              <X className="w-5 h-5" />
+            </button>
           </div>
-          <div>
-            <div className="text-sm font-bold text-slate-900 dark:text-white leading-tight">Помощник Flux</div>
-            <div className="text-2xs text-slate-400 dark:text-slate-500">Локальный · работает офлайн</div>
-          </div>
-        </div>
-        <button type="button" onClick={() => setOpen(false)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer transition-colors" title="Закрыть">
-          <X className="w-5 h-5" />
-        </button>
-      </div>
+        )}
 
       {/* Сообщения */}
       <div ref={messagesRef} className="flex-1 overflow-y-auto p-3 space-y-3">
@@ -286,7 +305,7 @@ export default function AssistantPanel() {
           ref={inputRef}
           type="text"
           value={input}
-          onChange={(e) => { setInput(e.target.value); setHistIdx(-1); }}
+          onChange={(e) => { setInput(e.target.value); setHistIdx(-1); notifyTyping(); }}
           onKeyDown={onInputKeyDown}
           placeholder={pendingInput?.kind === 'rename-tag' ? `Новый код для «${pendingInput.oldCode}»…` : demoMode ? 'Что показать? Напишите вопрос…' : 'Спросите (Ctrl+K) — данные, действия, справка…'}
           className={`flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border rounded-lg text-xs text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 transition-ui ${
