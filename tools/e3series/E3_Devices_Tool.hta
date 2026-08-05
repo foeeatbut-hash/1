@@ -192,11 +192,11 @@ Dim stopRequested, jobBusy, jobKind, jobPhase, jobDone, asyncOk, verboseFlag
 Dim logCount
 
 ' Сигнатуры API, подобранные на этой сборке E3
-Dim mLoc, mSetLoc, mPlace, mDevId, mSheetId, mRot, mSetRot, mMir, mDevSym, mDevGetId
+Dim mLoc, mSetLoc, mPlace, mDevId, mSheetId, mRot, mSetRot, mMir, mDevSym, mDevGetId, mPlaced
 Dim areaWarned, getIdWarned
 
 ' Экспорт
-Dim exIds, exIdx, exArr(), exRows, exRowCursor, exPozById
+Dim exIds, exIdx, exPlIdx, exArr(), exRows, exRowCursor, exPozById
 Dim exPlaceMap, exPlaceCols(), exPlaceCnt, exPlaceCap
 Dim exSheetIds, exSheetIdx, exSheetTotal, exSymTotal
 Dim exExcel, exWb, exWs, exWithPlacements, exOnlyPlaced, exStart, exSkipped
@@ -512,7 +512,7 @@ Sub uiConnect()
 
     ' сигнатуры могли отличаться в другой сборке — подбираем заново
     mLoc = "" : mSetLoc = "" : mPlace = "" : mDevId = "" : mSheetId = ""
-    mRot = "" : mSetRot = "" : mMir = "" : mDevSym = "" : mDevGetId = ""
+    mRot = "" : mSetRot = "" : mMir = "" : mDevSym = "" : mDevGetId = "" : mPlaced = ""
     areaWarned = False
     getIdWarned = False
 
@@ -552,54 +552,102 @@ Function ApiReport()
     ApiReport = s
 End Function
 
-' Подбор сигнатур на первом размещённом символе проекта
+' Подбор сигнатур. Ищем символ сначала по листам, потом по изделиям:
+' в проекте, где ничего не размещено, годится любой символ изделия.
 Sub ProbeApi()
     On Error Resume Next
-    Dim sIds, i, j, shObj, symObj, symIds, sid, x, y, found, shId, symId
+    Dim sIds, dIds, i, j, shObj, symObj, devObj, symIds, sid, x, y, found, shId, symId, devId
+    Dim nSheetSyms, nDevSyms
 
     found = False
-    ctJob.GetSheetIds sIds
-    Err.Clear
-    If Not IsArray(sIds) Then
-        LogMsg "Листов нет — часть проверок API отложена."
-        Exit Sub
-    End If
+    nSheetSyms = 0
+    nDevSyms = 0
 
     Set shObj = ctJob.CreateSheetObject()
     Set symObj = ctJob.CreateSymbolObject()
+    Set devObj = ctJob.CreateDeviceObject()
 
-    For i = LBound(sIds) To UBound(sIds)
-        If found Then Exit For
-        shId = NumOr(sIds(i), 0)
-        If shId > 0 Then
-            shObj.SetId shId
-            symIds = Empty
-            shObj.GetSymbolIds symIds
-            Err.Clear
-            If IsArray(symIds) Then
-                For j = LBound(symIds) To UBound(symIds)
-                    If found Then Exit For
-                    symId = NumOr(symIds(j), 0)
-                    If symId > 0 Then
-                        symObj.SetId symId
-                        Err.Clear
-                        If SymGetDeviceId(symObj) > 0 Then
-                            If SymGetLocation(symObj, sid, x, y) Then
-                                SymGetSheetId symObj
-                                SymGetRotation symObj
-                                SymGetMirror symObj
-                                found = True
+    ' --- по листам ---
+    ctJob.GetSheetIds sIds
+    Err.Clear
+    If IsArray(sIds) Then
+        For i = LBound(sIds) To UBound(sIds)
+            shId = NumOr(sIds(i), 0)
+            If shId > 0 Then
+                shObj.SetId shId
+                symIds = Empty
+                shObj.GetSymbolIds symIds
+                Err.Clear
+                If IsArray(symIds) Then
+                    For j = LBound(symIds) To UBound(symIds)
+                        symId = NumOr(symIds(j), 0)
+                        If symId > 0 Then
+                            nSheetSyms = nSheetSyms + 1
+                            If Not found Then
+                                symObj.SetId symId
+                                Err.Clear
+                                If SymGetLocation(symObj, sid, x, y) Then
+                                    SymGetDeviceId symObj
+                                    SymGetSheetId symObj
+                                    SymGetRotation symObj
+                                    SymGetMirror symObj
+                                    SymIsPlaced symObj
+                                    found = True
+                                End If
                             End If
                         End If
-                    End If
-                Next
+                    Next
+                End If
             End If
-        End If
-    Next
+        Next
+    End If
+
+    ' --- по изделиям (работает и когда на листах пусто) ---
+    ctJob.GetAllDeviceIds dIds
+    Err.Clear
+    If IsArray(dIds) Then
+        For i = LBound(dIds) To UBound(dIds)
+            devId = NumOr(dIds(i), 0)
+            If devId > 0 Then
+                devObj.SetId devId
+                symIds = Empty
+                DevSymbolIds devObj, symIds
+                Err.Clear
+                If IsArray(symIds) Then
+                    For j = LBound(symIds) To UBound(symIds)
+                        symId = NumOr(symIds(j), 0)
+                        If symId > 0 Then
+                            nDevSyms = nDevSyms + 1
+                            If Not found Then
+                                symObj.SetId symId
+                                Err.Clear
+                                If SymGetLocation(symObj, sid, x, y) Then
+                                    SymGetDeviceId symObj
+                                    SymGetSheetId symObj
+                                    SymGetRotation symObj
+                                    SymGetMirror symObj
+                                    SymIsPlaced symObj
+                                    found = True
+                                End If
+                            End If
+                        End If
+                    Next
+                End If
+            End If
+        Next
+    End If
+
+    LogMsg "Символов: на листах " & nSheetSyms & ", у изделий " & nDevSyms & _
+           " (перечисление: " & IIfStr(mDevSym = "", "не определено", mDevSym) & ")"
 
     If mLoc = "" Then
-        LogBad "Метод чтения координат символа определить не удалось."
-        LogMsg "Нажмите «Показать координаты символов», сохраните лог и пришлите его."
+        If nSheetSyms = 0 And nDevSyms = 0 Then
+            LogBad "Символов в проекте не найдено — читать координаты не с чего."
+            LogMsg "Нажмите «Показать координаты символов»: покажет, что именно возвращает API по листам и изделиям."
+        Else
+            LogBad "Метод чтения координат символа определить не удалось."
+            LogMsg "Нажмите «Показать координаты символов», сохраните лог и пришлите его."
+        End If
     Else
         LogMsg "Координаты символов читаются как: " & mLoc
     End If
@@ -838,6 +886,35 @@ Function SymGetSheetId(sym)
         If NumOr(sid, 0) > 0 Then
             mSheetId = "из " & mLoc
             SymGetSheetId = CLng(sid)
+        End If
+    End If
+    Err.Clear
+End Function
+
+' Размещён ли символ на листе. Прямой признак, если сборка его отдаёт,
+' иначе — по идентификатору листа.
+Function SymIsPlaced(sym)
+    Dim v
+    SymIsPlaced = False
+    On Error Resume Next
+
+    If mPlaced = "" Or mPlaced = "IsPlaced" Then
+        Err.Clear
+        v = sym.IsPlaced()
+        If Err.Number = 0 And IsNum(v) Then
+            mPlaced = "IsPlaced"
+            SymIsPlaced = (CLng(v) <> 0)
+            Err.Clear
+            Exit Function
+        End If
+        Err.Clear
+        If mPlaced <> "" Then Exit Function
+    End If
+
+    If mPlaced = "" Or mPlaced = "по ID листа" Then
+        If SymGetSheetId(sym) > 0 Then
+            mPlaced = "по ID листа"
+            SymIsPlaced = True
         End If
     End If
     Err.Clear
@@ -1232,6 +1309,7 @@ Sub uiExport()
 
     ReDim exArr(exRows - 1, COLS - 1)
     exIdx = LBound(exIds)
+    exPlIdx = LBound(exIds)
 
     jobPhase = 1
     StartJob "export"
@@ -1240,14 +1318,107 @@ End Sub
 Sub ExportChunk()
     Select Case jobPhase
         Case 1
-            ExportPhaseSheets
+            ExportPhaseByDevice
         Case 2
-            ExportPhaseDevices
+            ExportPhaseSheets
         Case 3
+            ExportPhaseDevices
+        Case 4
             ExportPhaseWrite
         Case Else
             jobDone = True
     End Select
+End Sub
+
+' Фаза 1 (основная): изделие -> его символы -> координаты.
+' Не зависит от того, отдаёт ли лист список своих символов.
+Sub ExportPhaseByDevice()
+    On Error Resume Next
+    Dim dev, sym, per, id, ids, i, k, symId, sid, x, y, nm, rot, mir, shId, sName
+
+    If stopRequested Then
+        LogMsg "Экспорт прерван."
+        jobDone = True
+        Exit Sub
+    End If
+
+    Set dev = ctJob.CreateDeviceObject()
+    Set sym = ctJob.CreateSymbolObject()
+    per = 0
+
+    Do While exPlIdx <= UBound(exIds) And per < 25
+        id = NumOr(exIds(exPlIdx), 0)
+        exPlIdx = exPlIdx + 1
+        If id > 0 Then
+            per = per + 1
+            dev.SetId id
+            ids = Empty
+            DevSymbolIds dev, ids
+            Err.Clear
+
+            If IsArray(ids) Then
+                k = 0
+                For i = LBound(ids) To UBound(ids)
+                    symId = NumOr(ids(i), 0)
+                    If symId > 0 Then
+                        k = k + 1
+                        sym.SetId symId
+                        Err.Clear
+                        If SymGetLocation(sym, sid, x, y) Then
+                            shId = CLng(NumOr(sid, 0))
+                            If shId <= 0 Then shId = SymGetSheetId(sym)
+                            If shId > 0 Then
+                                sName = SheetNameOf(shId)
+                                nm = sym.GetName()
+                                If Err.Number <> 0 Then
+                                    nm = ""
+                                    Err.Clear
+                                End If
+                                rot = SymGetRotation(sym)
+                                mir = SymGetMirror(sym)
+                                exSymTotal = exSymTotal + 1
+
+                                If Not exPlaceMap.Exists(CStr(CLng(id))) Then
+                                    exPlaceMap.Add CStr(CLng(id)), Array(sName, x, y, rot, mir, symId, nm, shId)
+                                End If
+
+                                If exWithPlacements Then
+                                    If exPlaceCnt + 1 > exPlaceCap Then
+                                        exPlaceCap = exPlaceCap + 1024
+                                        ReDim Preserve exPlaceCols(PCOLS, exPlaceCap)
+                                    End If
+                                    exPlaceCnt = exPlaceCnt + 1
+                                    exPlaceCols(P_NR,    exPlaceCnt) = k
+                                    exPlaceCols(P_SYMID, exPlaceCnt) = symId
+                                    exPlaceCols(P_SNAME, exPlaceCnt) = nm
+                                    exPlaceCols(P_SHEET, exPlaceCnt) = sName
+                                    exPlaceCols(P_SHID,  exPlaceCnt) = shId
+                                    exPlaceCols(P_X,     exPlaceCnt) = x
+                                    exPlaceCols(P_Y,     exPlaceCnt) = y
+                                    exPlaceCols(P_ROT,   exPlaceCnt) = rot
+                                    exPlaceCols(P_MIR,   exPlaceCnt) = mir
+                                    exPlaceCols(P_DEVID, exPlaceCnt) = CLng(id)
+                                End If
+                            End If
+                        End If
+                    End If
+                Next
+            End If
+        End If
+    Loop
+
+    Progress exPlIdx - LBound(exIds), MaxI(UBound(exIds) - LBound(exIds) + 1, 1), "поиск размещений по изделиям"
+
+    If exPlIdx > UBound(exIds) Then
+        If exPlaceMap.Count > 0 Then
+            LogMsg "Размещений по изделиям: " & exSymTotal & " символов у " & exPlaceMap.Count & " изделий"
+            jobPhase = 3
+        Else
+            LogMsg "По изделиям размещений не найдено, пробую обход листов..."
+            jobPhase = 2
+        End If
+    End If
+    Err.Clear
 End Sub
 
 ' Фаза 1: обход листов, сбор размещений символов
@@ -1262,7 +1433,7 @@ Sub ExportPhaseSheets()
     End If
 
     If Not IsArray(exSheetIds) Then
-        jobPhase = 2
+        jobPhase = 3
         Exit Sub
     End If
 
@@ -1344,8 +1515,13 @@ Sub ExportPhaseSheets()
     Progress exSheetIdx - LBound(exSheetIds), MaxI(exSheetTotal, 1), "обход листов"
 
     If exSheetIdx > UBound(exSheetIds) Then
-        LogMsg "Найдено размещений: " & exSymTotal & " символов; изделий с координатами: " & exPlaceMap.Count
-        jobPhase = 2
+        LogMsg "Обход листов: символов с координатами " & exSymTotal & _
+               "; изделий с координатами " & exPlaceMap.Count
+        If exPlaceMap.Count = 0 Then
+            LogBad "Ни одного размещённого символа не найдено — колонки «Имя листа / X / Y» останутся пустыми."
+            LogMsg "Это нормально, если изделия созданы, но ещё не поставлены на листы. Проверить: «Показать координаты символов»."
+        End If
+        jobPhase = 3
     End If
     Err.Clear
 End Sub
@@ -1357,7 +1533,7 @@ Sub ExportPhaseDevices()
 
     If stopRequested Then
         LogMsg "Экспорт прерван, пишу собранное."
-        jobPhase = 3
+        jobPhase = 4
         Exit Sub
     End If
 
@@ -1427,7 +1603,7 @@ Sub ExportPhaseDevices()
 
     Progress exIdx - LBound(exIds), MaxI(UBound(exIds) - LBound(exIds) + 1, 1), "чтение изделий"
 
-    If exIdx > UBound(exIds) Then jobPhase = 3
+    If exIdx > UBound(exIds) Then jobPhase = 4
     Err.Clear
 End Sub
 
@@ -1500,15 +1676,20 @@ Sub ExportPhaseWrite()
         ReDim pArr(exPlaceCnt - 1, PCOLS - 1)
         For i = 1 To exPlaceCnt
             key = CStr(CLng(NumOr(exPlaceCols(P_DEVID, i), 0)))
-            If Not symsByDev.Exists(key) Then
-                dev3.SetId CLng(NumOr(exPlaceCols(P_DEVID, i), 0))
-                ids3 = Empty
-                DevSymbolIds dev3, ids3
-                Err.Clear
-                symsByDev.Add key, ids3
-            End If
 
-            nr = SymbolNrIn(symsByDev(key), NumOr(exPlaceCols(P_SYMID, i), 0))
+            ' номер символа известен, если размещения собраны обходом изделий;
+            ' иначе вычисляем позицию в списке символов изделия
+            nr = CLng(NumOr(exPlaceCols(P_NR, i), 0))
+            If nr <= 0 Then
+                If Not symsByDev.Exists(key) Then
+                    dev3.SetId CLng(NumOr(exPlaceCols(P_DEVID, i), 0))
+                    ids3 = Empty
+                    DevSymbolIds dev3, ids3
+                    Err.Clear
+                    symsByDev.Add key, ids3
+                End If
+                nr = SymbolNrIn(symsByDev(key), NumOr(exPlaceCols(P_SYMID, i), 0))
+            End If
 
             pArr(i - 1, P_POZ - 1)   = PozOf(NumOr(exPlaceCols(P_DEVID, i), 0))
             pArr(i - 1, P_NR - 1)    = nr
@@ -2389,111 +2570,200 @@ End Sub
 Sub uiDiag()
     If Not isConnected Then Exit Sub
     On Error Resume Next
-    Dim sIds, i, j, shObj, symObj, symIds, shown, shId, sName, symId
-    Dim sid, x, y, x1, y1, x2, y2, devId, nm, r, g
+    Dim sIds, dIds, i, j, shObj, symObj, devObj, symIds, shId, sName, symId, devId
+    Dim shown, total, nm, cnt
 
     ReadVerbose
     LogMsg "===================================="
-    LogMsg "Диагностика координат (проект не изменяется)"
-
-    ctJob.GetSheetIds sIds
-    Err.Clear
-    If Not IsArray(sIds) Then
-        LogBad "Листов нет."
-        Exit Sub
-    End If
+    LogMsg "Диагностика (проект не изменяется)"
 
     Set shObj = ctJob.CreateSheetObject()
     Set symObj = ctJob.CreateSymbolObject()
-    shown = 0
+    Set devObj = ctJob.CreateDeviceObject()
 
-    For i = LBound(sIds) To UBound(sIds)
-        If shown >= 5 Then Exit For
-        shId = NumOr(sIds(i), 0)
-        If shId > 0 Then
-            shObj.SetId shId
-            sName = shObj.GetName()
-            If Err.Number <> 0 Then
-                sName = "?"
+    '--- A. Листы и их символы ------------------------------------------------
+    LogMsg "--- A. Листы ---"
+    Err.Clear
+    sIds = Empty
+    ctJob.GetSheetIds sIds
+    LogMsg "Job.GetSheetIds -> " & ArrInfo(sIds) & DiagErr()
+
+    If IsArray(sIds) Then
+        For i = LBound(sIds) To UBound(sIds)
+            shId = NumOr(sIds(i), 0)
+            If shId > 0 Then
+                shObj.SetId shId
                 Err.Clear
-            End If
-            symIds = Empty
-            shObj.GetSymbolIds symIds
-            Err.Clear
-            If IsArray(symIds) Then
-                For j = LBound(symIds) To UBound(symIds)
-                    If shown >= 5 Then Exit For
-                    symId = NumOr(symIds(j), 0)
-                    If symId > 0 Then
-                        symObj.SetId symId
-                        Err.Clear
-                        devId = SymGetDeviceId(symObj)
-                        If devId > 0 Then
+                sName = shObj.GetName()
+                If Err.Number <> 0 Then
+                    sName = "?"
+                    Err.Clear
+                End If
+
+                symIds = Empty
+                Err.Clear
+                shObj.GetSymbolIds symIds
+                LogMsg "Лист ID " & shId & " «" & sName & "»: GetSymbolIds -> " & ArrInfo(symIds) & DiagErr()
+
+                ' запасные сигнатуры перечисления символов листа
+                If Not IsArray(symIds) Then
+                    symIds = Empty
+                    Err.Clear
+                    shObj.GetSymbolIds symIds, 0
+                    LogMsg "    GetSymbolIds(ids,0) -> " & ArrInfo(symIds) & DiagErr()
+                End If
+
+                If IsArray(symIds) Then
+                    shown = 0
+                    For j = LBound(symIds) To UBound(symIds)
+                        If shown >= 3 Then Exit For
+                        symId = NumOr(symIds(j), 0)
+                        If symId > 0 Then
                             shown = shown + 1
-                            nm = symObj.GetName()
-                            If Err.Number <> 0 Then
-                                nm = "?"
-                                Err.Clear
-                            End If
-
-                            LogMsg "--- символ ID " & symId & " («" & nm & "»), изделие " & devId & _
-                                   ", лист «" & sName & "» (ID " & shId & ")"
-
-                            Err.Clear
-                            x = Empty : y = Empty : g = Empty
-                            r = symObj.GetSchemaLocation(x, y, g)
-                            LogMsg "    GetSchemaLocation(x,y,grid) -> лист " & Fmt(r) & ", x=" & Fmt(x) & _
-                                   ", y=" & Fmt(y) & ", сетка=" & SafeStr(g) & DiagErr()
-
-                            Err.Clear
-                            sid = Empty : x = Empty : y = Empty : g = Empty
-                            symObj.GetSchemaLocation sid, x, y, g
-                            LogMsg "    GetSchemaLocation(sheet,x,y,grid) -> лист " & Fmt(sid) & ", x=" & _
-                                   Fmt(x) & ", y=" & Fmt(y) & DiagErr()
-
-                            Err.Clear
-                            x = Empty : y = Empty
-                            symObj.GetPosition x, y
-                            LogMsg "    GetPosition(x,y) -> x=" & Fmt(x) & ", y=" & Fmt(y) & DiagErr()
-
-                            Err.Clear
-                            x1 = Empty : y1 = Empty : x2 = Empty : y2 = Empty
-                            symObj.GetArea x1, y1, x2, y2
-                            LogMsg "    GetArea -> (" & Fmt(x1) & ", " & Fmt(y1) & ") .. (" & Fmt(x2) & ", " & _
-                                   Fmt(y2) & ")" & DiagErr()
-                            If IsNum(x1) And IsNum(x2) And IsNum(y2) Then
-                                LogMsg "    старая формула экспорта дала бы: X=(minX+maxX)/2=" & _
-                                       Fmt((CDbl(x1) + CDbl(x2)) / 2) & ", Y=maxY=" & Fmt(y2)
-                            End If
-
-                            If SymGetLocation(symObj, sid, x, y) Then
-                                LogMsg "    <span class=""ok"">инструмент берёт (" & Fmt(x) & ", " & Fmt(y) & _
-                                       ") методом " & mLoc & "</span>"
-                                If IsNum(x1) And IsNum(x2) And IsNum(y2) Then
-                                    LogMsg "    расхождение со старой формулой: dX=" & _
-                                           Fmt((CDbl(x1) + CDbl(x2)) / 2 - CDbl(x)) & " мм, dY=" & _
-                                           Fmt(CDbl(y2) - CDbl(y)) & " мм"
-                                End If
-                            Else
-                                LogBad "    позицию прочитать не удалось"
-                            End If
-
-                            Err.Clear
-                            r = Empty
-                            r = symObj.GetRotation()
-                            LogMsg "    GetRotation -> " & Fmt(r) & DiagErr()
+                            DumpSymbol symObj, symId, shId
                         End If
-                    End If
-                Next
+                    Next
+                End If
             End If
-        End If
-    Next
+        Next
+    End If
 
-    If shown = 0 Then LogBad "Размещённых символов изделий не найдено."
-    LogMsg "Сравните строки выше с координатами, которые E3 показывает в свойствах символа."
+    '--- B. Изделия и их символы ----------------------------------------------
+    LogMsg "--- B. Изделия ---"
+    Err.Clear
+    dIds = Empty
+    ctJob.GetAllDeviceIds dIds
+    LogMsg "Job.GetAllDeviceIds -> " & ArrInfo(dIds) & DiagErr()
+
+    If IsArray(dIds) Then
+        total = 0
+        For i = LBound(dIds) To UBound(dIds)
+            If total >= 5 Then Exit For
+            devId = NumOr(dIds(i), 0)
+            If devId > 0 Then
+                total = total + 1
+                devObj.SetId devId
+                Err.Clear
+                nm = SafeStr(devObj.GetName())
+                If Err.Number <> 0 Then
+                    nm = "?"
+                    Err.Clear
+                End If
+                LogMsg "Изделие ID " & devId & " «" & nm & "», компонент «" & _
+                       SafeStr(devObj.GetComponentName()) & "»" & DiagErr()
+
+                symIds = Empty
+                Err.Clear
+                devObj.GetSymbolIds symIds, 0
+                LogMsg "    GetSymbolIds(ids,0) -> " & ArrInfo(symIds) & DiagErr()
+                If Not IsArray(symIds) Then
+                    symIds = Empty
+                    Err.Clear
+                    devObj.GetSymbolIds symIds
+                    LogMsg "    GetSymbolIds(ids) -> " & ArrInfo(symIds) & DiagErr()
+                End If
+
+                If IsArray(symIds) Then
+                    cnt = 0
+                    For j = LBound(symIds) To UBound(symIds)
+                        If cnt >= 3 Then Exit For
+                        symId = NumOr(symIds(j), 0)
+                        If symId > 0 Then
+                            cnt = cnt + 1
+                            DumpSymbol symObj, symId, 0
+                        End If
+                    Next
+                End If
+            End If
+        Next
+    End If
+
+    LogMsg "--- Итог ---"
+    LogMsg "Способ чтения координат: " & IIfStr(mLoc = "", "не определён", mLoc) & _
+           "; перечисление символов изделия: " & IIfStr(mDevSym = "", "не определено", mDevSym) & _
+           "; признак размещения: " & IIfStr(mPlaced = "", "не определён", mPlaced)
+    LogMsg "Сравните координаты выше с тем, что E3 показывает в свойствах символа."
     LogMsg "===================================="
     Err.Clear
 End Sub
+
+' Полный сырой дамп по одному символу: что именно отдаёт каждый метод
+Sub DumpSymbol(symObj, symId, expectSheet)
+    On Error Resume Next
+    Dim nm, v, r, g, sid, x, y, x1, y1, x2, y2
+
+    symObj.SetId symId
+    Err.Clear
+    nm = SafeStr(symObj.GetName())
+    If Err.Number <> 0 Then
+        nm = "?"
+        Err.Clear
+    End If
+    LogMsg "    символ ID " & symId & " «" & nm & "»" & IIfStr(expectSheet > 0, " (обход листа " & expectSheet & ")", "")
+
+    Err.Clear
+    v = symObj.GetDeviceId()
+    LogMsg "        GetDeviceId -> " & Fmt(v) & DiagErr()
+
+    Err.Clear
+    v = symObj.GetOwnerDeviceId()
+    LogMsg "        GetOwnerDeviceId -> " & Fmt(v) & DiagErr()
+
+    Err.Clear
+    v = symObj.GetSheetId()
+    LogMsg "        GetSheetId -> " & Fmt(v) & DiagErr()
+
+    Err.Clear
+    v = symObj.IsPlaced()
+    LogMsg "        IsPlaced -> " & Fmt(v) & DiagErr()
+
+    Err.Clear
+    x = Empty : y = Empty : g = Empty
+    r = symObj.GetSchemaLocation(x, y, g)
+    LogMsg "        GetSchemaLocation(x,y,grid) -> лист " & Fmt(r) & ", x=" & Fmt(x) & _
+           ", y=" & Fmt(y) & ", сетка=" & SafeStr(g) & DiagErr()
+
+    Err.Clear
+    sid = Empty : x = Empty : y = Empty : g = Empty
+    symObj.GetSchemaLocation sid, x, y, g
+    LogMsg "        GetSchemaLocation(sheet,x,y,grid) -> лист " & Fmt(sid) & ", x=" & Fmt(x) & _
+           ", y=" & Fmt(y) & DiagErr()
+
+    Err.Clear
+    x = Empty : y = Empty
+    symObj.GetPosition x, y
+    LogMsg "        GetPosition(x,y) -> x=" & Fmt(x) & ", y=" & Fmt(y) & DiagErr()
+
+    Err.Clear
+    x1 = Empty : y1 = Empty : x2 = Empty : y2 = Empty
+    symObj.GetArea x1, y1, x2, y2
+    LogMsg "        GetArea -> (" & Fmt(x1) & ", " & Fmt(y1) & ") .. (" & Fmt(x2) & ", " & Fmt(y2) & ")" & DiagErr()
+    If IsNum(x1) And IsNum(x2) And IsNum(y2) Then
+        LogMsg "        старая формула дала бы X=" & Fmt((CDbl(x1) + CDbl(x2)) / 2) & ", Y=" & Fmt(y2)
+    End If
+
+    Err.Clear
+    v = symObj.GetRotation()
+    LogMsg "        GetRotation -> " & Fmt(v) & DiagErr()
+
+    If SymGetLocation(symObj, sid, x, y) Then
+        LogMsg "        <span class=""ok"">инструмент берёт (" & Fmt(x) & ", " & Fmt(y) & ") методом " & mLoc & "</span>"
+    Else
+        LogBad "        позицию прочитать не удалось (символ не размещён или метод не подошёл)"
+    End If
+    Err.Clear
+End Sub
+
+Function ArrInfo(a)
+    On Error Resume Next
+    If Not IsArray(a) Then
+        ArrInfo = "не массив (" & TypeName(a) & ")"
+        Err.Clear
+        Exit Function
+    End If
+    ArrInfo = "массив " & LBound(a) & ".." & UBound(a) & ", положительных ID: " & IdCount(a)
+    Err.Clear
+End Function
 
 Function DiagErr()
     If Err.Number <> 0 Then
