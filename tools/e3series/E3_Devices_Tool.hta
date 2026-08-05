@@ -1011,17 +1011,17 @@ Function SymGetMirror(sym)
 End Function
 
 ' ѕеречисление символов издели€ с €вным вариантом второго аргумента.
-' variant = "" Ч вызов без второго аргумента, иначе число ("0", "1", ...).
+' vmode = "" Ч вызов без второго аргумента, иначе число ("0", "1", ...).
 ' ¬озвращает количество положительных ID либо -1, если сигнатура не прин€та.
-Function DevSymsVar(dev, ByRef ids, variant)
+Function DevSymsVar(dev, ByRef ids, vmode)
     DevSymsVar = -1
     ids = Empty
     On Error Resume Next
     Err.Clear
-    If variant = "" Then
+    If vmode = "" Then
         dev.GetSymbolIds ids
     Else
-        dev.GetSymbolIds ids, CLng(variant)
+        dev.GetSymbolIds ids, CLng(vmode)
     End If
     If Err.Number = 0 And IsArray(ids) Then DevSymsVar = IdCount(ids)
     Err.Clear
