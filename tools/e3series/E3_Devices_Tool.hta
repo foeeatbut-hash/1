@@ -186,7 +186,7 @@ Const EPS       = 0.05
 '--- —осто€ние ---------------------------------------------------------------
 Dim ctApp, ctJob, isConnected
 Dim excelFile
-Dim devIdByPoz, devIdByName, devTypeById
+Dim devIdByPoz, devIdByName, devTypeById, devIdByNorm
 Dim sheetIdByName, sheetNameById
 Dim HDR(), PHDR()
 Dim stopRequested, jobBusy, jobKind, jobPhase, jobDone, asyncOk, verboseFlag
@@ -200,6 +200,7 @@ Dim areaWarned, getIdWarned
 ' Ёкспорт
 Dim exIds, exIdx, exPlIdx, exAllKeys, exArr(), exRows, exRowCursor, exPozById
 Dim exPlaceMap, exPlaceCols(), exPlaceCnt, exPlaceCap, exSymByDev, exNoDev, exSeenSym
+Dim exByText, exTxtObj
 Dim exSheetIds, exSheetIdx, exSheetTotal, exSymTotal
 Dim exExcel, exWb, exWs, exWithPlacements, exOnlyPlaced, exStart, exSkipped
 
@@ -1146,6 +1147,7 @@ Sub LoadDevices()
     Set devIdByPoz = CreateObject("Scripting.Dictionary")
     Set devIdByName = CreateObject("Scripting.Dictionary")
     Set devTypeById = CreateObject("Scripting.Dictionary")
+    Set devIdByNorm = CreateObject("Scripting.Dictionary")
 
     parts = ""
     n = CollectIds("GetAllDeviceIds", "изделие", devTypeById)
@@ -1181,6 +1183,7 @@ Sub LoadDevices()
         nm = StripDash(Trim(nm & ""))
         If nm <> "" Then
             If Not devIdByName.Exists(nm) Then devIdByName.Add nm, id
+            AddNorm nm, id
         End If
         poz = dev.GetAttributeValue(HDR(C_POZ))
         If Err.Number <> 0 Then
@@ -1190,11 +1193,38 @@ Sub LoadDevices()
         poz = Trim(poz & "")
         If poz <> "" Then
             If Not devIdByPoz.Exists(poz) Then devIdByPoz.Add poz, id
+            AddNorm poz, id
         End If
     Next
 
     LogMsg "—опоставление: по Ђ" & HDR(C_POZ) & "ї " & devIdByPoz.Count & ", по имени " & devIdByName.Count
     Err.Clear
+End Sub
+
+'  люч дл€ сопоставлени€ надписи на схеме с обозначением издели€:
+' без регистра, без пробелов, дефисов, подчЄркиваний и ведущего минуса.
+Function NormKey(s)
+    Dim t
+    t = LCase(Trim(SafeStr(s)))
+    t = Replace(t, vbCrLf, " ")
+    t = Replace(t, vbLf, " ")
+    t = Replace(t, vbCr, " ")
+    t = Replace(t, " ", "")
+    t = Replace(t, "-", "")
+    t = Replace(t, "_", "")
+    t = Replace(t, Chr(160), "")
+    NormKey = t
+End Function
+
+Sub AddNorm(s, id)
+    Dim k
+    k = NormKey(s)
+    If Len(k) < 3 Then Exit Sub          ' слишком короткое Ч не опознаЄтс€ однозначно
+    If Not devIdByNorm.Exists(k) Then
+        devIdByNorm.Add k, CLng(id)
+    ElseIf devIdByNorm(k) <> CLng(id) Then
+        devIdByNorm(k) = 0               ' 0 = неоднозначно, прив€зывать нельз€
+    End If
 End Sub
 
 Function TypeOfId(id)
@@ -1250,6 +1280,53 @@ Function CountSheetsNamed(nm)
         If LCase(Trim(sheetNameById(k))) = LCase(Trim(nm)) Then n = n + 1
     Next
     CountSheetsNamed = n
+End Function
+
+' ѕр€мой св€зи Ђсимвол -> изделиеї в API E3 нет, поэтому дл€ символов,
+' которых нет в обратной карте, пробуем опознать изделие по надписи
+' (позиционному обозначению), нарисованной на самом символе.
+Function DevIdByText(symObj, txtObj, ByRef matched)
+    On Error Resume Next
+    Dim tids, i, t, k, id, cnt
+
+    DevIdByText = 0
+    matched = ""
+    If txtObj Is Nothing Then Exit Function
+
+    tids = Empty
+    symObj.GetTextIds tids
+    If Err.Number <> 0 Or Not IsArray(tids) Then
+        Err.Clear
+        Exit Function
+    End If
+
+    cnt = 0
+    For i = LBound(tids) To UBound(tids)
+        If cnt >= 12 Then Exit For
+        If NumOr(tids(i), 0) > 0 Then
+            cnt = cnt + 1
+            txtObj.SetId CLng(NumOr(tids(i), 0))
+            Err.Clear
+            t = SafeStr(txtObj.GetText())
+            If Err.Number <> 0 Then
+                t = ""
+                Err.Clear
+            End If
+            If t <> "" Then
+                k = NormKey(t)
+                If devIdByNorm.Exists(k) Then
+                    id = devIdByNorm(k)
+                    If id > 0 Then
+                        DevIdByText = id
+                        matched = Trim(t)
+                        Err.Clear
+                        Exit Function
+                    End If
+                End If
+            End If
+        End If
+    Next
+    Err.Clear
 End Function
 
 Function SheetNameOf(id)
@@ -1398,6 +1475,8 @@ Sub uiExport()
     Set exSymByDev = CreateObject("Scripting.Dictionary")
     Set exSeenSym = CreateObject("Scripting.Dictionary")
     exNoDev = 0
+    exByText = 0
+    Set exTxtObj = Nothing
 
     ' ѕор€док размерностей: (столбец, строка). ReDim Preserve в VBScript
     ' умеет наращивать только последнюю размерность.
@@ -1531,7 +1610,7 @@ End Sub
 Sub ExportPhaseSheets()
     On Error Resume Next
     Dim shObj, symObj, symIds, j, symId, devId, sid, x, y, nm, rot, mir, sName, per, shId
-    Dim link, symNr
+    Dim link, symNr, matchedText
 
     If stopRequested Then
         LogMsg "Ёкспорт прерван."
@@ -1546,6 +1625,13 @@ Sub ExportPhaseSheets()
 
     Set shObj = ctJob.CreateSheetObject()
     Set symObj = ctJob.CreateSymbolObject()
+    If exTxtObj Is Nothing Then
+        Set exTxtObj = ctJob.CreateTextObject()
+        If Err.Number <> 0 Then
+            Set exTxtObj = Nothing
+            Err.Clear
+        End If
+    End If
     per = 0
 
     Do While exSheetIdx <= UBound(exSheetIds) And per < 3
@@ -1579,6 +1665,16 @@ Sub ExportPhaseSheets()
                             symNr = link(1)
                         Else
                             devId = SymGetDeviceId(symObj)   ' если сборка всЄ же умеет
+                            If devId <= 0 Then
+                                ' последний путь: опознать изделие по надписи на символе
+                                devId = DevIdByText(symObj, exTxtObj, matchedText)
+                                If devId > 0 Then
+                                    exByText = exByText + 1
+                                    If exByText <= 5 Then
+                                        LogV "  символ " & symId & " опознан по надписи Ђ" & matchedText & "ї"
+                                    End If
+                                End If
+                            End If
                         End If
 
                         If devId <= 0 Then
@@ -1637,7 +1733,8 @@ Sub ExportPhaseSheets()
     Progress exSheetIdx - LBound(exSheetIds), MaxI(exSheetTotal, 1), "обход листов"
 
     If exSheetIdx > UBound(exSheetIds) Then
-        LogMsg "»того размещений: " & exPlaceCnt & " символов у " & exPlaceMap.Count & " изделий"
+        LogMsg "»того размещений: " & exPlaceCnt & " символов у " & exPlaceMap.Count & " объектов"
+        If exByText > 0 Then LogMsg "»з них опознано по надписи на символе: " & exByText
         If exNoDev > 0 Then
             LogMsg "—имволов на листах без св€зи с изделием: " & exNoDev & _
                    " (рамки, таблицы, соединители и т. п. Ч либо изделие не попало в список)"
@@ -2844,41 +2941,75 @@ Sub DumpSymbol(symObj, symId, expectSheet)
     End If
     LogMsg "    символ ID " & symId & " Ђ" & nm & "ї" & IIfStr(expectSheet > 0, " (обход листа " & expectSheet & ")", "")
 
-    ' перебор кандидатов Ђсимвол -> изделиеї и прочих свойств без аргументов
+    ' свойства символа без аргументов Ч по реальным именам из документации API
     Dim cand, cn, res
-    cand = Array("GetDeviceId", "GetOwnerDeviceId", "DeviceID", "GetOwnerId", "GetParentId", _
-                 "GetDevice", "GetDeviceName", "GetSheetId", "IsPlaced", "GetRecordNr", _
-                 "GetSymbolTypeId", "GetTypeId", "GetComponentName")
+    cand = Array("GetSymbolTypeId", "GetSymbolTypeName", "GetTypeName", "GetType", "GetCode", _
+                 "GetLevel", "GetScaling", "GetPinCount", "GetTextCount", "GetAttributeCount", _
+                 "IsBlock", "IsDynamic", "IsShield", "IsMaster", "IsConnectorMaster", _
+                 "IsConnected", "IsTwisted", "IsBundle", "GetGateId", "GetMasterCount")
     res = ""
     For Each cn In cand
         Err.Clear
         v = Eval("symObj." & cn)
-        If Err.Number = 0 Then
-            res = res & cn & "=" & IIfStr(IsObject(v), "объект", SafeStr(v)) & "; "
-        End If
+        If Err.Number = 0 Then res = res & cn & "=" & SafeStr(v) & "; "
         Err.Clear
     Next
-    If res = "" Then
-        LogMsg "        доступных свойств из списка кандидатов нет (все дают ошибку 438)"
-    Else
-        LogMsg "        доступно: " & res
+    LogMsg "        свойства: " & IIfStr(res = "", "ни одно не доступно", res)
+
+    ' выводы издели€ у символа: если их нет, символ не принадлежит изделию
+    Dim dpids
+    Err.Clear
+    dpids = Empty
+    symObj.GetDevicePinIds dpids
+    LogMsg "        GetDevicePinIds -> " & ArrInfo(dpids) & DiagErr()
+
+    ' надписи символа: там видно позиционное обозначение, если оно есть
+    Dim tids, ti, txtObj, shown2
+    Err.Clear
+    tids = Empty
+    symObj.GetTextIds tids
+    LogMsg "        GetTextIds -> " & ArrInfo(tids) & DiagErr()
+    If IsArray(tids) Then
+        Err.Clear
+        Set txtObj = ctJob.CreateTextObject()
+        If Err.Number <> 0 Then
+            LogMsg "        CreateTextObject не доступен" & DiagErr()
+        Else
+            shown2 = 0
+            For ti = LBound(tids) To UBound(tids)
+                If shown2 >= 6 Then Exit For
+                If NumOr(tids(ti), 0) > 0 Then
+                    shown2 = shown2 + 1
+                    txtObj.SetId CLng(NumOr(tids(ti), 0))
+                    Err.Clear
+                    LogMsg "          надпись [тип " & Fmt(txtObj.GetType()) & "]: Ђ" & _
+                           SafeStr(txtObj.GetText()) & "ї" & DiagErr()
+                End If
+            Next
+        End If
+        Err.Clear
     End If
 
-    Dim pids, pn
+    ' выводы символа
+    Dim pids, pi, pinObj, pinId
     Err.Clear
     pids = Empty
     symObj.GetPinIds pids
     LogMsg "        GetPinIds -> " & ArrInfo(pids) & DiagErr()
     If IsArray(pids) Then
-        Dim pinObj, pi
+        Err.Clear
         Set pinObj = ctJob.CreatePinObject()
-        If Err.Number = 0 Then
+        If Err.Number <> 0 Then
+            LogMsg "        CreatePinObject не доступен" & DiagErr()
+        Else
             For pi = LBound(pids) To UBound(pids)
-                If NumOr(pids(pi), 0) > 0 Then
-                    pinObj.SetId CLng(NumOr(pids(pi), 0))
+                pinId = CLng(NumOr(pids(pi), 0))
+                If pinId > 0 Then
+                    pinObj.SetId pinId
                     Err.Clear
-                    LogMsg "        вывод " & CLng(NumOr(pids(pi), 0)) & ": Pin.GetDeviceId -> " & _
-                           Fmt(pinObj.GetDeviceId()) & DiagErr()
+                    LogMsg "          вывод " & pinId & ": им€ Ђ" & SafeStr(pinObj.GetName()) & _
+                           "ї, HasDevice=" & SafeStr(pinObj.HasDevice()) & _
+                           ", сигнал Ђ" & SafeStr(pinObj.GetSignalName()) & "ї" & DiagErr()
                     Exit For
                 End If
             Next
@@ -2980,7 +3111,8 @@ Sub uiRoundTrip()
                     If symId > 0 Then
                         symObj.SetId symId
                         Err.Clear
-                        If SymGetDeviceId(symObj) > 0 Then
+                        ' изделие у символа не требуетс€: в этой сборке API его не отдаЄт
+                        If True Then
                             If SymGetLocation(symObj, sid, x, y) Then
                                 done = True
                                 LogMsg "—имвол ID " & symId & " на листе ID " & shId & ", исходно (" & _
