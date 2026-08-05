@@ -169,7 +169,8 @@ Const P_Y     = 8
 Const P_ROT   = 9
 Const P_MIR   = 10
 Const P_DEVID = 11
-Const PCOLS   = 11
+Const P_TYPE  = 12
+Const PCOLS   = 12
 
 Const XL_XLSX   = 51
 Const XL_UP     = -4162
@@ -185,7 +186,7 @@ Const EPS       = 0.05
 '--- Состояние ---------------------------------------------------------------
 Dim ctApp, ctJob, isConnected
 Dim excelFile
-Dim devIdByPoz, devIdByName
+Dim devIdByPoz, devIdByName, devTypeById
 Dim sheetIdByName, sheetNameById
 Dim HDR(), PHDR()
 Dim stopRequested, jobBusy, jobKind, jobPhase, jobDone, asyncOk, verboseFlag
@@ -197,7 +198,7 @@ Dim mDevSymAll, mDevSymFree     ' варианты Device.GetSymbolIds: все символы / дл
 Dim areaWarned, getIdWarned
 
 ' Экспорт
-Dim exIds, exIdx, exPlIdx, exArr(), exRows, exRowCursor, exPozById
+Dim exIds, exIdx, exPlIdx, exAllKeys, exArr(), exRows, exRowCursor, exPozById
 Dim exPlaceMap, exPlaceCols(), exPlaceCnt, exPlaceCap, exSymByDev, exNoDev, exSeenSym
 Dim exSheetIds, exSheetIdx, exSheetTotal, exSymTotal
 Dim exExcel, exWb, exWs, exWithPlacements, exOnlyPlaced, exStart, exSkipped
@@ -299,6 +300,7 @@ Sub BuildHeaders()
     PHDR(9)  = "Поворот"
     PHDR(10) = "Зеркало"
     PHDR(11) = "ID изделия"
+    PHDR(12) = "Тип объекта"
 End Sub
 
 ' Служебные заголовки — в изделие как атрибуты не пишутся
@@ -548,8 +550,7 @@ Function ApiReport()
     s = s & "размещение (Place) ......... " & IIfStr(mPlace = "", "не определено", mPlace) & "<br>"
     s = s & "символ в изделие ........... " & IIfStr(mDevId = "", "не определено", mDevId) & "<br>"
     s = s & "символ в лист .............. " & IIfStr(mSheetId = "", "не определено", mSheetId) & "<br>"
-    s = s & "поворот: чтение / запись ... " & IIfStr(mRot = "", "нет", mRot) & " / " & IIfStr(mSetRot = "", "нет", mSetRot) & "<br>"
-    s = s & "зеркало .................... " & IIfStr(mMir = "", "нет", mMir) & "<br>"
+    s = s & "поворот (чтение) ........... " & IIfStr(mRot = "", "нет", mRot) & ", запись — 4-м аргументом Place<br>"
     s = s & "символы изделия: чтение .... " & VarName(mDevSymAll) & "<br>"
     s = s & "символы изделия: размещение  " & VarName(mDevSymFree) & "<br>"
     s = s & "ID нового изделия .......... " & IIfStr(mDevGetId = "", "не проверялось", mDevGetId)
@@ -594,7 +595,6 @@ Sub ProbeApi()
                                     SymGetDeviceId symObj
                                     SymGetSheetId symObj
                                     SymGetRotation symObj
-                                    SymGetMirror symObj
                                     SymIsPlaced symObj
                                     found = True
                                 End If
@@ -629,7 +629,6 @@ Sub ProbeApi()
                                     SymGetDeviceId symObj
                                     SymGetSheetId symObj
                                     SymGetRotation symObj
-                                    SymGetMirror symObj
                                     SymIsPlaced symObj
                                     found = True
                                 End If
@@ -763,65 +762,64 @@ Function SymGetLocation(sym, ByRef sid, ByRef x, ByRef y)
     End If
 End Function
 
-' Перемещение уже размещённого символа. True — только если запись
-' подтверждена обратным чтением.
-Function SymSetLocation(sym, sheetId, x, y, ByRef gotX, ByRef gotY)
-    Dim tries, t, sid2, x2, y2
+' Symbol.Place по документации и размещает, и ПЕРЕМЕЩАЕТ уже размещённый
+' символ; отдельного SetSchemaLocation у символа в API нет.
+' rot — строка поворота («», «0», «90», «MX90»...), четвёртый аргумент Place.
+Function SymPlaceAt(sym, sheetId, x, y, rot, ByRef newId)
+    Dim r
+    SymPlaceAt = False
+    newId = 0
+    On Error Resume Next
+
+    If Trim(rot & "") <> "" Then
+        Err.Clear
+        r = sym.Place(sheetId, x, y, rot)
+        If Err.Number = 0 Then
+            mPlace = "Place(sheet,x,y,rot)"
+            newId = NumOr(r, 0)
+            SymPlaceAt = True
+            Err.Clear
+            Exit Function
+        End If
+        Err.Clear
+    End If
+
+    Err.Clear
+    r = sym.Place(sheetId, x, y)
+    If Err.Number = 0 Then
+        mPlace = "Place(sheet,x,y)"
+        newId = NumOr(r, 0)
+        SymPlaceAt = True
+        Err.Clear
+        Exit Function
+    End If
+    Err.Clear
+
+    sym.Place sheetId, x, y
+    If Err.Number = 0 Then
+        mPlace = "Place sheet,x,y"
+        SymPlaceAt = True
+    End If
+    Err.Clear
+End Function
+
+' Перемещение с проверкой: True только если обратное чтение дало заданные координаты
+Function SymSetLocation(sym, sheetId, x, y, rot, ByRef gotX, ByRef gotY)
+    Dim sid2, x2, y2, newId
     SymSetLocation = False
     gotX = Empty
     gotY = Empty
     On Error Resume Next
 
-    If mSetLoc <> "" Then
-        tries = Array(mSetLoc)
-    Else
-        tries = Array("SetSchemaLocation(sheet,x,y)", "SetSchemaLocation(x,y)", "Place(sheet,x,y)")
-    End If
+    If Not SymPlaceAt(sym, sheetId, x, y, rot, newId) Then Exit Function
+    mSetLoc = mPlace
 
-    For Each t In tries
-        Err.Clear
-        Select Case t
-            Case "SetSchemaLocation(sheet,x,y)" : sym.SetSchemaLocation sheetId, x, y
-            Case "SetSchemaLocation(x,y)"       : sym.SetSchemaLocation x, y
-            Case "Place(sheet,x,y)"             : sym.Place sheetId, x, y
-        End Select
-        If Err.Number = 0 Then
-            Err.Clear
-            If SymGetLocation(sym, sid2, x2, y2) Then
-                gotX = x2
-                gotY = y2
-                If Abs(NumOr(x2, -999999) - x) < EPS And Abs(NumOr(y2, -999999) - y) < EPS Then
-                    mSetLoc = t
-                    SymSetLocation = True
-                    Err.Clear
-                    Exit Function
-                End If
-            End If
+    If SymGetLocation(sym, sid2, x2, y2) Then
+        gotX = x2
+        gotY = y2
+        If Abs(NumOr(x2, -999999) - x) < EPS And Abs(NumOr(y2, -999999) - y) < EPS Then
+            SymSetLocation = True
         End If
-        Err.Clear
-    Next
-End Function
-
-' Размещение ещё не размещённого символа
-Function SymPlace(sym, sheetId, x, y, ByRef newId)
-    Dim r
-    SymPlace = False
-    newId = 0
-    On Error Resume Next
-    Err.Clear
-    r = sym.Place(sheetId, x, y)
-    If Err.Number = 0 Then
-        mPlace = "Place(sheetId,x,y)"
-        newId = NumOr(r, 0)
-        SymPlace = True
-        Err.Clear
-        Exit Function
-    End If
-    Err.Clear
-    sym.Place sheetId, x, y
-    If Err.Number = 0 Then
-        mPlace = "Place sheetId,x,y"
-        SymPlace = True
     End If
     Err.Clear
 End Function
@@ -924,95 +922,21 @@ Function SymIsPlaced(sym)
     Err.Clear
 End Function
 
+' По документации Symbol.GetRotation возвращает СТРОКУ («0», «90», «MX90» и т. п.),
+' а не число: значение задаётся только четвёртым аргументом Place.
 Function SymGetRotation(sym)
     Dim v
-    SymGetRotation = Empty
+    SymGetRotation = ""
     On Error Resume Next
-
-    If mRot = "" Or mRot = "GetRotation" Then
-        Err.Clear
-        v = sym.GetRotation()
-        If Err.Number = 0 And IsNum(v) Then
-            mRot = "GetRotation"
-            SymGetRotation = CDbl(v)
-            Err.Clear
-            Exit Function
-        End If
-        Err.Clear
-        If mRot <> "" Then Exit Function
+    Err.Clear
+    v = sym.GetRotation()
+    If Err.Number = 0 Then
+        mRot = "GetRotation"
+        SymGetRotation = Trim(SafeStr(v))
     End If
-
-    If mRot = "" Or mRot = "GetAngle" Then
-        Err.Clear
-        v = sym.GetAngle()
-        If Err.Number = 0 And IsNum(v) Then
-            mRot = "GetAngle"
-            SymGetRotation = CDbl(v)
-        End If
-        Err.Clear
-    End If
+    Err.Clear
 End Function
 
-Function SymSetRotation(sym, ang)
-    SymSetRotation = False
-    On Error Resume Next
-
-    If mSetRot = "" Or mSetRot = "SetRotation" Then
-        Err.Clear
-        sym.SetRotation ang
-        If Err.Number = 0 Then
-            mSetRot = "SetRotation"
-            SymSetRotation = True
-            Err.Clear
-            Exit Function
-        End If
-        Err.Clear
-        If mSetRot <> "" Then Exit Function
-    End If
-
-    If mSetRot = "" Or mSetRot = "SetAngle" Then
-        Err.Clear
-        sym.SetAngle ang
-        If Err.Number = 0 Then
-            mSetRot = "SetAngle"
-            SymSetRotation = True
-        End If
-        Err.Clear
-    End If
-End Function
-
-Function SymGetMirror(sym)
-    Dim v
-    SymGetMirror = Empty
-    On Error Resume Next
-
-    If mMir = "" Or mMir = "IsMirrored" Then
-        Err.Clear
-        v = sym.IsMirrored()
-        If Err.Number = 0 And IsNum(v) Then
-            mMir = "IsMirrored"
-            SymGetMirror = CLng(v)
-            Err.Clear
-            Exit Function
-        End If
-        Err.Clear
-        If mMir <> "" Then Exit Function
-    End If
-
-    If mMir = "" Or mMir = "GetMirrorMode" Then
-        Err.Clear
-        v = sym.GetMirrorMode()
-        If Err.Number = 0 And IsNum(v) Then
-            mMir = "GetMirrorMode"
-            SymGetMirror = CLng(v)
-        End If
-        Err.Clear
-    End If
-End Function
-
-' Перечисление символов изделия с явным вариантом второго аргумента.
-' vmode = "" — вызов без второго аргумента, иначе число ("0", "1", ...).
-' Возвращает количество положительных ID либо -1, если сигнатура не принята.
 Function DevSymsVar(dev, ByRef ids, vmode)
     DevSymsVar = -1
     ids = Empty
@@ -1186,49 +1110,98 @@ Sub LoadSheets()
     Err.Clear
 End Sub
 
+' Одно перечисление проекта: возвращает количество и складывает id в словарь
+' idDict (id -> тип). Метода может не быть в сборке — тогда просто 0.
+Function CollectIds(methodName, typeName, idDict)
+    On Error Resume Next
+    Dim ids, i, id, n
+    CollectIds = 0
+    ids = Empty
+    Err.Clear
+    Execute "ctJob." & methodName & " ids"
+    If Err.Number <> 0 Or Not IsArray(ids) Then
+        Err.Clear
+        CollectIds = -1                 ' метода нет или он не отдал массив
+        Exit Function
+    End If
+    n = 0
+    For i = LBound(ids) To UBound(ids)
+        id = NumOr(ids(i), 0)
+        If id > 0 Then
+            n = n + 1
+            If Not idDict.Exists(CStr(CLng(id))) Then idDict.Add CStr(CLng(id)), typeName
+        End If
+    Next
+    CollectIds = n
+    Err.Clear
+End Function
+
+' В E3 клеммы, разъёмы, блоки, кабели и шины — отдельные перечисления Job,
+' в GetAllDeviceIds они не входят, хотя работают через тот же объект Device.
+' Без них символы этих объектов на листах остаются «ничьими».
 Sub LoadDevices()
     On Error Resume Next
-    Dim ids, i, id, dev, nm, poz
+    Dim i, id, dev, nm, poz, k, n, parts
 
     Set devIdByPoz = CreateObject("Scripting.Dictionary")
     Set devIdByName = CreateObject("Scripting.Dictionary")
+    Set devTypeById = CreateObject("Scripting.Dictionary")
 
-    ctJob.GetAllDeviceIds ids
-    If Err.Number <> 0 Or Not IsArray(ids) Then
-        LogBad "Изделия получить не удалось."
-        Err.Clear
+    parts = ""
+    n = CollectIds("GetAllDeviceIds", "изделие", devTypeById)
+    If n >= 0 Then parts = parts & "изделий " & n & "; "
+    n = CollectIds("GetTerminalIds", "клемма", devTypeById)
+    If n >= 0 Then parts = parts & "клемм " & n & "; "
+    n = CollectIds("GetConnectorIds", "разъём", devTypeById)
+    If n >= 0 Then parts = parts & "разъёмов " & n & "; "
+    n = CollectIds("GetBlockIds", "блок", devTypeById)
+    If n >= 0 Then parts = parts & "блоков " & n & "; "
+    n = CollectIds("GetCableIds", "кабель", devTypeById)
+    If n >= 0 Then parts = parts & "кабелей " & n & "; "
+    n = CollectIds("GetBusbarIds", "шина", devTypeById)
+    If n >= 0 Then parts = parts & "шин " & n & "; "
+
+    LogMsg "Объекты проекта: " & parts & "всего уникальных " & devTypeById.Count
+
+    If devTypeById.Count = 0 Then
+        LogBad "Ни одного объекта получить не удалось."
         Exit Sub
     End If
 
     Set dev = ctJob.CreateDeviceObject()
-    For i = LBound(ids) To UBound(ids)
-        id = NumOr(ids(i), 0)
-        If id > 0 Then
-            dev.SetId id
-            nm = dev.GetName()
-            If Err.Number <> 0 Then
-                nm = ""
-                Err.Clear
-            End If
-            nm = StripDash(Trim(nm & ""))
-            If nm <> "" Then
-                If Not devIdByName.Exists(nm) Then devIdByName.Add nm, CLng(id)
-            End If
-            poz = dev.GetAttributeValue(HDR(C_POZ))
-            If Err.Number <> 0 Then
-                poz = ""
-                Err.Clear
-            End If
-            poz = Trim(poz & "")
-            If poz <> "" Then
-                If Not devIdByPoz.Exists(poz) Then devIdByPoz.Add poz, CLng(id)
-            End If
+    For Each k In devTypeById.Keys
+        id = CLng(k)
+        dev.SetId id
+        Err.Clear
+        nm = dev.GetName()
+        If Err.Number <> 0 Then
+            nm = ""
+            Err.Clear
+        End If
+        nm = StripDash(Trim(nm & ""))
+        If nm <> "" Then
+            If Not devIdByName.Exists(nm) Then devIdByName.Add nm, id
+        End If
+        poz = dev.GetAttributeValue(HDR(C_POZ))
+        If Err.Number <> 0 Then
+            poz = ""
+            Err.Clear
+        End If
+        poz = Trim(poz & "")
+        If poz <> "" Then
+            If Not devIdByPoz.Exists(poz) Then devIdByPoz.Add poz, id
         End If
     Next
-    LogMsg "Изделий в проекте: " & IdCount(ids) & " (по «" & HDR(C_POZ) & "»: " & devIdByPoz.Count & _
-           ", по имени: " & devIdByName.Count & ")"
+
+    LogMsg "Сопоставление: по «" & HDR(C_POZ) & "» " & devIdByPoz.Count & ", по имени " & devIdByName.Count
     Err.Clear
 End Sub
+
+Function TypeOfId(id)
+    TypeOfId = ""
+    If devTypeById Is Nothing Then Exit Function
+    If devTypeById.Exists(CStr(CLng(id))) Then TypeOfId = devTypeById(CStr(CLng(id)))
+End Function
 
 Function FindDeviceId(poz)
     FindDeviceId = 0
@@ -1433,7 +1406,11 @@ Sub uiExport()
 
     ReDim exArr(exRows - 1, COLS - 1)
     exIdx = LBound(exIds)
-    exPlIdx = LBound(exIds)
+
+    ' карта размещений строится по ВСЕМ объектам-владельцам символов,
+    ' а не только по изделиям: клеммы и разъёмы идут отдельными перечислениями
+    exAllKeys = devTypeById.Keys
+    exPlIdx = 0
 
     jobPhase = 1
     StartJob "export"
@@ -1470,8 +1447,8 @@ Sub ExportPhaseByDevice()
     Set sym = ctJob.CreateSymbolObject()
     per = 0
 
-    Do While exPlIdx <= UBound(exIds) And per < 25
-        id = NumOr(exIds(exPlIdx), 0)
+    Do While exPlIdx <= UBound(exAllKeys) And per < 25
+        id = CLng(exAllKeys(exPlIdx))
         exPlIdx = exPlIdx + 1
         If id > 0 Then
             per = per + 1
@@ -1504,7 +1481,7 @@ Sub ExportPhaseByDevice()
                                     Err.Clear
                                 End If
                                 rot = SymGetRotation(sym)
-                                mir = SymGetMirror(sym)
+                                mir = ""   ' зеркало входит в строку поворота (MX/MY)
                                 exSymTotal = exSymTotal + 1
 
                                 If Not exPlaceMap.Exists(CStr(CLng(id))) Then
@@ -1528,6 +1505,7 @@ Sub ExportPhaseByDevice()
                                     exPlaceCols(P_ROT,   exPlaceCnt) = rot
                                     exPlaceCols(P_MIR,   exPlaceCnt) = mir
                                     exPlaceCols(P_DEVID, exPlaceCnt) = CLng(id)
+                                    exPlaceCols(P_TYPE,  exPlaceCnt) = TypeOfId(id)
                                 End If
                             End If
                         End If
@@ -1537,12 +1515,12 @@ Sub ExportPhaseByDevice()
         End If
     Loop
 
-    Progress exPlIdx - LBound(exIds), MaxI(UBound(exIds) - LBound(exIds) + 1, 1), "поиск размещений по изделиям"
+    Progress exPlIdx, MaxI(UBound(exAllKeys) + 1, 1), "поиск размещений по объектам"
 
-    If exPlIdx > UBound(exIds) Then
-        LogMsg "Обход изделий: символов у изделий " & exSymByDev.Count & _
-               ", из них размещённых " & exSymTotal & " (у " & exPlaceMap.Count & " изделий)"
-        ' обход листов идёт всегда: он видит символы, которых нет в списках изделий
+    If exPlIdx > UBound(exAllKeys) Then
+        LogMsg "Обход объектов: символов найдено " & exSymByDev.Count & _
+               ", из них размещённых " & exSymTotal & " (у " & exPlaceMap.Count & " объектов)"
+        ' обход листов идёт всегда: он видит символы, которых нет в списках объектов
         jobPhase = 2
     End If
     Err.Clear
@@ -1623,7 +1601,7 @@ Sub ExportPhaseSheets()
                                     Err.Clear
                                 End If
                                 rot = SymGetRotation(symObj)
-                                mir = SymGetMirror(symObj)
+                                mir = ""   ' зеркало входит в строку поворота (MX/MY)
 
                                 If Not exPlaceMap.Exists(CStr(devId)) Then
                                     exPlaceMap.Add CStr(devId), Array(useName, x, y, rot, mir, symId, nm, useShId)
@@ -1646,6 +1624,7 @@ Sub ExportPhaseSheets()
                                     exPlaceCols(P_ROT,   exPlaceCnt) = rot
                                     exPlaceCols(P_MIR,   exPlaceCnt) = mir
                                     exPlaceCols(P_DEVID, exPlaceCnt) = devId
+                                    exPlaceCols(P_TYPE,  exPlaceCnt) = TypeOfId(devId)
                                 End If
                             End If
                         End If
@@ -1848,6 +1827,7 @@ Sub ExportPhaseWrite()
             pArr(i - 1, P_ROT - 1)   = exPlaceCols(P_ROT, i)
             pArr(i - 1, P_MIR - 1)   = exPlaceCols(P_MIR, i)
             pArr(i - 1, P_DEVID - 1) = exPlaceCols(P_DEVID, i)
+            pArr(i - 1, P_TYPE - 1)  = exPlaceCols(P_TYPE, i)
         Next
         ws2.Range(ws2.Cells(2, 1), ws2.Cells(exPlaceCnt + 1, PCOLS)).Value = pArr
         If Err.Number <> 0 Then
@@ -2302,8 +2282,12 @@ Sub PlaceOne(devId, poz, wantSymId, symNr, sheetName, wantSheetId, cX, cY, cRot,
     End If
     Err.Clear
 
+    ' поворот — строка из таблицы; Place принимает её четвёртым аргументом
+    rot = ""
+    If cRot > 0 Then rot = Trim(SafeStr(GetCell(arr, row, cRot)))
+
     If curSheet > 0 Then
-        If SymSetLocation(sym, shId, x, y, gotX, gotY) Then
+        If SymSetLocation(sym, shId, x, y, rot, gotX, gotY) Then
             imMoved = imMoved + 1
             LogV "  перемещён " & poz & " символ №" & symNr & ": (" & Fmt(x0) & ", " & Fmt(y0) & _
                  ") -> (" & Fmt(x) & ", " & Fmt(y) & ")"
@@ -2313,7 +2297,7 @@ Sub PlaceOne(devId, poz, wantSymId, symNr, sheetName, wantSheetId, cX, cY, cRot,
                    Fmt(gotY) & ") вместо (" & Fmt(x) & ", " & Fmt(y) & ")."
         End If
     Else
-        If SymPlace(sym, shId, x, y, newId) Then
+        If SymPlaceAt(sym, shId, x, y, rot, newId) Then
             imPlaced = imPlaced + 1
             If SymGetLocation(sym, sid0, x0, y0) Then
                 If Abs(NumOr(x0, -999999) - x) > EPS Or Abs(NumOr(y0, -999999) - y) > EPS Then
@@ -2328,15 +2312,6 @@ Sub PlaceOne(devId, poz, wantSymId, symNr, sheetName, wantSheetId, cX, cY, cRot,
         Else
             imErrors = imErrors + 1
             LogBad "  " & poz & ": разместить не удалось."
-        End If
-    End If
-
-    If cRot > 0 Then
-        rot = ParseNum(GetCell(arr, row, cRot), okR)
-        If okR Then
-            If Not SymSetRotation(sym, rot) Then
-                LogV "  (поворот " & Fmt(rot) & " не применён: метод недоступен)"
-            End If
         End If
     End If
     Err.Clear
@@ -3011,7 +2986,7 @@ Sub uiRoundTrip()
                                 LogMsg "Символ ID " & symId & " на листе ID " & shId & ", исходно (" & _
                                        Fmt(x) & ", " & Fmt(y) & "), метод чтения " & mLoc
 
-                                If SymSetLocation(symObj, shId, CDbl(x) + 10, CDbl(y) + 10, gx, gy) Then
+                                If SymSetLocation(symObj, shId, CDbl(x) + 10, CDbl(y) + 10, "", gx, gy) Then
                                     LogMsg "<span class=""ok"">запись подтверждена</span>: получилось (" & _
                                            Fmt(gx) & ", " & Fmt(gy) & "), метод записи " & mSetLoc
                                 Else
@@ -3019,7 +2994,7 @@ Sub uiRoundTrip()
                                            ") вместо (" & Fmt(CDbl(x) + 10) & ", " & Fmt(CDbl(y) + 10) & ")"
                                 End If
 
-                                If SymSetLocation(symObj, shId, CDbl(x), CDbl(y), gx, gy) Then
+                                If SymSetLocation(symObj, shId, CDbl(x), CDbl(y), "", gx, gy) Then
                                     LogMsg "Символ возвращён в (" & Fmt(x) & ", " & Fmt(y) & ")."
                                 Else
                                     LogBad "Вернуть символ не удалось — отмените изменение в E3 (Ctrl+Z)."
