@@ -16,6 +16,7 @@ GetArea» — как раз та ошибка, из-за которой стар
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -86,6 +87,10 @@ def run_export(
     device = app.device()
     symbol = app.symbol()
     device_ids = list(project.devices.keys())
+    phase_started = time.monotonic()
+    log.info(f"Фаза 1 из 3: обход объектов проекта ({len(device_ids)} шт.)")
+    without_symbols = 0
+    unplaced = 0
 
     for index, device_id in enumerate(device_ids, start=1):
         if context.stopped():
@@ -97,12 +102,15 @@ def run_export(
         if not e3api.set_id(device, device_id):
             continue
         symbol_ids = e3api.device_symbol_ids(device, 0, app.probe)
+        if not symbol_ids:
+            without_symbols += 1
         for number, symbol_id in enumerate(symbol_ids, start=1):
             owner_of_symbol.setdefault(symbol_id, (device_id, number))
             if not e3api.set_id(symbol, symbol_id):
                 continue
             location = e3api.symbol_location(symbol, app.probe)
             if location is None or not location.placed:
+                unplaced += 1
                 continue
             if not project.sheet_allowed(location.sheet_id):
                 continue
@@ -122,10 +130,15 @@ def run_export(
             placement_rows[symbol_id] = placement
 
     log.info(
-        f"Обход объектов: символов найдено {len(owner_of_symbol)}, "
-        f"из них размещённых на выбранных листах {stats.symbols_seen} "
+        f"  символов у объектов: {len(owner_of_symbol)}; "
+        f"размещено на выбранных листах: {stats.symbols_seen} "
         f"(у {len(placement_of_device)} объектов)"
     )
+    if without_symbols:
+        log.info(f"  объектов без символов вообще: {without_symbols} — размещать нечего")
+    if unplaced:
+        log.info(f"  символов не поставлено на лист: {unplaced}")
+    log.info(f"  фаза 1 заняла {time.monotonic() - phase_started:.1f} с")
 
     # --- фаза 2: обход листов -------------------------------------------------
     connection_rows: list[dict[str, Any]] = []
@@ -203,6 +216,12 @@ def _walk_sheets(
     net_segment = app.net_segment() if options.with_connections else None
 
     sheet_ids = list(project.sheet_names.keys())
+    phase_started = time.monotonic()
+    skipped_sheets = 0
+    log.info(
+        f"Фаза 2 из 3: обход листов — {len(project.allowed_sheet_ids)} из {len(sheet_ids)} "
+        "попадают в выбранные виды"
+    )
     for index, sheet_id in enumerate(sheet_ids, start=1):
         if context.stopped():
             stats.stopped = True
@@ -212,13 +231,23 @@ def _walk_sheets(
         if not e3api.set_id(sheet, sheet_id):
             continue
         sheet_name = project.sheet_name_of(sheet_id)
+        sheet_symbols = 0
+        sheet_matched = 0
+        segments_before = stats.segments
 
-        if options.with_connections and project.sheet_allowed(sheet_id) and net_segment is not None:
+        if not project.sheet_allowed(sheet_id):
+            # Символы такого листа всё равно были бы отброшены фильтром, а обход
+            # чужих листов — самая дорогая часть выгрузки.
+            skipped_sheets += 1
+            continue
+
+        if options.with_connections and net_segment is not None:
             _collect_connections(
                 project, sheet, net_segment, sheet_id, sheet_name, connection_rows, stats
             )
 
         for symbol_id in e3api.sheet_symbol_ids(sheet):
+            sheet_symbols += 1
             if not e3api.set_id(symbol, symbol_id):
                 continue
             known = owner_of_symbol.get(symbol_id)
@@ -257,8 +286,24 @@ def _walk_sheets(
                 rotation=e3api.symbol_rotation(symbol, app.probe),
             )
             stats.symbols_seen += 1
+            sheet_matched += 1
             placement_of_device[device_id] = placement
             placement_rows.setdefault(symbol_id, placement)
+
+        log.detail(
+            f"  лист «{sheet_name}» (ID {sheet_id})"
+            + f": символов {sheet_symbols}, привязано {sheet_matched}"
+            + (f", сегментов проводов {stats.segments - segments_before}" if options.with_connections else "")
+        )
+
+    if skipped_sheets:
+        log.info(f"  пропущено листов вне выбранных видов: {skipped_sheets}")
+    log.info(
+        f"  привязано символов на листах: {stats.symbols_seen}; "
+        f"опознано по надписи: {stats.matched_by_text}; "
+        f"без связи с изделием: {stats.symbols_without_device}"
+    )
+    log.info(f"  фаза 2 заняла {time.monotonic() - phase_started:.1f} с")
 
 
 def _collect_connections(
@@ -312,6 +357,9 @@ def _device_rows(
 
     ids = e3api.job_ids(app.job, "GetAllDeviceIds") or ()
     total = len(ids)
+    phase_started = time.monotonic()
+    context.log.info(f"Фаза 3 из 3: чтение атрибутов изделий ({total} шт.)")
+    empty_poz = 0
     for index, device_id in enumerate(ids, start=1):
         if context.stopped():
             stats.stopped = True
@@ -329,6 +377,7 @@ def _device_rows(
 
         poz = e3api.attribute_value(device, cols.H_POZ)
         if not poz:
+            empty_poz += 1
             poz = strip_dash(e3api.device_name(device))
 
         row: dict[str, Any] = {cols.H_POZ: poz, cols.H_COMP: e3api.device_component(device)}
@@ -352,6 +401,11 @@ def _device_rows(
         rows.append(row)
 
     stats.devices = len(rows)
+    if empty_poz:
+        context.log.info(
+            f"  у {empty_poz} изделий атрибут «{cols.H_POZ}» пуст — записано имя изделия"
+        )
+    context.log.info(f"  фаза 3 заняла {time.monotonic() - phase_started:.1f} с")
     return rows
 
 
@@ -374,6 +428,11 @@ def _placement_row(project: Project, placement: _Placement) -> dict[str, Any]:
 
 def _log_summary(log: Any, stats: ExportStats, options: ExportOptions) -> None:
     log.info(f"Записано изделий: {stats.devices}")
+    without = max(stats.devices - stats.placed_devices, 0)
+    log.info(
+        f"Из них с координатами: {min(stats.placed_devices, stats.devices)}, "
+        f"без координат: {without}"
+    )
     if options.with_placements:
         log.info(f"Размещений: {stats.placements} символов у {stats.placed_devices} объектов")
     if stats.matched_by_text:

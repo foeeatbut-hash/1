@@ -328,6 +328,83 @@ def test_polyline_drops_service_element():
     assert polyline.types == [1, 0, 2]
 
 
+# --- разбор ошибок в журнале --------------------------------------------------
+def test_log_reports_where_error_happened():
+    from e3tool.log import Log, format_exception
+
+    def boom():
+        raise TypeError("'_contextvars.Context' object is not callable")
+
+    try:
+        boom()
+    except TypeError as error:
+        lines = format_exception(error, package="tests")
+        text = "\n".join(lines)
+        assert "TypeError" in text
+        assert "не callable" in text or "not callable" in text
+        # В отчёте обязаны быть файл, строка и сам исходный текст строки.
+        assert "test_logic.py" in text
+        assert "boom()" in text
+
+    collected: list[tuple[str, str]] = []
+    log = Log(sink=lambda line, level: collected.append((line, level)))
+    try:
+        boom()
+    except TypeError as error:
+        log.error("Сбой при выполнении «выгрузка»", error)
+    # Ошибка и её разбор видны всегда, без подробного режима.
+    assert all(level == "warn" for _, level in collected)
+    assert len(collected) >= 3
+
+
+def test_com_error_is_decoded():
+    from e3tool.log import describe_com_error
+
+    class com_error(Exception):
+        pass
+
+    error = com_error(
+        -2147352573,
+        "Member not found.",
+        (0, "E3.series", "Метод недоступен в этой версии", None, 0, -2147352573),
+        None,
+    )
+    lines = describe_com_error(error)
+    text = " | ".join(lines)
+    assert "0x80020003" in text
+    assert "нет такого метода" in text
+    assert "Метод недоступен в этой версии" in text
+
+
+def test_worker_does_not_collide_with_thread_internals():
+    """Регрессия: Worker не наследует Thread, поэтому имена не пересекаются.
+
+    Раньше Worker был подклассом Thread, и его `_stop`/`_context` перекрывали
+    служебные атрибуты Thread. Экспорт падал с
+    «'_contextvars.Context' object is not callable».
+    """
+    import threading
+
+    from e3tool.task import Context
+    from e3tool.worker import Worker
+
+    worker = Worker()
+    assert not isinstance(worker, threading.Thread)
+    assert isinstance(worker.thread, threading.Thread)
+
+    # Ни одно имя Worker не должно совпадать с внутренними именами Thread.
+    thread_names = set(dir(threading.Thread)) | set(vars(threading.Thread()))
+    reserved = {name for name in thread_names if name.startswith("_") and not name.startswith("__")}
+    clashes = {name for name in vars(worker) if name in reserved}
+    assert not clashes, f"столкновение имён с Thread: {clashes}"
+
+    context = worker.new_context()
+    assert isinstance(context, Context)
+    assert context.stopped() is False
+    worker.request_stop()
+    assert context.stopped() is True
+
+
 def _run_all() -> int:
     failures = 0
     for name, function in sorted(globals().items()):

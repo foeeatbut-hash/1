@@ -150,8 +150,18 @@ class Project:
 
         self.log.info(
             f"Сопоставление: по «{H_POZ}» {len(self.id_by_poz)}, "
-            f"по имени {len(self.id_by_name)}"
+            f"по имени {len(self.id_by_name)}, "
+            f"нормализованных ключей {len(self.id_by_norm)}"
         )
+        if not self.id_by_poz and self.devices:
+            self.log.warn(
+                f"Атрибут «{H_POZ}» не заполнен ни у одного объекта — обозначения "
+                "берутся из имени изделия. Для выгрузки и обратной загрузки это "
+                "работает, но столбец в Excel будет заполнен именами."
+            )
+        no_name = sum(1 for info in self.devices.values() if not info.name and not info.poz)
+        if no_name:
+            self.log.warn(f"Объектов без имени и обозначения: {no_name} — их не опознать.")
 
     def _add_norm(self, value: str, device_id: int) -> None:
         """Нормализованный ключ -> id. Неоднозначные ключи обнуляются."""
@@ -178,16 +188,27 @@ class Project:
             return len(self.allowed_sheet_ids)
 
         sheet = self.app.sheet()
-        for sheet_id in self.sheet_names:
+        seen_values: dict[str, int] = {}
+        for sheet_id in sorted(self.sheet_names):
             if not e3api.set_id(sheet, sheet_id):
                 continue
             value = e3api.attribute_value(sheet, VIEW_ATTRIBUTE)
-            if value in views:
+            key = value if value else "(пусто)"
+            seen_values[key] = seen_values.get(key, 0) + 1
+            allowed = value in views
+            if allowed:
                 self.allowed_sheet_ids.add(sheet_id)
+            self.log.detail(
+                f"  лист «{self.sheet_names[sheet_id]}» (ID {sheet_id}): "
+                f"{VIEW_ATTRIBUTE}={key} — {'берём' if allowed else 'пропускаем'}"
+            )
         self.log.info(
             f"Листов с {VIEW_ATTRIBUTE} из {{{', '.join(sorted(views))}}}: "
-            f"{len(self.allowed_sheet_ids)}"
+            f"{len(self.allowed_sheet_ids)} из {len(self.sheet_names)}"
         )
+        # Раскладка по видам сразу показывает, что выбирать, если ничего не нашлось.
+        spread = ", ".join(f"{value}: {count}" for value, count in sorted(seen_values.items()))
+        self.log.info(f"Виды листов в проекте — {spread}")
         return len(self.allowed_sheet_ids)
 
     def sheet_allowed(self, sheet_id: int) -> bool:

@@ -42,6 +42,9 @@ def _progress(current: int, total: int, text: str) -> None:
 
 
 def _connect(log: Log, pid: int, views: set[str]) -> Project:
+    e3api.set_diagnostics(log.info)
+    for line in e3api.environment_report():
+        log.info(line)
     e3api.co_initialize()
     app = e3api.connect(pid or None)
     version = app.full_version()

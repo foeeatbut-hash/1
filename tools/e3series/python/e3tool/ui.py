@@ -44,6 +44,17 @@ def desktop_path() -> str:
     return os.path.expanduser("~")
 
 
+def log_directory() -> str:
+    """Папка logs рядом с программой; если писать некуда — рабочий стол."""
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    candidate = os.path.join(here, "logs")
+    try:
+        os.makedirs(candidate, exist_ok=True)
+        return candidate
+    except OSError:
+        return desktop_path()
+
+
 def default_export_name() -> str:
     stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     return os.path.join(desktop_path(), f"E3_Export_{stamp}.xlsx")
@@ -57,7 +68,7 @@ class App(tk.Tk):
         self.minsize(860, 700)
         self.configure(bg=BG)
 
-        self.worker = wk.Worker()
+        self.worker = wk.Worker(verbose=True, log_directory=log_directory())
         self.worker.start()
 
         self.busy = False
@@ -279,7 +290,7 @@ class App(tk.Tk):
 
         row = ttk.Frame(card, style="Card.TFrame")
         row.pack(fill="x", pady=(8, 0))
-        self.verbose_var = tk.BooleanVar(value=False)
+        self.verbose_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             row,
             text="подробный журнал",
@@ -289,6 +300,16 @@ class App(tk.Tk):
         ).pack(side="left")
         ttk.Button(row, text="Сохранить журнал", command=self.save_log).pack(side="right")
         ttk.Button(row, text="Очистить", command=self.clear_log).pack(side="right", padx=(0, 8))
+        ttk.Button(row, text="Открыть папку", command=self.open_log_folder).pack(
+            side="right", padx=(0, 8)
+        )
+
+        self.log_path_label = ttk.Label(
+            card,
+            text=f"файл журнала: {self.worker.log.file_path or 'не пишется'}",
+            style="Muted.TLabel",
+        )
+        self.log_path_label.pack(fill="x", pady=(6, 0))
 
     # --- состояние ------------------------------------------------------------
     def selected_views(self) -> set[str]:
@@ -405,7 +426,19 @@ class App(tk.Tk):
 
     def save_log(self) -> None:
         path = self.worker.log.save(desktop_path())
-        messagebox.showinfo("Журнал", f"Журнал сохранён:\n{path}")
+        streamed = self.worker.log.file_path
+        text = f"Копия журнала сохранена:\n{path}"
+        if streamed:
+            text += f"\n\nОсновной журнал пишется сюда:\n{streamed}"
+        messagebox.showinfo("Журнал", text)
+
+    def open_log_folder(self) -> None:
+        """Открывает папку с журналами — чтобы файл можно было сразу отправить."""
+        folder = os.path.dirname(self.worker.log.file_path or "") or log_directory()
+        try:
+            os.startfile(folder)  # type: ignore[attr-defined]
+        except Exception:
+            messagebox.showinfo("Журнал", f"Журналы лежат здесь:\n{folder}")
 
     def clear_log(self) -> None:
         self.worker.log.clear()
@@ -466,6 +499,13 @@ class App(tk.Tk):
 
     def _apply_done(self, name: str, result: dict) -> None:
         if not result.get("ok"):
+            path = self.worker.log.file_path
+            messagebox.showerror(
+                "Ошибка",
+                f"Задание «{name}» не выполнено.\n\n{result.get('error', '')}\n\n"
+                "Подробности — в журнале внизу окна"
+                + (f" и в файле:\n{path}" if path else "."),
+            )
             return
         if name == "export":
             messagebox.showinfo(

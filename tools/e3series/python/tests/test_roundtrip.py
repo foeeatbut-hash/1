@@ -397,6 +397,80 @@ def test_full_roundtrip_through_xlsx():
     assert target.created_connections[0][1] == [(10.0, 10.0), (10.0, 50.0), (80.0, 50.0)]
 
 
+# --- задания рабочего потока --------------------------------------------------
+def test_worker_export_job_runs_end_to_end():
+    """Тот самый путь, который падал: Worker -> run_export -> запись книги.
+
+    Задание выполняется в текущем потоке, минуя COM: нам важна не многопоточность,
+    а то, что _do_export отрабатывает целиком и складывает события.
+    """
+    from e3tool import worker as wk
+    from e3tool.export import ExportOptions
+
+    model = fake_e3.sample_model()
+    unit = wk.Worker()
+    unit.app = e3api.E3App(fake_e3.ApplicationObject(model))
+    unit.project = Project(unit.app, unit.log)
+    unit.project.reload()
+
+    with tempfile.TemporaryDirectory() as folder:
+        path = os.path.join(folder, "worker.xlsx")
+        unit._dispatch(wk.ExportJob(path=path, options=ExportOptions(views={"4"})))
+        assert os.path.isfile(path)
+        tables = excel_io.read_tables(path)
+        assert excel_io.find_table(tables, cols.SHEET_DEVICES) is not None
+
+    kinds = [event.kind for event in list(unit.events.queue)]
+    assert wk.EVENT_DONE in kinds
+    done = [event for event in list(unit.events.queue) if event.kind == wk.EVENT_DONE][-1]
+    name, result = done.payload
+    assert result["ok"] is True
+    assert result["devices"] > 0
+
+
+def test_worker_import_job_runs_end_to_end():
+    from e3tool import worker as wk
+    from e3tool.export import ExportOptions
+    from e3tool.importer import ImportOptions
+
+    source = fake_e3.sample_model()
+    project, log = make_project(source, {"4"})
+    sheets, _ = run_export(project, ExportOptions(views={"4"}), Context(log))
+
+    with tempfile.TemporaryDirectory() as folder:
+        path = os.path.join(folder, "worker.xlsx")
+        excel_io.write_workbook(path, sheets)
+
+        target = fake_e3.sample_model()
+        for symbol in target.symbols.values():
+            symbol.sheet_id = 0
+        unit = wk.Worker()
+        unit.app = e3api.E3App(fake_e3.ApplicationObject(target))
+        unit.project = Project(unit.app, unit.log)
+        unit.project.reload()
+        unit._dispatch(
+            wk.ImportJob(path=path, options=ImportOptions(views={"4"}, place_symbols=True))
+        )
+
+    done = [event for event in list(unit.events.queue) if event.kind == wk.EVENT_DONE][-1]
+    name, result = done.payload
+    assert result["ok"] is True
+    assert result["placed"] + result["moved"] > 0
+
+
+def test_worker_reports_missing_project_clearly():
+    from e3tool import worker as wk
+    from e3tool.export import ExportOptions
+
+    unit = wk.Worker()
+    try:
+        unit._dispatch(wk.ExportJob(path="нет.xlsx", options=ExportOptions()))
+    except e3api.E3Error as error:
+        assert "Подключиться" in str(error)
+    else:
+        raise AssertionError("ожидалась понятная ошибка о том, что нет связи с E3")
+
+
 def _table_from_rows(name: str, headers: list[str], rows: list[dict]):
     """Собирает Table так, как её отдал бы excel_io после чтения файла."""
     from e3tool.util import Row, Table, header_key

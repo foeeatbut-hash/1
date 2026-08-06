@@ -25,9 +25,12 @@
 
 from __future__ import annotations
 
+import platform
 import re
+import struct
+import sys
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 APPLICATION_CLASS = "CT.Application"
 #: E3 регистрирует в Running Object Table по одному монику на процесс.
@@ -36,6 +39,75 @@ MONIKER_PATTERN = re.compile(r"!E3Application:(\d+)")
 
 class E3Error(RuntimeError):
     """Ошибка работы с E3.series, пригодная для показа пользователю."""
+
+
+# ------------------------------------------------------------------------------
+#  Диагностика: неудачные вызовы COM видно в журнале, а не только по пустому
+#  результату. Каждый метод сообщается один раз, чтобы не залить журнал.
+# ------------------------------------------------------------------------------
+_diagnostics: Callable[[str], None] | None = None
+_reported: set[str] = set()
+
+
+def set_diagnostics(callback: Callable[[str], None] | None) -> None:
+    """Подключает приёмник сообщений о неудачных вызовах COM."""
+    global _diagnostics
+    _diagnostics = callback
+    _reported.clear()
+
+
+def _note(method: str, exc: BaseException | None = None, comment: str = "") -> None:
+    if _diagnostics is None or method in _reported:
+        return
+    _reported.add(method)
+    text = f"COM: {method} не отработал"
+    if comment:
+        text += f" ({comment})"
+    if exc is not None:
+        from .log import describe_com_error
+
+        details = describe_com_error(exc)
+        text += f": {type(exc).__name__}: {exc}"
+        for line in details:
+            text += f"; {line}"
+    _diagnostics(text)
+
+
+def environment_report() -> list[str]:
+    """Сведения об окружении — первое, что нужно при разборе чужого журнала."""
+    bits = struct.calcsize("P") * 8
+    lines = [
+        f"Python {sys.version.split()[0]} ({bits}-bit), {platform.system()} {platform.release()}"
+    ]
+    def installed(package: str) -> str:
+        from importlib import metadata
+
+        try:
+            return metadata.version(package)
+        except Exception:
+            return ""
+
+    pywin32 = installed("pywin32")
+    lines.append(
+        f"pywin32: {pywin32}" if pywin32 else "pywin32: НЕ установлен — работа с E3 невозможна"
+    )
+    openpyxl = installed("openpyxl")
+    lines.append(
+        f"openpyxl: {openpyxl}"
+        if openpyxl
+        else "openpyxl: НЕ установлен — файлы Excel читаться не будут"
+    )
+    wrapper = installed("e3series")
+    lines.append(
+        f"обёртка Zuken e3series: {wrapper}"
+        if wrapper
+        else "обёртка Zuken e3series: не установлена (не обязательна)"
+    )
+    if bits != 64:
+        lines.append(
+            "ВНИМАНИЕ: Python 32-битный, а E3.series 64-битная — возможны отказы вызовов."
+        )
+    return lines
 
 
 # ------------------------------------------------------------------------------
@@ -257,15 +329,19 @@ class E3App:
             return ""
 
     def full_version(self) -> str:
-        parts = []
-        for name in ("GetVersion", "GetBuild"):
-            try:
-                value = getattr(self.raw, name)()
-            except Exception:
-                continue
-            if value:
-                parts.append(str(value))
-        return " build ".join(parts)
+        version = ""
+        build = ""
+        try:
+            version = str(self.raw.GetVersion() or "").strip()
+        except Exception:
+            pass
+        try:
+            build = str(self.raw.GetBuild() or "").strip()
+        except Exception:
+            pass
+        if version and build and build not in version:
+            return f"{version} ({build})"
+        return version or build
 
     # --- фабрики --------------------------------------------------------------
     def sheet(self) -> Any:
@@ -360,21 +436,28 @@ def job_ids(job: Any, method: str) -> tuple[int, ...] | None:
     """Вызывает перечисление Job. None — метод не поддержан этой сборкой."""
     call = getattr(job, method, None)
     if call is None:
+        _note(f"Job.{method}", comment="метода нет в этой сборке")
         return None
+    last: BaseException | None = None
     for args in ((0,), (0, 0)):
         try:
             result = out_values(call(*args))
-        except Exception:
+        except Exception as error:
+            last = error
             continue
         if len(result) >= 2:
             return ids_of(result[0], result[1])
+        _note(f"Job.{method}", comment="out-параметр не вернулся, результат " + repr(result)[:60])
+        return None
+    _note(f"Job.{method}", last)
     return None
 
 
 def sheet_symbol_ids(sheet: Any) -> tuple[int, ...]:
     try:
         result = out_values(sheet.GetSymbolIds(0))
-    except Exception:
+    except Exception as error:
+        _note("Sheet.GetSymbolIds", error)
         return ()
     if len(result) < 2:
         return ()
@@ -384,10 +467,12 @@ def sheet_symbol_ids(sheet: Any) -> tuple[int, ...]:
 def sheet_net_segment_ids(sheet: Any) -> tuple[int, ...]:
     call = getattr(sheet, "GetNetSegmentIds", None)
     if call is None:
+        _note("Sheet.GetNetSegmentIds", comment="метода нет — провода выгрузить нельзя")
         return ()
     try:
         result = out_values(call(0))
-    except Exception:
+    except Exception as error:
+        _note("Sheet.GetNetSegmentIds", error)
         return ()
     if len(result) < 2:
         return ()
@@ -398,10 +483,11 @@ def device_symbol_ids(device: Any, get_mode: int = 0, probe: Probe | None = None
     """Символы изделия. get_mode 0 — все, как в официальной обёртке."""
     try:
         result = out_values(device.GetSymbolIds(0, get_mode))
-    except Exception:
+    except Exception as error:
         try:
             result = out_values(device.GetSymbolIds(0))
         except Exception:
+            _note("Device.GetSymbolIds", error)
             return ()
         if probe is not None and not probe.symbol_ids:
             probe.symbol_ids = "GetSymbolIds(ids)"
@@ -462,6 +548,7 @@ def symbol_location(symbol: Any, probe: Probe | None = None) -> Location | None:
         if probe is not None and not probe.location:
             probe.location = label
         return Location(sheet_id=sheet_id, x=x, y=y, grid=grid)
+    _note("Symbol.GetSchemaLocation", comment="ни один вариант вызова не дал координат")
     return None
 
 
@@ -507,14 +594,17 @@ def symbol_place(
     ))
     attempts.append(("Place(sheet,x,y)", (sheet_id, float(x), float(y))))
 
+    last: BaseException | None = None
     for label, args in attempts:
         try:
             symbol.Place(*args)
-        except Exception:
+        except Exception as error:
+            last = error
             continue
         if probe is not None:
             probe.place = label
         return True
+    _note("Symbol.Place", last)
     return False
 
 
@@ -558,10 +648,12 @@ def net_segment_polyline(segment: Any) -> Polyline | None:
     """Ломаная сегмента цепи: лист, точки, типы точек."""
     call = getattr(segment, "GetLineSegments", None)
     if call is None:
+        _note("NetSegment.GetLineSegments", comment="метода нет в этой сборке")
         return None
     try:
         result = out_values(call(0, 0, 0, 0))
-    except Exception:
+    except Exception as error:
+        _note("NetSegment.GetLineSegments", error)
         return None
     if len(result) < 4:
         return None
@@ -634,10 +726,12 @@ def create_connection(
         (sheet_id, count, xs[1:], ys[1:]),
     ))
 
+    last: BaseException | None = None
     for label, args in attempts:
         try:
             result = connection.Create(*args)
-        except Exception:
+        except Exception as error:
+            last = error
             continue
         try:
             ok = int(result or 0) > 0
@@ -663,8 +757,9 @@ def create_connection(
                 if probe is not None:
                     probe.connection = "CreateConnectionBetweenPoints"
                 return True
-        except Exception:
-            pass
+        except Exception as error:
+            last = error
+    _note("Connection.Create", last)
     return False
 
 
