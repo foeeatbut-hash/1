@@ -76,6 +76,13 @@ class FakeModel:
         self.cable_ids: list[int] = []
         self.created_connections: list[tuple[int, list[tuple[float, float]]]] = []
         self.saved = False
+        #: следы пакетного режима — по ним проверяем, что E3 отпущена корректно
+        self.dialogs_enabled = True
+        self.messages_suppressed = False
+        self.finalized = 0
+        self.undo_after_execution: bool | None = None
+        self.undo_removed = 0
+        self.slept_ms: list[int] = []
         self._next_id = 9000
 
     # --- построение сцены -----------------------------------------------------
@@ -313,6 +320,18 @@ class JobObject:
         self.model.saved = True
         return 1
 
+    def FinalizeTransaction(self) -> int:
+        self.model.finalized += 1
+        return 0
+
+    def UndoAfterExecution(self, newval: bool = True) -> int:
+        self.model.undo_after_execution = bool(newval)
+        return 0
+
+    def RemoveUndoInformation(self) -> int:
+        self.model.undo_removed += 1
+        return 0
+
     def GetSheetIds(self, dummy: Any) -> tuple:
         return one_based(sorted(self.model.sheets.keys()))
 
@@ -370,6 +389,22 @@ class ApplicationObject:
 
     def GetBuild(self) -> str:
         return "23.20.0.0"
+
+    def GetEnableInteractiveDialogs(self) -> int:
+        return 1 if self.model.dialogs_enabled else 0
+
+    def SetEnableInteractiveDialogs(self, value: bool) -> int:
+        previous = self.model.dialogs_enabled
+        self.model.dialogs_enabled = bool(value)
+        return 1 if previous else 0
+
+    def SuppressMessages(self, suppress: bool, flags: int = 0) -> int:
+        self.model.messages_suppressed = bool(suppress)
+        return 1
+
+    def Sleep(self, msec: int) -> int:
+        self.model.slept_ms.append(int(msec))
+        return 1
 
 
 def sample_model() -> FakeModel:

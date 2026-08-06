@@ -471,6 +471,140 @@ def test_worker_reports_missing_project_clearly():
         raise AssertionError("ожидалась понятная ошибка о том, что нет связи с E3")
 
 
+# --- пакетный режим и освобождение E3 -----------------------------------------
+def test_batch_closes_transaction_and_restores_dialogs():
+    """Главная причина «E3 занята»: незакрытая транзакция скрипта."""
+    model = fake_e3.sample_model()
+    app = e3api.E3App(fake_e3.ApplicationObject(model))
+
+    app.begin_batch(writing=True)
+    # На время работы модальные диалоги отключены, иначе обе программы встанут.
+    assert model.dialogs_enabled is False
+    assert model.messages_suppressed is True
+    assert model.undo_after_execution is False
+
+    notes = app.end_batch(commit=True)
+    assert model.finalized == 1
+    # Диалоги обязаны вернуться, иначе E3 останется «немой».
+    assert model.dialogs_enabled is True
+    assert model.messages_suppressed is False
+    assert model.slept_ms  # E3 дали разгрести очередь
+    assert any("FinalizeTransaction" in note for note in notes)
+
+
+def test_read_only_batch_does_not_commit():
+    model = fake_e3.sample_model()
+    app = e3api.E3App(fake_e3.ApplicationObject(model))
+    app.begin_batch(writing=False)
+    # Для выгрузки откат трогать не за чем.
+    assert model.undo_after_execution is None
+    app.end_batch(commit=False)
+    assert model.finalized == 0
+    assert model.dialogs_enabled is True
+
+
+def test_worker_releases_e3_after_import():
+    from e3tool import worker as wk
+    from e3tool.export import ExportOptions
+    from e3tool.importer import ImportOptions
+
+    source = fake_e3.sample_model()
+    project, log = make_project(source, {"4"})
+    sheets, _ = run_export(project, ExportOptions(views={"4"}), Context(log))
+
+    with tempfile.TemporaryDirectory() as folder:
+        path = os.path.join(folder, "release.xlsx")
+        excel_io.write_workbook(path, sheets)
+
+        target = fake_e3.sample_model()
+        for symbol in target.symbols.values():
+            symbol.sheet_id = 0
+
+        unit = wk.Worker()
+        unit.app = e3api.E3App(fake_e3.ApplicationObject(target), pid=4242)
+        unit.project = Project(unit.app, unit.log)
+        unit.project.reload()
+
+        changed = unit._dispatch(
+            wk.ImportJob(path=path, options=ImportOptions(views={"4"}, place_symbols=True))
+        )
+        assert changed is True
+        unit._finish_batch(changed)
+
+    # Транзакция закрыта, диалоги возвращены, соединение отпущено.
+    assert target.finalized == 1
+    assert target.dialogs_enabled is True
+    assert unit.app is None and unit.project is None
+    # PID запомнен — при следующей операции подключимся сами.
+    assert unit.last_pid == 4242
+    states = [e.payload for e in list(unit.events.queue) if e.kind == wk.EVENT_STATE]
+    assert any(state.get("released") for state in states)
+
+
+def test_worker_keeps_connection_when_auto_release_off():
+    from e3tool import worker as wk
+    from e3tool.export import ExportOptions
+
+    model = fake_e3.sample_model()
+    unit = wk.Worker()
+    unit.auto_release = False
+    unit.app = e3api.E3App(fake_e3.ApplicationObject(model), pid=7)
+    unit.project = Project(unit.app, unit.log)
+    unit.project.reload()
+
+    with tempfile.TemporaryDirectory() as folder:
+        changed = unit._dispatch(
+            wk.ExportJob(path=os.path.join(folder, "a.xlsx"), options=ExportOptions(views={"4"}))
+        )
+    unit._finish_batch(bool(changed))
+    assert unit.app is not None
+    # Выгрузка ничего не меняет — коммитить нечего.
+    assert model.finalized == 0
+
+
+def test_worker_clears_undo_only_when_asked():
+    from e3tool import worker as wk
+    from e3tool.export import ExportOptions
+    from e3tool.importer import ImportOptions
+
+    source = fake_e3.sample_model()
+    project, log = make_project(source, {"4"})
+    sheets, _ = run_export(project, ExportOptions(views={"4"}), Context(log))
+
+    with tempfile.TemporaryDirectory() as folder:
+        path = os.path.join(folder, "undo.xlsx")
+        excel_io.write_workbook(path, sheets)
+
+        for clear_undo, expected in ((False, 0), (True, 1)):
+            target = fake_e3.sample_model()
+            for symbol in target.symbols.values():
+                symbol.sheet_id = 0
+            unit = wk.Worker()
+            unit.app = e3api.E3App(fake_e3.ApplicationObject(target))
+            unit.project = Project(unit.app, unit.log)
+            unit.project.reload()
+            unit._dispatch(
+                wk.ImportJob(
+                    path=path,
+                    options=ImportOptions(views={"4"}, place_symbols=True),
+                    clear_undo=clear_undo,
+                )
+            )
+            assert target.undo_removed == expected
+
+
+def test_worker_release_job_frees_e3_on_demand():
+    from e3tool import worker as wk
+
+    model = fake_e3.sample_model()
+    unit = wk.Worker()
+    unit.app = e3api.E3App(fake_e3.ApplicationObject(model), pid=11)
+    unit.project = Project(unit.app, unit.log)
+    unit._dispatch(wk.ReleaseJob())
+    assert unit.app is None
+    assert model.dialogs_enabled is True
+
+
 def _table_from_rows(name: str, headers: list[str], rows: list[dict]):
     """Собирает Table так, как её отдал бы excel_io после чтения файла."""
     from e3tool.util import Row, Table, header_key

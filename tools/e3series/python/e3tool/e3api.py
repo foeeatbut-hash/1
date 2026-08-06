@@ -317,6 +317,7 @@ class E3App:
         self.raw = raw_app
         self.pid = pid
         self.probe = Probe()
+        self._dialogs_were: bool | None = None
         self.job = raw_app.CreateJobObject()
         if self.job is None:
             raise E3Error("E3 не отдал объект проекта (CreateJobObject).")
@@ -377,6 +378,92 @@ class E3App:
             return True
         except Exception:
             return False
+
+    # --- пакетный режим -------------------------------------------------------
+    def begin_batch(self, writing: bool) -> list[str]:
+        """Готовит E3 к пакетной работе и возвращает строки для журнала.
+
+        Модальные диалоги на время работы отключаются: если E3 покажет окно,
+        пока мы шлём вызовы, обе программы встанут — она ждёт ответа, мы ждём её.
+        """
+        notes: list[str] = []
+        self._dialogs_were = None
+        try:
+            self._dialogs_were = bool(self.raw.GetEnableInteractiveDialogs())
+        except Exception:
+            self._dialogs_were = None
+        try:
+            self.raw.SetEnableInteractiveDialogs(False)
+            notes.append("диалоги E3 на время работы отключены")
+        except Exception:
+            pass
+        try:
+            self.raw.SuppressMessages(True, 0)
+        except Exception:
+            pass  # TLB 23.01, на более старых сборках метода нет
+        if writing:
+            try:
+                # Явно говорим E3 не откатывать сделанное по завершении скрипта.
+                self.job.UndoAfterExecution(False)
+                notes.append("откат по завершении скрипта выключен")
+            except Exception:
+                pass
+        return notes
+
+    def end_batch(self, commit: bool) -> list[str]:
+        """Закрывает транзакцию и возвращает E3 в обычное состояние.
+
+        Пока FinalizeTransaction не вызвана, изменения скрипта остаются в
+        открытой транзакции: проект занят, работать в E3 нельзя. Это и есть
+        главная причина, по которой программа «залипает» после загрузки.
+        """
+        notes: list[str] = []
+        if commit:
+            try:
+                result = self.job.FinalizeTransaction()
+                notes.append(
+                    "транзакция закрыта (FinalizeTransaction)"
+                    if int(result or 0) == 0
+                    else f"FinalizeTransaction вернула {result}"
+                )
+            except Exception as error:
+                notes.append(f"FinalizeTransaction не выполнена: {error}")
+        try:
+            self.raw.SuppressMessages(False, 0)
+        except Exception:
+            pass
+        try:
+            self.raw.SetEnableInteractiveDialogs(
+                True if self._dialogs_were is None else self._dialogs_were
+            )
+            notes.append("диалоги E3 возвращены")
+        except Exception:
+            notes.append("ВНИМАНИЕ: не удалось вернуть диалоги E3")
+        try:
+            # Пауза отдаёт управление E3, чтобы она разобрала свою очередь.
+            self.raw.Sleep(0)
+        except Exception:
+            pass
+        return notes
+
+    def breathe(self, msec: int = 1) -> None:
+        """Отдаёт E3 паузу посреди длинной работы, чтобы окно не выглядело мёртвым."""
+        try:
+            self.raw.Sleep(int(msec))
+        except Exception:
+            pass
+
+    def remove_undo_information(self) -> bool:
+        """Очищает историю отмены проекта — снимает тормоза после большой загрузки."""
+        try:
+            return int(self.job.RemoveUndoInformation() or 0) == 0
+        except Exception:
+            return False
+
+    def release(self) -> None:
+        """Отпускает объекты COM, чтобы E3 не считала себя занятой скриптом."""
+        self.job = None
+        self.raw = None
 
     # --- самопроверка ---------------------------------------------------------
     def check_out_parameters(self) -> bool:

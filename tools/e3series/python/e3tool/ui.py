@@ -149,11 +149,30 @@ class App(tk.Tk):
         )
         self.btn_connect.pack(side="left", padx=8)
 
+        ttk.Button(row, text="Отпустить", width=11, command=self.do_release).pack(side="left")
+
         self.status_label = ttk.Label(row, text="нет связи", style="Warn.TLabel")
         self.status_label.pack(side="left", padx=(12, 0))
 
         self.project_label = ttk.Label(card, text="", style="Muted.TLabel")
         self.project_label.pack(fill="x", pady=(8, 0))
+
+        self.auto_release = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            card,
+            text="отпускать E3 после операции (в программе сразу можно работать)",
+            variable=self.auto_release,
+            style="Card.TCheckbutton",
+            command=self._apply_auto_release,
+        ).pack(anchor="w", pady=(8, 0))
+        ttk.Label(
+            card,
+            text="После выгрузки и загрузки транзакция закрывается, объекты COM освобождаются. "
+            "К следующей операции программа подключится сама.",
+            style="Muted.TLabel",
+            wraplength=900,
+            justify="left",
+        ).pack(fill="x")
 
     def _build_views(self, parent: tk.Widget) -> None:
         card = self._card(parent, "2. Листы, с которыми работаем")
@@ -240,6 +259,7 @@ class App(tk.Tk):
         self.imp_conn = tk.BooleanVar(value=False)
         self.imp_save = tk.BooleanVar(value=False)
         self.imp_dry = tk.BooleanVar(value=False)
+        self.imp_clear_undo = tk.BooleanVar(value=False)
         for text, var in (
             ("записывать атрибуты", self.imp_attrs),
             ("создавать отсутствующие изделия", self.imp_create),
@@ -247,6 +267,7 @@ class App(tk.Tk):
             ("создавать соединения (провода)", self.imp_conn),
             ("сохранить проект после импорта", self.imp_save),
             ("только проверка, ничего не менять", self.imp_dry),
+            ("очистить историю отмены E3 после загрузки", self.imp_clear_undo),
         ):
             ttk.Checkbutton(import_card, text=text, variable=var, style="Card.TCheckbutton").pack(
                 anchor="w"
@@ -273,20 +294,44 @@ class App(tk.Tk):
 
     def _build_log(self, parent: tk.Widget) -> None:
         card = self._card(parent, "7. Журнал")
+
+        holder = ttk.Frame(card, style="Card.TFrame")
+        holder.pack(fill="both", expand=True)
+
         self.log_text = tk.Text(
-            card,
+            holder,
             height=14,
             bg=LOG_BG,
             fg=LOG_FG,
             insertbackground=LOG_FG,
+            selectbackground="#3d5a80",
+            selectforeground="#ffffff",
             relief="flat",
             font=("Consolas", 9),
             wrap="word",
+            undo=False,
         )
-        self.log_text.pack(fill="both", expand=True, side="top")
+        scroll = ttk.Scrollbar(holder, orient="vertical", command=self.log_text.yview)
+        self.log_text.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        self.log_text.pack(side="left", fill="both", expand=True)
+
         self.log_text.tag_configure("warn", foreground=LOG_WARN)
         self.log_text.tag_configure("detail", foreground=LOG_DETAIL)
-        self.log_text.configure(state="disabled")
+
+        # Поле остаётся редактируемым для tkinter — иначе не работают выделение
+        # и Ctrl+C, — но правки блокируются: печатать в журнал незачем.
+        self.log_text.bind("<Key>", self._log_key)
+        self.log_text.bind("<Control-a>", self._select_all_log)
+        self.log_text.bind("<Control-A>", self._select_all_log)
+        self.log_text.bind("<Button-3>", self._log_menu)
+
+        self.log_popup = tk.Menu(self, tearoff=0)
+        self.log_popup.add_command(label="Копировать выделенное", command=self.copy_selection)
+        self.log_popup.add_command(label="Копировать весь журнал", command=self.copy_log)
+        self.log_popup.add_separator()
+        self.log_popup.add_command(label="Выделить всё", command=lambda: self._select_all_log(None))
+        self.log_popup.add_command(label="Сохранить как TXT…", command=self.save_log_as)
 
         row = ttk.Frame(card, style="Card.TFrame")
         row.pack(fill="x", pady=(8, 0))
@@ -298,11 +343,17 @@ class App(tk.Tk):
             style="Card.TCheckbutton",
             command=self._apply_verbose,
         ).pack(side="left")
-        ttk.Button(row, text="Сохранить журнал", command=self.save_log).pack(side="right")
-        ttk.Button(row, text="Очистить", command=self.clear_log).pack(side="right", padx=(0, 8))
-        ttk.Button(row, text="Открыть папку", command=self.open_log_folder).pack(
-            side="right", padx=(0, 8)
-        )
+
+        self.copy_hint = ttk.Label(row, text="", style="Ok.TLabel")
+        self.copy_hint.pack(side="left", padx=(16, 0))
+
+        for text, command in (
+            ("Открыть папку", self.open_log_folder),
+            ("Очистить", self.clear_log),
+            ("Сохранить как TXT…", self.save_log_as),
+            ("Копировать всё", self.copy_log),
+        ):
+            ttk.Button(row, text=text, command=command).pack(side="right", padx=(8, 0))
 
         self.log_path_label = ttk.Label(
             card,
@@ -310,6 +361,71 @@ class App(tk.Tk):
             style="Muted.TLabel",
         )
         self.log_path_label.pack(fill="x", pady=(6, 0))
+
+    # --- работа с текстом журнала ---------------------------------------------
+    def _log_key(self, event: tk.Event) -> str | None:
+        """Пропускает перемещение и копирование, блокирует правку."""
+        ctrl = bool(event.state & 0x0004)
+        if ctrl and event.keysym.lower() in ("c", "a", "insert", "home", "end"):
+            return None
+        if event.keysym in (
+            "Left", "Right", "Up", "Down", "Prior", "Next", "Home", "End", "Shift_L", "Shift_R",
+            "Control_L", "Control_R",
+        ):
+            return None
+        return "break"
+
+    def _select_all_log(self, event: tk.Event | None) -> str:
+        self.log_text.tag_add("sel", "1.0", "end-1c")
+        self.log_text.focus_set()
+        return "break"
+
+    def _log_menu(self, event: tk.Event) -> None:
+        try:
+            self.log_popup.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.log_popup.grab_release()
+
+    def _flash(self, message: str) -> None:
+        """Короткое подтверждение рядом с кнопками — без модального окна."""
+        self.copy_hint.configure(text=message)
+        self.after(2500, lambda: self.copy_hint.configure(text=""))
+
+    def copy_log(self) -> None:
+        text = "\n".join(self.worker.log.lines)
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self.update()  # чтобы буфер пережил закрытие окна
+        self._flash(f"скопировано строк: {len(self.worker.log.lines)}")
+
+    def copy_selection(self) -> None:
+        try:
+            text = self.log_text.get("sel.first", "sel.last")
+        except tk.TclError:
+            self.copy_log()
+            return
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self.update()
+        self._flash("выделенное скопировано")
+
+    def save_log_as(self) -> None:
+        path = filedialog.asksaveasfilename(
+            title="Сохранить журнал",
+            initialdir=desktop_path(),
+            initialfile=f"E3_Tool_log_{_dt.datetime.now():%Y%m%d_%H%M%S}.txt",
+            defaultextension=".txt",
+            filetypes=[("Текстовый файл", "*.txt"), ("Все файлы", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8-sig") as handle:
+                handle.write("\n".join(self.worker.log.lines))
+        except OSError as error:
+            messagebox.showerror("Журнал", f"Сохранить не удалось:\n{error}")
+            return
+        self._flash("журнал сохранён")
 
     # --- состояние ------------------------------------------------------------
     def selected_views(self) -> set[str]:
@@ -418,19 +534,20 @@ class App(tk.Tk):
             save_project=self.imp_save.get(),
             dry_run=self.imp_dry.get(),
         )
-        self.worker.submit(wk.ImportJob(path=path, options=options))
+        self.worker.submit(
+            wk.ImportJob(path=path, options=options, clear_undo=self.imp_clear_undo.get())
+        )
+
+    def _apply_auto_release(self) -> None:
+        self.worker.auto_release = self.auto_release.get()
+
+    def do_release(self) -> None:
+        """Отпустить E3 прямо сейчас, не дожидаясь конца операции."""
+        self.worker.submit(wk.ReleaseJob())
 
     def do_stop(self) -> None:
         self.worker.request_stop()
         self.progress_label.configure(text="останавливаюсь…")
-
-    def save_log(self) -> None:
-        path = self.worker.log.save(desktop_path())
-        streamed = self.worker.log.file_path
-        text = f"Копия журнала сохранена:\n{path}"
-        if streamed:
-            text += f"\n\nОсновной журнал пишется сюда:\n{streamed}"
-        messagebox.showinfo("Журнал", text)
 
     def open_log_folder(self) -> None:
         """Открывает папку с журналами — чтобы файл можно было сразу отправить."""
@@ -442,17 +559,16 @@ class App(tk.Tk):
 
     def clear_log(self) -> None:
         self.worker.log.clear()
-        self.log_text.configure(state="normal")
         self.log_text.delete("1.0", "end")
-        self.log_text.configure(state="disabled")
 
     # --- события рабочего потока ----------------------------------------------
     def _append_log(self, line: str, level: str) -> None:
-        self.log_text.configure(state="normal")
         tag = level if level in ("warn", "detail") else ""
+        at_bottom = self.log_text.yview()[1] > 0.999
         self.log_text.insert("end", line + "\n", tag)
-        self.log_text.see("end")
-        self.log_text.configure(state="disabled")
+        # Не дёргаем прокрутку, если пользователь отлистал вверх и что-то читает.
+        if at_bottom:
+            self.log_text.see("end")
 
     def _poll(self) -> None:
         try:

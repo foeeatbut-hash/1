@@ -161,6 +161,9 @@ def _apply_devices(
             return
         if index % 20 == 0 or index == total:
             context.progress(index, total, "обработка строк")
+            # Пауза между пачками: E3 успевает обработать свою очередь и не
+            # выглядит зависшей, пока мы шлём тысячи вызовов.
+            project.app.breathe()
 
         poz = row.text(cols.H_POZ)
         if not poz:
@@ -306,6 +309,7 @@ def _apply_placements(
             return
         if index % 20 == 0 or index == total:
             context.progress(index, total, "размещение символов")
+            project.app.breathe()
 
         poz = row.text(cols.H_POZ)
         if not poz:
@@ -458,6 +462,7 @@ def _apply_connections(
             return
         if index % 10 == 0 or index == total:
             context.progress(index, total, "создание соединений")
+            project.app.breathe()
 
         target_sheet = project.find_allowed_sheet(sheet_name, sheet_id)
         if target_sheet <= 0:
