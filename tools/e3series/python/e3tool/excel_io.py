@@ -191,15 +191,38 @@ def _write_sheet(worksheet: Any, data: SheetData) -> None:
 #  Шаблон
 # ------------------------------------------------------------------------------
 def write_template(path: str) -> str:
-    """Создаёт пустой шаблон со всеми столбцами и одной строкой-примером."""
+    """Создаёт пустой шаблон со всеми столбцами и строками-примерами.
+
+    Набор листов тот же, что у выгрузки: «Изделия», «Схема», «Подвал»,
+    «Соединения», «Листы». Примеры показывают, что вид листа заполняется всегда —
+    иначе лист с повторяющимся именем не определить.
+    """
     example: dict[str, Any] = {header: "" for header in cols.DEVICE_HEADERS}
     example[cols.H_POZ] = "ВЕНТ-01-DI-001"
     example[cols.H_COMP] = "внешние_сигналы_DI"
     example["*TAG установки"] = "ВЕНТ-01"
     example["*Описание полное"] = "Пример строки: замените на свои данные"
     example[cols.H_SHEET] = "1"
+    example[cols.H_VIEW] = "4"
     example[cols.H_X] = 100
-    example[cols.H_Y] = 100
+    example[cols.H_Y] = 300
+
+    def placement(zone: str, y: float) -> dict[str, Any]:
+        row: dict[str, Any] = {header: "" for header in cols.PLACEMENT_HEADERS}
+        row[cols.H_POZ] = "ВЕНТ-01-DI-001"
+        row[cols.H_SYM_NR] = 1
+        row[cols.H_SHEET] = "1"
+        row[cols.H_VIEW] = "4"
+        row[cols.H_ZONE] = zone
+        row[cols.H_X] = 100
+        row[cols.H_Y] = y
+        return row
+
+    sheet_example: dict[str, Any] = {header: "" for header in cols.SHEET_HEADERS}
+    sheet_example[cols.H_SHEET] = "1"
+    sheet_example[cols.H_VIEW] = "4"
+    sheet_example[cols.H_VIEW_NAME] = cols.view_title("4")
+    sheet_example[cols.H_FORMAT] = "A2_ГОСТ"
 
     sheets = [
         SheetData(
@@ -209,9 +232,15 @@ def write_template(path: str) -> str:
             numeric=set(cols.NUMERIC_HEADERS),
         ),
         SheetData(
-            name=cols.SHEET_PLACEMENTS,
+            name=cols.SHEET_SCHEMA,
             headers=cols.PLACEMENT_HEADERS,
-            rows=[],
+            rows=[placement(cols.ZONE_SCHEMA, 300)],
+            numeric=set(cols.NUMERIC_HEADERS),
+        ),
+        SheetData(
+            name=cols.SHEET_FOOTER,
+            headers=cols.PLACEMENT_HEADERS,
+            rows=[placement(cols.ZONE_FOOTER, 32)],
             numeric=set(cols.NUMERIC_HEADERS),
         ),
         SheetData(
@@ -219,6 +248,12 @@ def write_template(path: str) -> str:
             headers=cols.CONNECTION_HEADERS,
             rows=[],
             numeric=set(cols.NUMERIC_HEADERS),
+        ),
+        SheetData(
+            name=cols.SHEET_SHEETS,
+            headers=cols.SHEET_HEADERS,
+            rows=[sheet_example],
+            numeric=set(cols.SHEET_NUMERIC_HEADERS),
         ),
     ]
     return write_workbook(path, sheets)

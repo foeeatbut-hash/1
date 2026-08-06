@@ -61,19 +61,50 @@ def test_norm_key_ignores_case_spaces_dashes():
     assert len(keys) == 1
 
 
+def test_mirror_is_split_from_rotation_and_composed_back():
+    from e3tool.util import compose_rotation, mirror_of
+
+    assert mirror_of("MX90") == "MX"
+    assert mirror_of("my0") == "MY"
+    assert mirror_of("90") == ""
+    assert mirror_of("") == ""
+    # Обратная сборка: и «MX90» одной строкой, и «90» + «MX» двумя столбцами.
+    assert compose_rotation("MX90", "MX") == "MX90"
+    assert compose_rotation("90", "MX") == "MX90"
+    assert compose_rotation("90", "") == "90"
+    assert compose_rotation("", "MY") == "MY"
+    assert compose_rotation("", "") == ""
+
+
+def test_view_titles_are_explained():
+    assert "функциональная" in cols.view_title("4")
+    assert "соединен" in cols.view_title("5")
+    assert cols.view_title("") == "вид не задан"
+    assert cols.view_title("7") == "вид 7"
+
+
 # --- схема столбцов -----------------------------------------------------------
 def test_device_headers_layout():
-    # Совместимость с HTA-версией: 63 столбца, атрибуты в 3..53.
-    assert len(cols.DEVICE_HEADERS) == 63
+    # Совместимость с HTA-версией: первые 63 столбца те же, новые дописаны в конец.
     assert cols.DEVICE_HEADERS[0] == cols.H_POZ
     assert cols.DEVICE_HEADERS[1] == cols.H_COMP
     assert len(cols.ATTRIBUTE_HEADERS) == 51
     assert cols.DEVICE_HEADERS[2] == cols.ATTRIBUTE_HEADERS[0]
     assert cols.DEVICE_HEADERS[52] == cols.ATTRIBUTE_HEADERS[-1]
     assert cols.DEVICE_HEADERS[53] == cols.H_SHEET
-    assert cols.DEVICE_HEADERS[-1] == cols.H_DEV_ID
-    assert len(cols.PLACEMENT_HEADERS) == 12
-    assert len(cols.CONNECTION_HEADERS) == 9
+    assert cols.DEVICE_HEADERS[62] == cols.H_DEV_ID
+    assert cols.DEVICE_HEADERS[63:] == [
+        cols.H_VIEW,
+        cols.H_FORMAT,
+        cols.H_ZONE,
+        cols.H_PLACED_COUNT,
+    ]
+    # В каждой таблице должен быть вид листа: без него одноимённые листы
+    # (ФСА и схема соединений одного узла) не различить.
+    for headers in (cols.DEVICE_HEADERS, cols.PLACEMENT_HEADERS, cols.CONNECTION_HEADERS,
+                    cols.SHEET_HEADERS):
+        assert cols.H_VIEW in headers
+        assert cols.H_FORMAT in headers
 
 
 def test_service_headers_are_not_attributes():
@@ -184,7 +215,7 @@ def test_reading_old_file_with_fewer_columns():
         assert cols.attribute_headers_of(table.headers) == [cols.H_POZ, "*Контур"]
 
 
-def test_template_has_all_three_sheets():
+def test_template_has_all_sheets():
     with tempfile.TemporaryDirectory() as folder:
         path = os.path.join(folder, "template.xlsx")
         excel_io.write_template(path)
@@ -194,8 +225,19 @@ def test_template_has_all_three_sheets():
         from openpyxl import load_workbook
 
         names = [ws.title for ws in load_workbook(path, read_only=True).worksheets]
-        assert cols.SHEET_PLACEMENTS in names
+        assert cols.SHEET_SCHEMA in names
+        assert cols.SHEET_FOOTER in names
         assert cols.SHEET_CONNECTIONS in names
+        assert cols.SHEET_SHEETS in names
+
+        # В шаблоне заполнен вид листа — иначе непонятно, куда попадёт изделие.
+        schema = excel_io.find_table(tables, cols.SHEET_SCHEMA)
+        assert schema is not None and schema.rows[0].text(cols.H_VIEW) == "4"
+        footer = excel_io.find_table(tables, cols.SHEET_FOOTER)
+        assert footer is not None and footer.rows[0].text(cols.H_ZONE) == cols.ZONE_FOOTER
+        sheets_table = excel_io.find_table(tables, cols.SHEET_SHEETS)
+        assert sheets_table is not None
+        assert sheets_table.rows[0].text(cols.H_FORMAT) == "A2_ГОСТ"
 
 
 # --- группировка проводов -----------------------------------------------------
@@ -209,6 +251,7 @@ def test_connection_grouping_preserves_polyline_order():
                 "№ точки": str(index),
                 "имя листа": "2",
                 "id листа": "12",
+                "вид листа": "5",
                 "x": str(x),
                 "y": str(y),
                 "тип точки": "0",
@@ -223,10 +266,12 @@ def test_connection_grouping_preserves_polyline_order():
     groups = _group_points(Table("Соединения", cols.CONNECTION_HEADERS, rows))
     # Второй провод из одной точки — не ломаная, в результат не попадает.
     assert len(groups) == 1
-    number, points, types, sheet_name, sheet_id = groups[0]
+    number, points, types, sheet_name, sheet_id, view = groups[0]
     assert number == "1"
     assert points == [(10.0, 10.0), (10.0, 50.0), (80.0, 50.0)]
     assert sheet_id == 12
+    # Вид листа берётся из первой точки провода — по нему выбирается лист.
+    assert view == "5"
     assert sheet_name == "2"
     assert types == [0, 0, 0]
 

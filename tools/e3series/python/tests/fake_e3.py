@@ -28,6 +28,9 @@ class FakeSheet:
     sheet_id: int
     name: str
     view: str = "4"
+    #: Имя символа рамки — то, что E3 отдаёт через Sheet.GetFormat.
+    fmt: str = "A2_ГОСТ"
+    area: tuple[float, float, float, float] = (0.0, 0.0, 594.0, 420.0)
     symbol_ids: list[int] = field(default_factory=list)
     segment_ids: list[int] = field(default_factory=list)
 
@@ -83,11 +86,21 @@ class FakeModel:
         self.undo_after_execution: bool | None = None
         self.undo_removed = 0
         self.slept_ms: list[int] = []
+        #: Рамки, которые «есть в библиотеке»: SetFormat с другим именем откажет.
+        self.known_formats: set[str] = {"A2_ГОСТ", "A3_ГОСТ", "A1_ГОСТ"}
+        self.formats_applied: list[tuple[int, str]] = []
         self._next_id = 9000
 
     # --- построение сцены -----------------------------------------------------
-    def add_sheet(self, sheet_id: int, name: str, view: str = "4") -> FakeSheet:
-        sheet = FakeSheet(sheet_id, name, view)
+    def add_sheet(
+        self,
+        sheet_id: int,
+        name: str,
+        view: str = "4",
+        fmt: str = "A2_ГОСТ",
+        area: tuple[float, float, float, float] = (0.0, 0.0, 594.0, 420.0),
+    ) -> FakeSheet:
+        sheet = FakeSheet(sheet_id, name, view, fmt, area)
         self.sheets[sheet_id] = sheet
         return sheet
 
@@ -171,6 +184,15 @@ class SheetObject(_Item):
             return sheet.view
         return ""
 
+    def SetAttributeValue(self, name: str, value: str) -> int:
+        sheet = self._sheet()
+        if sheet is None:
+            raise RuntimeError("нет такого листа")
+        if name == ".PREFERRED_VIEW":
+            sheet.view = value
+            return 1
+        return 0
+
     def GetSymbolIds(self, dummy: Any) -> tuple:
         sheet = self._sheet()
         count, ids = one_based(sheet.symbol_ids if sheet else [])
@@ -180,6 +202,34 @@ class SheetObject(_Item):
         sheet = self._sheet()
         count, ids = one_based(sheet.segment_ids if sheet else [])
         return count, ids
+
+    def GetFormat(self) -> str:
+        sheet = self._sheet()
+        return sheet.fmt if sheet else "<Empty>"
+
+    def SetFormat(self, name: str, rotation: str = "") -> int:
+        sheet = self._sheet()
+        if sheet is None:
+            return 0
+        if name not in self.model.known_formats:
+            return 0  # настоящая E3 тоже откажет, если рамки нет в библиотеке
+        sheet.fmt = name
+        self.model.formats_applied.append((sheet.sheet_id, name))
+        return 1
+
+    def GetDrawingArea(self, *dummies: Any) -> tuple:
+        sheet = self._sheet()
+        if sheet is None:
+            return (0, 0.0, 0.0, 0.0, 0.0)
+        return (1, *sheet.area)
+
+    def Create(self, modi: int, name: str, symbol: str, position: int, before: int) -> int:
+        if symbol not in self.model.known_formats:
+            return 0
+        new_id = self.model.next_id()
+        self.model.add_sheet(new_id, name, view="", fmt=symbol)
+        self.id = new_id
+        return new_id
 
 
 class DeviceObject(_Item):
@@ -262,6 +312,12 @@ class SymbolObject(_Item):
             symbol.rotation = rest[0]
         self.model.sheets[sheet_id].symbol_ids.append(symbol.symbol_id)
         return 1
+
+    def GetSymbolType(self) -> int:
+        symbol = self._symbol()
+        if symbol is None:
+            return -1
+        return 14  # SymbolType.Normal
 
     def GetTextIds(self, dummy: Any, txttyp: int = 0, search: str = "") -> tuple:
         symbol = self._symbol()
@@ -408,11 +464,20 @@ class ApplicationObject:
 
 
 def sample_model() -> FakeModel:
-    """Небольшая сцена: два листа разных видов, изделия, gate, провод."""
+    """Сцена по мотивам настоящего чертежа.
+
+    Листы: «1» и «2» — ФСА (вид 4), «3» и снова «1» — схемы соединений (вид 5).
+    Одноимённые листы «1» разных видов — не выдумка: так сделан проект
+    пользователя, и по одному имени такой лист не определить.
+
+    На листе «1» есть обе зоны: схемная часть (Y около 300–370) и подвал —
+    таблица внизу чертежа (Y около 30), где то же изделие стоит второй раз.
+    """
     model = FakeModel()
-    model.add_sheet(11, "1", view="4")
-    model.add_sheet(12, "2", view="4")
-    model.add_sheet(13, "3", view="5")
+    model.add_sheet(11, "1", view="4", fmt="A2_ГОСТ")
+    model.add_sheet(12, "2", view="4", fmt="A2_ГОСТ")
+    model.add_sheet(13, "3", view="5", fmt="A3_ГОСТ")
+    model.add_sheet(14, "1", view="5", fmt="A3_ГОСТ")
 
     model.add_device(101, "-094-XVM-1201A", "клапан", {"Поз. обозначение": "094-XVM-1201A"})
     model.add_symbol(1001, device_id=101, sheet_id=11, x=76.0, y=367.0)
@@ -440,6 +505,15 @@ def sample_model() -> FakeModel:
     # gate: запись проходит, обратное чтение листа не даёт.
     model.add_device(107, "-094-GATE-1207", "врезка", {"Поз. обозначение": "094-GATE-1207"})
     model.add_symbol(1007, device_id=107, gate=True)
+
+    # Подвал ФСА: то же изделие 101 второй раз, строкой в таблице внизу листа.
+    model.add_symbol(1008, device_id=101, sheet_id=11, x=126.0, y=32.0)
+
+    # Изделие, размещённое на двух одноимённых листах «1» разных видов: на ФСА
+    # и на схеме соединений. По имени листа их не различить — только по виду.
+    model.add_device(108, "-094-FT-1208", "расходомер", {"Поз. обозначение": "094-FT-1208"})
+    model.add_symbol(1009, device_id=108, sheet_id=11, x=200.0, y=300.0)
+    model.add_symbol(1010, device_id=108, sheet_id=14, x=210.0, y=260.0)
 
     model.add_segment(2001, 11, [(10.0, 10.0), (10.0, 50.0), (80.0, 50.0)], signal="СИГ-1")
     model.add_segment(2002, 12, [(20.0, 20.0), (60.0, 20.0)], signal="СИГ-2")

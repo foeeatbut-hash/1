@@ -23,7 +23,7 @@ from .task import Context
 
 def _views(value: str | None) -> set[str]:
     if value is None:
-        return {"4"}
+        return {"4", "5"}
     value = value.strip().lower()
     if value in ("", "all", "все"):
         return set()
@@ -64,7 +64,11 @@ def _connect(log: Log, pid: int, views: set[str]) -> Project:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="e3tool", description="E3.series <-> Excel")
     parser.add_argument("--pid", type=int, default=0, help="PID нужного экземпляра E3")
-    parser.add_argument("--views", default="4", help="значения .PREFERRED_VIEW через запятую, all — все листы")
+    parser.add_argument(
+        "--views",
+        default="4,5",
+        help="значения .PREFERRED_VIEW через запятую (4 — ФСА, 5 — схема соединений), all — все листы",
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="подробный журнал")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -74,6 +78,13 @@ def main(argv: list[str] | None = None) -> int:
     p_export.add_argument("--out", required=True, help="путь к .xlsx")
     p_export.add_argument("--no-placements", action="store_true")
     p_export.add_argument("--no-connections", action="store_true")
+    p_export.add_argument("--no-sheets", action="store_true", help="без листа «Листы»")
+    p_export.add_argument(
+        "--no-split", action="store_true", help="одна таблица «Размещения» вместо «Схемы» и «Подвала»"
+    )
+    p_export.add_argument(
+        "--footer-y", type=float, default=0.0, help="граница подвала по Y, мм (0 — определить сам)"
+    )
     p_export.add_argument("--only-placed", action="store_true")
     p_export.add_argument("--strict-match", action="store_true", help="без мягкого опознания по атрибутам")
 
@@ -83,6 +94,9 @@ def main(argv: list[str] | None = None) -> int:
     p_import.add_argument("--no-create", action="store_true")
     p_import.add_argument("--place", action="store_true", help="размещать и перемещать символы")
     p_import.add_argument("--connections", action="store_true", help="создавать провода")
+    p_import.add_argument("--no-formats", action="store_true", help="не менять формат листов")
+    p_import.add_argument("--apply-views", action="store_true", help="менять .PREFERRED_VIEW листов")
+    p_import.add_argument("--create-sheets", action="store_true", help="создавать отсутствующие листы")
     p_import.add_argument("--save", action="store_true", help="сохранить проект")
     p_import.add_argument("--dry-run", action="store_true", help="только проверка")
 
@@ -124,12 +138,18 @@ def main(argv: list[str] | None = None) -> int:
             views=views,
             with_placements=not args.no_placements,
             with_connections=not args.no_connections,
+            with_sheets=not args.no_sheets,
+            split_zones=not args.no_split,
+            footer_y=args.footer_y,
             only_placed=args.only_placed,
             loose_text_match=not args.strict_match,
         )
         sheets, stats = run_export(project, options, context)
         path = excel_io.write_workbook(args.out, sheets)
-        print(f"\nГотово: {path} (изделий {stats.devices}, размещений {stats.placements})")
+        print(
+            f"\nГотово: {path} (изделий {stats.devices}, размещений {stats.placements}: "
+            f"схема {stats.schema_rows}, подвал {stats.footer_rows})"
+        )
         return 0
 
     if args.command == "import":
@@ -139,6 +159,9 @@ def main(argv: list[str] | None = None) -> int:
             create_missing=not args.no_create,
             place_symbols=args.place,
             create_connections=args.connections,
+            apply_sheet_formats=not args.no_formats,
+            apply_sheet_views=args.apply_views,
+            create_sheets=args.create_sheets,
             save_project=args.save,
             dry_run=args.dry_run,
         )
@@ -147,7 +170,8 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"\nГотово: создано {stats.created}, обновлено {stats.updated}, "
             f"размещено {stats.placed}, перемещено {stats.moved}, "
-            f"соединений {stats.connections_made}, ошибок {stats.errors}"
+            f"соединений {stats.connections_made}, листов затронуто "
+            f"{stats.sheets_created + stats.sheets_reformatted}, ошибок {stats.errors}"
         )
         return 0
 

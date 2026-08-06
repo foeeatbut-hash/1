@@ -19,6 +19,7 @@ from . import e3api
 from . import worker as wk
 from .export import ExportOptions
 from .importer import ImportOptions
+from .util import parse_num
 
 BG = "#f4f6f9"
 CARD_BG = "#ffffff"
@@ -180,11 +181,11 @@ class App(tk.Tk):
         row.pack(fill="x")
 
         self.view4 = tk.BooleanVar(value=True)
-        self.view5 = tk.BooleanVar(value=False)
+        self.view5 = tk.BooleanVar(value=True)
         self.all_sheets = tk.BooleanVar(value=False)
         for text, var in (
-            (".PREFERRED_VIEW = 4", self.view4),
-            (".PREFERRED_VIEW = 5", self.view5),
+            (".PREFERRED_VIEW = 4 — функциональная схема", self.view4),
+            (".PREFERRED_VIEW = 5 — схема соединений", self.view5),
             ("все листы (без фильтра)", self.all_sheets),
         ):
             ttk.Checkbutton(
@@ -195,8 +196,8 @@ class App(tk.Tk):
         self.views_label.pack(fill="x", pady=(8, 0))
         ttk.Label(
             card,
-            text="Программа читает и пишет только листы выбранных видов. "
-            "При импорте изделия попадают на «свои» листы по этому же признаку.",
+            text="Вид листа пишется в каждую строку Excel, поэтому лист определяется однозначно "
+            "даже там, где имена листов совпадают: у ФСА и схемы соединений одного узла имя одно.",
             style="Muted.TLabel",
             wraplength=900,
             justify="left",
@@ -227,18 +228,30 @@ class App(tk.Tk):
         export_card.pack(side="left", fill="both", expand=True, padx=(14, 7), pady=(0, 10))
 
         self.exp_placements = tk.BooleanVar(value=True)
+        self.exp_split = tk.BooleanVar(value=True)
         self.exp_connections = tk.BooleanVar(value=True)
+        self.exp_sheets = tk.BooleanVar(value=True)
         self.exp_only_placed = tk.BooleanVar(value=False)
         self.exp_loose = tk.BooleanVar(value=True)
         for text, var in (
-            ("лист «Размещения» (посимвольно)", self.exp_placements),
+            ("размещения символов (координаты)", self.exp_placements),
+            ("делить на вкладки «Схема» и «Подвал»", self.exp_split),
             ("лист «Соединения» (провода)", self.exp_connections),
+            ("лист «Листы» (виды и форматы листов)", self.exp_sheets),
             ("только размещённые изделия", self.exp_only_placed),
             ("опознавать символы по надписям", self.exp_loose),
         ):
             ttk.Checkbutton(export_card, text=text, variable=var, style="Card.TCheckbutton").pack(
                 anchor="w"
             )
+
+        footer_row = ttk.Frame(export_card, style="Card.TFrame")
+        footer_row.pack(fill="x", pady=(6, 0))
+        ttk.Label(footer_row, text="граница подвала, Y мм:", style="Card.TLabel").pack(side="left")
+        self.exp_footer_y = tk.StringVar(value="0")
+        ttk.Entry(footer_row, textvariable=self.exp_footer_y, width=8).pack(side="left", padx=(6, 6))
+        ttk.Label(footer_row, text="0 — определить по чертежу", style="Muted.TLabel").pack(side="left")
+
         self.btn_export = ttk.Button(
             export_card,
             text="Выгрузить в Excel",
@@ -257,6 +270,9 @@ class App(tk.Tk):
         self.imp_create = tk.BooleanVar(value=True)
         self.imp_place = tk.BooleanVar(value=True)
         self.imp_conn = tk.BooleanVar(value=False)
+        self.imp_formats = tk.BooleanVar(value=True)
+        self.imp_views = tk.BooleanVar(value=False)
+        self.imp_new_sheets = tk.BooleanVar(value=False)
         self.imp_save = tk.BooleanVar(value=False)
         self.imp_dry = tk.BooleanVar(value=False)
         self.imp_clear_undo = tk.BooleanVar(value=False)
@@ -265,6 +281,9 @@ class App(tk.Tk):
             ("создавать отсутствующие изделия", self.imp_create),
             ("размещать и перемещать символы", self.imp_place),
             ("создавать соединения (провода)", self.imp_conn),
+            ("применять формат листа из Excel", self.imp_formats),
+            ("менять вид листа (.PREFERRED_VIEW) из Excel", self.imp_views),
+            ("создавать отсутствующие листы", self.imp_new_sheets),
             ("сохранить проект после импорта", self.imp_save),
             ("только проверка, ничего не менять", self.imp_dry),
             ("очистить историю отмены E3 после загрузки", self.imp_clear_undo),
@@ -512,6 +531,9 @@ class App(tk.Tk):
             views=self.selected_views(),
             with_placements=self.exp_placements.get(),
             with_connections=self.exp_connections.get(),
+            with_sheets=self.exp_sheets.get(),
+            split_zones=self.exp_split.get(),
+            footer_y=parse_num(self.exp_footer_y.get()) or 0.0,
             only_placed=self.exp_only_placed.get(),
             loose_text_match=self.exp_loose.get(),
         )
@@ -531,6 +553,9 @@ class App(tk.Tk):
             create_missing=self.imp_create.get(),
             place_symbols=self.imp_place.get(),
             create_connections=self.imp_conn.get(),
+            apply_sheet_formats=self.imp_formats.get(),
+            apply_sheet_views=self.imp_views.get(),
+            create_sheets=self.imp_new_sheets.get(),
             save_project=self.imp_save.get(),
             dry_run=self.imp_dry.get(),
         )
@@ -623,18 +648,21 @@ class App(tk.Tk):
                 + (f" и в файле:\n{path}" if path else "."),
             )
             return
-        if name == "export":
+        # Имена заданий заданы в worker.py по-русски — сравниваем с ними же.
+        if name == wk.ExportJob.name:
             messagebox.showinfo(
                 "Выгрузка",
                 "Выгрузка завершена."
                 + ("\n\nПрервано пользователем." if result.get("stopped") else "")
                 + f"\n\nИзделий: {result.get('devices', 0)}"
                 + f"\nРазмещений: {result.get('placements', 0)}"
+                + f"   (схема {result.get('schema', 0)}, подвал {result.get('footer', 0)})"
                 + f"\nСоединений: {result.get('segments', 0)}"
+                + f"\nЛистов описано: {result.get('sheets', 0)}"
                 + f"\n\n{result.get('path', '')}",
             )
             self.file_var.set(result.get("path", ""))
-        elif name == "import":
+        elif name == wk.ImportJob.name:
             title = "Проверка" if result.get("dry_run") else "Импорт"
             messagebox.showinfo(
                 title,
@@ -648,6 +676,7 @@ class App(tk.Tk):
                 + f"\nРазмещено: {result.get('placed', 0)}"
                 + f"\nПеремещено: {result.get('moved', 0)}"
                 + f"\nСоединений: {result.get('connections', 0)}"
+                + (f"\nЛистов затронуто: {result['sheets']}" if result.get("sheets") else "")
                 + (
                     f"\nКоординаты не совпали: {result['bad']}"
                     if result.get("bad")
@@ -655,7 +684,7 @@ class App(tk.Tk):
                 )
                 + (f"\nОшибок: {result['errors']}" if result.get("errors") else ""),
             )
-        elif name == "template":
+        elif name == wk.TemplateJob.name:
             messagebox.showinfo("Шаблон", f"Шаблон создан:\n{result.get('path', '')}")
 
     def _on_close(self) -> None:

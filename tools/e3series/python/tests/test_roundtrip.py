@@ -99,21 +99,112 @@ def test_export_matches_orphan_symbol_by_text():
     assert devices["094-PT-1205"][cols.H_Y] == 200.0
 
 
-def test_export_placements_sheet():
+def sheet_named(sheets: list, name: str):
+    return next(sheet for sheet in sheets if sheet.name == name)
+
+
+def test_export_placements_split_into_schema_and_footer():
     model = fake_e3.sample_model()
     project, log = make_project(model, {"4"})
     sheets, stats = run_export(project, ExportOptions(views={"4"}), Context(log))
 
-    placements = next(sheet for sheet in sheets if sheet.name == cols.SHEET_PLACEMENTS)
-    poz_list = {row[cols.H_POZ] for row in placements.rows}
+    schema = sheet_named(sheets, cols.SHEET_SCHEMA)
+    footer = sheet_named(sheets, cols.SHEET_FOOTER)
+    assert stats.placements == len(schema.rows) + len(footer.rows)
+
+    poz_list = {row[cols.H_POZ] for row in schema.rows}
     assert "094-XVM-1201A" in poz_list
     assert "094-XVM-1202A" in poz_list
     # Лист вида 5 отфильтрован.
     assert "094-XV-1206" not in poz_list
-    assert stats.placements == len(placements.rows)
-    for row in placements.rows:
+    for row in schema.rows:
         assert row[cols.H_SYM_NR] >= 1
         assert row[cols.H_OBJ_TYPE] == "изделие"
+        assert row[cols.H_ZONE] == cols.ZONE_SCHEMA
+        assert row[cols.H_VIEW] == "4"
+        assert row[cols.H_FORMAT] == "A2_ГОСТ"
+
+    # Изделие 101 стоит на листе «1» дважды: в схемной части и в подвале.
+    # В каждой вкладке оно должно встретиться ровно один раз.
+    assert [row[cols.H_POZ] for row in footer.rows] == ["094-XVM-1201A"]
+    assert footer.rows[0][cols.H_Y] == 32.0
+    assert footer.rows[0][cols.H_ZONE] == cols.ZONE_FOOTER
+    assert [row[cols.H_POZ] for row in schema.rows].count("094-XVM-1201A") == 1
+    assert stats.sheets_with_footer == 1
+
+
+def test_export_single_table_when_split_disabled():
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4"})
+    sheets, stats = run_export(
+        project, ExportOptions(views={"4"}, split_zones=False), Context(log)
+    )
+    placements = sheet_named(sheets, cols.SHEET_PLACEMENTS)
+    assert len(placements.rows) == stats.placements
+    assert not any(sheet.name == cols.SHEET_FOOTER for sheet in sheets)
+    # Все строки помечены схемой: делить не просили.
+    assert {row[cols.H_ZONE] for row in placements.rows} == {cols.ZONE_SCHEMA}
+
+
+def test_export_manual_footer_boundary_wins():
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4"})
+    # Граница выше схемной части: в подвал уходит всё.
+    sheets, _ = run_export(
+        project, ExportOptions(views={"4"}, footer_y=400.0), Context(log)
+    )
+    assert sheet_named(sheets, cols.SHEET_SCHEMA).rows == []
+    assert len(sheet_named(sheets, cols.SHEET_FOOTER).rows) > 0
+
+
+def test_export_device_row_takes_schema_placement():
+    """В лист «Изделия» идёт схемное размещение, а не строка из подвала."""
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4"})
+    sheets, _ = run_export(project, ExportOptions(views={"4"}), Context(log))
+    row = rows_by_poz(sheets[0].rows)["094-XVM-1201A"]
+    assert (row[cols.H_X], row[cols.H_Y]) == (76.0, 367.0)
+    assert row[cols.H_ZONE] == cols.ZONE_SCHEMA
+    # И видно, что размещений у изделия больше одного.
+    assert row[cols.H_PLACED_COUNT] == 2
+    assert row[cols.H_VIEW] == "4"
+    assert row[cols.H_FORMAT] == "A2_ГОСТ"
+
+
+def test_export_sheets_table_describes_views_and_formats():
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4", "5"})
+    sheets, stats = run_export(project, ExportOptions(views={"4", "5"}), Context(log))
+
+    table = sheet_named(sheets, cols.SHEET_SHEETS)
+    assert stats.sheets == len(table.rows) == 4
+    by_id = {row[cols.H_SHEET_ID]: row for row in table.rows}
+    assert by_id[11][cols.H_VIEW] == "4"
+    assert by_id[11][cols.H_FORMAT] == "A2_ГОСТ"
+    assert by_id[11][cols.H_VIEW_NAME] == cols.view_title("4")
+    assert by_id[11][cols.H_YMAX] == 420.0
+    # Одноимённые листы «1» различаются видом и форматом.
+    assert by_id[14][cols.H_SHEET] == by_id[11][cols.H_SHEET] == "1"
+    assert by_id[14][cols.H_VIEW] == "5"
+    assert by_id[14][cols.H_FORMAT] == "A3_ГОСТ"
+    # Граница подвала выгружена — по ней видно, где программа разделила лист.
+    assert by_id[11][cols.H_FOOTER_Y]
+
+
+def test_export_footer_not_invented_on_schema_only_sheet():
+    """Лист без подвала делить нельзя: пустая полоса сама по себе не подвал."""
+    model = fake_e3.FakeModel()
+    model.add_sheet(21, "10", view="4")
+    model.add_device(201, "-A-1", "к", {"Поз. обозначение": "A-1"})
+    model.add_symbol(2101, device_id=201, sheet_id=21, x=100.0, y=300.0)
+    model.add_device(202, "-A-2", "к", {"Поз. обозначение": "A-2"})
+    model.add_symbol(2102, device_id=202, sheet_id=21, x=100.0, y=360.0)
+
+    project, log = make_project(model, {"4"})
+    sheets, stats = run_export(project, ExportOptions(views={"4"}), Context(log))
+    assert stats.sheets_with_footer == 0
+    assert len(sheet_named(sheets, cols.SHEET_SCHEMA).rows) == 2
+    assert sheet_named(sheets, cols.SHEET_FOOTER).rows == []
 
 
 def test_export_connections_sheet_keeps_polyline():
@@ -356,6 +447,274 @@ def test_import_creates_connections_after_placement():
     assert points == [(10.0, 10.0), (10.0, 50.0), (80.0, 50.0)]
 
 
+# --- виды, форматы и одноимённые листы ----------------------------------------
+def test_import_uses_view_to_pick_sheet_with_duplicate_name():
+    """Листы «1» вида 4 и вида 5 различаются только видом — он и решает."""
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4", "5"})
+    placements = _table_from_rows(
+        cols.SHEET_SCHEMA,
+        cols.PLACEMENT_HEADERS,
+        [
+            {
+                cols.H_POZ: "094-FT-1208",
+                cols.H_SYM_NR: 1,
+                cols.H_SHEET: "1",
+                cols.H_VIEW: "4",
+                cols.H_X: 250.0,
+                cols.H_Y: 310.0,
+            },
+            {
+                cols.H_POZ: "094-FT-1208",
+                cols.H_SYM_NR: 2,
+                cols.H_SHEET: "1",
+                cols.H_VIEW: "5",
+                cols.H_X: 260.0,
+                cols.H_Y: 270.0,
+            },
+        ],
+    )
+    stats = run_import(
+        project,
+        {
+            cols.SHEET_DEVICES: _table_from_rows(cols.SHEET_DEVICES, cols.DEVICE_HEADERS, []),
+            cols.SHEET_SCHEMA: placements,
+        },
+        ImportOptions(views={"4", "5"}, place_symbols=True, create_missing=False),
+        Context(log),
+    )
+    assert stats.errors == 0
+    assert (model.symbols[1009].sheet_id, model.symbols[1009].y) == (11, 310.0)
+    assert (model.symbols[1010].sheet_id, model.symbols[1010].y) == (14, 270.0)
+
+
+def test_import_reads_both_schema_and_footer_tables():
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4"})
+    tables = {
+        cols.SHEET_DEVICES: _table_from_rows(cols.SHEET_DEVICES, cols.DEVICE_HEADERS, []),
+        cols.SHEET_SCHEMA: _table_from_rows(
+            cols.SHEET_SCHEMA,
+            cols.PLACEMENT_HEADERS,
+            [
+                {
+                    cols.H_POZ: "094-XVM-1201A",
+                    cols.H_SYM_NR: 1,
+                    cols.H_SHEET_ID: 11,
+                    cols.H_VIEW: "4",
+                    cols.H_X: 80.0,
+                    cols.H_Y: 360.0,
+                }
+            ],
+        ),
+        cols.SHEET_FOOTER: _table_from_rows(
+            cols.SHEET_FOOTER,
+            cols.PLACEMENT_HEADERS,
+            [
+                {
+                    cols.H_POZ: "094-XVM-1201A",
+                    cols.H_SYM_NR: 2,
+                    cols.H_SHEET_ID: 11,
+                    cols.H_VIEW: "4",
+                    cols.H_X: 130.0,
+                    cols.H_Y: 30.0,
+                }
+            ],
+        ),
+    }
+    stats = run_import(
+        project,
+        tables,
+        ImportOptions(views={"4"}, place_symbols=True, create_missing=False),
+        Context(log),
+    )
+    assert stats.moved == 2
+    assert (model.symbols[1001].x, model.symbols[1001].y) == (80.0, 360.0)
+    assert (model.symbols[1008].x, model.symbols[1008].y) == (130.0, 30.0)
+
+
+def test_import_applies_sheet_format_from_excel():
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4"})
+    tables = {
+        cols.SHEET_DEVICES: _table_from_rows(cols.SHEET_DEVICES, cols.DEVICE_HEADERS, []),
+        cols.SHEET_SHEETS: _table_from_rows(
+            cols.SHEET_SHEETS,
+            cols.SHEET_HEADERS,
+            [
+                {
+                    cols.H_SHEET_ID: 11,
+                    cols.H_SHEET: "1",
+                    cols.H_VIEW: "4",
+                    cols.H_FORMAT: "A3_ГОСТ",
+                },
+                # Формат не изменился — трогать лист не нужно.
+                {
+                    cols.H_SHEET_ID: 12,
+                    cols.H_SHEET: "2",
+                    cols.H_VIEW: "4",
+                    cols.H_FORMAT: "A2_ГОСТ",
+                },
+            ],
+        ),
+    }
+    stats = run_import(project, tables, ImportOptions(views={"4"}), Context(log))
+    assert stats.sheets_reformatted == 1
+    assert model.sheets[11].fmt == "A3_ГОСТ"
+    assert model.formats_applied == [(11, "A3_ГОСТ")]
+    # Кэш проекта обновлён — повторный импорт не будет писать то же самое.
+    assert project.sheet_format_of(11) == "A3_ГОСТ"
+
+
+def test_import_reports_unknown_sheet_format():
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4"})
+    tables = {
+        cols.SHEET_DEVICES: _table_from_rows(cols.SHEET_DEVICES, cols.DEVICE_HEADERS, []),
+        cols.SHEET_SHEETS: _table_from_rows(
+            cols.SHEET_SHEETS,
+            cols.SHEET_HEADERS,
+            [{cols.H_SHEET_ID: 11, cols.H_SHEET: "1", cols.H_FORMAT: "нет_такой_рамки"}],
+        ),
+    }
+    stats = run_import(project, tables, ImportOptions(views={"4"}), Context(log))
+    assert stats.sheets_reformatted == 0
+    assert stats.errors == 1
+    assert model.sheets[11].fmt == "A2_ГОСТ"
+
+
+def test_import_takes_format_from_element_row():
+    """Формат листа можно поправить прямо в строке изделия."""
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4"})
+    tables = {
+        cols.SHEET_DEVICES: _table_from_rows(
+            cols.SHEET_DEVICES,
+            cols.DEVICE_HEADERS,
+            [
+                {
+                    cols.H_POZ: "094-XVM-1201A",
+                    cols.H_SHEET_ID: 11,
+                    cols.H_VIEW: "4",
+                    cols.H_FORMAT: "A1_ГОСТ",
+                }
+            ],
+        )
+    }
+    stats = run_import(
+        project, tables, ImportOptions(views={"4"}, place_symbols=False), Context(log)
+    )
+    assert stats.sheets_reformatted == 1
+    assert model.sheets[11].fmt == "A1_ГОСТ"
+
+
+def test_import_changes_view_only_when_allowed():
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4", "5"})
+    tables = {
+        cols.SHEET_DEVICES: _table_from_rows(cols.SHEET_DEVICES, cols.DEVICE_HEADERS, []),
+        cols.SHEET_SHEETS: _table_from_rows(
+            cols.SHEET_SHEETS,
+            cols.SHEET_HEADERS,
+            [{cols.H_SHEET_ID: 12, cols.H_SHEET: "2", cols.H_VIEW: "5"}],
+        ),
+    }
+    stats = run_import(project, tables, ImportOptions(views={"4", "5"}), Context(log))
+    assert stats.sheets_reviewed == 0
+    assert model.sheets[12].view == "4"
+
+    model2 = fake_e3.sample_model()
+    project2, log2 = make_project(model2, {"4", "5"})
+    stats2 = run_import(
+        project2, tables, ImportOptions(views={"4", "5"}, apply_sheet_views=True), Context(log2)
+    )
+    assert stats2.sheets_reviewed == 1
+    assert model2.sheets[12].view == "5"
+    assert project2.sheet_view_of(12) == "5"
+
+
+def test_import_creates_missing_sheet_and_places_on_it():
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4"})
+    tables = {
+        cols.SHEET_DEVICES: _table_from_rows(cols.SHEET_DEVICES, cols.DEVICE_HEADERS, []),
+        cols.SHEET_SHEETS: _table_from_rows(
+            cols.SHEET_SHEETS,
+            cols.SHEET_HEADERS,
+            [{cols.H_SHEET: "99", cols.H_VIEW: "4", cols.H_FORMAT: "A3_ГОСТ"}],
+        ),
+        cols.SHEET_SCHEMA: _table_from_rows(
+            cols.SHEET_SCHEMA,
+            cols.PLACEMENT_HEADERS,
+            [
+                {
+                    cols.H_POZ: "094-TS-1203",
+                    cols.H_SYM_NR: 1,
+                    cols.H_SHEET: "99",
+                    cols.H_VIEW: "4",
+                    cols.H_X: 40.0,
+                    cols.H_Y: 50.0,
+                }
+            ],
+        ),
+    }
+    stats = run_import(
+        project,
+        tables,
+        ImportOptions(views={"4"}, place_symbols=True, create_sheets=True),
+        Context(log),
+    )
+    assert stats.sheets_created == 1
+    created = [sheet for sheet in model.sheets.values() if sheet.name == "99"]
+    assert len(created) == 1 and created[0].fmt == "A3_ГОСТ" and created[0].view == "4"
+    # Символ встал на только что созданный лист.
+    assert model.symbols[1003].sheet_id == created[0].sheet_id
+    assert stats.placed == 1
+
+
+def test_import_without_permission_does_not_create_sheet():
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4"})
+    tables = {
+        cols.SHEET_DEVICES: _table_from_rows(cols.SHEET_DEVICES, cols.DEVICE_HEADERS, []),
+        cols.SHEET_SHEETS: _table_from_rows(
+            cols.SHEET_SHEETS,
+            cols.SHEET_HEADERS,
+            [{cols.H_SHEET: "99", cols.H_VIEW: "4", cols.H_FORMAT: "A3_ГОСТ"}],
+        ),
+    }
+    stats = run_import(project, tables, ImportOptions(views={"4"}), Context(log))
+    assert stats.sheets_created == 0
+    assert not any(sheet.name == "99" for sheet in model.sheets.values())
+
+
+def test_import_mirror_column_is_understood():
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4"})
+    table = _table_from_rows(
+        cols.SHEET_DEVICES,
+        cols.DEVICE_HEADERS,
+        [
+            {
+                cols.H_POZ: "094-XVM-1201A",
+                cols.H_SHEET_ID: 11,
+                cols.H_X: 50.0,
+                cols.H_Y: 300.0,
+                cols.H_ROT: "90",
+                cols.H_MIRROR: "MX",
+            }
+        ],
+    )
+    run_import(
+        project,
+        {cols.SHEET_DEVICES: table},
+        ImportOptions(views={"4"}, place_symbols=True, create_missing=False),
+        Context(log),
+    )
+    # Поворот и зеркало собираются в одну строку, как их отдаёт GetRotation.
+    assert model.symbols[1001].rotation == "MX90"
+
+
 # --- полный круг через файл ---------------------------------------------------
 def test_full_roundtrip_through_xlsx():
     source = fake_e3.sample_model()
@@ -395,6 +754,69 @@ def test_full_roundtrip_through_xlsx():
     # Оба провода листов вида 4 воспроизведены.
     assert stats.connections_made == 2
     assert target.created_connections[0][1] == [(10.0, 10.0), (10.0, 50.0), (80.0, 50.0)]
+
+
+def test_full_roundtrip_with_both_views_restores_every_placement():
+    """Точь-в-точь: оба вида, обе зоны листа, одноимённые листы.
+
+    Именно этот случай раньше терялся: изделие, размещённое на ФСА, в подвале
+    ФСА и на схеме соединений, в одной таблице выглядело как три одинаковых
+    строки, а обратно вставало не туда.
+    """
+    source = fake_e3.sample_model()
+    project, log = make_project(source, {"4", "5"})
+    sheets, stats = run_export(project, ExportOptions(views={"4", "5"}), Context(log))
+    assert stats.footer_rows == 1
+
+    with tempfile.TemporaryDirectory() as folder:
+        path = os.path.join(folder, "both_views.xlsx")
+        excel_io.write_workbook(path, sheets)
+
+        target = fake_e3.sample_model()
+        for symbol in target.symbols.values():
+            symbol.sheet_id = 0
+        for sheet in target.sheets.values():
+            sheet.symbol_ids.clear()
+            sheet.segment_ids.clear()
+        target.segments.clear()
+
+        target_project, target_log = make_project(target, {"4", "5"})
+        import_stats = run_import(
+            target_project,
+            excel_io.read_tables(path),
+            ImportOptions(views={"4", "5"}, place_symbols=True, create_missing=True),
+            Context(target_log),
+        )
+
+    expected = {
+        1001: (11, 76.0, 367.0),   # схемная часть ФСА
+        1008: (11, 126.0, 32.0),   # та же позиция в подвале ФСА
+        1009: (11, 200.0, 300.0),  # лист «1» вида 4
+        1010: (14, 210.0, 260.0),  # лист «1» вида 5 — то же имя, другой вид
+        1006: (13, 50.0, 50.0),
+        1002: (12, 351.0, 370.0),
+    }
+    for symbol_id, (sheet_id, x, y) in expected.items():
+        symbol = target.symbols[symbol_id]
+        assert (symbol.sheet_id, symbol.x, symbol.y) == (sheet_id, x, y), symbol_id
+    assert import_stats.bad_coordinates == 0
+    # Единственное, что не вернулось на место, — символ 1005: его изделие не
+    # отдаёт через Device.GetSymbolIds, поэтому размещать нечего. При выгрузке
+    # он опознан по надписи, при загрузке об этом честно сказано в журнале.
+    assert target.symbols[1005].sheet_id == 0
+    assert import_stats.errors == 1
+    assert sum(import_stats.components_without_symbol.values()) == 1
+
+
+def test_second_export_of_same_project_is_identical():
+    """Повторная выгрузка должна давать тот же файл: порядок строк устойчив."""
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4", "5"})
+    first, _ = run_export(project, ExportOptions(views={"4", "5"}), Context(log))
+    second, _ = run_export(project, ExportOptions(views={"4", "5"}), Context(log))
+    assert [sheet.name for sheet in first] == [sheet.name for sheet in second]
+    for left, right in zip(first, second):
+        assert left.rows == right.rows, left.name
 
 
 # --- задания рабочего потока --------------------------------------------------

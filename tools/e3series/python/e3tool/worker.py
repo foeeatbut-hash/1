@@ -375,6 +375,9 @@ class Worker:
                         "path": path,
                         "devices": stats.devices,
                         "placements": stats.placements,
+                        "schema": stats.schema_rows,
+                        "footer": stats.footer_rows,
+                        "sheets": stats.sheets,
                         "segments": stats.segments,
                         "stopped": stats.stopped,
                     },
@@ -400,7 +403,14 @@ class Worker:
         stats = run_import(project, tables, job.options, self.new_context())
 
         changed = not job.options.dry_run and (
-            stats.created + stats.updated + stats.placed + stats.moved + stats.connections_made
+            stats.created
+            + stats.updated
+            + stats.placed
+            + stats.moved
+            + stats.connections_made
+            + stats.sheets_created
+            + stats.sheets_reformatted
+            + stats.sheets_reviewed
         ) > 0
 
         if changed and job.clear_undo and self.app is not None:
@@ -426,6 +436,7 @@ class Worker:
                         "placed": stats.placed,
                         "moved": stats.moved,
                         "connections": stats.connections_made,
+                        "sheets": stats.sheets_created + stats.sheets_reformatted,
                         "bad": stats.bad_coordinates,
                         "errors": stats.errors,
                         "dry_run": job.options.dry_run,

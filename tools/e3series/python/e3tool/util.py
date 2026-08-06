@@ -76,6 +76,33 @@ def strip_dash(value: Any) -> str:
     return text
 
 
+def mirror_of(rotation: Any) -> str:
+    """Отражение, вынутое из строки поворота: «MX90» -> «MX», «90» -> «».
+
+    E3 отдаёт поворот и зеркало одной строкой (Symbol.GetRotation), но в Excel
+    удобнее видеть их отдельно — иначе непонятно, что означает «MX90».
+    """
+    text = safe_str(rotation).strip().upper()
+    if len(text) >= 2 and text[0] == "M" and text[1] in ("X", "Y"):
+        return text[:2]
+    return ""
+
+
+def compose_rotation(rotation: Any, mirror: Any) -> str:
+    """Собирает строку для Symbol.Place из столбцов «Поворот» и «Зеркало».
+
+    Так правка руками работает в любом виде: можно оставить «MX90» в одном
+    столбце, а можно написать «90» и «MX» в двух — результат один.
+    """
+    rot = safe_str(rotation).strip()
+    mir = safe_str(mirror).strip().upper()
+    if mirror_of(rot):
+        return rot.upper()
+    if mir in ("MX", "MY"):
+        return f"{mir}{rot}" if rot else mir
+    return rot
+
+
 def fmt(value: Any) -> str:
     """Координата для лога: три знака после запятой, точка как разделитель."""
     num = parse_num(value)

@@ -937,3 +937,110 @@ def sheet_name(sheet: Any) -> str:
     except Exception:
         return ""
     return "" if value is None else str(value).strip()
+
+
+# ------------------------------------------------------------------------------
+#  Листы: формат, габариты, создание
+# ------------------------------------------------------------------------------
+def sheet_format(sheet: Any) -> str:
+    """Имя символа рамки листа — то, что в E3 называется форматом листа.
+
+    Sheet.GetFormat доступна с TLB 8.50, то есть во всех рабочих сборках.
+    Пустой ответ и «<Empty>» означают одно и то же: формат не определён.
+    """
+    call = getattr(sheet, "GetFormat", None)
+    if call is None:
+        _note("Sheet.GetFormat", comment="метода нет — формат листа не выгружается")
+        return ""
+    try:
+        value = call()
+    except Exception as error:
+        _note("Sheet.GetFormat", error)
+        return ""
+    text = "" if value is None else str(value).strip()
+    return "" if text.lower() in ("<empty>", "(empty)") else text
+
+
+def set_sheet_format(sheet: Any, name: str, rotation: str = "") -> bool:
+    """Меняет рамку листа. Именно этим формат листа правится из Excel."""
+    call = getattr(sheet, "SetFormat", None)
+    if call is None:
+        _note("Sheet.SetFormat", comment="метода нет — формат листа не изменить")
+        return False
+    last: BaseException | None = None
+    for args in ((name, rotation), (name,)):
+        try:
+            result = call(*args)
+        except Exception as error:
+            last = error
+            continue
+        return int(result or 0) != 0
+    _note("Sheet.SetFormat", last)
+    return False
+
+
+def sheet_area(sheet: Any) -> tuple[float, float, float, float] | None:
+    """Габарит листа (xmin, ymin, xmax, ymax) в мм.
+
+    Сначала область чертежа, затем рабочая область: на разных типах листов
+    доступна то одна, то другая.
+    """
+    for method in ("GetDrawingArea", "GetWorkingArea"):
+        call = getattr(sheet, method, None)
+        if call is None:
+            continue
+        try:
+            result = out_values(call(0, 0, 0, 0))
+        except Exception:
+            continue
+        if len(result) < 5:
+            continue
+        try:
+            values = [float(result[index]) for index in range(1, 5)]
+        except (TypeError, ValueError):
+            continue
+        if values[2] - values[0] <= 0 or values[3] - values[1] <= 0:
+            continue
+        return (values[0], values[1], values[2], values[3])
+    _note("Sheet.GetDrawingArea", comment="габарит листа получить не удалось")
+    return None
+
+
+def create_sheet(sheet: Any, name: str, sheet_format_name: str) -> int:
+    """Создаёт лист с заданной рамкой. Возвращает ID нового листа или 0.
+
+    Sheet.Create(modi, name, symbol, position, before): modi 0 — верхний
+    уровень проекта, position 0 + before 0 — в конец.
+    """
+    call = getattr(sheet, "Create", None)
+    if call is None:
+        _note("Sheet.Create", comment="метода нет — листы не создать")
+        return 0
+    try:
+        return int(call(0, name, sheet_format_name, 0, 0) or 0)
+    except Exception as error:
+        _note("Sheet.Create", error)
+        return 0
+
+
+def set_attribute(obj: Any, name: str, value: str) -> bool:
+    try:
+        obj.SetAttributeValue(name, value)
+        return True
+    except Exception as error:
+        _note("SetAttributeValue", error, comment=f"атрибут «{name}»")
+        return False
+
+
+def symbol_type(symbol: Any) -> int:
+    """Тип символа (Symbol.GetSymbolType, TLB 20.00). -1 — не определён.
+
+    Нужен, чтобы отличить рамку листа и таблицы от обычных схемных символов.
+    """
+    call = getattr(symbol, "GetSymbolType", None)
+    if call is None:
+        return -1
+    try:
+        return int(call())
+    except Exception:
+        return -1
