@@ -92,8 +92,10 @@ class ExportStats:
     sheets_footer_by_name: int = 0
     sheets: int = 0
     placed_devices: int = 0
+    matched_by_owner: int = 0
     matched_by_text: int = 0
     symbols_without_device: int = 0
+    with_gid: int = 0
     segments: int = 0
     points: int = 0
     texts: int = 0
@@ -106,7 +108,13 @@ class ExportStats:
 
 @dataclass
 class _Placement:
-    """Найденное положение символа."""
+    """Найденное положение символа.
+
+    Изделие здесь может отсутствовать (``device_id == 0``): на чертеже полно
+    символов, которые не принадлежат ни одному объекту проекта — рамки, таблицы,
+    графика, соединители. Раньше такие строки выбрасывались, и вместе с ними
+    пропадала половина чертежа. Теперь строка живёт своим GID.
+    """
 
     device_id: int
     symbol_id: int
@@ -120,8 +128,11 @@ class _Placement:
     y: float
     rotation: str
     zone: str = cols.ZONE_SCHEMA
-    #: Имя типа символа в базе E3 — по нему опознаётся подвал.
+    #: Имя типа символа в базе E3 — по нему опознаётся подвал и вставляется такой же.
     type_name: str = ""
+    version: str = ""
+    scale: float = 1.0
+    gid: str = ""
     #: True, если подвал определён по имени, а не по координате.
     named_footer: bool = False
     zone_source: str = ""
@@ -142,6 +153,7 @@ class _Text:
     height: float
     kind: int
     value: str
+    gid: str = ""
 
 
 def run_export(
@@ -284,6 +296,7 @@ def run_export(
                 in_footer=item.zone == cols.ZONE_FOOTER,
             )
             for item in found.values()
+            if item.device_id > 0
         ]
         sheets.append(sig.build_report(project, placements, context))
 
@@ -326,6 +339,9 @@ def _make_placement(
         y=y,
         rotation=e3api.symbol_rotation(symbol, project.app.probe),
         type_name=type_name,
+        version=e3api.symbol_version(symbol),
+        scale=e3api.symbol_scale(symbol),
+        gid=e3api.object_gid(symbol),
         named_footer=named_footer,
     )
 
@@ -345,7 +361,15 @@ def _walk_sheets(
     sheet = app.sheet()
     symbol = app.symbol()
     text_obj = app.text()
+    # Отдельный объект изделия: он всё время «прыгает» по владельцам символов,
+    # и мешать это с чтением атрибутов нельзя.
+    owner_probe = app.device()
     net_segment = app.net_segment() if options.with_connections else None
+    #: Сколько символов уже выдано каждому изделию — чтобы «№ символа» не
+    #: повторялся у тех, кого нашли обратной связью, а не через GetSymbolIds.
+    numbering: dict[int, int] = {}
+    for device_id, number in owner_of_symbol.values():
+        numbering[device_id] = max(numbering.get(device_id, 0), number)
 
     sheet_ids = list(project.sheet_names.keys())
     phase_started = time.monotonic()
@@ -390,18 +414,23 @@ def _walk_sheets(
             if known is not None:
                 device_id, symbol_nr = known
             else:
-                device_id, matched = project.device_by_symbol_text(
-                    symbol, text_obj, options.loose_text_match
-                )
                 symbol_nr = 1
+                # Обратная связь «символ -> изделие»: Device.SetId, получив
+                # идентификатор символа, делает текущим изделие-владельца.
+                # Это точный ответ от E3, поэтому он идёт раньше догадок
+                # по надписям.
+                device_id = e3api.device_of_symbol(owner_probe, symbol_id)
                 if device_id > 0:
-                    stats.matched_by_text += 1
-                    if stats.matched_by_text <= 10:
-                        log.detail(f"  символ {symbol_id} опознан: «{matched}»")
-
-            if device_id <= 0:
-                stats.symbols_without_device += 1
-                continue
+                    stats.matched_by_owner += 1
+                    symbol_nr = _next_symbol_nr(numbering, device_id)
+                else:
+                    device_id, matched = project.device_by_symbol_text(
+                        symbol, text_obj, options.loose_text_match
+                    )
+                    if device_id > 0:
+                        stats.matched_by_text += 1
+                        if stats.matched_by_text <= 10:
+                            log.detail(f"  символ {symbol_id} опознан: «{matched}»")
 
             location = e3api.symbol_location(symbol, app.probe)
             if location is None:
@@ -411,6 +440,12 @@ def _walk_sheets(
                 continue
             if symbol_id in found:
                 continue
+            if device_id <= 0:
+                # Изделия у символа нет — и это нормально: рамки, таблицы,
+                # графика, соединители никому не принадлежат. Раньше такая
+                # строка выбрасывалась, и вместе с ней пропадала бо́льшая часть
+                # чертежа. Теперь она живёт своим GID.
+                stats.symbols_without_device += 1
 
             found[symbol_id] = _make_placement(
                 project,
@@ -434,9 +469,10 @@ def _walk_sheets(
     if skipped_sheets:
         log.info(f"  пропущено листов вне выбранных видов: {skipped_sheets}")
     log.info(
-        f"  привязано символов на листах: {stats.symbols_seen}; "
+        f"  символов собрано на листах: {stats.symbols_seen}; "
+        f"владелец получен от E3: {stats.matched_by_owner}; "
         f"опознано по надписи: {stats.matched_by_text}; "
-        f"без связи с изделием: {stats.symbols_without_device}"
+        f"без изделия (рамки, таблицы, графика): {stats.symbols_without_device}"
     )
     if options.with_texts:
         log.info(
@@ -444,6 +480,12 @@ def _walk_sheets(
             f"(надписей символов пропущено: {stats.texts_of_symbols})"
         )
     log.info(f"  фаза 2 заняла {time.monotonic() - phase_started:.1f} с")
+
+
+def _next_symbol_nr(numbering: dict[int, int], device_id: int) -> int:
+    """Следующий свободный номер символа у изделия."""
+    numbering[device_id] = numbering.get(device_id, 0) + 1
+    return numbering[device_id]
 
 
 def _collect_texts(
@@ -494,6 +536,7 @@ def _collect_texts(
                 height=e3api.text_height(text_obj),
                 kind=e3api.text_type(text_obj),
                 value=value,
+                gid=e3api.object_gid(text_obj),
             )
         )
         stats.texts += 1
@@ -563,6 +606,8 @@ def _assign_zones(
     primary: dict[int, _Placement] = {}
     counts: dict[int, int] = {}
     for placement in found.values():
+        if placement.device_id <= 0:
+            continue  # символ без изделия живёт только в таблице размещений
         counts[placement.device_id] = counts.get(placement.device_id, 0) + 1
         current = primary.get(placement.device_id)
         if current is None or _primary_key(placement) < _primary_key(current):
@@ -610,6 +655,7 @@ def _placement_sheets(
     """Листы книги с размещениями: «Схема» и «Подвал» либо одна «Размещения»."""
     ordered = sorted(found.values(), key=lambda p: _sort_key(project, p))
     stats.placements = len(ordered)
+    stats.with_gid = sum(1 for placement in ordered if placement.gid)
     if not options.split_zones:
         return [
             SheetData(
@@ -666,6 +712,7 @@ def _collect_connections(
             point_type = polyline.types[number - 1] if number - 1 < len(polyline.types) else 0
             rows.append(
                 {
+                    cols.H_GID: e3api.object_gid(net_segment),
                     cols.H_CONN_NR: stats.segments,
                     cols.H_POINT_NR: number,
                     cols.H_SHEET: project.sheet_name_of(target_sheet) or sheet_name,
@@ -735,6 +782,7 @@ def _device_rows(
         symbol_ids = e3api.device_symbol_ids(device, 0, app.probe)
         row[cols.H_SYM_COUNT] = len(symbol_ids)
         row[cols.H_DEV_ID] = device_id
+        row[cols.H_GID] = e3api.object_gid(device)
         row[cols.H_PLACED_COUNT] = counts.get(device_id, 0)
 
         if placement is not None:
@@ -763,10 +811,13 @@ def _device_rows(
 
 def _placement_row(project: Project, placement: _Placement) -> dict[str, Any]:
     return {
+        cols.H_GID: placement.gid,
         cols.H_POZ: project.poz_of(placement.device_id),
         cols.H_SYM_NR: placement.symbol_nr,
         cols.H_SYM_ID: placement.symbol_id,
         cols.H_SYM_NAME: placement.symbol_name,
+        cols.H_SYM_DB: placement.type_name,
+        cols.H_SYM_VERSION: placement.version,
         cols.H_SHEET: placement.sheet_name,
         cols.H_SHEET_ID: placement.sheet_id,
         cols.H_VIEW: placement.view,
@@ -776,14 +827,16 @@ def _placement_row(project: Project, placement: _Placement) -> dict[str, Any]:
         cols.H_Y: placement.y,
         cols.H_ROT: placement.rotation,
         cols.H_MIRROR: mirror_of(placement.rotation),
+        cols.H_SCALE: placement.scale,
         cols.H_DEV_ID: placement.device_id,
-        cols.H_OBJ_TYPE: project.kind_of(placement.device_id),
+        cols.H_OBJ_TYPE: project.kind_of(placement.device_id) or "без изделия",
         cols.H_ZONE_SOURCE: placement.zone_source,
     }
 
 
 def _text_row(project: Project, item: _Text) -> dict[str, Any]:
     return {
+        cols.H_GID: item.gid,
         cols.H_TEXT_ID: item.text_id,
         cols.H_SHEET: item.sheet_name,
         cols.H_SHEET_ID: item.sheet_id,
@@ -821,7 +874,7 @@ def _view_sheets(
     counts: dict[str, dict[int, int]] = {"4": {}, "5": {}}
     for placement in found.values():
         bucket = counts.get(placement.view)
-        if bucket is None:
+        if bucket is None or placement.device_id <= 0:
             continue
         bucket[placement.device_id] = bucket.get(placement.device_id, 0) + 1
 
@@ -938,6 +991,17 @@ def _log_summary(log: Any, stats: ExportStats, options: ExportOptions) -> None:
                 f"  из них по имени символа определено листов: {stats.sheets_footer_by_name}, "
                 f"по геометрии: {max(stats.sheets_with_footer - stats.sheets_footer_by_name, 0)}"
             )
+        if stats.with_gid == stats.placements and stats.placements:
+            log.info(
+                "  у каждого размещения есть GID — при загрузке символ найдётся точно, "
+                "даже если у него не заполнен ни один атрибут"
+            )
+        elif stats.placements:
+            log.warn(
+                f"  GID получен только у {stats.with_gid} из {stats.placements} размещений. "
+                "GID есть с E3.series 23.00; на более старой сборке опознание пойдёт "
+                "по числовому ID и обозначению, то есть менее точно."
+            )
     if stats.matched_by_text:
         log.info(f"Опознано по надписи на символе: {stats.matched_by_text}")
     if options.with_connections:
@@ -948,8 +1012,9 @@ def _log_summary(log: Any, stats: ExportStats, options: ExportOptions) -> None:
         log.info(f"Листов описано в таблице «{cols.SHEET_SHEETS}»: {stats.sheets}")
     if stats.symbols_without_device:
         log.info(
-            f"Символов на листах без связи с изделием: {stats.symbols_without_device} "
-            "(рамки, таблицы, соединители и т. п.)"
+            f"Символов без изделия: {stats.symbols_without_device} "
+            "(рамки, таблицы, соединители, графика). Они выгружены наравне с "
+            "остальными и вернутся на место по GID."
         )
     if stats.skipped:
         log.info(f"Пропущено изделий без размещения: {stats.skipped}")

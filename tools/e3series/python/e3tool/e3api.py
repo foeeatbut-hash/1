@@ -1177,3 +1177,143 @@ def create_text(graph: Any, sheet_id: int, value: str, x: float, y: float, rotat
     except Exception as error:
         _note("Graph.CreateText", error)
         return 0
+
+
+# ------------------------------------------------------------------------------
+#  Глобальный идентификатор (GID)
+# ------------------------------------------------------------------------------
+#  GID — собственный постоянный идентификатор объекта в E3 (TLB 23.00). В отличие
+#  от числового Id он не зависит ни от одного заполненного пользователем
+#  атрибута, поэтому именно он делает выгрузку и загрузку обратимыми: символ без
+#  обозначения, без имени и без единого атрибута всё равно находится точно.
+#
+#  SetGID — это НЕ присвоение. Он работает как SetId: находит объект с таким GID
+#  и делает его текущим. Присваивает GID сама E3, и в этом всё удобство —
+#  проставлять ничего не нужно.
+# ------------------------------------------------------------------------------
+def object_gid(obj: Any) -> str:
+    """GID текущего объекта. "" — метода нет (сборка старше 23.00) или ошибка."""
+    call = getattr(obj, "GetGID", None)
+    if call is None:
+        _note("GetGID", comment="сборка старше TLB 23.00 — опознание пойдёт по числовому ID")
+        return ""
+    try:
+        value = call()
+    except Exception as error:
+        _note("GetGID", error)
+        return ""
+    text = "" if value is None else str(value).strip()
+    return "" if text == "<Empty>" else text
+
+
+def select_by_gid(obj: Any, gid: str) -> bool:
+    """Делает текущим объект с этим GID. False — такого объекта в проекте нет."""
+    gid = (gid or "").strip()
+    if not gid:
+        return False
+    call = getattr(obj, "SetGID", None)
+    if call is None:
+        return False
+    try:
+        value = call(gid)
+    except Exception:
+        return False
+    text = "" if value is None else str(value).strip()
+    return bool(text) and text != "<Empty>"
+
+
+# ------------------------------------------------------------------------------
+#  Обратная связь «символ -> изделие»
+# ------------------------------------------------------------------------------
+def device_of_symbol(device: Any, symbol_id: int) -> int:
+    """Изделие, которому принадлежит символ. 0 — символ ничей.
+
+    Отдельного Symbol.GetDeviceId в этой библиотеке типов нет, но пространство
+    идентификаторов у объектов общее: Device.SetId, получив идентификатор
+    символа, делает текущим изделие-владельца. На этом построен рабочий скрипт
+    сверки сигналов у пользователя, поэтому приём проверен на живом проекте.
+    """
+    try:
+        device.SetId(int(symbol_id))
+        owner = int(device.GetId() or 0)
+    except Exception as error:
+        _note("Device.SetId(символ)", error, comment="обратная связь «символ -> изделие»")
+        return 0
+    # Символ, у которого владельца нет, оставляет текущим сам символ либо ноль.
+    return 0 if owner in (0, symbol_id) else owner
+
+
+# ------------------------------------------------------------------------------
+#  Символ как объект базы: чем он является и как вставить такой же
+# ------------------------------------------------------------------------------
+def symbol_version(symbol: Any) -> str:
+    """Версия символа в базе — второй аргумент Symbol.Load."""
+    try:
+        value = symbol.GetVersion()
+    except Exception:
+        return ""
+    text = "" if value is None else str(value).strip()
+    return "" if text == "<Empty>" else text
+
+
+def symbol_scale(symbol: Any) -> float:
+    """Масштаб символа (Symbol.GetScaling, 8.50). 1.0 — обычный размер."""
+    try:
+        value = float(symbol.GetScaling())
+    except Exception:
+        return 1.0
+    return value if value > 0 else 1.0
+
+
+def load_symbol(symbol: Any, db_name: str, version: str = "") -> int:
+    """Берёт символ из базы по имени и отдаёт его идентификатор.
+
+    Так вставляется «точно такой же» символ там, где своего объекта в проекте
+    нет: изделие для этого не нужно. Дальше символ ставится обычным Place.
+    """
+    db_name = (db_name or "").strip()
+    if not db_name:
+        return 0
+    call = getattr(symbol, "Load", None)
+    if call is None:
+        _note("Symbol.Load", comment="метода нет — отсутствующие символы не создать")
+        return 0
+    last: BaseException | None = None
+    for args in ((db_name, version or ""), (db_name,)):
+        try:
+            return int(call(*args) or 0)
+        except Exception as error:
+            last = error
+    _note("Symbol.Load", last)
+    return 0
+
+
+def set_symbol_scale(symbol: Any, scale: float) -> bool:
+    """Масштаб символа. Ставится после Place: Place масштаб не возвращает."""
+    if scale <= 0 or abs(scale - 1.0) < 1e-9:
+        return True
+    call = getattr(symbol, "SetScaling", None)
+    if call is None:
+        return False
+    try:
+        call(float(scale))
+        return True
+    except Exception as error:
+        _note("Symbol.SetScaling", error)
+        return False
+
+
+def symbol_current_id(symbol: Any) -> int:
+    """Идентификатор символа, который сейчас текущий. 0 — не определён."""
+    try:
+        return int(symbol.GetId() or 0)
+    except Exception:
+        return 0
+
+
+def object_id_of(obj: Any) -> int:
+    """Идентификатор текущего объекта. 0 — объект не выбран или ошибка."""
+    try:
+        return int(obj.GetId() or 0)
+    except Exception:
+        return 0

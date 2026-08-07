@@ -438,6 +438,7 @@ class Worker:
                         "connections": stats.connections_made,
                         "sheets": stats.sheets_created + stats.sheets_reformatted,
                         "texts": stats.texts_moved + stats.texts_retyped + stats.texts_created,
+                        "symbols": stats.symbols_created,
                         "bad": stats.bad_coordinates,
                         "errors": stats.errors,
                         "dry_run": job.options.dry_run,

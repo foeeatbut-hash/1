@@ -49,6 +49,8 @@ class FakeSymbol:
     gate: bool = False
     #: Имя типа символа в базе. «Подвал_…» означает символ подвала.
     type_name: str = "Обычный"
+    version: str = "1"
+    scale: float = 1.0
 
 
 @dataclass
@@ -112,6 +114,10 @@ class FakeModel:
         self.slept_ms: list[int] = []
         #: Рамки, которые «есть в библиотеке»: SetFormat с другим именем откажет.
         self.known_formats: set[str] = {"A2_ГОСТ", "A3_ГОСТ", "A1_ГОСТ"}
+        #: Символы, которые «есть в базе» — Symbol.Load отдаёт только их.
+        self.known_symbols: set[str] = {"Обычный", "Подвал_DI_DO", "Подвал_AI", "Рамка"}
+        #: GID -> (тип объекта, идентификатор). Так же устроен и реестр E3.
+        self.gids: dict[str, tuple[str, int]] = {}
         self.formats_applied: list[tuple[int, str]] = []
         self._next_id = 9000
 
@@ -193,6 +199,40 @@ class FakeModel:
         self.texts[text_id] = text
         self.sheets[sheet_id].text_ids.append(text_id)
         return text
+
+    # --- GID ------------------------------------------------------------------
+    #  Настоящая E3 выдаёт объекту постоянный глобальный идентификатор сама
+    #  (TLB 23.00). Здесь он выдаётся так же — по типу и номеру, — а SetGID,
+    #  как и в E3, не присваивает, а ищет объект и делает его текущим.
+    #: Где какие объекты живут — чтобы SetGID проверял, что объект существует.
+    _GID_SCOPES = {
+        "sym": "symbols",
+        "dev": "devices",
+        "txt": "texts",
+        "net": "segments",
+        "sht": "sheets",
+    }
+
+    def gid_of(self, kind: str, item_id: int) -> str:
+        gid = f"{{{kind}-{item_id:08d}}}"
+        self.gids[gid] = (kind, item_id)
+        return gid
+
+    def by_gid(self, kind: str, gid: str) -> int:
+        """Находит объект по GID.
+
+        GID разбирается, а не ищется в реестре прочитанных: в настоящей E3 он
+        свойство самого объекта и работает независимо от того, читал ли его
+        кто-нибудь раньше. Реестр здесь только для наглядности.
+        """
+        text = (gid or "").strip()
+        if not (text.startswith("{") and text.endswith("}") and "-" in text):
+            return 0
+        prefix, _, number = text[1:-1].partition("-")
+        if prefix != kind or not number.isdigit():
+            return 0
+        item_id = int(number)
+        return item_id if item_id in getattr(self, self._GID_SCOPES[kind], {}) else 0
 
     def next_id(self) -> int:
         self._next_id += 1
@@ -288,6 +328,35 @@ class DeviceObject(_Item):
     def _device(self) -> FakeDevice | None:
         return self.model.devices.get(self.id)
 
+    def SetId(self, item_id: int) -> int:
+        """Как в настоящей E3: по идентификатору символа находит владельца.
+
+        Пространство идентификаторов у объектов общее, поэтому Device.SetId,
+        получив символ, делает текущим изделие, которому символ принадлежит.
+        На этом построен рабочий скрипт сверки сигналов у пользователя.
+        """
+        item_id = int(item_id)
+        if item_id in self.model.devices:
+            self.id = item_id
+            return self.id
+        for device in self.model.devices.values():
+            if item_id in device.symbol_ids:
+                self.id = device.device_id
+                return self.id
+        self.id = item_id
+        return 0
+
+    def GetGID(self) -> str:
+        device = self._device()
+        return self.model.gid_of("dev", device.device_id) if device else "<Empty>"
+
+    def SetGID(self, gid: str) -> str:
+        found = self.model.by_gid("dev", gid)
+        if not found:
+            return "<Empty>"
+        self.id = found
+        return gid
+
     def GetName(self) -> str:
         device = self._device()
         return device.name if device else ""
@@ -375,6 +444,42 @@ class SymbolObject(_Item):
         symbol = self._symbol()
         return symbol.type_name if symbol else "<Empty>"
 
+    def GetVersion(self) -> str:
+        symbol = self._symbol()
+        return symbol.version if symbol else "<Empty>"
+
+    def GetScaling(self) -> float:
+        symbol = self._symbol()
+        return symbol.scale if symbol else 1.0
+
+    def SetScaling(self, scale: float) -> float:
+        symbol = self._symbol()
+        if symbol is None:
+            raise RuntimeError("нет такого символа")
+        symbol.scale = float(scale)
+        return symbol.scale
+
+    def Load(self, name: str, version: str = "") -> int:
+        """Берёт символ из базы. Настоящая E3 тоже отдаёт неразмещённый символ."""
+        if name not in self.model.known_symbols:
+            return 0
+        new_id = self.model.next_id()
+        self.model.add_symbol(new_id, type_name=name)
+        self.model.symbols[new_id].version = version
+        self.id = new_id
+        return new_id
+
+    def GetGID(self) -> str:
+        symbol = self._symbol()
+        return self.model.gid_of("sym", symbol.symbol_id) if symbol else "<Empty>"
+
+    def SetGID(self, gid: str) -> str:
+        found = self.model.by_gid("sym", gid)
+        if not found:
+            return "<Empty>"
+        self.id = found
+        return gid
+
     def GetTextIds(self, dummy: Any, txttyp: int = 0, search: str = "") -> tuple:
         symbol = self._symbol()
         if symbol is None:
@@ -424,6 +529,17 @@ class TextObject(_Item):
         text.y = float(y)
         return 1
 
+    def GetGID(self) -> str:
+        text = self._text()
+        return self.model.gid_of("txt", text.text_id) if text else "<Empty>"
+
+    def SetGID(self, gid: str) -> str:
+        found = self.model.by_gid("txt", gid)
+        if not found:
+            return "<Empty>"
+        self.id = found
+        return gid
+
 
 class GraphObject(_Item):
     def CreateText(self, sheet_id: int, value: str, x: float, y: float) -> int:
@@ -456,6 +572,10 @@ class NetSegmentObject(_Item):
     def GetSignalName(self) -> str:
         segment = self._segment()
         return segment.signal if segment else ""
+
+    def GetGID(self) -> str:
+        segment = self._segment()
+        return self.model.gid_of("net", segment.segment_id) if segment else "<Empty>"
 
 
 class ConnectionObject(_Item):

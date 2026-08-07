@@ -318,7 +318,10 @@ def write_template(path: str) -> str:
     def placement(zone: str, y: float) -> dict[str, Any]:
         row: dict[str, Any] = {header: "" for header in cols.PLACEMENT_HEADERS}
         row[cols.H_POZ] = "ВЕНТ-01-DI-001"
+        # GID оставлен пустым намеренно: в шаблоне его взять неоткуда, он
+        # появляется при выгрузке из проекта и там же становится главным ключом.
         row[cols.H_SYM_NR] = 1
+        row[cols.H_SYM_DB] = "имя символа в базе E3"
         row[cols.H_SHEET] = "1"
         row[cols.H_VIEW] = "4"
         row[cols.H_ZONE] = zone

@@ -84,6 +84,17 @@ H_SYM_COUNT = "Символов у изделия"
 H_SHEET_ID = "ID листа"
 H_DEV_ID = "ID изделия"
 
+#: GID — постоянный идентификатор объекта в E3 (TLB 23.00). Главный ключ
+#: опознания при загрузке: он есть у каждого объекта и не зависит ни от одного
+#: заполненного пользователем атрибута. Символ без обозначения, без имени и без
+#: атрибутов находится по нему точно.
+H_GID = "GID"
+#: Имя символа в базе E3 и его версия — по ним вставляется «точно такой же»
+#: символ там, где своего объекта в проекте ещё нет (Symbol.Load).
+H_SYM_DB = "Символ в базе"
+H_SYM_VERSION = "Версия символа"
+H_SCALE = "Масштаб"
+
 #: Столбцы, появившиеся вместе с делением на виды и зоны.
 H_VIEW = "Вид листа"
 H_VIEW_NAME = "Назначение вида"
@@ -215,6 +226,7 @@ DEVICE_HEADERS: list[str] = (
     ]
     # Дописано после 67-го столбца — снова в конец, старые файлы не ломаются.
     + SIGNAL_HEADERS
+    + [H_GID]
 )
 
 # --- листы «ФСА (вид 4)» и «Схема соединений (вид 5)» -------------------------
@@ -239,11 +251,17 @@ H_OBJ_TYPE = "Тип объекта"
 #: Как определена зона: по имени символа в базе или по геометрии листа.
 H_ZONE_SOURCE = "Зона определена"
 
+#: Порядок столбцов начинается с GID не случайно: это ключ строки. «Поз.
+#: обозначение» стоит рядом только для чтения человеком — при загрузке оно
+#: используется последним, когда ни GID, ни ID символа не помогли.
 PLACEMENT_HEADERS: list[str] = [
+    H_GID,
     H_POZ,
     H_SYM_NR,
     H_SYM_ID,
     H_SYM_NAME,
+    H_SYM_DB,
+    H_SYM_VERSION,
     H_SHEET,
     H_SHEET_ID,
     H_VIEW,
@@ -253,6 +271,7 @@ PLACEMENT_HEADERS: list[str] = [
     H_Y,
     H_ROT,
     H_MIRROR,
+    H_SCALE,
     H_DEV_ID,
     H_OBJ_TYPE,
     H_ZONE_SOURCE,
@@ -265,6 +284,7 @@ H_TEXT_TYPE = "Тип надписи"
 H_TEXT_HEIGHT = "Высота"
 
 TEXT_HEADERS: list[str] = [
+    H_GID,
     H_TEXT_ID,
     H_SHEET,
     H_SHEET_ID,
@@ -287,6 +307,7 @@ H_SIGNAL = "Сигнал"
 H_SEGMENT_ID = "ID сегмента"
 
 CONNECTION_HEADERS: list[str] = [
+    H_GID,
     H_CONN_NR,
     H_POINT_NR,
     H_SHEET,
@@ -357,6 +378,10 @@ SERVICE_HEADERS: set[str] = {
         H_XMAX,
         H_YMAX,
         H_ZONE_SOURCE,
+        H_GID,
+        H_SYM_DB,
+        H_SYM_VERSION,
+        H_SCALE,
         H_TEXT_ID,
         H_TEXT,
         H_TEXT_TYPE,

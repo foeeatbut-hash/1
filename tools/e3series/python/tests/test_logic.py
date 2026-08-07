@@ -100,11 +100,16 @@ def test_device_headers_layout():
         cols.H_PLACED_COUNT,
     ]
     # Атрибуты сверки сигналов дописаны следующей группой — тоже в конец.
-    assert cols.DEVICE_HEADERS[67:] == cols.SIGNAL_HEADERS
+    assert cols.DEVICE_HEADERS[67:-1] == cols.SIGNAL_HEADERS
     assert cols.A_DI in cols.DEVICE_HEADERS
     assert "ID Сигнала 5" in cols.DEVICE_HEADERS
     # Они именно атрибуты: при загрузке должны писаться обратно в изделие.
     assert cols.attribute_headers_of(cols.DEVICE_HEADERS)[-1] == "ID Сигнала 5"
+    # GID — служебный, в изделие как атрибут не пишется, но в книге есть везде.
+    assert cols.DEVICE_HEADERS[-1] == cols.H_GID
+    assert cols.is_service_header(cols.H_GID)
+    for headers in (cols.PLACEMENT_HEADERS, cols.TEXT_HEADERS, cols.CONNECTION_HEADERS):
+        assert headers[0] == cols.H_GID
     # В каждой таблице должен быть вид листа: без него одноимённые листы
     # (ФСА и схема соединений одного узла) не различить.
     for headers in (cols.DEVICE_HEADERS, cols.PLACEMENT_HEADERS, cols.CONNECTION_HEADERS,

@@ -802,17 +802,16 @@ def test_full_roundtrip_with_both_views_restores_every_placement():
         1010: (14, 210.0, 260.0),  # лист «1» вида 5 — то же имя, другой вид
         1006: (13, 50.0, 50.0),
         1002: (12, 351.0, 370.0),
+        # Символ 1005 его изделие не отдаёт через Device.GetSymbolIds. Раньше
+        # он не возвращался вовсе; теперь он адресуется напрямую и встаёт на
+        # место, как и всё остальное.
+        1005: (12, 120.0, 200.0),
     }
     for symbol_id, (sheet_id, x, y) in expected.items():
         symbol = target.symbols[symbol_id]
         assert (symbol.sheet_id, symbol.x, symbol.y) == (sheet_id, x, y), symbol_id
     assert import_stats.bad_coordinates == 0
-    # Единственное, что не вернулось на место, — символ 1005: его изделие не
-    # отдаёт через Device.GetSymbolIds, поэтому размещать нечего. При выгрузке
-    # он опознан по надписи, при загрузке об этом честно сказано в журнале.
-    assert target.symbols[1005].sheet_id == 0
-    assert import_stats.errors == 1
-    assert sum(import_stats.components_without_symbol.values()) == 1
+    assert import_stats.errors == 0
 
 
 def test_second_export_of_same_project_is_identical():
@@ -1300,6 +1299,211 @@ def test_signal_counts_ignore_junk_values():
     assert _as_int("2,0") == 2
     assert _as_int("") == 0
     assert _as_int("нет") == 0
+
+
+# --- опознание по GID ---------------------------------------------------------
+def test_symbol_without_any_attributes_survives_the_round_trip():
+    """Главный случай: символ без изделия, без имени и без атрибутов.
+
+    Раньше он не попадал в книгу вовсе — экспорт выбрасывал всё, что не
+    привязалось к изделию. Теперь он живёт своим GID и возвращается на место.
+    """
+    model = fake_e3.FakeModel()
+    model.add_sheet(11, "1", view="4")
+    # Ничей символ: ни одно изделие не отдаёт его через GetSymbolIds.
+    model.add_symbol(1500, sheet_id=11, x=123.0, y=45.0, type_name="Рамка")
+
+    project, log = make_project(model, {"4"})
+    sheets, stats = run_export(project, ExportOptions(views={"4"}), Context(log))
+    rows = sheet_named(sheets, cols.SHEET_SCHEMA).rows
+    assert len(rows) == 1
+    row = rows[0]
+    assert row[cols.H_GID]
+    assert row[cols.H_POZ] == ""          # обозначения нет и не будет
+    assert row[cols.H_DEV_ID] == 0
+    assert row[cols.H_OBJ_TYPE] == "без изделия"
+    assert row[cols.H_SYM_DB] == "Рамка"
+    assert (row[cols.H_X], row[cols.H_Y]) == (123.0, 45.0)
+    assert stats.symbols_without_device == 1
+
+    # И обратно: символ уехал, книга ставит его назад.
+    model.symbols[1500].sheet_id = 0
+    model.sheets[11].symbol_ids.clear()
+    target, target_log = make_project(model, {"4"})
+    stats = run_import(
+        target,
+        {cols.SHEET_SCHEMA: _table_from_rows(cols.SHEET_SCHEMA, cols.PLACEMENT_HEADERS, [row])},
+        ImportOptions(views={"4"}, place_symbols=True),
+        Context(target_log),
+    )
+    assert (model.symbols[1500].sheet_id, model.symbols[1500].x) == (11, 123.0)
+    assert stats.found_by_gid == 1
+    assert stats.errors == 0
+
+
+def test_placement_row_without_poz_is_not_dropped():
+    """Строка с координатами обязана сработать без «Поз. обозначения»."""
+    model = fake_e3.sample_model()
+    model.symbols[1001].sheet_id = 0
+    model.sheets[11].symbol_ids.remove(1001)
+    project, log = make_project(model, {"4"})
+
+    row = {
+        cols.H_SYM_ID: 1001,     # ни GID, ни обозначения — только номер символа
+        cols.H_SHEET: "1",
+        cols.H_SHEET_ID: 11,
+        cols.H_VIEW: "4",
+        cols.H_X: 76,
+        cols.H_Y: 367,
+    }
+    stats = run_import(
+        project,
+        {cols.SHEET_SCHEMA: _table_from_rows(cols.SHEET_SCHEMA, cols.PLACEMENT_HEADERS, [row])},
+        ImportOptions(views={"4"}, place_symbols=True),
+        Context(log),
+    )
+    assert (model.symbols[1001].sheet_id, model.symbols[1001].x) == (11, 76.0)
+    assert stats.found_by_id == 1
+    assert stats.errors == 0
+
+
+def test_gid_wins_over_wrong_symbol_id():
+    """GID главнее номера: устаревший «ID символа» не должен уводить не туда."""
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4"})
+    row = {
+        cols.H_GID: "{sym-00001001}",
+        cols.H_SYM_ID: 1002,     # чужой символ, да ещё и на другом листе
+        cols.H_SHEET: "1",
+        cols.H_SHEET_ID: 11,
+        cols.H_VIEW: "4",
+        cols.H_X: 90,
+        cols.H_Y: 300,
+    }
+    run_import(
+        project,
+        {cols.SHEET_SCHEMA: _table_from_rows(cols.SHEET_SCHEMA, cols.PLACEMENT_HEADERS, [row])},
+        ImportOptions(views={"4"}, place_symbols=True),
+        Context(log),
+    )
+    assert (model.symbols[1001].x, model.symbols[1001].y) == (90.0, 300.0)
+    assert (model.symbols[1002].x, model.symbols[1002].y) == (351.0, 370.0)  # не тронут
+
+
+def test_unknown_gid_falls_back_to_poz():
+    """Книга из другого проекта: GID чужой, опознание идёт дальше по цепочке."""
+    model = fake_e3.sample_model()
+    model.symbols[1001].sheet_id = 0
+    model.sheets[11].symbol_ids.remove(1001)
+    project, log = make_project(model, {"4"})
+    row = {
+        cols.H_GID: "{sym-00099999}",   # такого объекта в проекте нет
+        cols.H_POZ: "094-XVM-1201A",
+        cols.H_SYM_NR: 1,
+        cols.H_SHEET: "1",
+        cols.H_SHEET_ID: 11,
+        cols.H_VIEW: "4",
+        cols.H_X: 76,
+        cols.H_Y: 367,
+    }
+    stats = run_import(
+        project,
+        {cols.SHEET_SCHEMA: _table_from_rows(cols.SHEET_SCHEMA, cols.PLACEMENT_HEADERS, [row])},
+        ImportOptions(views={"4"}, place_symbols=True),
+        Context(log),
+    )
+    assert model.symbols[1001].sheet_id == 11
+    assert stats.found_by_gid == 0 and stats.found_by_poz == 1
+
+
+def test_missing_symbol_is_inserted_from_library_only_with_permission():
+    """Шаблон: своего объекта нет, символ берётся из базы E3 по имени."""
+    model = fake_e3.FakeModel()
+    model.add_sheet(11, "1", view="4")
+    project, log = make_project(model, {"4"})
+    row = {
+        cols.H_GID: "{sym-00077777}",
+        cols.H_SYM_DB: "Подвал_AI",
+        cols.H_SYM_VERSION: "1",
+        cols.H_SHEET: "1",
+        cols.H_SHEET_ID: 11,
+        cols.H_VIEW: "4",
+        cols.H_X: 50,
+        cols.H_Y: 60,
+        cols.H_SCALE: 2,
+    }
+    table = {cols.SHEET_SCHEMA: _table_from_rows(cols.SHEET_SCHEMA, cols.PLACEMENT_HEADERS, [row])}
+
+    stats = run_import(project, table, ImportOptions(views={"4"}, place_symbols=True), Context(log))
+    assert stats.symbols_created == 0 and stats.symbols_missing == 1
+    assert not model.sheets[11].symbol_ids
+
+    project, log = make_project(model, {"4"})
+    stats = run_import(
+        project, table,
+        ImportOptions(views={"4"}, place_symbols=True, create_symbols=True),
+        Context(log),
+    )
+    assert stats.symbols_created == 1
+    placed = [model.symbols[i] for i in model.sheets[11].symbol_ids]
+    assert len(placed) == 1
+    assert (placed[0].type_name, placed[0].x, placed[0].y) == ("Подвал_AI", 50.0, 60.0)
+    assert placed[0].scale == 2.0        # масштаб тоже переносится
+
+
+def test_symbol_not_in_library_is_reported_not_silently_lost():
+    model = fake_e3.FakeModel()
+    model.add_sheet(11, "1", view="4")
+    project, log = make_project(model, {"4"})
+    log.verbose = True
+    row = {
+        cols.H_SYM_DB: "Такого_символа_нет",
+        cols.H_SHEET_ID: 11,
+        cols.H_VIEW: "4",
+        cols.H_X: 10,
+        cols.H_Y: 10,
+    }
+    stats = run_import(
+        project,
+        {cols.SHEET_SCHEMA: _table_from_rows(cols.SHEET_SCHEMA, cols.PLACEMENT_HEADERS, [row])},
+        ImportOptions(views={"4"}, place_symbols=True, create_symbols=True),
+        Context(log),
+    )
+    assert stats.errors == 1
+    assert any("не найден в базе" in line for line in log.lines), log.lines
+
+
+def test_owner_comes_from_e3_not_from_guessing_by_text():
+    """Device.SetId(символ) даёт владельца точно — догадки по надписи не нужны."""
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4"})
+    sheets, stats = run_export(project, ExportOptions(views={"4"}), Context(log))
+    # Символ 1005 принадлежит изделию 105, но GetSymbolIds его не отдаёт.
+    model.devices[105].symbol_ids.append(1005)
+    project2, log2 = make_project(model, {"4"})
+    sheets2, stats2 = run_export(project2, ExportOptions(views={"4"}), Context(log2))
+    rows = {row[cols.H_SYM_ID]: row for row in sheet_named(sheets2, cols.SHEET_SCHEMA).rows}
+    assert rows[1005][cols.H_POZ] == "094-PT-1205"
+    assert rows[1005][cols.H_DEV_ID] == 105
+
+
+def test_device_row_without_poz_is_found_by_gid():
+    """Изделие с пустым «Поз. обозначение» тоже должно обновляться."""
+    model = fake_e3.sample_model()
+    model.devices[101].attributes.pop("Поз. обозначение")
+    project, log = make_project(model, {"4"})
+    table = _table_from_rows(
+        cols.SHEET_DEVICES,
+        cols.DEVICE_HEADERS,
+        [{cols.H_GID: "{dev-00000101}", "*Описание краткое": "записано по GID"}],
+    )
+    stats = run_import(
+        project, {cols.SHEET_DEVICES: table},
+        ImportOptions(views={"4"}, place_symbols=False, create_missing=False),
+        Context(log),
+    )
+    assert model.devices[101].attributes["*Описание краткое"] == "записано по GID"
+    assert stats.updated == 1 and stats.devices_by_gid == 1
 
 
 def _table_from_rows(name: str, headers: list[str], rows: list[dict]):

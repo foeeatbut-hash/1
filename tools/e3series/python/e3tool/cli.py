@@ -102,6 +102,9 @@ def main(argv: list[str] | None = None) -> int:
     p_import.add_argument("--create-sheets", action="store_true", help="создавать отсутствующие листы")
     p_import.add_argument("--no-texts", action="store_true", help="не переносить надписи")
     p_import.add_argument("--create-texts", action="store_true", help="создавать отсутствующие надписи")
+    p_import.add_argument(
+        "--create-symbols", action="store_true", help="вставлять отсутствующие символы из базы"
+    )
     p_import.add_argument("--save", action="store_true", help="сохранить проект")
     p_import.add_argument("--dry-run", action="store_true", help="только проверка")
 
@@ -172,6 +175,7 @@ def main(argv: list[str] | None = None) -> int:
             create_sheets=args.create_sheets,
             move_texts=not args.no_texts,
             create_texts=args.create_texts,
+            create_symbols=args.create_symbols,
             save_project=args.save,
             dry_run=args.dry_run,
         )

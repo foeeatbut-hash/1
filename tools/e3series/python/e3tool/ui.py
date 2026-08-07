@@ -133,6 +133,7 @@ class App(tk.Tk):
         self.imp_conn = tk.BooleanVar(value=False)
         self.imp_texts = tk.BooleanVar(value=True)
         self.imp_new_texts = tk.BooleanVar(value=False)
+        self.imp_new_symbols = tk.BooleanVar(value=False)
         self.imp_formats = tk.BooleanVar(value=True)
         self.imp_views = tk.BooleanVar(value=False)
         self.imp_new_sheets = tk.BooleanVar(value=False)
@@ -492,6 +493,7 @@ class App(tk.Tk):
                     ("применять формат листа из Excel", self.imp_formats),
                     ("создавать соединения (провода)", self.imp_conn),
                     ("создавать отсутствующие надписи", self.imp_new_texts),
+                    ("вставлять отсутствующие символы из базы", self.imp_new_symbols),
                     ("создавать отсутствующие листы", self.imp_new_sheets),
                 ),
             ),
@@ -528,6 +530,13 @@ class App(tk.Tk):
             if note:
                 ttk.Label(line, text=f"— {note}", style="Muted.TLabel").pack(side="left", padx=(6, 0))
 
+        self._hint(
+            card,
+            "Символ ищется по GID — постоянному идентификатору, который E3 выдаёт сама. "
+            "Поэтому изделие без «Поз. обозначения» и вообще без атрибутов встаёт на место "
+            "так же точно, как заполненное. «Вставлять отсутствующие символы» нужно только "
+            "тогда, когда книгу загружают в другой проект, где этих объектов ещё нет.",
+        )
         self._hint(
             card,
             "Вкладки «ФСА (вид 4)» и «Схема соединений (вид 5)» — отчёты, в проект они не "
@@ -825,6 +834,7 @@ class App(tk.Tk):
             create_sheets=self.imp_new_sheets.get(),
             move_texts=self.imp_texts.get(),
             create_texts=self.imp_new_texts.get(),
+            create_symbols=self.imp_new_symbols.get(),
             save_project=self.imp_save.get(),
             dry_run=dry_run,
         )
@@ -1075,6 +1085,11 @@ class App(tk.Tk):
                 + f"\nПеремещено: {result.get('moved', 0)}"
                 + f"\nСоединений: {result.get('connections', 0)}"
                 + (f"\nНадписей: {result['texts']}" if result.get("texts") else "")
+                + (
+                    f"\nВставлено символов из базы: {result['symbols']}"
+                    if result.get("symbols")
+                    else ""
+                )
                 + (f"\nЛистов затронуто: {result['sheets']}" if result.get("sheets") else "")
                 + (
                     f"\nКоординаты не совпали: {result['bad']}"

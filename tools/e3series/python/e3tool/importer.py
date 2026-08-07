@@ -53,6 +53,9 @@ class ImportOptions:
     #: Создавать надписи, которых в проекте нет. По умолчанию нет: строка без
     #: ID надписи легко появляется случайно, а лишний текст на чертеже виден.
     create_texts: bool = False
+    #: Вставлять символ из базы E3, если своего объекта в проекте нет. Нужно для
+    #: шаблона: книга из одного проекта загружается в другой, пустой.
+    create_symbols: bool = False
     save_project: bool = False
     dry_run: bool = False
 
@@ -74,6 +77,13 @@ class ImportStats:
     texts_retyped: int = 0
     texts_created: int = 0
     texts_skipped: int = 0
+    #: Чем опознан объект — по этому видно, надёжна ли выгрузка.
+    devices_by_gid: int = 0
+    found_by_gid: int = 0
+    found_by_id: int = 0
+    found_by_poz: int = 0
+    symbols_created: int = 0
+    symbols_missing: int = 0
     skipped: int = 0
     errors: int = 0
     no_component: int = 0
@@ -100,6 +110,7 @@ def changed_count(stats: ImportStats) -> int:
         + stats.texts_moved
         + stats.texts_retyped
         + stats.texts_created
+        + stats.symbols_created
     )
 
 
@@ -516,11 +527,23 @@ def _apply_devices(
             # выглядит зависшей, пока мы шлём тысячи вызовов.
             project.app.breathe()
 
-        poz = row.text(cols.H_POZ)
-        if not poz:
-            continue
         component = row.text(cols.H_COMP)
-        device_id = project.find_device(poz)
+        # GID главнее обозначения: изделие с пустым «Поз. обозначение» иначе
+        # не найти вовсе, а таких в проекте бывает большинство.
+        device_id = _find_device_by_gid(project, row.text(cols.H_GID))
+        poz = row.text(cols.H_POZ)
+        if device_id > 0:
+            stats.devices_by_gid += 1
+            if not poz:
+                poz = project.poz_of(device_id)
+        elif poz:
+            device_id = project.find_device(poz)
+        else:
+            stats.skipped += 1
+            log.detail(
+                f"[{row.number}] строка пропущена: нет ни «{cols.H_POZ}», ни «{cols.H_GID}»"
+            )
+            continue
 
         if device_id <= 0:
             if not options.create_missing:
@@ -548,7 +571,7 @@ def _apply_devices(
                 options,
                 stats,
                 log,
-                device_id=device_id,
+                source=f"{table.name} {row.number}",
                 poz=poz,
                 wanted_symbol_id=row.integer(cols.H_SYM_ID, 0),
                 symbol_nr=1,
@@ -559,6 +582,17 @@ def _apply_devices(
                 y=row.num(cols.H_Y),
                 rotation=compose_rotation(row.text(cols.H_ROT), row.text(cols.H_MIRROR)),
             )
+
+
+def _find_device_by_gid(project: Project, gid: str) -> int:
+    """Изделие по GID. 0 — GID пуст, не поддержан сборкой или объекта нет."""
+    if not gid:
+        return 0
+    device = project.app.device()
+    if not e3api.select_by_gid(device, gid):
+        return 0
+    found = e3api.device_id(device)
+    return found if found in project.devices else 0
 
 
 def _create_device(
@@ -664,29 +698,28 @@ def _apply_placements(
             context.progress(index, total, f"размещение символов ({table.name})")
             project.app.breathe()
 
-        poz = row.text(cols.H_POZ)
-        if not poz:
-            continue
-        device_id = project.find_device(poz)
-        if device_id <= 0:
-            log.detail(f"[{table.name} {row.number}] изделие не найдено: {poz}")
-            stats.errors += 1
-            continue
+        # Обозначение здесь больше не обязательно: строка опознаётся по GID или
+        # по идентификатору символа. Раньше пустое «Поз. обозначение» молча
+        # выбрасывало строку целиком — вместе с координатами, которые в ней есть.
         _place_one(
             project,
             options,
             stats,
             log,
-            device_id=device_id,
-            poz=poz,
+            source=f"{table.name} {row.number}",
+            gid=row.text(cols.H_GID),
+            poz=row.text(cols.H_POZ),
             wanted_symbol_id=row.integer(cols.H_SYM_ID, 0),
             symbol_nr=row.integer(cols.H_SYM_NR, 1),
+            symbol_db_name=row.text(cols.H_SYM_DB),
+            symbol_version=row.text(cols.H_SYM_VERSION),
             sheet_name=row.text(cols.H_SHEET),
             sheet_id=row.integer(cols.H_SHEET_ID, 0),
             view=row.text(cols.H_VIEW),
             x=row.num(cols.H_X),
             y=row.num(cols.H_Y),
             rotation=compose_rotation(row.text(cols.H_ROT), row.text(cols.H_MIRROR)),
+            scale=row.num(cols.H_SCALE) or 1.0,
         )
 
 
@@ -696,100 +729,211 @@ def _place_one(
     stats: ImportStats,
     log: Any,
     *,
-    device_id: int,
-    poz: str,
-    wanted_symbol_id: int,
-    symbol_nr: int,
-    sheet_name: str,
-    sheet_id: int,
-    view: str,
+    source: str,
+    gid: str = "",
+    poz: str = "",
+    wanted_symbol_id: int = 0,
+    symbol_nr: int = 1,
+    symbol_db_name: str = "",
+    symbol_version: str = "",
+    sheet_name: str = "",
+    sheet_id: int = 0,
+    view: str = "",
     x: float | None,
     y: float | None,
-    rotation: str,
+    rotation: str = "",
+    scale: float = 1.0,
 ) -> None:
-    """Ставит или переносит один символ изделия в заданную точку листа."""
+    """Ставит или переносит один символ в заданную точку листа.
+
+    Символ ищется по убыванию надёжности: GID, идентификатор символа,
+    обозначение изделия. Раньше работало только третье, поэтому символ без
+    заполненных атрибутов не переносился вовсе.
+    """
     if x is None or y is None:
-        log.detail(f"  {poz}: размещение пропущено — не заданы координаты")
+        log.detail(f"  [{source}] размещение пропущено — не заданы координаты")
+        stats.skipped += 1
         return
 
     target_sheet = project.find_allowed_sheet(sheet_name, sheet_id, view)
     if target_sheet <= 0:
+        label = poz or symbol_db_name or f"[{source}]"
         if not sheet_name and not sheet_id:
-            log.warn(f"  {poz}: размещение пропущено — не задан лист.")
+            log.warn(f"  {label}: размещение пропущено — не задан лист.")
         else:
             views = ", ".join(sorted(options.views)) if options.views else "все"
             log.warn(
-                f"  {poz}: лист «{sheet_name}» (ID {sheet_id}, вид {view or '-'}) не найден "
+                f"  {label}: лист «{sheet_name}» (ID {sheet_id}, вид {view or '-'}) не найден "
                 f"среди выбранных видов {{{views}}}."
             )
         stats.errors += 1
         return
 
-    device = project.app.device()
-    if not e3api.set_id(device, device_id):
-        stats.errors += 1
-        return
-    symbol_ids = e3api.device_symbol_ids(device, 0, project.app.probe)
-    if not symbol_ids:
-        component = e3api.device_component(device) or "(без компонента)"
-        stats.components_without_symbol[component] += 1
-        log.detail(f"  {poz}: у изделия нет символов (компонент «{component}»)")
-        stats.errors += 1
-        return
+    symbol = project.app.symbol()
+    symbol_id, how = _find_symbol(
+        project, symbol, stats, log,
+        gid=gid, poz=poz, wanted_symbol_id=wanted_symbol_id, symbol_nr=symbol_nr,
+        source=source,
+    )
 
-    symbol_id = 0
-    if wanted_symbol_id in symbol_ids:
-        symbol_id = wanted_symbol_id
-    elif 1 <= symbol_nr <= len(symbol_ids):
-        symbol_id = symbol_ids[symbol_nr - 1]
+    created = False
     if symbol_id <= 0:
-        log.warn(f"  {poz}: символ №{symbol_nr} не найден (символов у изделия {len(symbol_ids)}).")
-        stats.errors += 1
-        return
+        # Своего объекта в проекте нет. Вставляем такой же символ из базы —
+        # изделие для этого не нужно, хватает имени символа.
+        if not (options.create_symbols and symbol_db_name):
+            _report_symbol_not_found(stats, log, source, poz, symbol_db_name, options)
+            return
+        if options.dry_run:
+            log.detail(
+                f"  проверка: был бы вставлен символ «{symbol_db_name}» на лист "
+                f"«{project.sheet_name_of(target_sheet)}» ({fmt(x)}, {fmt(y)})"
+            )
+            return
+        symbol_id = e3api.load_symbol(symbol, symbol_db_name, symbol_version)
+        if symbol_id <= 0:
+            stats.errors += 1
+            log.warn(
+                f"  [{source}] символ «{symbol_db_name}» не найден в базе E3 — не вставлен."
+            )
+            return
+        created = True
+        how = "создан из базы"
 
     if options.dry_run:
         log.detail(
-            f"  проверка: {poz} символ №{symbol_nr} -> лист «{project.sheet_name_of(target_sheet)}» "
-            f"({fmt(x)}, {fmt(y)}), данные корректны"
+            f"  проверка: {poz or symbol_db_name or symbol_id} ({how}) -> лист "
+            f"«{project.sheet_name_of(target_sheet)}» ({fmt(x)}, {fmt(y)}), данные корректны"
         )
         return
 
-    symbol = project.app.symbol()
-    if not e3api.set_id(symbol, symbol_id):
+    if not created and not e3api.set_id(symbol, symbol_id):
         stats.errors += 1
         return
 
     before = e3api.symbol_location(symbol, project.app.probe)
     was_placed = before is not None and before.placed
 
-    state, after = e3api.symbol_move(
-        symbol, target_sheet, x, y, rotation, project.app.probe
-    )
+    state, after = e3api.symbol_move(symbol, target_sheet, x, y, rotation, project.app.probe)
+    label = poz or symbol_db_name or f"символ {symbol_id}"
     if state == e3api.PLACE_FAILED and after is None:
-        log.warn(f"  {poz}: разместить не удалось.")
+        log.warn(f"  {label}: разместить не удалось.")
         stats.errors += 1
         return
     if state == e3api.PLACE_FAILED:
         stats.bad_coordinates += 1
         log.warn(
-            f"  {poz} символ №{symbol_nr}: после записи прочитано "
+            f"  {label} (№{symbol_nr}): после записи прочитано "
             f"({fmt(after.x)}, {fmt(after.y)}) вместо ({fmt(x)}, {fmt(y)})."
         )
         return
 
-    if was_placed:
+    if scale and abs(scale - 1.0) > 1e-9:
+        e3api.set_symbol_scale(symbol, scale)
+
+    if created:
+        stats.symbols_created += 1
+        log.detail(
+            f"  вставлен «{symbol_db_name}» на «{project.sheet_name_of(target_sheet)}» "
+            f"({fmt(x)}, {fmt(y)})"
+        )
+    elif was_placed:
         stats.moved += 1
         origin = f"({fmt(before.x)}, {fmt(before.y)}) -> " if before else ""
-        log.detail(f"  перемещён {poz} символ №{symbol_nr}: {origin}({fmt(x)}, {fmt(y)})")
+        log.detail(f"  перемещён {label} ({how}): {origin}({fmt(x)}, {fmt(y)})")
     else:
         stats.placed += 1
         log.detail(
-            f"  размещён {poz} символ №{symbol_nr} на «{project.sheet_name_of(target_sheet)}» "
+            f"  размещён {label} ({how}) на «{project.sheet_name_of(target_sheet)}» "
             f"({fmt(x)}, {fmt(y)})"
         )
     if state == e3api.PLACE_UNVERIFIED:
         # Обычное дело для gate: позиция не перечитывается, но запись прошла.
         stats.unverified += 1
+
+
+def _find_symbol(
+    project: Project,
+    symbol: Any,
+    stats: ImportStats,
+    log: Any,
+    *,
+    gid: str,
+    poz: str,
+    wanted_symbol_id: int,
+    symbol_nr: int,
+    source: str,
+) -> tuple[int, str]:
+    """Находит символ в проекте. Возвращает (идентификатор, чем нашли).
+
+    1. **GID.** Постоянный идентификатор объекта в E3: не зависит ни от одного
+       заполненного пользователем атрибута, поэтому работает и для символа без
+       обозначения, без имени и без изделия.
+    2. **Идентификатор символа.** Годится в пределах той же сессии проекта;
+       проверяем, что объект с таким номером действительно символ.
+    3. **Обозначение изделия плюс номер символа.** Прежний способ; остаётся
+       последним, потому что зависит от заполненного «Поз. обозначение», а
+       номер символа — от порядка, который E3 не гарантирует.
+    """
+    if gid and e3api.select_by_gid(symbol, gid):
+        stats.found_by_gid += 1
+        return e3api.symbol_current_id(symbol) or wanted_symbol_id, "по GID"
+
+    if wanted_symbol_id > 0 and e3api.set_id(symbol, wanted_symbol_id):
+        if e3api.symbol_location(symbol, project.app.probe) is not None:
+            stats.found_by_id += 1
+            return wanted_symbol_id, "по ID символа"
+
+    if not poz:
+        return 0, ""
+    device_id = project.find_device(poz)
+    if device_id <= 0:
+        log.detail(f"  [{source}] изделие не найдено: {poz}")
+        return 0, ""
+
+    device = project.app.device()
+    if not e3api.set_id(device, device_id):
+        return 0, ""
+    symbol_ids = e3api.device_symbol_ids(device, 0, project.app.probe)
+    if not symbol_ids:
+        component = e3api.device_component(device) or "(без компонента)"
+        stats.components_without_symbol[component] += 1
+        log.detail(f"  {poz}: у изделия нет символов (компонент «{component}»)")
+        return 0, ""
+    if wanted_symbol_id in symbol_ids:
+        stats.found_by_poz += 1
+        return wanted_symbol_id, "по обозначению"
+    if 1 <= symbol_nr <= len(symbol_ids):
+        stats.found_by_poz += 1
+        return symbol_ids[symbol_nr - 1], f"по обозначению, символ №{symbol_nr}"
+    log.warn(f"  {poz}: символ №{symbol_nr} не найден (символов у изделия {len(symbol_ids)}).")
+    return 0, ""
+
+
+def _report_symbol_not_found(
+    stats: ImportStats,
+    log: Any,
+    source: str,
+    poz: str,
+    symbol_db_name: str,
+    options: ImportOptions,
+) -> None:
+    stats.errors += 1
+    stats.symbols_missing += 1
+    if stats.symbols_missing > 15:
+        return
+    what = poz or symbol_db_name or "символ"
+    if symbol_db_name and not options.create_symbols:
+        log.warn(
+            f"  [{source}] {what}: в проекте такого символа нет. Включите «вставлять "
+            f"отсутствующие символы» — он будет взят из базы как «{symbol_db_name}»."
+        )
+    elif not symbol_db_name:
+        log.warn(
+            f"  [{source}] {what}: в проекте не найден, и в строке не заполнен "
+            f"столбец «{cols.H_SYM_DB}» — вставить нечего."
+        )
+    else:
+        log.warn(f"  [{source}] {what}: в проекте не найден.")
 
 
 # ------------------------------------------------------------------------------
@@ -845,7 +989,13 @@ def _apply_texts(
             log.detail(f"  [{row.number}] надпись пропущена: лист не найден")
             continue
 
+        # GID главнее номера: он не зависит от того, тот же это проект или нет.
+        gid = row.text(cols.H_GID)
         text_id = row.integer(cols.H_TEXT_ID, 0)
+        if gid and options.move_texts and e3api.select_by_gid(text_obj, gid):
+            found = e3api.object_id_of(text_obj)
+            if found > 0:
+                text_id = found
         if text_id > 0 and options.move_texts:
             _move_one_text(
                 project, text_obj, text_id, target_sheet, value, x, y, options, stats, log, row
@@ -1035,9 +1185,27 @@ def _log_summary(context: Context, options: ImportOptions, stats: ImportStats) -
         )
     log.info(f"Создано изделий: {stats.created}")
     log.info(f"Обновлено изделий: {stats.updated}")
+    if stats.devices_by_gid:
+        log.info(f"  из них найдено по GID: {stats.devices_by_gid}")
     if options.place_symbols:
         log.info(f"Размещено символов: {stats.placed}")
         log.info(f"Перемещено символов: {stats.moved}")
+        if stats.symbols_created:
+            log.info(f"Вставлено символов из базы: {stats.symbols_created}")
+        log.info(
+            f"Опознано: по GID {stats.found_by_gid}, по ID символа {stats.found_by_id}, "
+            f"по обозначению {stats.found_by_poz}"
+        )
+        if stats.found_by_gid == 0 and (stats.found_by_id or stats.found_by_poz):
+            log.warn(
+                "Ни одна строка не опознана по GID. Проверьте, что книга выгружена этой же "
+                "версией программы: без GID символ без заполненных атрибутов не найти."
+            )
+        if stats.symbols_missing:
+            log.warn(
+                f"Не найдено символов: {stats.symbols_missing}. Если книга из другого "
+                "проекта, включите «вставлять отсутствующие символы»."
+            )
         if stats.unverified:
             log.info(
                 f"Из них позиция не перечитывается (gate): {stats.unverified} — это не ошибка."
