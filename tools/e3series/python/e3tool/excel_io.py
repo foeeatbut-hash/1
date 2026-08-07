@@ -25,6 +25,16 @@ DATA_FONT = Font(size=11)
 THIN = Side(style="thin", color="DCDCDC")
 CELL_BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 
+# --- оформление листа-отчёта ---------------------------------------------------
+TITLE_FILL = PatternFill("solid", fgColor="DCE6F1")
+TITLE_FONT = Font(bold=True, size=12, color="1F3864")
+BLOCK_HEADER_FILL = PatternFill("solid", fgColor="C6D9F1")
+BLOCK_HEADER_FONT = Font(bold=True, size=11)
+TOTAL_FILL = PatternFill("solid", fgColor="EDEDED")
+OK_FILL = PatternFill("solid", fgColor="C6EFCE")
+BAD_FILL = PatternFill("solid", fgColor="FFC7CE")
+NOTE_FONT = Font(italic=True, color="1D7A46")
+
 #: Границы рисуются только для небольших листов: на десятках тысяч строк
 #: они раздувают файл, не добавляя пользы.
 BORDER_ROW_LIMIT = 5000
@@ -41,6 +51,36 @@ class SheetData:
     headers: list[str]
     rows: list[dict[str, Any]] = field(default_factory=list)
     numeric: set[str] = field(default_factory=set)
+
+
+@dataclass
+class Block:
+    """Блок листа-отчёта: заголовок, шапка и строки списками.
+
+    Отчёт — не таблица данных: в нём несколько разных таблиц одна под другой,
+    поэтому строки здесь списками, а не словарями, и столбцы у каждого блока
+    свои.
+    """
+
+    title: str = ""
+    headers: list[str] = field(default_factory=list)
+    rows: list[list[Any]] = field(default_factory=list)
+    #: Индекс столбца со статусом: благополучное значение зелёное, прочее красное.
+    status_column: int | None = None
+    #: Какие значения статуса считать благополучными. Пусто — всё, что с «OK».
+    ok_values: set[str] = field(default_factory=set)
+    #: Сколько последних строк выделить как итоговые.
+    total_rows: int = 0
+    #: Что написать, если строк нет вовсе.
+    empty_note: str = ""
+
+
+@dataclass
+class ReportSheet:
+    """Лист книги, собранный из блоков. Читается человеком, не программой."""
+
+    name: str
+    blocks: list[Block] = field(default_factory=list)
 
 
 # ------------------------------------------------------------------------------
@@ -115,7 +155,7 @@ def find_table(tables: dict[str, Table], name: str) -> Table | None:
 # ------------------------------------------------------------------------------
 #  Запись
 # ------------------------------------------------------------------------------
-def write_workbook(path: str, sheets: Sequence[SheetData]) -> str:
+def write_workbook(path: str, sheets: Sequence[SheetData | ReportSheet]) -> str:
     """Пишет книгу и возвращает путь к сохранённому файлу."""
     workbook = Workbook()
     default = workbook.active
@@ -123,7 +163,10 @@ def write_workbook(path: str, sheets: Sequence[SheetData]) -> str:
 
     for data in sheets:
         worksheet = workbook.create_sheet(title=data.name[:31])
-        _write_sheet(worksheet, data)
+        if isinstance(data, ReportSheet):
+            _write_report(worksheet, data)
+        else:
+            _write_sheet(worksheet, data)
 
     directory = os.path.dirname(os.path.abspath(path))
     if directory:
@@ -187,6 +230,71 @@ def _write_sheet(worksheet: Any, data: SheetData) -> None:
         )
 
 
+def _write_report(worksheet: Any, data: ReportSheet) -> None:
+    """Пишет лист-отчёт: блоки один под другим, между ними пустая строка."""
+    row = 1
+    widths: dict[int, int] = {}
+
+    def note_width(column: int, value: Any) -> None:
+        length = len(safe_str(value)) + 2
+        if length > widths.get(column, 0):
+            widths[column] = length
+
+    for block in data.blocks:
+        if block.title:
+            cell = worksheet.cell(row=row, column=1, value=block.title)
+            cell.font = TITLE_FONT
+            cell.fill = TITLE_FILL
+            span = max(len(block.headers), 1)
+            if span > 1:
+                worksheet.merge_cells(
+                    start_row=row, start_column=1, end_row=row, end_column=span
+                )
+            row += 1
+
+        if not block.rows and block.empty_note:
+            cell = worksheet.cell(row=row, column=1, value=block.empty_note)
+            cell.font = NOTE_FONT
+            row += 2
+            continue
+
+        for column, header in enumerate(block.headers, start=1):
+            cell = worksheet.cell(row=row, column=column, value=header)
+            cell.font = BLOCK_HEADER_FONT
+            cell.fill = BLOCK_HEADER_FILL
+            cell.alignment = HEADER_ALIGN
+            cell.border = CELL_BORDER
+            note_width(column, header)
+        row += 1
+
+        first_total = len(block.rows) - block.total_rows
+        for index, values in enumerate(block.rows):
+            is_total = index >= first_total
+            for column, value in enumerate(values, start=1):
+                cell = worksheet.cell(row=row, column=column, value=value)
+                cell.border = CELL_BORDER
+                note_width(column, value)
+                if is_total:
+                    cell.font = BLOCK_HEADER_FONT
+                    cell.fill = TOTAL_FILL
+                if block.status_column is not None and column == block.status_column + 1:
+                    text = safe_str(value)
+                    if text:
+                        good = (
+                            text in block.ok_values
+                            if block.ok_values
+                            else text.startswith("OK")
+                        )
+                        cell.fill = OK_FILL if good else BAD_FILL
+            row += 1
+        row += 1
+
+    for column, width in widths.items():
+        worksheet.column_dimensions[get_column_letter(column)].width = min(
+            max(width, MIN_WIDTH), MAX_WIDTH
+        )
+
+
 # ------------------------------------------------------------------------------
 #  Шаблон
 # ------------------------------------------------------------------------------
@@ -224,11 +332,30 @@ def write_template(path: str) -> str:
     sheet_example[cols.H_VIEW_NAME] = cols.view_title("4")
     sheet_example[cols.H_FORMAT] = "A2_ГОСТ"
 
-    sheets = [
+    text_example: dict[str, Any] = {header: "" for header in cols.TEXT_HEADERS}
+    text_example[cols.H_SHEET] = "1"
+    text_example[cols.H_VIEW] = "4"
+    text_example[cols.H_X] = 40
+    text_example[cols.H_Y] = 120
+    text_example[cols.H_TEXT] = "Пример свободной надписи на листе"
+
+    sheets: list[SheetData | ReportSheet] = [
         SheetData(
             name=cols.SHEET_DEVICES,
             headers=cols.DEVICE_HEADERS,
             rows=[example],
+            numeric=set(cols.NUMERIC_HEADERS),
+        ),
+        SheetData(
+            name=cols.SHEET_VIEW4,
+            headers=cols.VIEW_DEVICE_HEADERS,
+            rows=[example],
+            numeric=set(cols.NUMERIC_HEADERS),
+        ),
+        SheetData(
+            name=cols.SHEET_VIEW5,
+            headers=cols.VIEW5_DEVICE_HEADERS,
+            rows=[],
             numeric=set(cols.NUMERIC_HEADERS),
         ),
         SheetData(
@@ -248,6 +375,12 @@ def write_template(path: str) -> str:
             headers=cols.CONNECTION_HEADERS,
             rows=[],
             numeric=set(cols.NUMERIC_HEADERS),
+        ),
+        SheetData(
+            name=cols.SHEET_TEXTS,
+            headers=cols.TEXT_HEADERS,
+            rows=[text_example],
+            numeric=set(cols.TEXT_NUMERIC_HEADERS),
         ),
         SheetData(
             name=cols.SHEET_SHEETS,

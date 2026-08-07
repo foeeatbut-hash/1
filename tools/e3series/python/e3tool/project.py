@@ -14,7 +14,7 @@ from typing import Any
 
 from . import e3api
 from .log import Log
-from .columns import H_POZ, ZONE_FOOTER, ZONE_SCHEMA, view_title
+from .columns import FOOTER_MARKER, H_POZ, ZONE_FOOTER, ZONE_SCHEMA, view_title
 from .util import norm_key, parse_num, strip_dash
 
 #: Атрибут листа, по которому проект делится на виды (ФСА, схемы и т. п.).
@@ -49,6 +49,9 @@ class DeviceInfo:
     kind: str = "изделие"
     name: str = ""
     poz: str = ""
+    #: Имя компонента библиотеки. По нему опознаются подвальные изделия
+    #: («Подвал_…») и, вместе с dip_type, исключения сверки.
+    component: str = ""
     match_values: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -72,6 +75,8 @@ class SheetInfo:
     symbols: int = 0
     #: Y, ниже которой начинается подвал. 0 — подвала на листе нет.
     footer_y: float = 0.0
+    #: Как определена зона листа: по имени символа, по геометрии или никак.
+    zone_source: str = ""
 
     @property
     def height(self) -> float:
@@ -199,6 +204,7 @@ class Project:
                 continue
             info.name = strip_dash(e3api.device_name(device))
             info.poz = e3api.attribute_value(device, H_POZ)
+            info.component = e3api.device_component(device)
             matches = []
             for attribute in MATCH_ATTRIBUTES:
                 value = e3api.attribute_value(device, attribute)
@@ -300,29 +306,56 @@ class Project:
         info = self.sheets.get(sheet_id)
         return info.zone_of(y) if info else ZONE_SCHEMA
 
+    def zone_source_of(self, sheet_id: int) -> str:
+        info = self.sheets.get(sheet_id)
+        return info.zone_source if info else ""
+
+    def is_footer_component(self, device_id: int) -> bool:
+        """True, если изделие собрано из подвального компонента («Подвал_…»)."""
+        info = self.devices.get(device_id)
+        return bool(info and FOOTER_MARKER in info.component.lower())
+
+    def component_of(self, device_id: int) -> str:
+        info = self.devices.get(device_id)
+        return info.component if info else ""
+
     # --- граница подвала ------------------------------------------------------
     def detect_footer_boundaries(
-        self, ys_by_sheet: dict[int, list[float]], manual_y: float = 0.0
+        self,
+        ys_by_sheet: dict[int, list[float]],
+        manual_y: float = 0.0,
+        named: set[int] | None = None,
     ) -> int:
         """Находит на каждом листе границу между схемой и подвалом.
 
-        Подвал ФСА — таблица в нижней части чертежа, где те же изделия
-        перечислены построчно. Между ней и схемой всегда остаётся широкая
-        пустая полоса, и именно она ищется: берётся самый большой разрыв в
-        значениях Y размещённых символов. Разрыв принимается, только если он
-        лежит в нижней части листа и выше него есть настоящая схемная часть —
-        иначе лист считается однозонным.
+        Порядок предпочтений такой:
 
-        Если задана ручная граница (manual_y > 0), она применяется как есть.
+        1. Имя символа в базе E3. Подвальные символы и компоненты названы
+           «Подвал_…» — это прямое указание назначения, а не догадка. Лист, где
+           такие символы нашлись, приходит в ``named``; геометрию для него не
+           считаем вовсе, иначе она может поспорить с именем и проиграть.
+        2. Ручная граница ``manual_y``, если задана.
+        3. Геометрия: подвал ФСА — таблица внизу чертежа, между ней и схемой
+           остаётся широкая пустая полоса. Ищем снизу вверх первый разрыв шире
+           ``MIN_FOOTER_GAP`` в нижней части листа, и только если выше него
+           остаётся настоящая схемная часть.
         """
+        named = named or set()
         found = 0
         for sheet_id in sorted(ys_by_sheet):
             info = self.sheets.get(sheet_id)
             if info is None:
                 continue
+            if sheet_id in named:
+                # Зона уже проставлена по имени символа — граница по Y не нужна.
+                info.footer_y = 0.0
+                info.zone_source = "по имени символа"
+                found += 1
+                continue
             values = sorted({round(float(y), 3) for y in ys_by_sheet[sheet_id]})
             if manual_y > 0:
                 info.footer_y = manual_y
+                info.zone_source = "граница задана вручную"
                 below = sum(1 for y in values if y < manual_y)
                 found += 1
                 self.log.detail(
@@ -334,12 +367,14 @@ class Project:
             info.footer_y = boundary
             if boundary:
                 found += 1
+                info.zone_source = "по геометрии"
                 below = sum(1 for y in values if y < boundary)
                 self.log.detail(
                     f"  лист «{info.name}» (ID {sheet_id}): подвал ниже Y={boundary:g} "
                     f"({reason}), в подвале символов {below} из {len(values)}"
                 )
             else:
+                info.zone_source = ""
                 self.log.detail(
                     f"  лист «{info.name}» (ID {sheet_id}): подвал не выделен — {reason}"
                 )
@@ -524,11 +559,17 @@ class Project:
             return ""
         return info.poz or info.name
 
-    def remember_new_device(self, device_id: int, poz: str) -> None:
+    def remember_new_device(self, device_id: int, poz: str, component: str = "") -> None:
         """Добавляет только что созданное изделие в кэш, чтобы не перечитывать всё."""
         if device_id <= 0:
             return
-        info = DeviceInfo(device_id=device_id, kind="изделие", name=strip_dash(poz), poz=poz)
+        info = DeviceInfo(
+            device_id=device_id,
+            kind="изделие",
+            name=strip_dash(poz),
+            poz=poz,
+            component=component,
+        )
         self.devices[device_id] = info
         self.id_by_poz.setdefault(poz, device_id)
         self.id_by_name.setdefault(strip_dash(poz), device_id)

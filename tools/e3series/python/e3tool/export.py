@@ -20,15 +20,26 @@ GetArea» — как раз та ошибка, из-за которой стар
 раз. Если сложить это в одну таблицу, изделие будет повторяться, и понять,
 какая строка какому месту чертежа соответствует, нельзя. Поэтому:
 
-* «Изделия» — по одной строке на изделие: атрибуты и координаты **основного**
-  размещения (схемная часть предпочитается подвалу);
+* «Изделия» — всё, что есть в проекте: по строке на объект, атрибуты и
+  координаты **основного** размещения (схемная часть предпочитается подвалу);
+* «ФСА (вид 4)» — изделия функциональной схемы с их атрибутами;
+* «Схема соединений (вид 5)» — то же для вида 5, и рядом сверка с видом 4:
+  сколько размещений здесь, сколько на ФСА, есть ли изделие там вообще;
 * «Схема» и «Подвал» — по строке на каждый размещённый символ, разделённые по
   зоне листа; вместе они описывают чертёж полностью;
-* «Соединения» — ломаные проводов;
-* «Листы» — по строке на лист: вид, рамка (формат), габарит, граница подвала.
+* «Соединения» — ломаные проводов, «Надписи» — свободные тексты листов;
+* «Листы» — по строке на лист: вид, рамка (формат), габарит, граница подвала;
+* «Сверка сигналов» — отчёт DI/DO/AI/AO, см. модуль ``signals``.
 
 В каждой строке есть вид листа и формат листа, поэтому при загрузке лист
 определяется однозначно даже там, где имена листов совпадают.
+
+Как определяется подвал
+-----------------------
+Сначала по имени: подвальные символы и компоненты в базе названы «Подвал_…» —
+это прямое указание назначения, взятое из рабочего скрипта сверки. Геометрия
+(поиск пустой полосы внизу листа) остаётся запасным вариантом для листов, где
+таких имён нет.
 """
 
 from __future__ import annotations
@@ -39,6 +50,7 @@ from typing import Any
 
 from . import columns as cols
 from . import e3api
+from . import signals as sig
 from .excel_io import SheetData
 from .project import Project
 from .task import Context
@@ -53,6 +65,12 @@ class ExportOptions:
     with_connections: bool = True
     #: Лист «Листы» — виды и форматы. Через него формат листа правится из Excel.
     with_sheets: bool = True
+    #: Вкладки «ФСА (вид 4)» и «Схема соединений (вид 5)» — изделия по видам.
+    with_view_sheets: bool = True
+    #: Лист «Надписи» — свободные тексты на листах.
+    with_texts: bool = True
+    #: Лист «Сверка сигналов» — отчёт DI/DO/AI/AO вида 4 против вида 5.
+    with_signals: bool = True
     #: Делить размещения на «Схему» и «Подвал». Выключено — одна таблица «Размещения».
     split_zones: bool = True
     #: Граница подвала в мм по Y. 0 — определять по чертежу автоматически.
@@ -71,12 +89,18 @@ class ExportStats:
     schema_rows: int = 0
     footer_rows: int = 0
     sheets_with_footer: int = 0
+    sheets_footer_by_name: int = 0
     sheets: int = 0
     placed_devices: int = 0
     matched_by_text: int = 0
     symbols_without_device: int = 0
     segments: int = 0
     points: int = 0
+    texts: int = 0
+    texts_of_symbols: int = 0
+    view4_devices: int = 0
+    view5_devices: int = 0
+    view_mismatch: int = 0
     stopped: bool = False
 
 
@@ -96,6 +120,28 @@ class _Placement:
     y: float
     rotation: str
     zone: str = cols.ZONE_SCHEMA
+    #: Имя типа символа в базе E3 — по нему опознаётся подвал.
+    type_name: str = ""
+    #: True, если подвал определён по имени, а не по координате.
+    named_footer: bool = False
+    zone_source: str = ""
+
+
+@dataclass
+class _Text:
+    """Свободная надпись на листе."""
+
+    text_id: int
+    sheet_id: int
+    sheet_name: str
+    view: str
+    fmt: str
+    x: float
+    y: float
+    rotation: float
+    height: float
+    kind: int
+    value: str
 
 
 def run_export(
@@ -169,8 +215,11 @@ def run_export(
 
     # --- фаза 2: обход листов -------------------------------------------------
     connection_rows: list[dict[str, Any]] = []
+    texts: list[_Text] = []
     if not stats.stopped:
-        _walk_sheets(project, options, context, stats, owner_of_symbol, found, connection_rows)
+        _walk_sheets(
+            project, options, context, stats, owner_of_symbol, found, connection_rows, texts
+        )
 
     # --- зоны листа: схема или подвал -----------------------------------------
     placement_of_device = _assign_zones(project, options, context, stats, found)
@@ -187,6 +236,9 @@ def run_export(
         )
     ]
 
+    if options.with_view_sheets:
+        sheets.extend(_view_sheets(project, context, stats, device_rows, found))
+
     if options.with_placements:
         sheets.extend(_placement_sheets(project, options, stats, found))
 
@@ -197,6 +249,16 @@ def run_export(
                 headers=cols.CONNECTION_HEADERS,
                 rows=connection_rows,
                 numeric=set(cols.NUMERIC_HEADERS),
+            )
+        )
+
+    if options.with_texts:
+        sheets.append(
+            SheetData(
+                name=cols.SHEET_TEXTS,
+                headers=cols.TEXT_HEADERS,
+                rows=[_text_row(project, item) for item in texts],
+                numeric=set(cols.TEXT_NUMERIC_HEADERS),
             )
         )
 
@@ -211,6 +273,19 @@ def run_export(
                 numeric=set(cols.SHEET_NUMERIC_HEADERS),
             )
         )
+
+    if options.with_signals and not stats.stopped:
+        placements = [
+            sig.Placement(
+                device_id=item.device_id,
+                sheet_id=item.sheet_id,
+                sheet_name=item.sheet_name,
+                view=item.view,
+                in_footer=item.zone == cols.ZONE_FOOTER,
+            )
+            for item in found.values()
+        ]
+        sheets.append(sig.build_report(project, placements, context))
 
     stats.placed_devices = len(placement_of_device)
     _log_summary(log, stats, options)
@@ -228,7 +303,16 @@ def _make_placement(
     x: float,
     y: float,
 ) -> _Placement:
-    """Собирает размещение, дописывая вид и формат листа из кэша проекта."""
+    """Собирает размещение, дописывая вид, формат листа и признак подвала.
+
+    Подвал опознаётся по имени: тип символа в базе E3 либо компонент изделия
+    названы «Подвал_…». Правило взято из рабочего скрипта сверки — оно точнее
+    любой геометрии, потому что описывает назначение символа, а не его место.
+    """
+    type_name = e3api.symbol_type_name(symbol)
+    named_footer = cols.FOOTER_MARKER in type_name.lower() or project.is_footer_component(
+        device_id
+    )
     return _Placement(
         device_id=device_id,
         symbol_id=symbol_id,
@@ -241,6 +325,8 @@ def _make_placement(
         x=x,
         y=y,
         rotation=e3api.symbol_rotation(symbol, project.app.probe),
+        type_name=type_name,
+        named_footer=named_footer,
     )
 
 
@@ -252,6 +338,7 @@ def _walk_sheets(
     owner_of_symbol: dict[int, tuple[int, int]],
     found: dict[int, _Placement],
     connection_rows: list[dict[str, Any]],
+    texts: list[_Text],
 ) -> None:
     app = project.app
     log = context.log
@@ -291,7 +378,11 @@ def _walk_sheets(
                 project, sheet, net_segment, sheet_id, sheet_name, connection_rows, stats
             )
 
-        for symbol_id in e3api.sheet_symbol_ids(sheet):
+        symbol_ids = e3api.sheet_symbol_ids(sheet)
+        if options.with_texts and text_obj is not None:
+            _collect_texts(project, sheet, symbol, text_obj, sheet_id, symbol_ids, texts, stats)
+
+        for symbol_id in symbol_ids:
             sheet_symbols += 1
             if not e3api.set_id(symbol, symbol_id):
                 continue
@@ -347,7 +438,65 @@ def _walk_sheets(
         f"опознано по надписи: {stats.matched_by_text}; "
         f"без связи с изделием: {stats.symbols_without_device}"
     )
+    if options.with_texts:
+        log.info(
+            f"  свободных надписей на листах: {stats.texts} "
+            f"(надписей символов пропущено: {stats.texts_of_symbols})"
+        )
     log.info(f"  фаза 2 заняла {time.monotonic() - phase_started:.1f} с")
+
+
+def _collect_texts(
+    project: Project,
+    sheet: Any,
+    symbol: Any,
+    text_obj: Any,
+    sheet_id: int,
+    symbol_ids: tuple[int, ...],
+    texts: list[_Text],
+    stats: ExportStats,
+) -> None:
+    """Свободные надписи листа: всё, что не принадлежит его символам.
+
+    Sheet.GetTextIds отдаёт и подписи символов — их переносить нельзя, E3
+    формирует их сама из атрибутов. Поэтому из списка листа вычитаются надписи,
+    которые вернул Symbol.GetTextIds каждого символа.
+    """
+    all_ids = e3api.sheet_text_ids(sheet)
+    if not all_ids:
+        return
+    owned: set[int] = set()
+    for symbol_id in symbol_ids:
+        if e3api.set_id(symbol, symbol_id):
+            owned.update(e3api.symbol_text_ids(symbol))
+
+    for text_id in all_ids:
+        if text_id in owned:
+            stats.texts_of_symbols += 1
+            continue
+        if not e3api.set_id(text_obj, text_id):
+            continue
+        value = e3api.text_value(text_obj, text_id)
+        if not value:
+            continue
+        location = e3api.text_location(text_obj)
+        target = location.sheet_id if location and location.placed else sheet_id
+        texts.append(
+            _Text(
+                text_id=text_id,
+                sheet_id=target,
+                sheet_name=project.sheet_name_of(target),
+                view=project.sheet_view_of(target),
+                fmt=project.sheet_format_of(target),
+                x=location.x if location else 0.0,
+                y=location.y if location else 0.0,
+                rotation=e3api.text_rotation(text_obj),
+                height=e3api.text_height(text_obj),
+                kind=e3api.text_type(text_obj),
+                value=value,
+            )
+        )
+        stats.texts += 1
 
 
 # ------------------------------------------------------------------------------
@@ -360,20 +509,46 @@ def _assign_zones(
     stats: ExportStats,
     found: dict[int, _Placement],
 ) -> dict[int, _Placement]:
-    """Расставляет зоны и выбирает у каждого изделия основное размещение."""
+    """Расставляет зоны и выбирает у каждого изделия основное размещение.
+
+    Порядок предпочтений: заданная руками граница, затем имя символа
+    («Подвал_…»), затем геометрия. Руками заданная граница главнее всего —
+    это прямое указание пользователя. Смешивать имя и геометрию на одном листе
+    нельзя: символ подвала, стоящий выше найденной границы, попал бы в схему и
+    изделие задвоилось бы именно там, где мы этого избегаем.
+    """
     log = context.log
     ys_by_sheet: dict[int, list[float]] = {}
+    named_sheets: set[int] = set()
     for placement in found.values():
         ys_by_sheet.setdefault(placement.sheet_id, []).append(placement.y)
+        if placement.named_footer:
+            named_sheets.add(placement.sheet_id)
+    if options.footer_y > 0:
+        named_sheets.clear()
 
     if options.split_zones:
         log.info(
             "Деление на схему и подвал"
             + (f" (граница задана вручную: Y={options.footer_y:g})" if options.footer_y > 0 else " (граница по чертежу)")
         )
-        stats.sheets_with_footer = project.detect_footer_boundaries(ys_by_sheet, options.footer_y)
+        stats.sheets_footer_by_name = len(named_sheets)
+        if named_sheets:
+            log.info(
+                f"  на {len(named_sheets)} листах подвал опознан по имени символа "
+                f"(«{cols.FOOTER_MARKER}…») — геометрию там не применяю"
+            )
+        stats.sheets_with_footer = project.detect_footer_boundaries(
+            ys_by_sheet, options.footer_y, named=named_sheets
+        )
         for placement in found.values():
-            placement.zone = project.zone_of(placement.sheet_id, placement.y)
+            if placement.sheet_id in named_sheets:
+                placement.zone = (
+                    cols.ZONE_FOOTER if placement.named_footer else cols.ZONE_SCHEMA
+                )
+            else:
+                placement.zone = project.zone_of(placement.sheet_id, placement.y)
+            placement.zone_source = project.zone_source_of(placement.sheet_id)
         stats.footer_rows = sum(1 for p in found.values() if p.zone == cols.ZONE_FOOTER)
         stats.schema_rows = len(found) - stats.footer_rows
         log.info(
@@ -552,6 +727,10 @@ def _device_rows(
         row: dict[str, Any] = {cols.H_POZ: poz, cols.H_COMP: e3api.device_component(device)}
         for header in cols.ATTRIBUTE_HEADERS:
             row[header] = e3api.attribute_value(device, header)
+        # Атрибуты сверки читаются здесь же: второй проход по всем изделиям
+        # ради них обошёлся бы в ещё один полный обход проекта.
+        for header in cols.SIGNAL_HEADERS:
+            row[header] = e3api.attribute_value(device, header)
 
         symbol_ids = e3api.device_symbol_ids(device, 0, app.probe)
         row[cols.H_SYM_COUNT] = len(symbol_ids)
@@ -599,7 +778,115 @@ def _placement_row(project: Project, placement: _Placement) -> dict[str, Any]:
         cols.H_MIRROR: mirror_of(placement.rotation),
         cols.H_DEV_ID: placement.device_id,
         cols.H_OBJ_TYPE: project.kind_of(placement.device_id),
+        cols.H_ZONE_SOURCE: placement.zone_source,
     }
+
+
+def _text_row(project: Project, item: _Text) -> dict[str, Any]:
+    return {
+        cols.H_TEXT_ID: item.text_id,
+        cols.H_SHEET: item.sheet_name,
+        cols.H_SHEET_ID: item.sheet_id,
+        cols.H_VIEW: item.view,
+        cols.H_FORMAT: item.fmt,
+        cols.H_ZONE: project.zone_of(item.sheet_id, item.y),
+        cols.H_X: item.x,
+        cols.H_Y: item.y,
+        cols.H_ROT: item.rotation or "",
+        cols.H_TEXT_HEIGHT: item.height or "",
+        cols.H_TEXT_TYPE: item.kind,
+        cols.H_TEXT: item.value,
+    }
+
+
+# ------------------------------------------------------------------------------
+#  Вкладки по видам листов: ФСА (4) и схема соединений (5)
+# ------------------------------------------------------------------------------
+def _view_sheets(
+    project: Project,
+    context: Context,
+    stats: ExportStats,
+    device_rows: list[dict[str, Any]],
+    found: dict[int, _Placement],
+) -> list[SheetData]:
+    """Строит вкладки «ФСА (вид 4)» и «Схема соединений (вид 5)».
+
+    Строка изделия здесь та же, что на главном листе, — атрибуты не пересчитываются.
+    Меняется только состав: на вкладку попадают изделия, размещённые на листах
+    этого вида. На вкладке вида 5 рядом идёт сверка с видом 4: сколько размещений
+    здесь, сколько там и есть ли изделие на ФСА вообще. Это тот самый «следующий
+    шаг», о котором просил пользователь.
+    """
+    log = context.log
+    counts: dict[str, dict[int, int]] = {"4": {}, "5": {}}
+    for placement in found.values():
+        bucket = counts.get(placement.view)
+        if bucket is None:
+            continue
+        bucket[placement.device_id] = bucket.get(placement.device_id, 0) + 1
+
+    rows_by_id = {row.get(cols.H_DEV_ID): row for row in device_rows}
+    stats.view4_devices = len(counts["4"])
+    stats.view5_devices = len(counts["5"])
+
+    def rows_for(view: str) -> list[dict[str, Any]]:
+        result = []
+        for device_id in sorted(counts[view], key=lambda key: (project.poz_of(key), key)):
+            row = rows_by_id.get(device_id)
+            if row is not None:
+                result.append(row)
+        return result
+
+    view4_rows = rows_for("4")
+    view5_source = rows_for("5")
+
+    view5_rows: list[dict[str, Any]] = []
+    for row in view5_source:
+        device_id = row.get(cols.H_DEV_ID)
+        here = counts["5"].get(device_id, 0)
+        there = counts["4"].get(device_id, 0)
+        if there == 0:
+            check = "нет на ФСА"
+            stats.view_mismatch += 1
+        elif there == here:
+            check = "совпадает"
+        else:
+            check = "число размещений разное"
+            stats.view_mismatch += 1
+        view5_rows.append(
+            {
+                **row,
+                cols.H_COUNT_HERE: here,
+                cols.H_COUNT_OTHER_VIEW: there,
+                cols.H_ON_OTHER_VIEW: "да" if there else "нет",
+                cols.H_CHECK: check,
+            }
+        )
+
+    log.info(
+        f"Вкладки по видам: ФСА (вид 4) — изделий {len(view4_rows)}, "
+        f"схема соединений (вид 5) — изделий {len(view5_rows)}"
+    )
+    if stats.view_mismatch:
+        log.info(
+            f"  расхождений между видами: {stats.view_mismatch} — "
+            f"см. столбец «{cols.H_CHECK}» на вкладке «{cols.SHEET_VIEW5}»"
+        )
+
+    return [
+        SheetData(
+            name=cols.SHEET_VIEW4,
+            headers=cols.VIEW_DEVICE_HEADERS,
+            rows=view4_rows,
+            numeric=set(cols.NUMERIC_HEADERS),
+        ),
+        SheetData(
+            name=cols.SHEET_VIEW5,
+            headers=cols.VIEW5_DEVICE_HEADERS,
+            rows=view5_rows,
+            numeric=set(cols.NUMERIC_HEADERS),
+        ),
+    ]
 
 
 def _sheet_rows(project: Project) -> list[dict[str, Any]]:
@@ -622,6 +909,7 @@ def _sheet_rows(project: Project) -> list[dict[str, Any]]:
                 cols.H_XMAX: info.xmax,
                 cols.H_YMAX: info.ymax,
                 cols.H_FOOTER_Y: info.footer_y or "",
+                cols.H_ZONE_SOURCE: info.zone_source,
             }
         )
     return rows
@@ -634,6 +922,11 @@ def _log_summary(log: Any, stats: ExportStats, options: ExportOptions) -> None:
         f"Из них с координатами: {min(stats.placed_devices, stats.devices)}, "
         f"без координат: {without}"
     )
+    if options.with_view_sheets:
+        log.info(
+            f"Вкладка «{cols.SHEET_VIEW4}»: изделий {stats.view4_devices}; "
+            f"вкладка «{cols.SHEET_VIEW5}»: изделий {stats.view5_devices}"
+        )
     if options.with_placements:
         log.info(f"Размещений всего: {stats.placements} символов у {stats.placed_devices} объектов")
         if options.split_zones:
@@ -641,10 +934,16 @@ def _log_summary(log: Any, stats: ExportStats, options: ExportOptions) -> None:
                 f"  лист «{cols.SHEET_SCHEMA}»: {stats.schema_rows}, "
                 f"лист «{cols.SHEET_FOOTER}»: {stats.footer_rows}"
             )
+            log.info(
+                f"  из них по имени символа определено листов: {stats.sheets_footer_by_name}, "
+                f"по геометрии: {max(stats.sheets_with_footer - stats.sheets_footer_by_name, 0)}"
+            )
     if stats.matched_by_text:
         log.info(f"Опознано по надписи на символе: {stats.matched_by_text}")
     if options.with_connections:
         log.info(f"Соединений (сегментов проводов): {stats.segments}, точек ломаных: {stats.points}")
+    if options.with_texts:
+        log.info(f"Надписей на листах: {stats.texts}")
     if options.with_sheets:
         log.info(f"Листов описано в таблице «{cols.SHEET_SHEETS}»: {stats.sheets}")
     if stats.symbols_without_device:

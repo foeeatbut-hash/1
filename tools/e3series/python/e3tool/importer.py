@@ -48,6 +48,11 @@ class ImportOptions:
     apply_sheet_views: bool = False
     #: Создавать листы, которых в проекте нет (по таблице «Листы»).
     create_sheets: bool = False
+    #: Переносить существующие надписи: текст и координаты берутся из Excel.
+    move_texts: bool = True
+    #: Создавать надписи, которых в проекте нет. По умолчанию нет: строка без
+    #: ID надписи легко появляется случайно, а лишний текст на чертеже виден.
+    create_texts: bool = False
     save_project: bool = False
     dry_run: bool = False
 
@@ -65,11 +70,37 @@ class ImportStats:
     sheets_created: int = 0
     sheets_reformatted: int = 0
     sheets_reviewed: int = 0
+    texts_moved: int = 0
+    texts_retyped: int = 0
+    texts_created: int = 0
+    texts_skipped: int = 0
     skipped: int = 0
     errors: int = 0
     no_component: int = 0
     components_without_symbol: Counter = field(default_factory=Counter)
     stopped: bool = False
+
+
+def changed_count(stats: ImportStats) -> int:
+    """Сколько всего изменений внесено в проект.
+
+    Живёт отдельной функцией, потому что этот же счёт нужен рабочему потоку:
+    по нему решается, надо ли подтверждать транзакцию E3. Забыть здесь новый
+    счётчик значит потерять изменения при выходе — поэтому место одно.
+    """
+    return (
+        stats.created
+        + stats.updated
+        + stats.placed
+        + stats.moved
+        + stats.connections_made
+        + stats.sheets_created
+        + stats.sheets_reformatted
+        + stats.sheets_reviewed
+        + stats.texts_moved
+        + stats.texts_retyped
+        + stats.texts_created
+    )
 
 
 def run_import(
@@ -89,43 +120,65 @@ def run_import(
 
     devices_table = find_table(tables, cols.SHEET_DEVICES)
     if devices_table is None:
+        # Вкладки видов — те же изделия, только разложенные по ФСА и схеме
+        # соединений. Если главного листа нет, они годятся вместо него.
+        for name in (cols.SHEET_VIEW4, cols.SHEET_VIEW5):
+            candidate = find_table(tables, name)
+            if candidate is not None and candidate.has_column(cols.H_POZ):
+                devices_table = candidate
+                log.info(f"Листа «{cols.SHEET_DEVICES}» нет — беру «{name}».")
+                break
+    if devices_table is None:
         # Лист мог называться иначе (в старом шаблоне он «Devices»): берём первый,
         # где есть столбец с обозначением, а служебные листы не трогаем.
         for name, table in tables.items():
             if name.strip().lower() in cols.SERVICE_SHEET_NAMES:
                 continue
+            if name.strip().lower() in cols.REPORT_SHEET_NAMES:
+                continue
             if table.has_column(cols.H_POZ):
                 devices_table = table
                 break
+    if devices_table is not None and not devices_table.has_column(cols.H_POZ):
+        log.warn(f"На листе «{devices_table.name}» нет столбца «{cols.H_POZ}» — изделия пропускаю.")
+        devices_table = None
     if devices_table is None:
-        log.warn("В файле нет листов с данными.")
-        return stats
-    log.info(f"Лист изделий: «{devices_table.name}», строк данных: {len(devices_table)}")
-
-    if not devices_table.has_column(cols.H_POZ):
-        log.warn(f"В шапке нет столбца «{cols.H_POZ}» — импорт невозможен.")
-        return stats
+        # Книга без листа изделий — не ошибка: так выглядит файл, где правили
+        # только надписи, рамки листов или координаты. Изделия пропускаем,
+        # остальные шаги делаем как обычно.
+        if not tables:
+            log.warn("В файле нет листов с данными.")
+            return stats
+        log.info(f"Листа «{cols.SHEET_DEVICES}» в книге нет — изделия и атрибуты не трогаю.")
+    else:
+        log.info(f"Лист изделий: «{devices_table.name}», строк данных: {len(devices_table)}")
 
     placement_tables = _placement_tables(tables, devices_table)
     if options.place_symbols:
         if placement_tables:
             listed = ", ".join(f"«{table.name}» ({len(table)})" for table in placement_tables)
             log.info(f"Таблицы размещений: {listed} — размещаю посимвольно по ним.")
-        else:
+        elif devices_table is not None:
             log.info(
                 "Отдельных таблиц размещения в файле нет — координаты беру "
                 f"с листа «{devices_table.name}»."
             )
 
-    attribute_headers = cols.attribute_headers_of(devices_table.headers)
+    attribute_headers = (
+        cols.attribute_headers_of(devices_table.headers) if devices_table is not None else []
+    )
+    if devices_table is not None:
+        _warn_about_report_tabs(tables, devices_table, attribute_headers, context)
 
     # --- шаг 0: листы (рамки и виды) ------------------------------------------
     _apply_sheets(project, tables, devices_table, placement_tables, options, context, stats)
 
     # --- шаг 1: изделия -------------------------------------------------------
-    _apply_devices(
-        project, devices_table, attribute_headers, options, context, stats, bool(placement_tables)
-    )
+    if devices_table is not None:
+        _apply_devices(
+            project, devices_table, attribute_headers, options, context, stats,
+            bool(placement_tables),
+        )
 
     # --- шаг 2: размещения ----------------------------------------------------
     if options.place_symbols and not stats.stopped:
@@ -134,7 +187,13 @@ def run_import(
                 break
             _apply_placements(project, table, options, context, stats)
 
-    # --- шаг 3: провода -------------------------------------------------------
+    # --- шаг 3: надписи -------------------------------------------------------
+    if (options.move_texts or options.create_texts) and not stats.stopped:
+        texts_table = find_table(tables, cols.SHEET_TEXTS)
+        if texts_table is not None:
+            _apply_texts(project, texts_table, options, context, stats)
+
+    # --- шаг 4: провода -------------------------------------------------------
     if options.create_connections and not stats.stopped:
         connections_table = find_table(tables, cols.SHEET_CONNECTIONS)
         if connections_table is None:
@@ -145,16 +204,7 @@ def run_import(
             _apply_connections(project, connections_table, options, context, stats)
 
     # --- завершение -----------------------------------------------------------
-    changed = (
-        stats.created
-        + stats.updated
-        + stats.placed
-        + stats.moved
-        + stats.connections_made
-        + stats.sheets_created
-        + stats.sheets_reformatted
-        + stats.sheets_reviewed
-    )
+    changed = changed_count(stats)
     if options.save_project and not options.dry_run and changed:
         if project.app.save():
             log.info("Проект сохранён.")
@@ -168,7 +218,7 @@ def run_import(
 # ------------------------------------------------------------------------------
 #  Выбор таблиц книги
 # ------------------------------------------------------------------------------
-def _placement_tables(tables: dict[str, Table], devices_table: Table) -> list[Table]:
+def _placement_tables(tables: dict[str, Table], devices_table: Table | None) -> list[Table]:
     """Все таблицы книги, которые описывают размещение символов.
 
     Сначала — известные по имени: «Схема», «Подвал» и старая общая «Размещения».
@@ -176,7 +226,7 @@ def _placement_tables(tables: dict[str, Table], devices_table: Table) -> list[Ta
     где пользователь развёл размещения по своим вкладкам.
     """
     result: list[Table] = []
-    taken: set[int] = {id(devices_table)}
+    taken: set[int] = {id(devices_table)} if devices_table is not None else set()
 
     def suitable(table: Table) -> bool:
         return (
@@ -191,7 +241,13 @@ def _placement_tables(tables: dict[str, Table], devices_table: Table) -> list[Ta
             result.append(table)
             taken.add(id(table))
 
-    skip = {cols.SHEET_CONNECTIONS.lower(), cols.SHEET_SHEETS.lower(), cols.SHEET_DEVICES.lower()}
+    skip = {
+        cols.SHEET_CONNECTIONS.lower(),
+        cols.SHEET_TEXTS.lower(),
+        cols.SHEET_SHEETS.lower(),
+        cols.SHEET_DEVICES.lower(),
+        *cols.REPORT_SHEET_NAMES,
+    }
     for name, table in tables.items():
         if id(table) in taken or name.strip().lower() in skip:
             continue
@@ -201,13 +257,58 @@ def _placement_tables(tables: dict[str, Table], devices_table: Table) -> list[Ta
     return result
 
 
+def _warn_about_report_tabs(
+    tables: dict[str, Table],
+    devices_table: Table,
+    attribute_headers: list[str],
+    context: Context,
+) -> None:
+    """Сообщает, если правку сделали на вкладке-отчёте, а не на главном листе.
+
+    Вкладки «ФСА (вид 4)» и «Схема соединений (вид 5)» показывают те же изделия
+    и в проект не применяются: иначе одно изделие записывалось бы трижды, а
+    правка на главном листе была бы затёрта неизменённой копией со вкладки вида.
+    Молча проглотить такую правку нельзя — пользователь решит, что программа её
+    потеряла, поэтому здесь она находится и называется поимённо.
+    """
+    log = context.log
+    main_by_poz = {row.text(cols.H_POZ): row for row in devices_table.rows}
+    for name in (cols.SHEET_VIEW4, cols.SHEET_VIEW5):
+        table = find_table(tables, name)
+        if table is None or table is devices_table:
+            continue
+        differences: list[str] = []
+        for row in table.rows:
+            poz = row.text(cols.H_POZ)
+            main = main_by_poz.get(poz)
+            if main is None:
+                differences.append(f"{poz}: нет на листе «{devices_table.name}»")
+                continue
+            for header in attribute_headers:
+                here = row.text(header)
+                there = main.text(header)
+                if here != there:
+                    differences.append(f"{poz}, «{header}»: «{there}» -> «{here}»")
+        if not differences:
+            continue
+        log.warn(
+            f"Вкладка «{table.name}» — это отчёт, в проект она не применяется. "
+            f"Найдено правок, которые будут потеряны: {len(differences)}. "
+            f"Перенесите их на лист «{devices_table.name}»."
+        )
+        for line in differences[:10]:
+            log.warn(f"  {line}")
+        if len(differences) > 10:
+            log.warn(f"  …и ещё {len(differences) - 10}")
+
+
 # ------------------------------------------------------------------------------
 #  Шаг 0: листы — рамки (форматы) и виды
 # ------------------------------------------------------------------------------
 def _apply_sheets(
     project: Project,
     tables: dict[str, Table],
-    devices_table: Table,
+    devices_table: Table | None,
     placement_tables: list[Table],
     options: ImportOptions,
     context: Context,
@@ -249,7 +350,13 @@ def _apply_sheets(
 
     # Формат мог быть исправлен прямо в строке элемента — это тоже учитываем.
     if options.apply_sheet_formats:
-        for source in [devices_table, *placement_tables, find_table(tables, cols.SHEET_CONNECTIONS)]:
+        sources = [
+            devices_table,
+            *placement_tables,
+            find_table(tables, cols.SHEET_CONNECTIONS),
+            find_table(tables, cols.SHEET_TEXTS),
+        ]
+        for source in sources:
             if source is None or not source.has_column(cols.H_FORMAT):
                 continue
             for sheet_id, wanted_format in _formats_from_rows(project, source, log).items():
@@ -486,7 +593,7 @@ def _create_device(
 
     new_id = e3api.device_id(device)
     if new_id > 0:
-        project.remember_new_device(new_id, poz)
+        project.remember_new_device(new_id, poz, component)
     else:
         # GetId недоступен — перечитываем список изделий, иначе размещать нечего.
         project.load_devices()
@@ -686,7 +793,147 @@ def _place_one(
 
 
 # ------------------------------------------------------------------------------
-#  Шаг 3: провода
+#  Шаг 3: надписи
+# ------------------------------------------------------------------------------
+def _apply_texts(
+    project: Project,
+    table: Table,
+    options: ImportOptions,
+    context: Context,
+    stats: ImportStats,
+) -> None:
+    """Переносит свободные надписи листов: текст и координаты.
+
+    Надпись адресуется своим ID. Перед записью проверяется, что надпись с этим
+    ID и правда лежит на том листе, который указан в строке: если книгу
+    загрузить в другой проект, тот же ID окажется у совсем другого текста, и
+    молча его переписать было бы хуже всего. Не совпало — строка пропускается
+    с внятным сообщением.
+    """
+    log = context.log
+    text_obj = project.app.text()
+    if text_obj is None:
+        log.warn("Объект надписи создать не удалось — надписи пропускаю.")
+        return
+    graph = project.app.graph() if options.create_texts else None
+
+    total = len(table)
+    log.info(f"Надписи по таблице «{table.name}»: строк {total}")
+    for index, row in enumerate(table.rows, start=1):
+        if context.stopped():
+            stats.stopped = True
+            log.info("Перенос надписей прерван пользователем.")
+            return
+        if index % 20 == 0 or index == total:
+            context.progress(index, total, "надписи")
+            project.app.breathe()
+
+        value = row.text(cols.H_TEXT)
+        if not value:
+            continue
+        x = row.num(cols.H_X)
+        y = row.num(cols.H_Y)
+        if x is None or y is None:
+            stats.texts_skipped += 1
+            continue
+
+        target_sheet = project.find_allowed_sheet(
+            row.text(cols.H_SHEET), row.integer(cols.H_SHEET_ID, 0), row.text(cols.H_VIEW)
+        )
+        if target_sheet <= 0:
+            stats.texts_skipped += 1
+            log.detail(f"  [{row.number}] надпись пропущена: лист не найден")
+            continue
+
+        text_id = row.integer(cols.H_TEXT_ID, 0)
+        if text_id > 0 and options.move_texts:
+            _move_one_text(
+                project, text_obj, text_id, target_sheet, value, x, y, options, stats, log, row
+            )
+        elif options.create_texts:
+            _create_one_text(
+                project, graph, target_sheet, value, x, y, row.num(cols.H_ROT) or 0.0,
+                options, stats, log, row,
+            )
+        else:
+            stats.texts_skipped += 1
+
+
+def _move_one_text(
+    project: Project,
+    text_obj: Any,
+    text_id: int,
+    target_sheet: int,
+    value: str,
+    x: float,
+    y: float,
+    options: ImportOptions,
+    stats: ImportStats,
+    log: Any,
+    row: Row,
+) -> None:
+    if not e3api.set_id(text_obj, text_id):
+        stats.texts_skipped += 1
+        return
+    current = e3api.text_value(text_obj, text_id)
+    location = e3api.text_location(text_obj)
+    if location is None or location.sheet_id != target_sheet:
+        stats.texts_skipped += 1
+        log.detail(
+            f"  [{row.number}] надпись {text_id} лежит не на том листе "
+            f"({location.sheet_id if location else 0} вместо {target_sheet}) — не трогаю. "
+            "Так бывает, когда книгу загружают в другой проект."
+        )
+        return
+
+    same_place = abs(location.x - x) < 1e-6 and abs(location.y - y) < 1e-6
+    if same_place and current == value:
+        return
+    if options.dry_run:
+        log.detail(f"  проверка: надпись {text_id} -> ({fmt(x)}, {fmt(y)}) «{value}»")
+        return
+
+    if current != value and e3api.set_text(text_obj, value):
+        stats.texts_retyped += 1
+        log.detail(f"  надпись {text_id}: «{current}» -> «{value}»")
+    if not same_place:
+        if e3api.set_text_location(text_obj, x, y):
+            stats.texts_moved += 1
+        else:
+            stats.errors += 1
+            log.warn(f"  надпись {text_id}: перенести в ({fmt(x)}, {fmt(y)}) не удалось.")
+
+
+def _create_one_text(
+    project: Project,
+    graph: Any,
+    target_sheet: int,
+    value: str,
+    x: float,
+    y: float,
+    rotation: float,
+    options: ImportOptions,
+    stats: ImportStats,
+    log: Any,
+    row: Row,
+) -> None:
+    if options.dry_run:
+        log.detail(
+            f"  проверка: была бы создана надпись «{value}» на листе "
+            f"«{project.sheet_name_of(target_sheet)}» ({fmt(x)}, {fmt(y)})"
+        )
+        return
+    new_id = e3api.create_text(graph, target_sheet, value, x, y, rotation)
+    if new_id > 0:
+        stats.texts_created += 1
+        log.detail(f"  создана надпись {new_id}: «{value}»")
+    else:
+        stats.errors += 1
+        log.warn(f"  [{row.number}] надпись «{value}» создать не удалось.")
+
+
+# ------------------------------------------------------------------------------
+#  Шаг 4: провода
 # ------------------------------------------------------------------------------
 def _apply_connections(
     project: Project,
@@ -797,6 +1044,11 @@ def _log_summary(context: Context, options: ImportOptions, stats: ImportStats) -
             )
         if stats.bad_coordinates:
             log.warn(f"Координаты не совпали после записи: {stats.bad_coordinates}")
+    if options.move_texts or options.create_texts:
+        log.info(
+            f"Надписи: перенесено {stats.texts_moved}, переписано {stats.texts_retyped}, "
+            f"создано {stats.texts_created}, пропущено {stats.texts_skipped}"
+        )
     if options.create_connections:
         log.info(f"Создано соединений: {stats.connections_made}")
         if stats.connections_failed:

@@ -3,8 +3,8 @@
 Набор и порядок столбцов 1..63 повторяют HTA-версию байт в байт, чтобы файлы,
 выгруженные старой программой, читались новой и наоборот. Столбцы 1..53 — те же,
 что в исходном шаблоне пользователя; 54..63 добавлены для координат; 64.. — вид
-листа, формат листа и число размещений. Новые столбцы всегда дописываются в
-конец: файл, сделанный прошлой версией, читается без правок.
+листа, формат листа и число размещений; далее — атрибуты сигналов. Новые столбцы
+всегда дописываются в конец: файл, сделанный прошлой версией, читается без правок.
 
 Про виды и зоны листа
 ---------------------
@@ -17,6 +17,16 @@
 таблицу внизу листа, где те же изделия перечислены построчно. Одно изделие
 поэтому размещено на листе дважды. Чтобы в одной таблице Excel изделие не
 повторялось, размещения выгружаются на два листа книги: «Схема» и «Подвал».
+
+Какие листы получаются в книге
+------------------------------
+1.  «Изделия» — всё, что есть в проекте: по строке на объект.
+2.  «ФСА (вид 4)» — изделия функциональной схемы с их атрибутами.
+3.  «Схема соединений (вид 5)» — то же для вида 5 плюс сверка с видом 4.
+4.  «Схема» и «Подвал» — размещения символов по зонам чертежа.
+5.  «Соединения» — ломаные проводов, «Надписи» — свободные тексты листов.
+6.  «Листы» — виды, рамки и габариты листов.
+7.  «Сверка сигналов» — отчёт DI/DO/AI/AO вида 4 против вида 5.
 """
 
 from __future__ import annotations
@@ -25,17 +35,26 @@ from .util import header_key
 
 # --- имена листов книги --------------------------------------------------------
 SHEET_DEVICES = "Изделия"
+SHEET_VIEW4 = "ФСА (вид 4)"
+SHEET_VIEW5 = "Схема соединений (вид 5)"
 SHEET_SCHEMA = "Схема"
 SHEET_FOOTER = "Подвал"
 #: Одна общая таблица размещений — так называла её прошлая версия. Читается
 #: по-прежнему, чтобы старые файлы загружались без переделки.
 SHEET_PLACEMENTS = "Размещения"
 SHEET_CONNECTIONS = "Соединения"
+SHEET_TEXTS = "Надписи"
 SHEET_SHEETS = "Листы"
+SHEET_SIGNALS = "Сверка сигналов"
 
 # --- зоны листа ---------------------------------------------------------------
 ZONE_SCHEMA = "схема"
 ZONE_FOOTER = "подвал"
+
+#: Признак символа подвала в базе E3. Правило взято из рабочего скрипта сверки:
+#: подвальные символы и компоненты названы «Подвал_…», и это надёжнее любой
+#: геометрии — по имени видно назначение символа, а не его место на листе.
+FOOTER_MARKER = "подвал_"
 
 #: Расшифровка .PREFERRED_VIEW для человека — пишется в лист «Листы».
 VIEW_TITLES: dict[str, str] = {
@@ -133,6 +152,47 @@ ATTRIBUTE_HEADERS: list[str] = [
     "Клемма (2)",
 ]
 
+# --- атрибуты сверки сигналов --------------------------------------------------
+#: Имена взяты из рабочего скрипта сверки — менять их нельзя, иначе отчёт
+#: перестанет находить данные в проекте.
+A_DI = "!Dev_OpisaniePR_DI"
+A_DO = "!Dev_OpisaniePR_DO"
+A_AI = "!Dev_OpisaniePR_AI"
+A_AO = "!Dev_OpisaniePR_AO"
+A_POS_DES = "dip_Fnumber"
+A_FULL_TAG = "dip_F_tag"
+A_SHORT_TAG = "dip_SH_tag"
+A_SHORT_DESC = "*Описание краткое"
+A_DEVICE_TYPE = "dip_type"
+
+#: Счётчики сигналов — именно их складывает сверка.
+SIGNAL_KINDS: tuple[tuple[str, str], ...] = (
+    ("DI", A_DI),
+    ("DO", A_DO),
+    ("AI", A_AI),
+    ("AO", A_AO),
+)
+
+SIGNAL_ID_ATTRIBUTES: tuple[str, ...] = tuple(f"ID Сигнала {number}" for number in range(1, 6))
+
+#: Объекты этих типов в сверке не участвуют: кабели, клеммники и коробки
+#: сигналов не несут, но стоят на обоих видах и портили бы итог.
+EXCLUDED_DEVICE_TYPES: frozenset[str] = frozenset({"cable", "xt", "jb"})
+
+#: Атрибуты сверки, дописанные в конец листа «Изделия»: без них книга не
+#: описывает изделие целиком, и обратная загрузка теряет сигнальные данные.
+SIGNAL_HEADERS: list[str] = [
+    A_DI,
+    A_DO,
+    A_AI,
+    A_AO,
+    A_POS_DES,
+    A_FULL_TAG,
+    A_SHORT_TAG,
+    A_DEVICE_TYPE,
+    *SIGNAL_ID_ATTRIBUTES,
+]
+
 DEVICE_HEADERS: list[str] = (
     [H_POZ, H_COMP]
     + ATTRIBUTE_HEADERS
@@ -153,11 +213,31 @@ DEVICE_HEADERS: list[str] = (
         H_ZONE,
         H_PLACED_COUNT,
     ]
+    # Дописано после 67-го столбца — снова в конец, старые файлы не ломаются.
+    + SIGNAL_HEADERS
 )
+
+# --- листы «ФСА (вид 4)» и «Схема соединений (вид 5)» -------------------------
+#: Столбцы сверки на листе вида 5: сравнение с видом 4 идёт следующим шагом,
+#: поэтому результат виден прямо в строке изделия.
+H_ON_OTHER_VIEW = "Есть на ФСА"
+H_COUNT_OTHER_VIEW = "Размещений на ФСА"
+H_COUNT_HERE = "Размещений здесь"
+H_CHECK = "Статус сверки"
+
+VIEW_DEVICE_HEADERS: list[str] = list(DEVICE_HEADERS)
+VIEW5_DEVICE_HEADERS: list[str] = list(DEVICE_HEADERS) + [
+    H_COUNT_HERE,
+    H_COUNT_OTHER_VIEW,
+    H_ON_OTHER_VIEW,
+    H_CHECK,
+]
 
 # --- листы «Схема» и «Подвал» (размещения) ------------------------------------
 H_SYM_NR = "№ символа"
 H_OBJ_TYPE = "Тип объекта"
+#: Как определена зона: по имени символа в базе или по геометрии листа.
+H_ZONE_SOURCE = "Зона определена"
 
 PLACEMENT_HEADERS: list[str] = [
     H_POZ,
@@ -175,6 +255,28 @@ PLACEMENT_HEADERS: list[str] = [
     H_MIRROR,
     H_DEV_ID,
     H_OBJ_TYPE,
+    H_ZONE_SOURCE,
+]
+
+# --- лист «Надписи» -----------------------------------------------------------
+H_TEXT_ID = "ID надписи"
+H_TEXT = "Текст"
+H_TEXT_TYPE = "Тип надписи"
+H_TEXT_HEIGHT = "Высота"
+
+TEXT_HEADERS: list[str] = [
+    H_TEXT_ID,
+    H_SHEET,
+    H_SHEET_ID,
+    H_VIEW,
+    H_FORMAT,
+    H_ZONE,
+    H_X,
+    H_Y,
+    H_ROT,
+    H_TEXT_HEIGHT,
+    H_TEXT_TYPE,
+    H_TEXT,
 ]
 
 # --- лист «Соединения» --------------------------------------------------------
@@ -213,10 +315,12 @@ SHEET_HEADERS: list[str] = [
     H_XMAX,
     H_YMAX,
     H_FOOTER_Y,
+    H_ZONE_SOURCE,
 ]
 
 #: Столбцы с координатами — форматируются как числа «0.00».
 NUMERIC_HEADERS = {H_X, H_Y}
+TEXT_NUMERIC_HEADERS = {H_X, H_Y, H_TEXT_HEIGHT}
 SHEET_NUMERIC_HEADERS = {H_XMIN, H_YMIN, H_XMAX, H_YMAX, H_FOOTER_Y}
 
 #: Служебные столбцы: в изделие как атрибуты не пишутся.
@@ -252,6 +356,15 @@ SERVICE_HEADERS: set[str] = {
         H_YMIN,
         H_XMAX,
         H_YMAX,
+        H_ZONE_SOURCE,
+        H_TEXT_ID,
+        H_TEXT,
+        H_TEXT_TYPE,
+        H_TEXT_HEIGHT,
+        H_ON_OTHER_VIEW,
+        H_COUNT_OTHER_VIEW,
+        H_COUNT_HERE,
+        H_CHECK,
     )
 }
 
@@ -259,8 +372,21 @@ SERVICE_HEADERS: set[str] = {
 #: и таблиц размещения они разбираются отдельно.
 SERVICE_SHEET_NAMES: set[str] = {
     name.lower()
-    for name in (SHEET_SCHEMA, SHEET_FOOTER, SHEET_PLACEMENTS, SHEET_CONNECTIONS, SHEET_SHEETS)
+    for name in (
+        SHEET_SCHEMA,
+        SHEET_FOOTER,
+        SHEET_PLACEMENTS,
+        SHEET_CONNECTIONS,
+        SHEET_TEXTS,
+        SHEET_SHEETS,
+        SHEET_SIGNALS,
+    )
 }
+
+#: Листы-отчёты: их данные производны от «Изделий», обратно они не применяются.
+#: Иначе одно и то же изделие записалось бы трижды и правка на главном листе
+#: была бы затёрта неизменённой копией со вкладки вида.
+REPORT_SHEET_NAMES: set[str] = {name.lower() for name in (SHEET_VIEW4, SHEET_VIEW5, SHEET_SIGNALS)}
 
 #: Порядок, в котором читаются таблицы размещения: сначала схема, потом подвал.
 PLACEMENT_SHEET_ORDER: tuple[str, ...] = (SHEET_SCHEMA, SHEET_FOOTER, SHEET_PLACEMENTS)

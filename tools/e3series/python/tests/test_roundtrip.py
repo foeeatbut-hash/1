@@ -126,11 +126,15 @@ def test_export_placements_split_into_schema_and_footer():
 
     # Изделие 101 стоит на листе «1» дважды: в схемной части и в подвале.
     # В каждой вкладке оно должно встретиться ровно один раз.
-    assert [row[cols.H_POZ] for row in footer.rows] == ["094-XVM-1201A"]
-    assert footer.rows[0][cols.H_Y] == 32.0
-    assert footer.rows[0][cols.H_ZONE] == cols.ZONE_FOOTER
+    footer_poz = [row[cols.H_POZ] for row in footer.rows]
+    assert footer_poz.count("094-XVM-1201A") == 1
+    assert footer_poz.count("094-FT-1208") == 1
+    assert [row[cols.H_ZONE] for row in footer.rows] == [cols.ZONE_FOOTER] * len(footer.rows)
     assert [row[cols.H_POZ] for row in schema.rows].count("094-XVM-1201A") == 1
     assert stats.sheets_with_footer == 1
+    # Подвал опознан по имени типа символа, а не по координате.
+    assert stats.sheets_footer_by_name == 1
+    assert all(row[cols.H_ZONE_SOURCE] == "по имени символа" for row in footer.rows)
 
 
 def test_export_single_table_when_split_disabled():
@@ -187,8 +191,10 @@ def test_export_sheets_table_describes_views_and_formats():
     assert by_id[14][cols.H_SHEET] == by_id[11][cols.H_SHEET] == "1"
     assert by_id[14][cols.H_VIEW] == "5"
     assert by_id[14][cols.H_FORMAT] == "A3_ГОСТ"
-    # Граница подвала выгружена — по ней видно, где программа разделила лист.
-    assert by_id[11][cols.H_FOOTER_Y]
+    # Видно, чем программа разделила лист. Здесь — именем символа, поэтому
+    # граница по Y не нужна и остаётся пустой.
+    assert by_id[11][cols.H_ZONE_SOURCE] == "по имени символа"
+    assert not by_id[11][cols.H_FOOTER_Y]
 
 
 def test_export_footer_not_invented_on_schema_only_sheet():
@@ -766,7 +772,8 @@ def test_full_roundtrip_with_both_views_restores_every_placement():
     source = fake_e3.sample_model()
     project, log = make_project(source, {"4", "5"})
     sheets, stats = run_export(project, ExportOptions(views={"4", "5"}), Context(log))
-    assert stats.footer_rows == 1
+    # Подвал ФСА: два символа с типом «Подвал_…».
+    assert stats.footer_rows == 2
 
     with tempfile.TemporaryDirectory() as folder:
         path = os.path.join(folder, "both_views.xlsx")
@@ -816,7 +823,12 @@ def test_second_export_of_same_project_is_identical():
     second, _ = run_export(project, ExportOptions(views={"4", "5"}), Context(log))
     assert [sheet.name for sheet in first] == [sheet.name for sheet in second]
     for left, right in zip(first, second):
-        assert left.rows == right.rows, left.name
+        if hasattr(left, "blocks"):
+            assert [block.rows for block in left.blocks] == [
+                block.rows for block in right.blocks
+            ], left.name
+        else:
+            assert left.rows == right.rows, left.name
 
 
 # --- задания рабочего потока --------------------------------------------------
@@ -1025,6 +1037,269 @@ def test_worker_release_job_frees_e3_on_demand():
     unit._dispatch(wk.ReleaseJob())
     assert unit.app is None
     assert model.dialogs_enabled is True
+
+
+# --- вкладки по видам ---------------------------------------------------------
+def test_export_view_tabs_split_devices_by_preferred_view():
+    """Вторая и третья вкладки — изделия вида 4 и вида 5, каждое по разу."""
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4", "5"})
+    sheets, stats = run_export(project, ExportOptions(views={"4", "5"}), Context(log))
+
+    view4 = sheet_named(sheets, cols.SHEET_VIEW4)
+    view5 = sheet_named(sheets, cols.SHEET_VIEW5)
+
+    poz4 = [row[cols.H_POZ] for row in view4.rows]
+    poz5 = [row[cols.H_POZ] for row in view5.rows]
+    # Изделие 101 стоит на ФСА дважды (схема и подвал) — в таблице оно один раз.
+    assert poz4.count("094-XVM-1201A") == 1
+    assert "094-XVM-1201A" not in poz5
+    # Изделие 108 есть на обоих видах — по строке на каждой вкладке.
+    assert "094-FT-1208" in poz4 and "094-FT-1208" in poz5
+    # Изделие только вида 5 на вкладку ФСА не попадает.
+    assert "094-XV-1206" in poz5 and "094-XV-1206" not in poz4
+    assert stats.view4_devices == len(poz4)
+    assert stats.view5_devices == len(poz5)
+
+
+def test_view5_tab_compares_itself_with_view4():
+    """Третья вкладка обрабатывается следующим шагом: сверка с видом 4."""
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4", "5"})
+    sheets, _ = run_export(project, ExportOptions(views={"4", "5"}), Context(log))
+
+    rows = rows_by_poz(sheet_named(sheets, cols.SHEET_VIEW5).rows)
+
+    # 108: два размещения на ФСА (схема и подвал) против одного здесь.
+    flow = rows["094-FT-1208"]
+    assert flow[cols.H_ON_OTHER_VIEW] == "да"
+    assert flow[cols.H_COUNT_OTHER_VIEW] == 2
+    assert flow[cols.H_COUNT_HERE] == 1
+    assert flow[cols.H_CHECK] == "число размещений разное"
+
+    # 106 живёт только на схеме соединений — на ФСА его нет вовсе.
+    only5 = rows["094-XV-1206"]
+    assert only5[cols.H_ON_OTHER_VIEW] == "нет"
+    assert only5[cols.H_CHECK] == "нет на ФСА"
+
+
+def test_view_tabs_carry_signal_attributes():
+    """Атрибуты сверки должны быть в книге, иначе сигналы теряются."""
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4"})
+    sheets, _ = run_export(project, ExportOptions(views={"4"}), Context(log))
+    row = rows_by_poz(sheets[0].rows)["094-XVM-1201A"]
+    assert row[cols.A_DI] == "2"
+    assert row[cols.A_DO] == "1"
+    assert row[cols.A_FULL_TAG] == "094-XVM-1201A"
+    assert row["ID Сигнала 1"] == "S-001"
+
+
+def test_report_tabs_are_not_applied_back_but_edits_are_reported():
+    """Правка на вкладке-отчёте не применяется — и об этом сказано в журнале."""
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4"})
+    log.verbose = True
+
+    devices = _table_from_rows(
+        cols.SHEET_DEVICES,
+        cols.DEVICE_HEADERS,
+        [{cols.H_POZ: "094-XVM-1201A", "*Описание краткое": "исходное"}],
+    )
+    report = _table_from_rows(
+        cols.SHEET_VIEW4,
+        cols.VIEW_DEVICE_HEADERS,
+        [{cols.H_POZ: "094-XVM-1201A", "*Описание краткое": "правка на отчёте"}],
+    )
+    run_import(
+        project,
+        {cols.SHEET_DEVICES: devices, cols.SHEET_VIEW4: report},
+        ImportOptions(views={"4"}, place_symbols=False, create_missing=False),
+        Context(log),
+    )
+    # В проект попало значение с главного листа, а не с отчёта.
+    assert model.devices[101].attributes["*Описание краткое"] == "исходное"
+    warnings = [line for line in log.lines if "отчёт" in line]
+    assert warnings, log.lines
+    assert any("Описание краткое" in line for line in log.lines)
+
+
+# --- надписи ------------------------------------------------------------------
+def test_export_collects_free_texts_and_skips_symbol_labels():
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4", "5"})
+    sheets, stats = run_export(project, ExportOptions(views={"4", "5"}), Context(log))
+
+    table = sheet_named(sheets, cols.SHEET_TEXTS)
+    values = {row[cols.H_TEXT] for row in table.rows}
+    assert "ПРИМЕЧАНИЕ: уставки уточняются" in values
+    assert "Схема соединений шкафа" in values
+    # Надпись символа 1005 («094-PT-1205») принадлежит символу — её не берём.
+    assert "094-PT-1205" not in values
+    assert stats.texts_of_symbols >= 1
+
+    row = next(r for r in table.rows if r[cols.H_TEXT].startswith("ПРИМЕЧАНИЕ"))
+    assert (row[cols.H_SHEET_ID], row[cols.H_X], row[cols.H_Y]) == (11, 40.0, 120.0)
+    assert row[cols.H_VIEW] == "4"
+
+
+def test_import_moves_and_retypes_text():
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4"})
+    table = _table_from_rows(
+        cols.SHEET_TEXTS,
+        cols.TEXT_HEADERS,
+        [
+            {
+                cols.H_TEXT_ID: 3001,
+                cols.H_SHEET: "1",
+                cols.H_SHEET_ID: 11,
+                cols.H_VIEW: "4",
+                cols.H_X: 55,
+                cols.H_Y: 130,
+                cols.H_TEXT: "ПРИМЕЧАНИЕ: уставки согласованы",
+            }
+        ],
+    )
+    stats = run_import(
+        project, {cols.SHEET_TEXTS: table},
+        ImportOptions(views={"4"}, place_symbols=False, create_missing=False),
+        Context(log),
+    )
+    text = model.texts[3001]
+    assert (text.x, text.y) == (55.0, 130.0)
+    assert text.value == "ПРИМЕЧАНИЕ: уставки согласованы"
+    assert stats.texts_moved == 1
+    assert stats.texts_retyped == 1
+
+
+def test_import_does_not_touch_text_that_lives_on_another_sheet():
+    """Чужой проект: тот же ID — совсем другой текст. Молча переписать нельзя."""
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4", "5"})
+    table = _table_from_rows(
+        cols.SHEET_TEXTS,
+        cols.TEXT_HEADERS,
+        [
+            {
+                cols.H_TEXT_ID: 3002,   # на самом деле лежит на листе 13
+                cols.H_SHEET_ID: 11,
+                cols.H_VIEW: "4",
+                cols.H_X: 10,
+                cols.H_Y: 10,
+                cols.H_TEXT: "не должно примениться",
+            }
+        ],
+    )
+    stats = run_import(
+        project, {cols.SHEET_TEXTS: table},
+        ImportOptions(views={"4", "5"}, place_symbols=False, create_missing=False),
+        Context(log),
+    )
+    assert model.texts[3002].value == "Схема соединений шкафа"
+    assert stats.texts_moved == 0
+    assert stats.texts_skipped == 1
+
+
+def test_import_creates_text_only_with_permission():
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4"})
+    row = {
+        cols.H_SHEET: "1",
+        cols.H_SHEET_ID: 11,
+        cols.H_VIEW: "4",
+        cols.H_X: 70,
+        cols.H_Y: 200,
+        cols.H_TEXT: "новая надпись",
+    }
+    table = _table_from_rows(cols.SHEET_TEXTS, cols.TEXT_HEADERS, [row])
+    before = len(model.texts)
+
+    stats = run_import(
+        project, {cols.SHEET_TEXTS: table},
+        ImportOptions(views={"4"}, place_symbols=False, create_missing=False),
+        Context(log),
+    )
+    assert len(model.texts) == before and stats.texts_created == 0
+
+    stats = run_import(
+        project, {cols.SHEET_TEXTS: table},
+        ImportOptions(views={"4"}, place_symbols=False, create_missing=False, create_texts=True),
+        Context(log),
+    )
+    assert stats.texts_created == 1
+    created = [text for text in model.texts.values() if text.value == "новая надпись"]
+    assert len(created) == 1
+    assert (created[0].sheet_id, created[0].x, created[0].y) == (11, 70.0, 200.0)
+
+
+# --- сверка сигналов ----------------------------------------------------------
+def test_signal_report_counts_footer_on_view4_and_all_on_view5():
+    """Правило из скрипта: вид 4 считается по подвалу, вид 5 — целиком."""
+    from e3tool import signals as sig
+
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4", "5"})
+    sheets, _ = run_export(project, ExportOptions(views={"4", "5"}), Context(log))
+    report = sheet_named(sheets, cols.SHEET_SIGNALS)
+
+    titles = [block.title for block in report.blocks]
+    assert any("PREFERRED_VIEW = 4" in title for title in titles)
+    assert any("PREFERRED_VIEW = 5" in title for title in titles)
+    assert any(title.startswith("СВОДНАЯ") for title in titles)
+
+    summary = next(block for block in report.blocks if block.title.startswith("СВОДНАЯ"))
+    by_kind = {row[0]: row for row in summary.rows}
+    # Вид 4: в подвале изделия 101 (DI 2, DO 1) и 108 (AI 1).
+    assert by_kind["DI"][1] == 2
+    assert by_kind["DO"][1] == 1
+    # Вид 5: изделия 106 (нет счётчиков), 108 (AI 1); кабель исключён по dip_type.
+    assert by_kind["DI"][2] == 0
+    assert by_kind["DI"][4] == sig.MISMATCH
+    assert by_kind["AI"][4] == sig.OK
+
+
+def test_signal_report_excludes_cables_and_terminals():
+    """dip_type = cable/xt/jb в сверке не участвуют, хотя стоят на листах."""
+    from e3tool import signals as sig
+
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4", "5"})
+    sheets, _ = run_export(project, ExportOptions(views={"4", "5"}), Context(log))
+    report = sheet_named(sheets, cols.SHEET_SIGNALS)
+
+    everything = [
+        str(cell)
+        for block in report.blocks
+        for row in block.rows
+        for cell in row
+    ]
+    assert "W-1209" not in everything
+    # DI кабеля (9 штук) не попал ни в один итог.
+    summary = next(block for block in report.blocks if block.title.startswith("СВОДНАЯ"))
+    assert all(row[1] < 9 and row[2] < 9 for row in summary.rows)
+    assert sig.MISSING  # константа используется в отчёте
+
+
+def test_signal_report_finds_device_present_on_one_view_only():
+    model = fake_e3.sample_model()
+    project, log = make_project(model, {"4", "5"})
+    sheets, _ = run_export(project, ExportOptions(views={"4", "5"}), Context(log))
+    report = sheet_named(sheets, cols.SHEET_SIGNALS)
+
+    block = next(block for block in report.blocks if block.title.startswith("СИГНАЛЫ"))
+    statuses = {row[2]: row[-1] for row in block.rows}
+    assert statuses["-094-XVM-1201A"] == "только вид 4"
+    assert statuses["-094-FT-1208"] == "в обоих видах"
+
+
+def test_signal_counts_ignore_junk_values():
+    from e3tool.signals import _as_int
+
+    assert _as_int("3") == 3
+    assert _as_int("2,0") == 2
+    assert _as_int("") == 0
+    assert _as_int("нет") == 0
 
 
 def _table_from_rows(name: str, headers: list[str], rows: list[dict]):

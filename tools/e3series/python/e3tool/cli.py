@@ -85,6 +85,9 @@ def main(argv: list[str] | None = None) -> int:
     p_export.add_argument(
         "--footer-y", type=float, default=0.0, help="граница подвала по Y, мм (0 — определить сам)"
     )
+    p_export.add_argument("--no-views", action="store_true", help="без вкладок «ФСА» и «Схема соединений»")
+    p_export.add_argument("--no-texts", action="store_true", help="без листа «Надписи»")
+    p_export.add_argument("--no-signals", action="store_true", help="без листа «Сверка сигналов»")
     p_export.add_argument("--only-placed", action="store_true")
     p_export.add_argument("--strict-match", action="store_true", help="без мягкого опознания по атрибутам")
 
@@ -97,6 +100,8 @@ def main(argv: list[str] | None = None) -> int:
     p_import.add_argument("--no-formats", action="store_true", help="не менять формат листов")
     p_import.add_argument("--apply-views", action="store_true", help="менять .PREFERRED_VIEW листов")
     p_import.add_argument("--create-sheets", action="store_true", help="создавать отсутствующие листы")
+    p_import.add_argument("--no-texts", action="store_true", help="не переносить надписи")
+    p_import.add_argument("--create-texts", action="store_true", help="создавать отсутствующие надписи")
     p_import.add_argument("--save", action="store_true", help="сохранить проект")
     p_import.add_argument("--dry-run", action="store_true", help="только проверка")
 
@@ -139,6 +144,9 @@ def main(argv: list[str] | None = None) -> int:
             with_placements=not args.no_placements,
             with_connections=not args.no_connections,
             with_sheets=not args.no_sheets,
+            with_view_sheets=not args.no_views,
+            with_texts=not args.no_texts,
+            with_signals=not args.no_signals,
             split_zones=not args.no_split,
             footer_y=args.footer_y,
             only_placed=args.only_placed,
@@ -162,6 +170,8 @@ def main(argv: list[str] | None = None) -> int:
             apply_sheet_formats=not args.no_formats,
             apply_sheet_views=args.apply_views,
             create_sheets=args.create_sheets,
+            move_texts=not args.no_texts,
+            create_texts=args.create_texts,
             save_project=args.save,
             dry_run=args.dry_run,
         )
@@ -171,7 +181,9 @@ def main(argv: list[str] | None = None) -> int:
             f"\nГотово: создано {stats.created}, обновлено {stats.updated}, "
             f"размещено {stats.placed}, перемещено {stats.moved}, "
             f"соединений {stats.connections_made}, листов затронуто "
-            f"{stats.sheets_created + stats.sheets_reformatted}, ошибок {stats.errors}"
+            f"{stats.sheets_created + stats.sheets_reformatted}, "
+            f"надписей {stats.texts_moved + stats.texts_retyped + stats.texts_created}, "
+            f"ошибок {stats.errors}"
         )
         return 0
 

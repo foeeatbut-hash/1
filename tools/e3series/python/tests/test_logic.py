@@ -93,12 +93,18 @@ def test_device_headers_layout():
     assert cols.DEVICE_HEADERS[52] == cols.ATTRIBUTE_HEADERS[-1]
     assert cols.DEVICE_HEADERS[53] == cols.H_SHEET
     assert cols.DEVICE_HEADERS[62] == cols.H_DEV_ID
-    assert cols.DEVICE_HEADERS[63:] == [
+    assert cols.DEVICE_HEADERS[63:67] == [
         cols.H_VIEW,
         cols.H_FORMAT,
         cols.H_ZONE,
         cols.H_PLACED_COUNT,
     ]
+    # Атрибуты сверки сигналов дописаны следующей группой — тоже в конец.
+    assert cols.DEVICE_HEADERS[67:] == cols.SIGNAL_HEADERS
+    assert cols.A_DI in cols.DEVICE_HEADERS
+    assert "ID Сигнала 5" in cols.DEVICE_HEADERS
+    # Они именно атрибуты: при загрузке должны писаться обратно в изделие.
+    assert cols.attribute_headers_of(cols.DEVICE_HEADERS)[-1] == "ID Сигнала 5"
     # В каждой таблице должен быть вид листа: без него одноимённые листы
     # (ФСА и схема соединений одного узла) не различить.
     for headers in (cols.DEVICE_HEADERS, cols.PLACEMENT_HEADERS, cols.CONNECTION_HEADERS,
@@ -225,9 +231,16 @@ def test_template_has_all_sheets():
         from openpyxl import load_workbook
 
         names = [ws.title for ws in load_workbook(path, read_only=True).worksheets]
-        assert cols.SHEET_SCHEMA in names
-        assert cols.SHEET_FOOTER in names
-        assert cols.SHEET_CONNECTIONS in names
+        for expected in (
+            cols.SHEET_VIEW4,
+            cols.SHEET_VIEW5,
+            cols.SHEET_SCHEMA,
+            cols.SHEET_FOOTER,
+            cols.SHEET_CONNECTIONS,
+            cols.SHEET_TEXTS,
+            cols.SHEET_SHEETS,
+        ):
+            assert expected in names, expected
         assert cols.SHEET_SHEETS in names
 
         # В шаблоне заполнен вид листа — иначе непонятно, куда попадёт изделие.

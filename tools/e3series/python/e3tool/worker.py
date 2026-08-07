@@ -25,7 +25,7 @@ from typing import Any
 
 from . import e3api, excel_io
 from .export import ExportOptions, run_export
-from .importer import ImportOptions, run_import
+from .importer import ImportOptions, changed_count, run_import
 from .log import Log
 from .project import Project
 from .task import Context
@@ -355,7 +355,16 @@ class Worker:
 
         self.log.info(f"Пишу книгу: {job.path}")
         for sheet in sheets:
-            self.log.detail(f"  лист «{sheet.name}»: строк {len(sheet.rows)}, столбцов {len(sheet.headers)}")
+            if isinstance(sheet, excel_io.ReportSheet):
+                rows = sum(len(block.rows) for block in sheet.blocks)
+                self.log.detail(
+                    f"  лист «{sheet.name}»: блоков {len(sheet.blocks)}, строк {rows}"
+                )
+            else:
+                self.log.detail(
+                    f"  лист «{sheet.name}»: строк {len(sheet.rows)}, "
+                    f"столбцов {len(sheet.headers)}"
+                )
         path = excel_io.write_workbook(job.path, sheets)
         size = os.path.getsize(path) / 1024
         self.log.info(f"Файл сохранён: {path} ({size:.0f} КБ)")
@@ -402,16 +411,7 @@ class Worker:
 
         stats = run_import(project, tables, job.options, self.new_context())
 
-        changed = not job.options.dry_run and (
-            stats.created
-            + stats.updated
-            + stats.placed
-            + stats.moved
-            + stats.connections_made
-            + stats.sheets_created
-            + stats.sheets_reformatted
-            + stats.sheets_reviewed
-        ) > 0
+        changed = not job.options.dry_run and changed_count(stats) > 0
 
         if changed and job.clear_undo and self.app is not None:
             if self.app.remove_undo_information():
@@ -437,6 +437,7 @@ class Worker:
                         "moved": stats.moved,
                         "connections": stats.connections_made,
                         "sheets": stats.sheets_created + stats.sheets_reformatted,
+                        "texts": stats.texts_moved + stats.texts_retyped + stats.texts_created,
                         "bad": stats.bad_coordinates,
                         "errors": stats.errors,
                         "dry_run": job.options.dry_run,

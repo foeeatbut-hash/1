@@ -360,6 +360,13 @@ class E3App:
         except Exception:
             return None
 
+    def graph(self) -> Any:
+        """Объект графики: через него создаются свободные надписи на листе."""
+        try:
+            return self.job.CreateGraphObject()
+        except Exception:
+            return None
+
     def net_segment(self) -> Any:
         try:
             return self.job.CreateNetSegmentObject()
@@ -1044,3 +1051,129 @@ def symbol_type(symbol: Any) -> int:
         return int(call())
     except Exception:
         return -1
+
+
+def symbol_type_name(symbol: Any) -> str:
+    """Имя типа символа в базе (Symbol.GetSymbolTypeName, TLB 8.50).
+
+    Именно по нему опознаётся подвал: подвальные символы названы «Подвал_…».
+    Возвращает "" вместо служебного "<Empty>".
+    """
+    call = getattr(symbol, "GetSymbolTypeName", None)
+    if call is None:
+        return ""
+    try:
+        value = call()
+    except Exception:
+        _note("Symbol.GetSymbolTypeName", comment="подвал придётся искать по геометрии")
+        return ""
+    text = "" if value is None else str(value).strip()
+    return "" if text == "<Empty>" else text
+
+
+# ------------------------------------------------------------------------------
+#  Надписи на листах
+# ------------------------------------------------------------------------------
+def sheet_text_ids(sheet: Any) -> tuple[int, ...]:
+    """Все надписи листа: и свободные, и принадлежащие символам."""
+    call = getattr(sheet, "GetTextIds", None)
+    if call is None:
+        _note("Sheet.GetTextIds", comment="метода нет — надписи выгрузить нельзя")
+        return ()
+    for args in ((0, 0, ""), (0, 0), (0,)):
+        try:
+            result = out_values(call(*args))
+        except Exception:
+            continue
+        if len(result) >= 2:
+            return ids_of(result[0], result[1])
+    _note("Sheet.GetTextIds", comment="ни одна сигнатура не подошла")
+    return ()
+
+
+def text_location(text_obj: Any) -> Location | None:
+    """Положение надписи (Text.GetSchemaLocation, TLB 9.10)."""
+    call = getattr(text_obj, "GetSchemaLocation", None)
+    if call is None:
+        return None
+    try:
+        result = out_values(call(0, 0, 0, 0, 0))
+    except Exception:
+        try:
+            result = out_values(call())
+        except Exception as error:
+            _note("Text.GetSchemaLocation", error)
+            return None
+    if len(result) < 3:
+        return None
+    sheet_id = int(result[0] or 0)
+    x = result[1]
+    y = result[2]
+    if x is None or y is None:
+        return None
+    return Location(sheet_id=sheet_id, x=float(x), y=float(y))
+
+
+def text_rotation(text_obj: Any) -> float:
+    try:
+        return float(text_obj.GetRotation() or 0.0)
+    except Exception:
+        return 0.0
+
+
+def text_height(text_obj: Any) -> float:
+    try:
+        return float(text_obj.GetHeight() or 0.0)
+    except Exception:
+        return 0.0
+
+
+def text_type(text_obj: Any) -> int:
+    try:
+        return int(text_obj.GetType() or 0)
+    except Exception:
+        return 0
+
+
+def set_text(text_obj: Any, value: str) -> bool:
+    try:
+        text_obj.SetText(value)
+        return True
+    except Exception as error:
+        _note("Text.SetText", error)
+        return False
+
+
+def set_text_location(text_obj: Any, x: float, y: float) -> bool:
+    try:
+        text_obj.SetSchemaLocation(float(x), float(y))
+        return True
+    except Exception as error:
+        _note("Text.SetSchemaLocation", error)
+        return False
+
+
+def create_text(graph: Any, sheet_id: int, value: str, x: float, y: float, rotation: float = 0.0) -> int:
+    """Создаёт свободную надпись на листе (Graph.CreateText, TLB 9.10).
+
+    Повёрнутая надпись создаётся отдельным методом; если его нет, пишем прямую —
+    лучше надпись без поворота, чем её отсутствие.
+    """
+    if graph is None:
+        return 0
+    if rotation:
+        call = getattr(graph, "CreateRotatedText", None)
+        if call is not None:
+            try:
+                return int(call(int(sheet_id), value, float(x), float(y), float(rotation)) or 0)
+            except Exception as error:
+                _note("Graph.CreateRotatedText", error)
+    call = getattr(graph, "CreateText", None)
+    if call is None:
+        _note("Graph.CreateText", comment="метода нет — надписи создать нельзя")
+        return 0
+    try:
+        return int(call(int(sheet_id), value, float(x), float(y)) or 0)
+    except Exception as error:
+        _note("Graph.CreateText", error)
+        return 0

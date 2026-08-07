@@ -33,6 +33,7 @@ class FakeSheet:
     area: tuple[float, float, float, float] = (0.0, 0.0, 594.0, 420.0)
     symbol_ids: list[int] = field(default_factory=list)
     segment_ids: list[int] = field(default_factory=list)
+    text_ids: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -46,6 +47,8 @@ class FakeSymbol:
     texts: list[str] = field(default_factory=list)
     #: gate не отдаёт положение обратно, хотя запись проходит
     gate: bool = False
+    #: Имя типа символа в базе. «Подвал_…» означает символ подвала.
+    type_name: str = "Обычный"
 
 
 @dataclass
@@ -55,6 +58,27 @@ class FakeDevice:
     component: str = ""
     attributes: dict[str, str] = field(default_factory=dict)
     symbol_ids: list[int] = field(default_factory=list)
+
+
+@dataclass
+class FakeText:
+    """Надпись: и подпись символа, и свободный текст листа.
+
+    Настоящая E3 не различает их в Sheet.GetTextIds — оба вида приходят одним
+    списком. Различие видно только по Symbol.GetTextIds, и программа обязана
+    вычитать подписи символов сама.
+    """
+
+    text_id: int
+    value: str
+    sheet_id: int = 0
+    x: float = 0.0
+    y: float = 0.0
+    rotation: float = 0.0
+    height: float = 3.5
+    kind: int = 1
+    #: Символ-владелец. 0 — свободная надпись листа.
+    owner: int = 0
 
 
 @dataclass
@@ -74,7 +98,7 @@ class FakeModel:
         self.devices: dict[int, FakeDevice] = {}
         self.symbols: dict[int, FakeSymbol] = {}
         self.segments: dict[int, FakeSegment] = {}
-        self.texts: dict[int, str] = {}
+        self.texts: dict[int, FakeText] = {}
         self.terminal_ids: list[int] = []
         self.cable_ids: list[int] = []
         self.created_connections: list[tuple[int, list[tuple[float, float]]]] = []
@@ -124,11 +148,19 @@ class FakeModel:
         y: float = 0.0,
         texts: list[str] | None = None,
         gate: bool = False,
+        type_name: str = "Обычный",
     ) -> FakeSymbol:
-        symbol = FakeSymbol(symbol_id, f"S{symbol_id}", sheet_id, x, y, "0", list(texts or []), gate)
+        symbol = FakeSymbol(
+            symbol_id, f"S{symbol_id}", sheet_id, x, y, "0", list(texts or []), gate, type_name
+        )
         self.symbols[symbol_id] = symbol
         for index, text in enumerate(symbol.texts, start=1):
-            self.texts[symbol_id * 100 + index] = text
+            text_id = symbol_id * 100 + index
+            self.texts[text_id] = FakeText(
+                text_id, text, sheet_id=sheet_id, x=x, y=y, owner=symbol_id
+            )
+            if sheet_id:
+                self.sheets[sheet_id].text_ids.append(text_id)
         if device_id is not None:
             self.devices[device_id].symbol_ids.append(symbol_id)
         if sheet_id:
@@ -146,6 +178,21 @@ class FakeModel:
         self.segments[segment_id] = segment
         self.sheets[sheet_id].segment_ids.append(segment_id)
         return segment
+
+    def add_text(
+        self,
+        text_id: int,
+        sheet_id: int,
+        value: str,
+        x: float = 0.0,
+        y: float = 0.0,
+        rotation: float = 0.0,
+    ) -> FakeText:
+        """Свободная надпись листа — та, что программа обязана переносить."""
+        text = FakeText(text_id, value, sheet_id=sheet_id, x=x, y=y, rotation=rotation)
+        self.texts[text_id] = text
+        self.sheets[sheet_id].text_ids.append(text_id)
+        return text
 
     def next_id(self) -> int:
         self._next_id += 1
@@ -202,6 +249,11 @@ class SheetObject(_Item):
         sheet = self._sheet()
         count, ids = one_based(sheet.segment_ids if sheet else [])
         return count, ids
+
+    def GetTextIds(self, dummy: Any, txttyp: int = 0, search: str = "") -> tuple:
+        # Как настоящая E3: подписи символов и свободные надписи одним списком.
+        sheet = self._sheet()
+        return one_based(sheet.text_ids if sheet else [])
 
     def GetFormat(self) -> str:
         sheet = self._sheet()
@@ -319,6 +371,10 @@ class SymbolObject(_Item):
             return -1
         return 14  # SymbolType.Normal
 
+    def GetSymbolTypeName(self) -> str:
+        symbol = self._symbol()
+        return symbol.type_name if symbol else "<Empty>"
+
     def GetTextIds(self, dummy: Any, txttyp: int = 0, search: str = "") -> tuple:
         symbol = self._symbol()
         if symbol is None:
@@ -328,11 +384,60 @@ class SymbolObject(_Item):
 
 
 class TextObject(_Item):
+    def _text(self) -> FakeText | None:
+        return self.model.texts.get(self.id)
+
     def GetText(self) -> str:
-        return self.model.texts.get(self.id, "")
+        text = self._text()
+        return text.value if text else ""
+
+    def SetText(self, newtext: str) -> int:
+        text = self._text()
+        if text is None:
+            raise RuntimeError("нет такой надписи")
+        text.value = newtext
+        return 1
 
     def GetType(self) -> int:
+        text = self._text()
+        return text.kind if text else 0
+
+    def GetHeight(self) -> float:
+        text = self._text()
+        return text.height if text else 0.0
+
+    def GetRotation(self) -> float:
+        text = self._text()
+        return text.rotation if text else 0.0
+
+    def GetSchemaLocation(self, *dummies: Any) -> tuple:
+        text = self._text()
+        if text is None or not text.sheet_id:
+            return (0, 0.0, 0.0, "", "", "")
+        return (text.sheet_id, text.x, text.y, "/1.A1", "A", "1")
+
+    def SetSchemaLocation(self, x: float, y: float) -> int:
+        text = self._text()
+        if text is None:
+            raise RuntimeError("нет такой надписи")
+        text.x = float(x)
+        text.y = float(y)
         return 1
+
+
+class GraphObject(_Item):
+    def CreateText(self, sheet_id: int, value: str, x: float, y: float) -> int:
+        if sheet_id not in self.model.sheets:
+            return 0
+        return self.model.add_text(self.model.next_id(), sheet_id, value, x, y).text_id
+
+    def CreateRotatedText(
+        self, sheet_id: int, value: str, x: float, y: float, rotation: float
+    ) -> int:
+        if sheet_id not in self.model.sheets:
+            return 0
+        text = self.model.add_text(self.model.next_id(), sheet_id, value, x, y, rotation)
+        return text.text_id
 
 
 class NetSegmentObject(_Item):
@@ -426,6 +531,9 @@ class JobObject:
     def CreateTextObject(self) -> TextObject:
         return TextObject(self.model)
 
+    def CreateGraphObject(self) -> GraphObject:
+        return GraphObject(self.model)
+
     def CreateNetSegmentObject(self) -> NetSegmentObject:
         return NetSegmentObject(self.model)
 
@@ -479,10 +587,33 @@ def sample_model() -> FakeModel:
     model.add_sheet(13, "3", view="5", fmt="A3_ГОСТ")
     model.add_sheet(14, "1", view="5", fmt="A3_ГОСТ")
 
-    model.add_device(101, "-094-XVM-1201A", "клапан", {"Поз. обозначение": "094-XVM-1201A"})
+    model.add_device(
+        101,
+        "-094-XVM-1201A",
+        "клапан",
+        {
+            "Поз. обозначение": "094-XVM-1201A",
+            "dip_F_tag": "094-XVM-1201A",
+            "dip_Fnumber": "1201A",
+            "dip_type": "valve",
+            "!Dev_OpisaniePR_DI": "2",
+            "!Dev_OpisaniePR_DO": "1",
+            "ID Сигнала 1": "S-001",
+        },
+    )
     model.add_symbol(1001, device_id=101, sheet_id=11, x=76.0, y=367.0)
 
-    model.add_device(102, "-094-XVM-1202A", "клапан", {"Поз. обозначение": "094-XVM-1202A"})
+    model.add_device(
+        102,
+        "-094-XVM-1202A",
+        "клапан",
+        {
+            "Поз. обозначение": "094-XVM-1202A",
+            "dip_F_tag": "094-XVM-1202A",
+            "dip_type": "valve",
+            "!Dev_OpisaniePR_AI": "1",
+        },
+    )
     model.add_symbol(1002, device_id=102, sheet_id=12, x=351.0, y=370.0)
 
     # Изделие есть, символ создан, но на лист не поставлен.
@@ -507,13 +638,43 @@ def sample_model() -> FakeModel:
     model.add_symbol(1007, device_id=107, gate=True)
 
     # Подвал ФСА: то же изделие 101 второй раз, строкой в таблице внизу листа.
-    model.add_symbol(1008, device_id=101, sheet_id=11, x=126.0, y=32.0)
+    # Имя типа символа начинается на «Подвал_» — именно так подвал и опознаётся.
+    model.add_symbol(
+        1008, device_id=101, sheet_id=11, x=126.0, y=32.0, type_name="Подвал_DI_DO"
+    )
 
     # Изделие, размещённое на двух одноимённых листах «1» разных видов: на ФСА
     # и на схеме соединений. По имени листа их не различить — только по виду.
-    model.add_device(108, "-094-FT-1208", "расходомер", {"Поз. обозначение": "094-FT-1208"})
+    model.add_device(
+        108,
+        "-094-FT-1208",
+        "расходомер",
+        {
+            "Поз. обозначение": "094-FT-1208",
+            "dip_F_tag": "094-FT-1208",
+            "dip_type": "flow",
+            "!Dev_OpisaniePR_AI": "1",
+        },
+    )
     model.add_symbol(1009, device_id=108, sheet_id=11, x=200.0, y=300.0)
     model.add_symbol(1010, device_id=108, sheet_id=14, x=210.0, y=260.0)
+    # Подвальная строка того же изделия на ФСА — она и идёт в зачёт сверки.
+    model.add_symbol(
+        1011, device_id=108, sheet_id=11, x=126.0, y=40.0, type_name="Подвал_AI"
+    )
+
+    # Кабель: в сверке не участвует (dip_type = cable), но на листах стоит.
+    model.add_device(
+        109,
+        "-W-1209",
+        "кабель",
+        {"Поз. обозначение": "W-1209", "dip_type": "cable", "!Dev_OpisaniePR_DI": "9"},
+    )
+    model.add_symbol(1012, device_id=109, sheet_id=14, x=300.0, y=290.0)
+
+    # Свободные надписи листа: их программа обязана переносить.
+    model.add_text(3001, 11, "ПРИМЕЧАНИЕ: уставки уточняются", x=40.0, y=120.0)
+    model.add_text(3002, 13, "Схема соединений шкафа", x=30.0, y=390.0)
 
     model.add_segment(2001, 11, [(10.0, 10.0), (10.0, 50.0), (80.0, 50.0)], signal="СИГ-1")
     model.add_segment(2002, 12, [(20.0, 20.0), (60.0, 20.0)], signal="СИГ-2")
