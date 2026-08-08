@@ -1,0 +1,1013 @@
+<title>Захват с экрана — интерфейс</title>
+
+<style>
+/* ─────────────────────────────────────────────────────────────
+   Палитра взята из src/index.css самого Flux: акцент emerald-600,
+   нейтральные с уклоном в 163° (тот же зелёный), радиусы 6/10/16.
+   Макет намеренно не вводит свой стиль — его ценность в узнаваемости.
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --bg:          oklch(97.8% 0.004 163);
+  --surface:     #ffffff;
+  --panel:       oklch(95.5% 0.005 163);
+  --panel-2:     oklch(97.2% 0.004 163);
+  --line:        oklch(91.2% 0.006 163);
+  --line-soft:   oklch(95.5% 0.005 163);
+  --text:        oklch(28.5% 0.014 163);
+  --text-2:      oklch(45.0% 0.013 163);
+  --muted:       oklch(56.5% 0.012 163);
+
+  --accent:      oklch(54.0% 0.115 163);
+  --accent-hi:   oklch(50.0% 0.112 163);
+  --accent-soft: oklch(95.0% 0.030 163);
+  --accent-on:   #ffffff;
+
+  --warn:        oklch(56.0% 0.115 75);
+  --warn-soft:   oklch(96.0% 0.038 85);
+  --bad:         oklch(55.0% 0.180 18);
+  --bad-soft:    oklch(96.0% 0.030 18);
+  --info:        oklch(52.0% 0.130 245);
+  --info-soft:   oklch(96.0% 0.028 245);
+
+  --desk-a:      oklch(64% 0.045 210);
+  --desk-b:      oklch(46% 0.055 235);
+
+  --sh-card: 0 1px 2px oklch(16% 0.009 163 / 0.06);
+  --sh-pop:  0 4px 16px oklch(16% 0.009 163 / 0.12);
+  --sh-mod:  0 16px 48px oklch(16% 0.009 163 / 0.22);
+
+  --r-sm: 6px;  --r-md: 10px;  --r-lg: 16px;
+
+  --sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:          oklch(16.0% 0.009 163);
+    --surface:     oklch(21.0% 0.011 163);
+    --panel:       oklch(25.2% 0.013 163);
+    --panel-2:     oklch(23.0% 0.012 163);
+    --line:        oklch(28.5% 0.016 163);
+    --line-soft:   oklch(25.0% 0.013 163);
+    --text:        oklch(92.9% 0.007 163);
+    --text-2:      oklch(78.0% 0.012 163);
+    --muted:       oklch(70.5% 0.020 163);
+
+    --accent:      oklch(66.0% 0.115 163);
+    --accent-hi:   oklch(72.0% 0.110 163);
+    --accent-soft: oklch(30.0% 0.050 163);
+    --accent-on:   oklch(16.0% 0.009 163);
+
+    --warn:        oklch(78.0% 0.115 80);
+    --warn-soft:   oklch(31.0% 0.045 80);
+    --bad:         oklch(70.0% 0.150 18);
+    --bad-soft:    oklch(30.0% 0.055 18);
+    --info:        oklch(72.0% 0.100 245);
+    --info-soft:   oklch(29.0% 0.045 245);
+
+    --desk-a:      oklch(34% 0.040 215);
+    --desk-b:      oklch(24% 0.045 240);
+
+    --sh-card: 0 1px 2px oklch(0% 0 0 / 0.3);
+    --sh-pop:  0 4px 16px oklch(0% 0 0 / 0.45);
+    --sh-mod:  0 16px 48px oklch(0% 0 0 / 0.6);
+  }
+}
+:root[data-theme="dark"] {
+  --bg:          oklch(16.0% 0.009 163);
+  --surface:     oklch(21.0% 0.011 163);
+  --panel:       oklch(25.2% 0.013 163);
+  --panel-2:     oklch(23.0% 0.012 163);
+  --line:        oklch(28.5% 0.016 163);
+  --line-soft:   oklch(25.0% 0.013 163);
+  --text:        oklch(92.9% 0.007 163);
+  --text-2:      oklch(78.0% 0.012 163);
+  --muted:       oklch(70.5% 0.020 163);
+
+  --accent:      oklch(66.0% 0.115 163);
+  --accent-hi:   oklch(72.0% 0.110 163);
+  --accent-soft: oklch(30.0% 0.050 163);
+  --accent-on:   oklch(16.0% 0.009 163);
+
+  --warn:        oklch(78.0% 0.115 80);
+  --warn-soft:   oklch(31.0% 0.045 80);
+  --bad:         oklch(70.0% 0.150 18);
+  --bad-soft:    oklch(30.0% 0.055 18);
+  --info:        oklch(72.0% 0.100 245);
+  --info-soft:   oklch(29.0% 0.045 245);
+
+  --desk-a:      oklch(34% 0.040 215);
+  --desk-b:      oklch(24% 0.045 240);
+
+  --sh-card: 0 1px 2px oklch(0% 0 0 / 0.3);
+  --sh-pop:  0 4px 16px oklch(0% 0 0 / 0.45);
+  --sh-mod:  0 16px 48px oklch(0% 0 0 / 0.6);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 32px 24px 96px; }
+
+/* ── Шапка страницы ─────────────────────────────────────────── */
+.top { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap;
+       padding-bottom: 22px; border-bottom: 1px solid var(--line); }
+.top h1 { margin: 0 0 6px; font-size: 26px; line-height: 1.2; letter-spacing: -0.015em;
+          text-wrap: balance; font-weight: 800; }
+.top p { margin: 0; color: var(--text-2); max-width: 62ch; font-size: 14px; }
+.top .grow { flex: 1 1 380px; }
+.themebar { display: flex; gap: 6px; align-items: center; }
+.tbtn { font: 600 12px var(--sans); padding: 6px 11px; border-radius: var(--r-sm);
+        border: 1px solid var(--line); background: var(--surface); color: var(--text-2);
+        cursor: pointer; }
+.tbtn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent);
+                             color: var(--accent-on); }
+.tbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ── Этап ───────────────────────────────────────────────────── */
+.stage { margin-top: 52px; }
+.sh { display: flex; gap: 14px; align-items: baseline; margin-bottom: 4px; }
+.sh .n { font: 700 12px/1 var(--mono); color: var(--accent); letter-spacing: 0.08em;
+         padding-top: 6px; flex: none; }
+.sh h2 { margin: 0; font-size: 19px; letter-spacing: -0.01em; font-weight: 700; }
+.slead { margin: 0 0 18px 34px; color: var(--text-2); font-size: 14px; max-width: 74ch; }
+
+.notes { display: grid; gap: 14px; margin: 16px 0 0 34px;
+         grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.note { border-left: 2px solid var(--line); padding-left: 12px; font-size: 13px;
+        color: var(--text-2); }
+.note b { display: block; color: var(--text); font-weight: 700; margin-bottom: 2px;
+          font-size: 12px; letter-spacing: 0.02em; text-transform: uppercase; }
+.note.hot { border-left-color: var(--accent); }
+
+.scroller { overflow-x: auto; padding-bottom: 6px; }
+
+/* ── Окно приложения ────────────────────────────────────────── */
+.win { background: var(--surface); border: 1px solid var(--line);
+       border-radius: var(--r-lg); box-shadow: var(--sh-mod); overflow: hidden; }
+.tbar { display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+        border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.mark { width: 15px; height: 15px; border-radius: 4px; background: var(--accent);
+        position: relative; flex: none; }
+.mark::after { content: ""; position: absolute; inset: 4px 4px auto auto; width: 5px;
+               height: 5px; border-radius: 1px; background: var(--accent-on); opacity: .85; }
+.tbar .tt { font-size: 12px; font-weight: 700; color: var(--text-2); }
+.tbar .sp { flex: 1; }
+.wbtn { width: 11px; height: 11px; border-radius: 50%; background: var(--line);
+        display: inline-block; }
+
+/* ── Пульт ──────────────────────────────────────────────────── */
+.deskscene { position: relative; border-radius: var(--r-lg); overflow: hidden;
+             background: linear-gradient(145deg, var(--desk-a), var(--desk-b));
+             padding: 22px; min-height: 330px; }
+.blank { width: 62%; min-width: 330px; background: var(--surface);
+         border-radius: var(--r-md); box-shadow: var(--sh-mod); overflow: hidden; }
+.blank .bh { padding: 7px 11px; background: var(--panel); font-size: 11px;
+             font-weight: 700; color: var(--text-2); border-bottom: 1px solid var(--line); }
+.blank table { width: 100%; border-collapse: collapse; font: 11px/1.5 var(--mono); }
+.blank td { padding: 3px 9px; border-bottom: 1px solid var(--line-soft); color: var(--text-2); }
+.blank td.k { color: var(--text); }
+.blank tr.sel td { background: color-mix(in oklch, var(--info) 26%, transparent); }
+.deskcap { position: absolute; left: 22px; bottom: 16px; font-size: 11px; font-weight: 600;
+           color: #fff; opacity: .85; letter-spacing: .02em; }
+
+.pult { width: 306px; background: var(--surface); border: 1px solid var(--line);
+        border-radius: var(--r-lg); box-shadow: var(--sh-mod); overflow: hidden; }
+.deskscene .pult { position: absolute; right: 22px; bottom: 42px; }
+.phint { display: flex; gap: 8px; align-items: center; padding: 9px 11px;
+         font-size: 12px; font-weight: 600; border-bottom: 1px solid var(--line-soft);
+         background: var(--panel-2); color: var(--text); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+.phint[data-tone="ok"]   { background: var(--accent-soft); }
+.phint[data-tone="ok"]   .dot { background: var(--accent); }
+.phint[data-tone="warn"] { background: var(--warn-soft); }
+.phint[data-tone="warn"] .dot { background: var(--warn); }
+.phint[data-tone="info"] { background: var(--info-soft); }
+.phint[data-tone="info"] .dot { background: var(--info); }
+
+.ptools { display: flex; gap: 7px; align-items: center; padding: 9px 11px; }
+.tool { display: inline-flex; gap: 5px; align-items: center; font-size: 11px; font-weight: 700;
+        padding: 5px 9px; border-radius: var(--r-sm); border: 1px solid var(--line);
+        background: var(--surface); color: var(--text); }
+.tool.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.tool.off { opacity: .45; }
+.tool .tip { font-weight: 600; font-size: 10px; color: var(--muted); }
+.pcat { margin-left: auto; width: 26px; height: 26px; border-radius: 50%;
+        background: linear-gradient(150deg, oklch(88% .07 70), oklch(78% .11 62));
+        position: relative; flex: none; }
+.pcat::before, .pcat::after { content: ""; position: absolute; top: -3px; width: 0; height: 0;
+        border-left: 4px solid transparent; border-right: 4px solid transparent;
+        border-bottom: 7px solid oklch(80% .10 64); }
+.pcat::before { left: 3px; } .pcat::after { right: 3px; }
+
+.pfoot { display: flex; align-items: center; gap: 9px; padding: 9px 11px;
+         border-top: 1px solid var(--line-soft); background: var(--panel-2); }
+.pfoot .cnt { font: 11px var(--mono); color: var(--text-2); flex: 1;
+              font-variant-numeric: tabular-nums; }
+/* Имена нарочно не .ok/.no: они столкнулись бы с модификаторами .badge.ok
+   и обнулили бы бейджам ширину. Тот самый конфликт каскада */
+.pgo, .pno { width: 28px; height: 28px; border-radius: var(--r-sm);
+           border: 1px solid var(--line); background: var(--surface); color: var(--text-2);
+           font-size: 14px; cursor: default; display: grid; place-items: center; flex: none; }
+.pgo.live { background: var(--accent); border-color: var(--accent); color: var(--accent-on); }
+.pgo.dead { opacity: .4; }
+
+.statebar { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 16px 34px; }
+.sbtn { font: 600 12px var(--sans); padding: 5px 10px; border-radius: 999px;
+        border: 1px solid var(--line); background: var(--surface); color: var(--text-2);
+        cursor: pointer; }
+.sbtn[aria-pressed="true"] { background: var(--text); border-color: var(--text);
+                             color: var(--surface); }
+.sbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ── Двухобластное окно разбора ─────────────────────────────── */
+.two { display: grid; grid-template-columns: 1fr 1fr; min-width: 860px; }
+.pane { min-width: 0; }
+.pane + .pane { border-left: 1px solid var(--line); }
+.ph { display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+      border-bottom: 1px solid var(--line-soft); background: var(--panel-2); }
+.ph .t { font-size: 12px; font-weight: 700; }
+.ph .badge { margin-left: auto; }
+.badge { font: 600 10px var(--sans); padding: 2px 7px; border-radius: 999px;
+         background: var(--panel); color: var(--text-2); border: 1px solid var(--line);
+         letter-spacing: .02em; white-space: nowrap; flex: none; }
+.badge.ok   { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.badge.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.badge.bad  { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
+.badge.info { background: var(--info-soft); color: var(--info); border-color: transparent; }
+
+.raw { font: 12px/1.85 var(--mono); white-space: pre-wrap; padding: 12px;
+       color: var(--text-2); }
+.tok { border-radius: 3px; padding: 1px 2px; color: var(--text); cursor: pointer;
+       transition: background 120ms, color 120ms; }
+.tok:hover { background: var(--panel); }
+.tok.lit { background: var(--accent); color: var(--accent-on); font-weight: 700; }
+.tok.junk { color: var(--muted); text-decoration: line-through;
+            text-decoration-color: var(--muted); }
+.tok.junk.lit { background: var(--muted); color: var(--surface); }
+.rawtip { margin: 0 12px 12px; padding: 8px 10px; border-radius: var(--r-sm);
+          background: var(--panel-2); border: 1px dashed var(--line);
+          font-size: 11px; color: var(--muted); }
+
+.rows { padding: 6px 10px 6px 6px; display: flex; flex-direction: column; gap: 2px;
+        min-height: 208px; }
+.row { display: flex; align-items: center; gap: 8px; padding: 5px 8px;
+       border-radius: var(--r-sm); cursor: pointer; border: 1px solid transparent;
+       background: none; text-align: left; width: 100%; font: inherit; color: inherit; }
+.row:hover { background: var(--panel-2); }
+.row.lit { background: var(--accent-soft); border-color: var(--accent); }
+.row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cb { width: 14px; height: 14px; border-radius: 3px; border: 1.5px solid var(--muted);
+      flex: none; display: grid; place-items: center; font-size: 9px; color: var(--accent-on); }
+.cb.on { background: var(--accent); border-color: var(--accent); }
+.row .code { font: 700 12px var(--mono); flex: 1; min-width: 0; overflow: hidden;
+             text-overflow: ellipsis; white-space: nowrap; }
+.row.off .code { color: var(--muted); }
+.row .note2 { font-size: 10px; color: var(--muted); }
+
+.wfoot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+         padding: 10px 12px; border-top: 1px solid var(--line); background: var(--panel-2); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r-sm);
+       overflow: hidden; }
+.seg button { font: 600 12px var(--sans); padding: 5px 11px; border: 0;
+              background: var(--surface); color: var(--text-2); cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-on); }
+.seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.wfoot .sp { flex: 1; }
+.btn { font: 700 12px var(--sans); padding: 7px 14px; border-radius: var(--r-sm);
+       border: 1px solid var(--line); background: var(--surface); color: var(--text);
+       cursor: pointer; }
+.btn.pri { background: var(--accent); border-color: var(--accent); color: var(--accent-on); }
+.btn.pri:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mini { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ── Таблицы плана ──────────────────────────────────────────── */
+table.plan { width: 100%; border-collapse: collapse; min-width: 780px; }
+table.plan th { text-align: left; font-size: 10px; text-transform: uppercase;
+                letter-spacing: .05em; color: var(--muted); font-weight: 700;
+                padding: 8px 12px; border-bottom: 1px solid var(--line);
+                background: var(--panel-2); white-space: nowrap; }
+table.plan td { padding: 7px 12px; border-bottom: 1px solid var(--line-soft);
+                font-size: 12px; vertical-align: middle; }
+table.plan tr:last-child td { border-bottom: 0; }
+table.plan td.c { font: 700 12px var(--mono); white-space: nowrap; }
+.stripe { border-left: 3px solid transparent; }
+.stripe.new  { border-left-color: var(--accent); }
+.stripe.fill { border-left-color: var(--warn); }
+.stripe.conf { border-left-color: var(--bad); }
+.stripe.skip { border-left-color: var(--line); }
+select.res { font: 600 11px var(--sans); padding: 4px 7px; border-radius: var(--r-sm);
+             border: 1px solid var(--line); background: var(--surface); color: var(--text);
+             max-width: 100%; }
+select.res:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.why { font-size: 11px; color: var(--text-2); }
+.why b { font-family: var(--mono); font-weight: 700; color: var(--text); }
+
+/* ── Реестр с подсветкой ────────────────────────────────────── */
+.regbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+          padding: 9px 12px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.chip { display: none; align-items: center; gap: 8px; font-size: 11px; font-weight: 700;
+        padding: 4px 6px 4px 10px; border-radius: 999px; background: var(--accent-soft);
+        color: var(--accent); border: 1px solid var(--accent); }
+.chip.show { display: inline-flex; }
+.legend { display: flex; gap: 12px; align-items: center; }
+.sw { display: inline-flex; align-items: center; gap: 5px; font-size: 11px;
+      font-weight: 600; color: var(--text-2); }
+.sw i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.sw i.dash { border: 2px dashed var(--bad); border-radius: 3px; }
+.chip button { border: 0; background: none; color: inherit; cursor: pointer; font-size: 13px;
+               line-height: 1; padding: 2px 4px; border-radius: 50%; }
+.chip button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.canvas { position: relative; padding: 18px; display: grid; gap: 12px;
+          grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+          grid-auto-rows: min-content; align-content: start;
+          background:
+            radial-gradient(circle at 1px 1px, var(--line) 1px, transparent 0) 0 0 / 22px 22px;
+          min-height: 210px; }
+.tcard { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
+         padding: 9px 10px; box-shadow: var(--sh-card); }
+.tcard .id { font: 700 12px var(--mono); }
+.tcard .sub { font-size: 10px; color: var(--muted); margin-top: 2px; }
+.treeview { padding: 12px 18px; display: none; min-height: 210px; }
+.treeview.show { display: block; }
+.canvas.hide { display: none; }
+.trow { display: flex; align-items: center; gap: 8px; padding: 4px 8px;
+        border-radius: var(--r-sm); font: 12px var(--mono); }
+.trow .tw { color: var(--muted); }
+.trow.kid { margin-left: 22px; }
+
+@keyframes ring {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  20%      { box-shadow: 0 0 0 5px var(--ringc); }
+  60%      { box-shadow: 0 0 0 5px var(--ringc2); }
+}
+.pulse { animation: ring 1.1s ease-in-out 0s 3; outline: 2px solid var(--outc);
+         outline-offset: 2px; border-radius: var(--r-sm); }
+.pulse.p-new  { --ringc: color-mix(in oklch, var(--accent) 55%, transparent);
+                --ringc2: color-mix(in oklch, var(--accent) 26%, transparent);
+                --outc: var(--accent); }
+.pulse.p-fill { --ringc: color-mix(in oklch, var(--warn) 55%, transparent);
+                --ringc2: color-mix(in oklch, var(--warn) 26%, transparent);
+                --outc: var(--warn); }
+.dup { outline: 2px dashed var(--bad); outline-offset: 2px; border-radius: var(--r-sm); }
+@media (prefers-reduced-motion: reduce) {
+  .pulse { animation: none; }
+}
+
+/* ── Выбор цели / модальное ─────────────────────────────────── */
+.opts { display: grid; gap: 10px; padding: 14px; }
+.opt { display: flex; gap: 11px; align-items: flex-start; padding: 12px;
+       border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface);
+       cursor: pointer; text-align: left; width: 100%; font: inherit; color: inherit; }
+.opt:hover { border-color: var(--muted); }
+.opt[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.opt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.radio { width: 15px; height: 15px; border-radius: 50%; border: 1.5px solid var(--muted);
+         flex: none; margin-top: 2px; display: grid; place-items: center; }
+.opt[aria-pressed="true"] .radio { border-color: var(--accent); }
+.opt[aria-pressed="true"] .radio::after { content: ""; width: 7px; height: 7px;
+         border-radius: 50%; background: var(--accent); }
+.opt > span:last-child { display: block; min-width: 0; }
+.opt .ot { display: block; font-size: 13px; font-weight: 700; margin-bottom: 3px; }
+.opt .od { display: block; font-size: 12px; color: var(--text-2); }
+.path { display: block; font: 700 11px var(--mono); color: var(--accent); margin-top: 6px; }
+.lvl { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+
+/* ── Отчёт ──────────────────────────────────────────────────── */
+.sum { display: grid; gap: 1px; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+       background: var(--line); border-bottom: 1px solid var(--line); }
+.sumc { background: var(--surface); padding: 12px 14px; }
+.sumc .v { font: 800 22px var(--mono); font-variant-numeric: tabular-nums;
+           letter-spacing: -0.02em; }
+.sumc .l { font-size: 11px; color: var(--muted); margin-top: 1px; }
+.sumc.a .v { color: var(--accent); }
+.sumc.w .v { color: var(--warn); }
+.sumc.z .v { color: var(--muted); }
+.zero { display: inline-flex; align-items: center; gap: 6px; font-size: 11px;
+        font-weight: 700; color: var(--accent); }
+
+.foot { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line);
+        font-size: 13px; color: var(--text-2); }
+.foot h3 { font-size: 13px; margin: 0 0 8px; color: var(--text);
+           text-transform: uppercase; letter-spacing: .04em; }
+.foot ul { margin: 0; padding-left: 18px; }
+.foot li { margin-bottom: 6px; }
+.foot code { font: 11px var(--mono); background: var(--panel); padding: 1px 4px;
+             border-radius: 3px; }
+</style>
+
+<div class="wrap">
+
+  <div class="top">
+    <div class="grow">
+      <h1>Захват с экрана — как это выглядит</h1>
+      <p>Проходка по всему сценарию: от свёрнутого пульта в углу экрана до подсветки
+         добавленного в Реестре. Палитра, радиусы и анимация пульса взяты из
+         <b>src/index.css</b> — макет намеренно не вводит свой стиль. Кликается:
+         состояния пульта, связь двух областей, решения по конфликтам, волна подсветки.</p>
+    </div>
+    <div class="themebar">
+      <span class="mini">Тема:</span>
+      <button class="tbtn" data-th="light" aria-pressed="false">Светлая</button>
+      <button class="tbtn" data-th="dark" aria-pressed="false">Тёмная</button>
+      <button class="tbtn" data-th="auto" aria-pressed="true">Как в системе</button>
+    </div>
+  </div>
+
+  <!-- ── 1 ─────────────────────────────────────────────────── -->
+  <section class="stage">
+    <div class="sh"><span class="n">01</span><h2>Где это на экране</h2></div>
+    <p class="slead">Главное окно программы <b>скрыто</b>, а не свёрнуто в панель задач:
+      иначе там висит бесполезная кнопка. В правом нижнем углу рабочей области —
+      пульт 306&nbsp;×&nbsp;132, поверх всех окон, без рамок Windows. Инженер выделяет
+      в чужом бланке и копирует.</p>
+    <div class="deskscene">
+      <div class="blank">
+        <div class="bh">Опросный лист АХУ-2.xlsx — Excel</div>
+        <table>
+          <tr><td class="k">Установка</td><td>у1</td></tr>
+          <tr class="sel"><td class="k">Расход воздуха</td><td>1250 м³/ч</td></tr>
+          <tr class="sel"><td class="k">Полное давление</td><td>320 Па</td></tr>
+          <tr class="sel"><td class="k">Мощность нагревателя</td><td>12,5 кВт</td></tr>
+          <tr class="sel"><td class="k">Температура на выходе</td><td>18 °C</td></tr>
+          <tr><td class="k">Класс фильтра</td><td>G4</td></tr>
+        </table>
+      </div>
+      <div class="pult">
+        <div class="phint" data-tone="ok"><span class="dot"></span>Захвачено: 4 строки. Похоже на данные</div>
+        <div class="ptools">
+          <span class="tool on">✂ Текст</span>
+          <span class="tool off">⛶ Область <span class="tip">позже</span></span>
+          <span class="pcat" title="место персонажа"></span>
+        </div>
+        <div class="pfoot">
+          <span class="cnt">4 строки · 118 знаков</span>
+          <span class="pgo live">✓</span><span class="pno">✕</span>
+        </div>
+      </div>
+      <div class="deskcap">Пульт не забирает фокус — иначе копирование ушло бы в него, а не в бланк</div>
+    </div>
+    <div class="notes">
+      <div class="note hot"><b>Почему пульт не активируется</b>
+        <code>focusable: false</code>. Клик по пульту не снимает выделение в чужом окне
+        и не перехватывает Ctrl+C.</div>
+      <div class="note"><b>Нужен трей</b>
+        Раз главное окно скрыто, без значка в трее программа теряется. Сейчас трея в
+        проекте нет — это новая инфраструктура.</div>
+      <div class="note"><b>Правый угол рабочей области</b>
+        Не экрана: панель задач учитывается. Позиция и монитор запоминаются.</div>
+    </div>
+  </section>
+
+  <!-- ── 2 ─────────────────────────────────────────────────── -->
+  <section class="stage">
+    <div class="sh"><span class="n">02</span><h2>Пульт: семь состояний</h2></div>
+    <p class="slead">Строка подсказки — единственное, что инженер читает во время захвата,
+      поэтому она всегда говорит, что происходит и чего от него ждут. Нажмите состояние.</p>
+    <div class="statebar" id="pstates"></div>
+    <div class="pult" id="pultDemo" style="margin-left:34px">
+      <div class="phint" data-tone="idle"><span class="dot"></span><span id="pHint"></span></div>
+      <div class="ptools">
+        <span class="tool on">✂ Текст</span>
+        <span class="tool off">⛶ Область <span class="tip">позже</span></span>
+        <span class="pcat"></span>
+      </div>
+      <div class="pfoot">
+        <span class="cnt" id="pCnt"></span>
+        <span class="pgo" id="pOk">✓</span><span class="pno">✕</span>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="note hot"><b>Состояние «выделение не изменилось»</b>
+        Главная защита. При входе в захват снимается отпечаток буфера; пока он тот же,
+        галочка серая — иначе в программу уедет то, что копировали час назад.</div>
+      <div class="note"><b>Инструменты списком</b>
+        Сейчас живой один. «Область» (снимок&nbsp;+&nbsp;OCR) приходит седьмой фазой, место
+        под неё есть уже сейчас.</div>
+      <div class="note"><b>Кружок справа</b>
+        Место персонажа: он и сообщает состояние мимикой, когда доедет.</div>
+    </div>
+  </section>
+
+  <!-- ── 3 ─────────────────────────────────────────────────── -->
+  <section class="stage">
+    <div class="sh"><span class="n">03</span><h2>Окно разбора: две области</h2></div>
+    <p class="slead">Слева — захват как есть. Справа — во что программа его разложила.
+      <b>Нажмите любую строку справа или любой код слева</b> — загорится парный фрагмент.
+      Без этой связи разбивку нельзя проверить, а значит и поверить ей.</p>
+    <div class="scroller">
+      <div class="win" style="min-width:860px">
+        <div class="tbar"><span class="mark"></span><span class="tt">Flux — разбор захвата</span>
+          <span class="sp"></span><span class="wbtn"></span><span class="wbtn"></span><span class="wbtn"></span></div>
+        <div class="two">
+          <div class="pane">
+            <div class="ph"><span class="t">Захват</span>
+              <span class="badge info">Excel · лист «у1»</span></div>
+            <div class="raw" id="raw">Перечень позиций к опросному листу:
+<span class="tok" data-k="ahu2">AHU-2</span>  <span class="tok" data-k="ahu3">AHU-3</span>  <span class="tok" data-k="p101a">P-101A</span>  <span class="tok" data-k="p101b">P-101B</span>  <span class="tok" data-k="p101c">P-101C</span>
+<span class="tok" data-k="fan07">FAN-07</span>  <span class="tok" data-k="fan08">FAN-08</span>  <span class="tok" data-k="fan07">FAN-07</span>  <span class="tok" data-k="v12">V-12</span>  <span class="tok" data-k="v13">V-13</span>
+<span class="tok" data-k="cp1">CP-1</span>
+<span class="tok junk" data-k="junk">стр. 4</span></div>
+            <div class="rawtip">Текст правится прямо здесь — разбор справа пересчитается.
+              Убрали лишний перенос, и разбивка обновилась.</div>
+          </div>
+          <div class="pane">
+            <div class="ph"><span class="t">Разобрано: теги</span>
+              <span class="badge ok">10</span></div>
+            <div class="rows" id="rows"></div>
+          </div>
+        </div>
+        <div class="wfoot">
+          <span class="mini">Это:</span>
+          <div class="seg">
+            <button aria-pressed="true">Теги</button>
+            <button aria-pressed="false">Данные оборудования</button>
+          </div>
+          <span class="badge ok">уверенность 94%</span>
+          <span class="sp"></span>
+          <span class="badge">Отброшено 1</span>
+          <span class="badge warn">Свёрнуто дублей 1</span>
+          <button class="btn pri">Далее →</button>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="note hot"><b>FAN-07 встречается дважды</b>
+        Нажмите его — загорятся <i>оба</i> вхождения. В план уйдёт один, и об этом
+        сказано в подвале: «свёрнуто дублей&nbsp;1».</div>
+      <div class="note"><b>«стр. 4» не исчезает молча</b>
+        Отброшенное перечёркнуто и лежит в счётчике — возвращается одним нажатием.</div>
+      <div class="note"><b>CP-1 сомнительный</b>
+        Не подошёл под образец кодов этого проекта, поэтому галочка снята заранее.
+        Не выброшен — просто не отмечен.</div>
+      <div class="note"><b>Тип угадан, но переключаем</b>
+        «Теги / Данные» — догадка с процентом. Ошиблись — переключили, ничего
+        не перезахватывая.</div>
+    </div>
+  </section>
+
+  <!-- ── 4 ─────────────────────────────────────────────────── -->
+  <section class="stage">
+    <div class="sh"><span class="n">04</span><h2>План и конфликты</h2></div>
+    <p class="slead">Ни одной записи в базу до нажатия «Применить». Решение у каждой строки
+      своё; полосой слева закодировано, что случится. Раскройте любой список.</p>
+    <div class="scroller">
+      <div class="win">
+        <div class="tbar"><span class="mark"></span><span class="tt">Flux — план захвата: теги</span>
+          <span class="sp"></span><span class="wbtn"></span><span class="wbtn"></span><span class="wbtn"></span></div>
+        <table class="plan">
+          <thead><tr><th>Код</th><th>Класс</th><th>Что делаем</th><th>Почему</th></tr></thead>
+          <tbody id="planBody"></tbody>
+        </table>
+        <div class="wfoot">
+          <label style="display:flex;gap:7px;align-items:center;font-size:12px">
+            <span class="cb on">✓</span> Запомнить решения для проекта
+          </label>
+          <span class="sp"></span>
+          <span class="badge ok">создать 6</span>
+          <span class="badge warn">дополнить 1</span>
+          <span class="badge">пропустить 1</span>
+          <span class="badge bad">спросить 1</span>
+          <button class="btn pri">Применить</button>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="note hot"><b>V-12 — тот случай, что не найти глазами</b>
+        Захваченный код набран с русской «В». Выглядит идентично латинскому, а в базе
+        это два разных тега. Отдельный класс с обязательной пометкой.</div>
+      <div class="note"><b>«Дополнить только пустые»</b>
+        Самое частое и самое безопасное решение: у существующего тега пустая марка,
+        в захвате она есть — заполняем, ничего не перетирая.</div>
+      <div class="note"><b>Дубль допустим, но не по умолчанию</b>
+        Реестр уже подсвечивает совпадающие коды и сам гасит подсветку, когда код стал
+        уникальным. То есть дубль восстановим — но копить его молча нельзя.</div>
+    </div>
+  </section>
+
+  <!-- ── 5 ─────────────────────────────────────────────────── -->
+  <section class="stage">
+    <div class="sh"><span class="n">05</span><h2>Подсветка добавленного</h2></div>
+    <p class="slead">То, о чём спрашивали: после записи открывается Реестр, и добавленное
+      подсвечивается. <b>Нажмите «Применить»</b>, а потом переключите вид — волна
+      перезажжётся, пока не истекло окно подсветки.</p>
+    <div class="win">
+      <div class="tbar"><span class="mark"></span><span class="tt">Flux — Реестр тегов</span>
+        <span class="sp"></span><span class="wbtn"></span><span class="wbtn"></span><span class="wbtn"></span></div>
+      <div class="regbar">
+        <div class="seg" id="viewSeg">
+          <button data-v="canvas" aria-pressed="true">Холст</button>
+          <button data-v="tree" aria-pressed="false">Дерево</button>
+        </div>
+        <span class="chip" id="lastChip">последний захват: 10 тегов
+          <button title="закрыть" id="chipX">✕</button></span>
+        <span class="sp"></span>
+        <span class="legend">
+          <span class="sw"><i style="background:var(--accent)"></i>создано</span>
+          <span class="sw"><i style="background:var(--warn)"></i>дополнено</span>
+          <span class="sw"><i class="dash"></i>дубль</span>
+        </span>
+        <button class="btn pri" id="applyBtn">Применить</button>
+      </div>
+      <div class="canvas" id="canvasView"></div>
+      <div class="treeview" id="treeView"></div>
+    </div>
+    <div class="notes">
+      <div class="note hot"><b>Одной вспышки мало</b>
+        Отвернулся — и всё, что добавилось, потерялось. Поэтому кроме волны в шапке
+        остаётся закрываемая плашка «последний захват», работающая как фильтр.
+        Вспышка для глаз, плашка для дела.</div>
+      <div class="note hot"><b>Вспышка едет за инженером</b>
+        Пульс сделан под холст (<code>tag-card-ID</code>), а просили дерево — там свои
+        строки. Значит подсветку надо реализовать в каждом виде и перезажигать при
+        переключении. Иначе перешёл в дерево после вспышки и не увидел ничего.</div>
+      <div class="note"><b>Три состояния сразу</b>
+        Один захват даёт все три, и они должны различаться: изумрудный — создано,
+        янтарный — дополнено, розовый пунктир — дубль (эта подсветка в Реестре уже есть).</div>
+      <div class="note"><b>Край, который сломает наивную версию</b>
+        Если карточки разбросаны далеко, вписывание отдалит камеру в ничто. При
+        масштабе меньше ~0,3 — не вписываем, а показываем список с переходом по одному.</div>
+    </div>
+  </section>
+
+  <!-- ── 6 ─────────────────────────────────────────────────── -->
+  <section class="stage">
+    <div class="sh"><span class="n">06</span><h2>Данные оборудования: куда кладём</h2></div>
+    <p class="slead">Путей три, а не два. Первым — «определить автоматически», потому что это
+      обычный случай: в захвате нашлись коды, и цель уже предложена.</p>
+    <div class="scroller">
+      <div class="win" style="max-width:660px">
+        <div class="tbar"><span class="mark"></span><span class="tt">Куда добавить данные</span>
+          <span class="sp"></span><span class="wbtn"></span></div>
+        <div class="opts" id="targetOpts">
+          <button class="opt" data-o="auto" aria-pressed="true">
+            <span class="radio"></span>
+            <span><span class="ot">Определить автоматически</span>
+              <span class="od">В захвате найден код установки и тег. Нашлась цель:</span>
+              <span class="path">у1 → мн1 → бл2.1 «клапан» &nbsp;·&nbsp; уверенность 92%</span></span>
+          </button>
+          <button class="opt" data-o="exist" aria-pressed="false">
+            <span class="radio"></span>
+            <span><span class="ot">В существующее</span>
+              <span class="od">Дерево установок с поиском — то же, что в разделе «Оборудование».</span>
+              <span class="lvl"><span class="badge">у1</span><span class="badge">у2</span>
+                <span class="badge">у3 (приток)</span><span class="badge">…</span></span></span>
+          </button>
+          <button class="opt" data-o="new" aria-pressed="false">
+            <span class="radio"></span>
+            <span><span class="ot">Создать новое</span>
+              <span class="od">Уровней три, а не один — иначе не выйдет добавить блок
+                в существующий моноблок.</span>
+              <span class="lvl"><span class="badge">новая установка</span>
+                <span class="badge">моноблок в у1</span>
+                <span class="badge">блок в мн1</span></span></span>
+          </button>
+        </div>
+        <div class="wfoot"><span class="sp"></span>
+          <button class="btn">Назад</button><button class="btn pri">Далее →</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 7 ─────────────────────────────────────────────────── -->
+  <section class="stage">
+    <div class="sh"><span class="n">07</span><h2>Данные: разбор строк и дифф</h2></div>
+    <p class="slead">Те же две области. Слева строки бланка, справа — параметры с тем, что
+      с ними станет. Цвет полосы = вид изменения. Правится на месте, до записи.</p>
+    <div class="scroller">
+      <div class="win" style="min-width:880px">
+        <div class="tbar"><span class="mark"></span>
+          <span class="tt">Flux — план захвата: у1 → мн1 → бл2.1</span>
+          <span class="sp"></span><span class="wbtn"></span><span class="wbtn"></span><span class="wbtn"></span></div>
+        <div class="two">
+          <div class="pane">
+            <div class="ph"><span class="t">Захват</span><span class="badge info">PDF · стр. 4</span></div>
+            <div class="raw" id="raw2">Установка у1, моноблок мн1, блок бл2.1 (клапан)
+<span class="tok" data-k="q">Расход воздуха 1250 м³/ч</span>
+<span class="tok" data-k="p">Полное давление 320 Па</span>
+<span class="tok" data-k="w">Мощность нагревателя 12,5 кВт</span>
+<span class="tok" data-k="t">Температура на выходе 18 °C</span>
+<span class="tok" data-k="f">Класс фильтра G4</span>
+<span class="tok" data-k="d">Размер 600х350 мм</span>
+<span class="tok" data-k="tag">Тег AHU-2</span>
+<span class="tok junk" data-k="j2">Стр. 4 из 12</span></div>
+          </div>
+          <div class="pane">
+            <div class="ph"><span class="t">Разобрано: параметры</span>
+              <span class="badge ok">7</span></div>
+            <div class="rows" id="rows2"></div>
+          </div>
+        </div>
+        <div class="wfoot">
+          <span class="zero">◇ Удалений в плане: 0</span>
+          <span class="sp"></span>
+          <span class="badge ok">новых 4</span>
+          <span class="badge info">изменится 1</span>
+          <span class="badge bad">конфликт 1</span>
+          <span class="badge warn">проверить 1</span>
+          <button class="btn pri">Применить</button>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div class="note hot"><b>«Удалений в плане: 0» — не украшение</b>
+        Захват это фрагмент, а не документ. Из того, что чего-то нет в выделении, не
+        следует, что этого нет в проекте. Иначе одна выделенная строка снесёт установку.</div>
+      <div class="note hot"><b>Мощность — красный, а не тихая перезапись</b>
+        Значение переопределено инженером вручную (<code>overrides</code>). Спрашиваем:
+        моё или из захвата — поштучно и массово.</div>
+      <div class="note"><b>«600х350» — жёлтый</b>
+        Русская «х» вместо знака умножения, и это не одно число. Спрашиваем, а не
+        угадываем.</div>
+      <div class="note"><b>кПа → Па молча не переводим</b>
+        Только подсказка. Тихое изменение инженерных чисел недопустимо — решение
+        унаследовано от разбора импорта бланков.</div>
+    </div>
+  </section>
+
+  <!-- ── 8 ─────────────────────────────────────────────────── -->
+  <section class="stage">
+    <div class="sh"><span class="n">08</span><h2>Отчёт</h2></div>
+    <p class="slead">Захват — это обычный <b>ImportRun</b> с источником «Захват с экрана»,
+      поэтому откат работает тот же, что у импорта файлов.</p>
+    <div class="win" style="max-width:760px">
+      <div class="tbar"><span class="mark"></span><span class="tt">Захват применён</span>
+        <span class="sp"></span><span class="wbtn"></span></div>
+      <div class="sum">
+        <div class="sumc a"><div class="v">6</div><div class="l">создано</div></div>
+        <div class="sumc w"><div class="v">1</div><div class="l">дополнено</div></div>
+        <div class="sumc z"><div class="v">1</div><div class="l">пропущено</div></div>
+        <div class="sumc z"><div class="v">1</div><div class="l">свёрнуто дублей</div></div>
+        <div class="sumc z"><div class="v">1</div><div class="l">отброшено</div></div>
+      </div>
+      <div style="padding:12px 14px;font-size:12px;color:var(--text-2)">
+        Источник: <b>Захват с экрана</b> · Excel, лист «у1» · 8 авг, 16:42<br>
+        Каждая строка кликабельна — переход к тегу.
+      </div>
+      <div class="wfoot">
+        <button class="btn">Откатить захват</button>
+        <button class="btn">Повторить с теми же решениями</button>
+        <span class="sp"></span>
+        <button class="btn pri">Показать в Реестре</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">
+    <h3>Что здесь макет, а что уже есть в коде</h3>
+    <ul>
+      <li><b>Уже есть и переиспользуется:</b> план вместо прямой записи
+        (<code>server/equipmentPlan.ts</code>), предпросмотр дерева с диффом
+        (<code>EquipmentImportPreview</code>), нормализация чисел и единиц
+        (<code>server/normalize.ts</code>), офлайн-OCR (<code>src/import/ocr.ts</code>),
+        сопоставление колонок тегов (<code>detectField</code>), подсветка дублей и
+        анимация пульса (<code>Registry.tsx</code>, класс <code>share-pulse</code>),
+        окно поверх всех без рамок (<code>window:open-sticker</code>).</li>
+      <li><b>Новое, что надо написать:</b> окно пульта, значок в трее, горячие клавиши,
+        слежение за буфером с отпечатком, полноразмерный <code>desktop:capture</code>
+        (сейчас захардкожено 1280×720 — для OCR мало), окно разбора со связью двух
+        областей, образец кода тега из проекта, план тегов и девять классов конфликтов,
+        подсветка в дереве и таблице.</li>
+      <li><b>Чего в макете нет намеренно:</b> синтетического Ctrl+C. Он последней фазой,
+        потому что единственный тянет нативную зависимость в портативный exe. До него
+        сценарий уже работает — инженер копирует сам, пульт видит буфер и зажигает
+        галочку.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ── Тема ───────────────────────────────────────────────── */
+  document.querySelectorAll('.tbtn').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var th = b.dataset.th;
+      if (th === 'auto') document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', th);
+      document.querySelectorAll('.tbtn').forEach(function (o) {
+        o.setAttribute('aria-pressed', String(o === b));
+      });
+    });
+  });
+
+  /* ── 02. Состояния пульта ───────────────────────────────── */
+  var STATES = [
+    { n: 'Жду',               tone: 'idle', hint: 'Выделите текст для добавления в программу', cnt: 'буфер пуст', ok: 'dead' },
+    { n: 'Буфер не менялся',  tone: 'warn', hint: 'Выделение не изменилось — выделите текст и скопируйте', cnt: 'то же, что было', ok: 'dead' },
+    { n: 'Захвачен список',   tone: 'ok',   hint: 'Захвачено: 10 строк. Похоже на теги', cnt: '10 строк · 214 знаков', ok: 'live' },
+    { n: 'Захвачена таблица', tone: 'ok',   hint: 'Захвачена таблица 12 × 4', cnt: 'Excel · 48 ячеек', ok: 'live' },
+    { n: 'В буфере картинка', tone: 'info', hint: 'В буфере картинка — распознать?', cnt: 'PNG · 1840 × 920', ok: 'live' },
+    { n: 'Слишком много',     tone: 'warn', hint: 'Захвачено 180 000 знаков — обрежу до 50 000', cnt: '180 214 знаков', ok: 'live' },
+    { n: 'Корзина',           tone: 'ok',   hint: 'В корзине 3 захвата — разобрать всё?', cnt: '3 захвата · 62 строки', ok: 'live' }
+  ];
+  var bar = document.getElementById('pstates');
+  var pHint = document.getElementById('pHint');
+  var pCnt = document.getElementById('pCnt');
+  var pOk = document.getElementById('pOk');
+  var pTone = document.querySelector('#pultDemo .phint');
+
+  function setState(i) {
+    var s = STATES[i];
+    pTone.setAttribute('data-tone', s.tone);
+    pHint.textContent = s.hint;
+    pCnt.textContent = s.cnt;
+    pOk.className = 'pgo ' + s.ok;
+    Array.prototype.forEach.call(bar.children, function (b, j) {
+      b.setAttribute('aria-pressed', String(i === j));
+    });
+  }
+  STATES.forEach(function (s, i) {
+    var b = document.createElement('button');
+    b.className = 'sbtn';
+    b.textContent = s.n;
+    b.addEventListener('click', function () { setState(i); });
+    bar.appendChild(b);
+  });
+  setState(2);
+
+  /* ── 03. Две области, связанные подсветкой ──────────────── */
+  var TAGS = [
+    { k: 'ahu2',  code: 'AHU-2',  on: 1, badge: 'ok',   b: 'новый' },
+    { k: 'ahu3',  code: 'AHU-3',  on: 1, badge: 'ok',   b: 'новый' },
+    { k: 'p101a', code: 'P-101A', on: 1, badge: 'bad',  b: 'есть, поля расходятся' },
+    { k: 'p101b', code: 'P-101B', on: 1, badge: 'ok',   b: 'новый' },
+    { k: 'p101c', code: 'P-101C', on: 1, badge: 'ok',   b: 'новый' },
+    { k: 'fan07', code: 'FAN-07', on: 1, badge: 'warn', b: 'в захвате дважды' },
+    { k: 'fan08', code: 'FAN-08', on: 1, badge: 'ok',   b: 'новый' },
+    { k: 'v12',   code: 'V-12',   on: 1, badge: 'warn', b: 'в коде русская В' },
+    { k: 'v13',   code: 'V-13',   on: 1, badge: 'warn', b: 'есть, можно дополнить' },
+    { k: 'cp1',   code: 'CP-1',   on: 0, badge: '',     b: 'сомнительный' }
+  ];
+  var rows = document.getElementById('rows');
+  TAGS.forEach(function (t) {
+    var r = document.createElement('button');
+    r.className = 'row' + (t.on ? '' : ' off');
+    r.dataset.k = t.k;
+    r.innerHTML = '<span class="cb' + (t.on ? ' on' : '') + '">' + (t.on ? '✓' : '') + '</span>'
+      + '<span class="code">' + t.code + '</span>'
+      + (t.badge ? '<span class="badge ' + t.badge + '">' + t.b + '</span>'
+                 : '<span class="note2">' + t.b + '</span>');
+    rows.appendChild(r);
+  });
+
+  function link(rowSel, rawSel) {
+    var rr = document.querySelectorAll(rowSel);
+    var tt = document.querySelectorAll(rawSel);
+    function lit(k) {
+      rr.forEach(function (r) { r.classList.toggle('lit', r.dataset.k === k); });
+      tt.forEach(function (t) { t.classList.toggle('lit', t.dataset.k === k); });
+    }
+    rr.forEach(function (r) {
+      r.addEventListener('click', function () { lit(r.dataset.k); });
+      r.addEventListener('mouseenter', function () { lit(r.dataset.k); });
+    });
+    tt.forEach(function (t) {
+      t.addEventListener('click', function () { lit(t.dataset.k); });
+      t.addEventListener('mouseenter', function () { lit(t.dataset.k); });
+    });
+  }
+  link('#rows .row', '#raw .tok');
+
+  /* ── 04. План: девять классов и решения ─────────────────── */
+  var PLAN = [
+    { c: 'AHU-2',  cls: 'новый', s: 'new', opts: ['Создать'], why: 'кода нет в проекте' },
+    { c: 'AHU-3',  cls: 'новый', s: 'new', opts: ['Создать'], why: 'кода нет в проекте' },
+    { c: 'P-101A', cls: 'дубль, поля расходятся', s: 'conf',
+      opts: ['Спросить по полям', 'Оставить моё', 'Взять из захвата', 'Создать дубль'],
+      why: 'марка: <b>ВЕЗА КЦКП</b> ← → <b>Systemair</b>' },
+    { c: 'P-101B', cls: 'новый', s: 'new', opts: ['Создать'], why: 'кода нет в проекте' },
+    { c: 'P-101C', cls: 'новый', s: 'new', opts: ['Создать'], why: 'кода нет в проекте' },
+    { c: 'FAN-07', cls: 'дубль внутри захвата', s: 'new',
+      opts: ['Свернуть в один', 'Оставить оба'], why: 'встретился в выделении 2 раза' },
+    { c: 'FAN-08', cls: 'новый', s: 'new', opts: ['Создать'], why: 'кода нет в проекте' },
+    { c: 'V-12',   cls: 'похож: раскладка', s: 'conf',
+      opts: ['Привязать к существующему', 'Создать как новый', 'Починить код'],
+      why: 'в захвате <b>В</b> русская, в проекте <b>V</b> латинская' },
+    { c: 'V-13',   cls: 'дубль, есть новое', s: 'fill',
+      opts: ['Дополнить только пустые', 'Пропустить', 'Заменить', 'Создать дубль'],
+      why: 'у существующего пуста марка, в захвате есть' },
+    { c: 'CP-1',   cls: 'не похож на теги проекта', s: 'skip',
+      opts: ['Пропустить', 'Всё равно создать', 'Исправить код'],
+      why: 'образец проекта: <b>БУКВЫ-ЦИФРЫ[БУКВА]</b>' }
+  ];
+  var tb = document.getElementById('planBody');
+  PLAN.forEach(function (p) {
+    var tr = document.createElement('tr');
+    var sel = '<select class="res">' + p.opts.map(function (o, i) {
+      return '<option' + (i === 0 ? ' selected' : '') + '>' + o + '</option>';
+    }).join('') + '</select>';
+    tr.innerHTML = '<td class="c stripe ' + p.s + '">' + p.c + '</td>'
+      + '<td><span class="badge' + (p.s === 'conf' ? ' bad' : p.s === 'fill' ? ' warn'
+          : p.s === 'new' ? ' ok' : '') + '">' + p.cls + '</span></td>'
+      + '<td>' + sel + '</td><td class="why">' + p.why + '</td>';
+    tb.appendChild(tr);
+  });
+
+  /* ── 05. Волна подсветки ────────────────────────────────── */
+  var CARDS = [
+    { id: 'AHU-2',  sub: 'ВЕЗА КЦКП · ОВ',  st: 'new' },
+    { id: 'AHU-3',  sub: 'ВЕЗА КЦКП · ОВ',  st: 'new' },
+    { id: 'P-101A', sub: 'Systemair · ОВ',  st: 'dup' },
+    { id: 'P-101B', sub: 'Systemair · ОВ',  st: 'new' },
+    { id: 'P-101C', sub: 'Systemair · ОВ',  st: 'new' },
+    { id: 'FAN-07', sub: 'НЕД · ОВ',        st: 'new' },
+    { id: 'FAN-08', sub: 'НЕД · ОВ',        st: 'new' },
+    { id: 'V-13',   sub: 'марка добавлена', st: 'fill' }
+  ];
+  var cv = document.getElementById('canvasView');
+  var tv = document.getElementById('treeView');
+  CARDS.forEach(function (c) {
+    var d = document.createElement('div');
+    d.className = 'tcard';
+    d.dataset.st = c.st;
+    d.innerHTML = '<div class="id">' + c.id + '</div><div class="sub">' + c.sub + '</div>';
+    cv.appendChild(d);
+  });
+  tv.innerHTML = '<div class="trow"><span class="tw">▾</span> у1 — приток</div>'
+    + CARDS.map(function (c) {
+        return '<div class="trow kid" data-st="' + c.st + '">'
+          + '<span class="tw">└</span> ' + c.id
+          + ' <span class="badge" style="margin-left:6px">' + c.sub + '</span></div>';
+      }).join('');
+
+  var until = 0;
+  function wave() {
+    var live = cv.classList.contains('hide') ? tv : cv;
+    var els = live.querySelectorAll('[data-st]');
+    els.forEach(function (el, i) {
+      el.classList.remove('pulse', 'p-new', 'p-fill', 'dup');
+      setTimeout(function () {
+        var st = el.dataset.st;
+        if (st === 'dup') { el.classList.add('dup'); }
+        else { el.classList.add('pulse', st === 'fill' ? 'p-fill' : 'p-new'); }
+        setTimeout(function () {
+          el.classList.remove('pulse', 'p-new', 'p-fill', 'dup');
+        }, 3000);
+      }, i * 60);
+    });
+  }
+  document.getElementById('applyBtn').addEventListener('click', function () {
+    until = Date.now() + 3600;
+    document.getElementById('lastChip').classList.add('show');
+    wave();
+  });
+  document.getElementById('chipX').addEventListener('click', function () {
+    document.getElementById('lastChip').classList.remove('show');
+  });
+  document.querySelectorAll('#viewSeg button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('#viewSeg button').forEach(function (o) {
+        o.setAttribute('aria-pressed', String(o === b));
+      });
+      var tree = b.dataset.v === 'tree';
+      cv.classList.toggle('hide', tree);
+      tv.classList.toggle('show', tree);
+      // Подсветка переезжает за инженером, пока не истекло её окно
+      if (Date.now() < until) wave();
+    });
+  });
+
+  /* ── 06. Выбор цели ─────────────────────────────────────── */
+  document.querySelectorAll('#targetOpts .opt').forEach(function (o) {
+    o.addEventListener('click', function () {
+      document.querySelectorAll('#targetOpts .opt').forEach(function (x) {
+        x.setAttribute('aria-pressed', String(x === o));
+      });
+    });
+  });
+
+  /* ── 07. Параметры: дифф ────────────────────────────────── */
+  var PAR = [
+    { k: 'q',   n: 'Расход воздуха',        v: '1250 м³/ч',  badge: 'info', b: 'было 1100' },
+    { k: 'p',   n: 'Полное давление',       v: '320 Па',     badge: 'ok',   b: 'новый' },
+    { k: 'w',   n: 'Мощность нагревателя',  v: '12,5 кВт',   badge: 'bad',  b: 'задета ручная правка 11,0' },
+    { k: 't',   n: 'Температура на выходе', v: '18 °C',      badge: 'ok',   b: 'новый' },
+    { k: 'f',   n: 'Класс фильтра',         v: 'G4',         badge: 'ok',   b: 'новый' },
+    { k: 'd',   n: 'Размер',                v: '600х350 мм', badge: 'warn', b: 'разделить на два?' },
+    { k: 'tag', n: 'Тег',                   v: 'AHU-2',      badge: 'ok',   b: 'связать с элементом' }
+  ];
+  var rows2 = document.getElementById('rows2');
+  PAR.forEach(function (p) {
+    var r = document.createElement('button');
+    r.className = 'row';
+    r.dataset.k = p.k;
+    r.innerHTML = '<span class="cb on">✓</span>'
+      + '<span class="code" style="font-family:var(--sans);font-weight:600">' + p.n + '</span>'
+      + '<span class="code" style="flex:none;font-variant-numeric:tabular-nums">' + p.v + '</span>'
+      + '<span class="badge ' + p.badge + '">' + p.b + '</span>';
+    rows2.appendChild(r);
+  });
+  link('#rows2 .row', '#raw2 .tok');
+})();
+</script>
