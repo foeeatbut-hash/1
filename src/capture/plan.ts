@@ -107,25 +107,44 @@ const FIELD_LABELS: Record<string, string> = {
 };
 const COMPARED = ['brand', 'department', 'fluid', 'wbs'] as const;
 
-/** Расстояние Левенштейна, нормализованное на длину */
+/**
+ * Расстояние с перестановкой (Дамерау—Левенштейн, вариант OSA),
+ * нормализованное на длину. Перестановка считается за одну правку, а не за
+ * две: «FNA-07» вместо «FAN-07» — это один промах пальцами, и обычное
+ * расстояние Левенштейна оценивает такую опечатку вдвое строже, чем следует.
+ */
 function similarity(a: string, b: string): number {
   if (a === b) return 1;
   if (!a.length || !b.length) return 0;
-  const prev = new Array(b.length + 1);
-  const cur = new Array(b.length + 1);
-  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  const d: number[][] = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i++) d[i][0] = i;
+  for (let j = 0; j <= b.length; j++) d[0][j] = j;
   for (let i = 1; i <= a.length; i++) {
-    cur[0] = i;
     for (let j = 1; j <= b.length; j++) {
-      cur[j] = Math.min(
-        prev[j] + 1,
-        cur[j - 1] + 1,
-        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
-      );
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+      }
     }
-    for (let j = 0; j <= b.length; j++) prev[j] = cur[j];
   }
-  return 1 - prev[b.length] / Math.max(a.length, b.length);
+  return 1 - d[a.length][b.length] / Math.max(a.length, b.length);
+}
+
+/** Цифры кода подряд: «P-101A» → «101» */
+const digitsOf = (s: string) => (s.match(/\d+/g) || []).join('');
+
+/**
+ * Похожесть по написанию — только когда цифры совпадают, а разошлись буквы.
+ *
+ * Это не придирка. «AHU-21» и «AHU-211» отличаются на один знак, но это два
+ * разных аппарата, и предложить привязать один к другому — прямой путь
+ * потерять позицию. Опечатка бывает в буквенной части; номер инженер набирает
+ * осознанно. Поэтому разные цифры закрывают вопрос сразу.
+ */
+function typoLike(a: string, b: string): number {
+  if (digitsOf(a) !== digitsOf(b)) return 0;
+  return similarity(a, b);
 }
 
 export function buildPlan(rows: CaptureRow[], existing: ExistingTag[], shape: Shape): PlanRow[] {
@@ -183,10 +202,10 @@ export function buildPlan(rows: CaptureRow[], existing: ExistingTag[], shape: Sh
       let bestScore = 0;
       const n = normCode(code);
       for (const t of existing) {
-        const s = similarity(n, normCode(t.identifier || ''));
+        const s = typoLike(n, normCode(t.identifier || ''));
         if (s > bestScore) { bestScore = s; bestTag = t; }
       }
-      if (bestTag && bestScore >= 0.85) {
+      if (bestTag && bestScore >= 0.75) {
         cls = 'fuzzyAlike';
         why = `похож на «${bestTag.identifier}» (${Math.round(bestScore * 100)}%)`;
         return finish(row, code, cls, bestTag, fills, diffs, why);

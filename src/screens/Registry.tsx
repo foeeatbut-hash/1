@@ -4,11 +4,12 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { dataService } from '../services/dataService';
-import { 
-  Network, 
-  List, 
-  Table, 
-  Plus, 
+import {
+  Network,
+  List,
+  Table,
+  Scissors,
+  Plus,
   Trash2, 
   Edit2, 
   Link2, 
@@ -803,6 +804,10 @@ export default function Registry() {
   });
 
   // Load all tags
+  // Последний прочитанный список — состояние в замыкании эффекта уже устарело,
+  // а подсветке после захвата нужны свежие карточки прямо сейчас
+  const loadedTagsRef = useRef<any[]>([]);
+
   const loadTags = async () => {
     if (!activeProject) return;
     setIsLoading(true);
@@ -814,6 +819,7 @@ export default function Registry() {
         parsedMetadata: parseTagMetadata(t)
       }));
       setTags(tagsWithParsedMetadata);
+      loadedTagsRef.current = tagsWithParsedMetadata;
       // Выделение не должно ссылаться на удалённые теги (иначе «Выбрано: 2»
       // после удаления одного из выбранных и лишние рендеры)
       const liveIds = new Set(tagsList.map((t: any) => t.id));
@@ -971,6 +977,69 @@ export default function Registry() {
     window.addEventListener('flux:tags-changed', onTagsChanged);
     return () => window.removeEventListener('flux:tags-changed', onTagsChanged);
   }, []);
+
+  // ── Подсветка после захвата с экрана ────────────────────────────────────
+  //
+  // Вспышки мало: отвернулся — и всё, что добавилось, потерялось. Поэтому
+  // кроме волны в шапке остаётся закрываемая плашка «последний захват».
+  // И вспышка обязана переезжать за инженером: подсветку зажигаем в том виде,
+  // который открыт сейчас, и перезажигаем при переключении вкладки.
+  const [lastCapture, setLastCapture] = useState<
+    { created: string[]; filled: string[]; duplicated: string[] } | null
+  >(null);
+  const captureUntilRef = useRef(0);
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+
+  const flashCapture = (data: { created: string[]; filled: string[]; duplicated: string[] }) => {
+    const queue: { id: string; cls: string }[] = [
+      ...data.created.map((id) => ({ id, cls: 'capture-pulse-new' })),
+      ...data.filled.map((id) => ({ id, cls: 'capture-pulse-fill' })),
+      ...data.duplicated.map((id) => ({ id, cls: 'capture-pulse-dup' })),
+    ];
+    queue.forEach(({ id, cls }, i) => {
+      setTimeout(() => {
+        // Один и тот же тег в разных видах живёт под своим идентификатором;
+        // подсвечиваем тот элемент, который сейчас есть в разметке
+        for (const domId of [`tag-card-${id}`, `tree-node-${id}`, `spec-row-${id}`]) {
+          const el = document.getElementById(domId);
+          if (!el) continue;
+          el.classList.add(cls);
+          setTimeout(() => el.classList.remove(cls), 3000);
+        }
+      }, i * 60);
+    });
+  };
+
+  useEffect(() => {
+    const onApplied = async (e: Event) => {
+      const d = (e as CustomEvent).detail as
+        { created: string[]; filled: string[]; duplicated: string[] };
+      if (!d) return;
+      const total = d.created.length + d.filled.length + d.duplicated.length;
+      if (!total) return;
+      setLastCapture(d);
+      captureUntilRef.current = Date.now() + 3600 + total * 60;
+      await loadTags();
+      // Ждём отрисовку списка, иначе подсвечивать ещё нечего
+      requestAnimationFrame(() => setTimeout(() => {
+        const ids = [...d.created, ...d.filled];
+        const cards = ids.map((id) => loadedTagsRef.current.find((t: any) => t.id === id)).filter(Boolean);
+        // Наводим камеру только на холсте: в дереве и таблице она ни при чём
+        if (cards.length && activeTabRef.current === 'board') fitToTags(cards as any[]);
+        flashCapture(d);
+      }, 60));
+    };
+    window.addEventListener('flux:capture-applied', onApplied as EventListener);
+    return () => window.removeEventListener('flux:capture-applied', onApplied as EventListener);
+  }, []);
+
+  // Переключили вид, пока окно подсветки не истекло — зажигаем заново
+  useEffect(() => {
+    if (!lastCapture || Date.now() > captureUntilRef.current) return;
+    const t = setTimeout(() => flashCapture(lastCapture), 140);
+    return () => clearTimeout(t);
+  }, [activeTab]);
 
   useEffect(() => {
     if (activeTab === 'equipment') {
@@ -2675,6 +2744,28 @@ export default function Registry() {
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200/50">
                 {countOf(tags.length, 'тег')}
               </span>
+              {/* Что принёс последний захват. Вспышка гаснет за секунды, а это
+                  остаётся, пока инженер сам не закроет */}
+              {lastCapture && (
+                <span className="inline-flex items-center gap-2 text-xs font-bold pl-2.5 pr-1 py-0.5 rounded-full
+                                 bg-emerald-600 text-white">
+                  последний захват: {lastCapture.created.length + lastCapture.filled.length}
+                  <button
+                    onClick={() => {
+                      captureUntilRef.current = Date.now() + 3600;
+                      const ids = [...lastCapture.created, ...lastCapture.filled];
+                      const cards = ids.map((id) => loadedTagsRef.current.find((t: any) => t.id === id)).filter(Boolean);
+                      if (cards.length && activeTab === 'board') fitToTags(cards as any[]);
+                      flashCapture(lastCapture);
+                    }}
+                    className="px-1.5 py-0.5 rounded-full hover:bg-white/20 cursor-pointer font-semibold"
+                  >
+                    показать
+                  </button>
+                  <button onClick={() => setLastCapture(null)}
+                          className="px-1.5 rounded-full hover:bg-white/20 cursor-pointer">✕</button>
+                </span>
+              )}
             </h1>
           </div>
         </div>
@@ -4048,6 +4139,32 @@ export default function Registry() {
                 <span>Открыть мастер импорта</span>
               </button>
             </div>
+
+            {/* ЗАХВАТ С ЭКРАНА */}
+            {!!(window as any).electron?.capture && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-5 bg-gradient-to-br from-sky-50 to-white dark:from-sky-950/30 dark:to-slate-950 border border-sky-200/70 dark:border-sky-900/50 rounded-xl shadow-xs">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-sky-100 dark:bg-sky-950/50 flex items-center justify-center text-sky-600 dark:text-sky-400 shrink-0">
+                    <Scissors className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">Захват с экрана</h3>
+                    <p className="text-xs text-slate-500 mt-0.5 max-w-lg">
+                      Программа свернётся в угол экрана. Выделите теги в любом окне — письме, бланке, PDF —
+                      и скопируйте: пульт увидит буфер сам. Дальше разбор с проверкой, что именно распозналось.
+                      Горячая клавиша <b>Ctrl+Shift+X</b>.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => (window as any).electron?.capture?.start()}
+                  className="px-5 py-2.5 bg-sky-700 hover:bg-sky-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 transition-all cursor-pointer shrink-0"
+                >
+                  <Scissors className="w-4 h-4" />
+                  <span>Свернуть и захватить</span>
+                </button>
+              </div>
+            )}
 
             {/* SELECTION FILTERS BLOCK */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-sm text-left">

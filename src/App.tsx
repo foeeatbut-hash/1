@@ -11,6 +11,7 @@ import Login from './screens/Login';
 
 // Стикер открывается отдельным окном Electron — вне рабочего стола
 const StickerWindow = lazy(() => import('./screens/StickerWindow'));
+const CapturePult = lazy(() => import('./screens/CapturePult'));
 
 import { SocketProvider } from './components/SocketProvider';
 import { ServerGate } from './components/BootSplash';
@@ -134,6 +135,16 @@ function AnimatedRoutes() {
     return (
       <Suspense fallback={<ScreenLoader />}>
         <StickerWindow />
+      </Suspense>
+    );
+  }
+
+  // Пульт захвата — тоже отдельное окно. Данных проекта он не трогает,
+  // только следит за буфером, поэтому входа не требует
+  if (location.pathname === '/capture') {
+    return (
+      <Suspense fallback={null}>
+        <CapturePult />
       </Suspense>
     );
   }

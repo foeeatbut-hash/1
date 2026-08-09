@@ -9,34 +9,11 @@ import {
 import { dataService } from '../services/dataService';
 import { useToastStore } from '../store/toastStore';
 import { countOf } from '../lib/plural';
+import { FIELDS, FIELD_LABEL, detectField, FieldKey as SharedFieldKey } from '../capture/fields';
 
-type FieldKey = 'identifier' | 'brand' | 'name' | 'department' | 'fluid' | 'wbs' | 'parent' | 'actuality';
-
-const FIELDS: { key: FieldKey; label: string; hint: string }[] = [
-  { key: 'identifier', label: 'Код тега', hint: 'Уникальный код (KKS)' },
-  { key: 'brand', label: 'Марка', hint: 'Модель / тип' },
-  { key: 'name', label: 'Наименование', hint: 'Название изделия' },
-  { key: 'department', label: 'Отдел', hint: 'Дисциплина' },
-  { key: 'fluid', label: 'Среда', hint: 'Назначение' },
-  { key: 'wbs', label: 'WBS', hint: 'Шифр СДР' },
-  { key: 'parent', label: 'Родитель', hint: 'Код родительского тега' },
-  { key: 'actuality', label: 'Актуальность', hint: 'Статус' },
-];
-const FIELD_LABEL: Record<string, string> = Object.fromEntries(FIELDS.map(f => [f.key, f.label]));
-
-const detectField = (header: string): FieldKey | '' => {
-  const h = (header || '').toLowerCase().trim();
-  if (!h) return '';
-  if (/(код\s*тег|^тег|\bтег\b|tag|kks|ккс|позиц|обознач)/.test(h)) return 'identifier';
-  if (/(родит|parent|вышестоящ|принадлеж|связь)/.test(h)) return 'parent';
-  if (/(марк|модел|тип\b|brand|артикул)/.test(h)) return 'brand';
-  if (/(наимен|назван|name|описан|издели)/.test(h)) return 'name';
-  if (/(отдел|дисциплин|department|раздел|подразд)/.test(h)) return 'department';
-  if (/(сред|fluid|назнач|поток)/.test(h)) return 'fluid';
-  if (/(wbs|сдр|шифр)/.test(h)) return 'wbs';
-  if (/(актуальн|статус|состоян|status)/.test(h)) return 'actuality';
-  return '';
-};
+// Поля и угадывание колонок — общий модуль: тем же словарём разбирает
+// таблицу захват с экрана (src/capture)
+type FieldKey = SharedFieldKey;
 
 interface Sheet { name: string; rows: string[][]; totalRows: number; }
 interface Props {
