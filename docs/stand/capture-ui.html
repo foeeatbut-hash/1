@@ -514,7 +514,7 @@ select.res:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px
               <span class="badge info">Excel · лист «у1»</span></div>
             <div class="raw" id="raw">Перечень позиций к опросному листу:
 <span class="tok" data-k="ahu2">AHU-2</span>  <span class="tok" data-k="ahu3">AHU-3</span>  <span class="tok" data-k="p101a">P-101A</span>  <span class="tok" data-k="p101b">P-101B</span>  <span class="tok" data-k="p101c">P-101C</span>
-<span class="tok" data-k="fan07">FAN-07</span>  <span class="tok" data-k="fan08">FAN-08</span>  <span class="tok" data-k="fan07">FAN-07</span>  <span class="tok" data-k="v12">V-12</span>  <span class="tok" data-k="v13">V-13</span>
+<span class="tok" data-k="fan07">FAN-07</span>  <span class="tok" data-k="fan08">FAN-08</span>  <span class="tok" data-k="fan07">FAN-07</span>  <span class="tok" data-k="v12">С-14</span>  <span class="tok" data-k="v13">V-13</span>
 <span class="tok" data-k="cp1">CP-1</span>
 <span class="tok junk" data-k="junk">стр. 4</span></div>
             <div class="rawtip">Текст правится прямо здесь — разбор справа пересчитается.
@@ -582,9 +582,11 @@ select.res:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px
       </div>
     </div>
     <div class="notes">
-      <div class="note hot"><b>V-12 — тот случай, что не найти глазами</b>
-        Захваченный код набран с русской «В». Выглядит идентично латинскому, а в базе
-        это два разных тега. Отдельный класс с обязательной пометкой.</div>
+      <div class="note hot"><b>С-14 — тот случай, что не найти глазами</b>
+        Первая буква набрана в русской раскладке: русская «С» и латинская «C» рисуются
+        одинаково, а в базе это два разных тега. Похожесть по написанию при этом
+        требует совпадения цифр — «AHU-21» и «AHU-211» разные аппараты, и связывать
+        их нельзя.</div>
       <div class="note"><b>«Дополнить только пустые»</b>
         Самое частое и самое безопасное решение: у существующего тега пустая марка,
         в захвате она есть — заполняем, ничего не перетирая.</div>
@@ -845,7 +847,7 @@ select.res:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px
     { k: 'p101c', code: 'P-101C', on: 1, badge: 'ok',   b: 'новый' },
     { k: 'fan07', code: 'FAN-07', on: 1, badge: 'warn', b: 'в захвате дважды' },
     { k: 'fan08', code: 'FAN-08', on: 1, badge: 'ok',   b: 'новый' },
-    { k: 'v12',   code: 'V-12',   on: 1, badge: 'warn', b: 'в коде русская В' },
+    { k: 'v12',   code: 'С-14',   on: 1, badge: 'warn', b: 'первая буква русская' },
     { k: 'v13',   code: 'V-13',   on: 1, badge: 'warn', b: 'есть, можно дополнить' },
     { k: 'cp1',   code: 'CP-1',   on: 0, badge: '',     b: 'сомнительный' }
   ];
@@ -891,9 +893,9 @@ select.res:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px
     { c: 'FAN-07', cls: 'дубль внутри захвата', s: 'new',
       opts: ['Свернуть в один', 'Оставить оба'], why: 'встретился в выделении 2 раза' },
     { c: 'FAN-08', cls: 'новый', s: 'new', opts: ['Создать'], why: 'кода нет в проекте' },
-    { c: 'V-12',   cls: 'похож: раскладка', s: 'conf',
+    { c: 'С-14',   cls: 'похож: раскладка', s: 'conf',
       opts: ['Привязать к существующему', 'Создать как новый', 'Починить код'],
-      why: 'в захвате <b>В</b> русская, в проекте <b>V</b> латинская' },
+      why: 'в захвате <b>С</b> русская, в проекте <b>C</b> латинская — на глаз одинаковы' },
     { c: 'V-13',   cls: 'дубль, есть новое', s: 'fill',
       opts: ['Дополнить только пустые', 'Пропустить', 'Заменить', 'Создать дубль'],
       why: 'у существующего пуста марка, в захвате есть' },

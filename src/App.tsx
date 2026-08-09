@@ -43,7 +43,9 @@ function ElectronTitleBar() {
     return () => { off && off(); };
   }, [wc]);
 
-  if (!isElectron || location.pathname === '/sticker') return null;
+  // Отдельные окна рисуют себя сами: у стикера своя шапка, у пульта захвата
+  // её нет вовсе — он и так 306×150 без рамок
+  if (!isElectron || location.pathname === '/sticker' || location.pathname === '/capture') return null;
 
   const btn = "w-11 h-9 flex items-center justify-center text-slate-400 hover:text-white transition-colors cursor-pointer";
   const noDrag = { WebkitAppRegion: 'no-drag' } as React.CSSProperties;
