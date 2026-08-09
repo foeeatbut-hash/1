@@ -1,0 +1,261 @@
+import {
+  app, BrowserWindow, Tray, Menu, clipboard, globalShortcut, nativeImage, screen, ipcMain,
+} from 'electron';
+import path from 'path';
+import crypto from 'crypto';
+import { TRAY_ICON_PNG } from './trayIcon';
+
+/**
+ * Захват с экрана: свёрнутый пульт, слежение за буфером, трей, горячая клавиша.
+ * Разбор написанного здесь — docs/screen-capture-design.md.
+ *
+ * Главное, чего тут НЕТ: чтения выделения из чужого окна. В Windows такого
+ * способа для Electron нет. Работаем от буфера обмена, но не ждём галочку
+ * молча: пока режим включён, буфер опрашивается, и пульт сам сообщает, что
+ * появилось. Инженеру остаётся выделить, скопировать и подтвердить.
+ */
+
+const PULT_W = 306;
+const PULT_H = 150;
+const MARGIN = 18;
+const POLL_MS = 400;
+/** Больше в разбор не тащим: окно перестанет отвечать, а пользы ноль */
+const MAX_CHARS = 50000;
+
+export interface CaptureItem {
+  kind: 'text' | 'table' | 'image';
+  /** Простой текст. Для картинки — пусто */
+  text: string;
+  /** Флейвор text/html: у копии из Excel и Word здесь настоящая таблица */
+  html: string;
+  /** Картинка как data:URL — уходит в OCR на стороне рендерера */
+  image: string;
+  /** Сколько знаков отрезали лимитом */
+  truncated: number;
+  at: number;
+}
+
+type PultState =
+  | { name: 'idle' }
+  | { name: 'stale' }
+  | { name: 'ready'; kind: CaptureItem['kind']; lines: number; chars: number; cells: number; truncated: number }
+  | { name: 'basket'; count: number; lines: number };
+
+let tray: Tray | null = null;
+let pult: BrowserWindow | null = null;
+let active = false;
+let timer: NodeJS.Timeout | null = null;
+
+/** Отпечаток буфера на момент входа в режим: защита от устаревшего содержимого */
+let baseline = '';
+let lastSeen = '';
+let current: CaptureItem | null = null;
+const basket: CaptureItem[] = [];
+
+const hash = (s: string) => crypto.createHash('sha1').update(s).digest('hex');
+
+/** Слепок буфера для сравнения. Картинку хешируем по размеру и первым байтам */
+function clipboardFingerprint(): string {
+  const formats = clipboard.availableFormats();
+  if (formats.some((f) => f.startsWith('image/'))) {
+    const img = clipboard.readImage();
+    if (!img.isEmpty()) {
+      const s = img.getSize();
+      return hash(`img:${s.width}x${s.height}:` + img.toBitmap().subarray(0, 4096).toString('base64'));
+    }
+  }
+  return hash('txt:' + clipboard.readText() + '|' + clipboard.readHTML());
+}
+
+function readClipboard(): CaptureItem | null {
+  const formats = clipboard.availableFormats();
+
+  if (formats.some((f) => f.startsWith('image/')) && !clipboard.readText().trim()) {
+    const img = clipboard.readImage();
+    if (!img.isEmpty()) {
+      return { kind: 'image', text: '', html: '', image: img.toDataURL(), truncated: 0, at: Date.now() };
+    }
+  }
+
+  const raw = clipboard.readText() || '';
+  if (!raw.trim()) return null;
+
+  const html = clipboard.readHTML() || '';
+  // Таблицу узнаём по разметке или по табуляциям — из Excel приходит и то и другое
+  const isTable = /<table[\s>]/i.test(html) || /\t/.test(raw);
+
+  const text = raw.length > MAX_CHARS ? raw.slice(0, MAX_CHARS) : raw;
+  return {
+    kind: isTable ? 'table' : 'text',
+    text,
+    html: html.length > MAX_CHARS * 4 ? '' : html,
+    image: '',
+    truncated: Math.max(0, raw.length - text.length),
+    at: Date.now(),
+  };
+}
+
+function describe(item: CaptureItem | null): PultState {
+  if (basket.length && !item) return { name: 'basket', count: basket.length, lines: basketLines() };
+  if (!item) return baseline === lastSeen ? { name: 'stale' } : { name: 'idle' };
+  const lines = item.text ? item.text.split(/\r?\n/).filter((l) => l.trim()).length : 0;
+  const cells = item.kind === 'table'
+    ? item.text.split(/\r?\n/).filter((l) => l.trim())
+        .reduce((n, l) => n + l.split('\t').length, 0)
+    : 0;
+  return { name: 'ready', kind: item.kind, lines, chars: item.text.length, cells, truncated: item.truncated };
+}
+
+const basketLines = () =>
+  basket.reduce((n, b) => n + (b.text ? b.text.split(/\r?\n/).filter((l) => l.trim()).length : 0), 0);
+
+function pushState() {
+  if (!pult || pult.isDestroyed()) return;
+  const state = current ? describe(current) : describe(null);
+  pult.webContents.send('capture:state', { state, basket: basket.length });
+}
+
+/** Опрос буфера. Дешевле и предсказуемее, чем ловить системные события копирования */
+function tick() {
+  if (!active) return;
+  let fp = '';
+  try { fp = clipboardFingerprint(); } catch { return; }
+  if (fp === lastSeen) return;
+  lastSeen = fp;
+  if (fp === baseline) { current = null; pushState(); return; }
+  try { current = readClipboard(); } catch { current = null; }
+  pushState();
+}
+
+function placePult(win: BrowserWindow) {
+  const point = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(point);
+  // Именно workArea, а не bounds: иначе пульт уедет под панель задач
+  const { x, y, width, height } = display.workArea;
+  win.setBounds({
+    x: Math.round(x + width - PULT_W - MARGIN),
+    y: Math.round(y + height - PULT_H - MARGIN),
+    width: PULT_W,
+    height: PULT_H,
+  });
+}
+
+function createPult() {
+  if (pult && !pult.isDestroyed()) { pult.show(); return pult; }
+  pult = new BrowserWindow({
+    width: PULT_W,
+    height: PULT_H,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: true,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    // Ключевое: окно не забирает фокус. Иначе клик по пульту снимает выделение
+    // в чужом окне, а копирование ушло бы в пульт, а не в бланк
+    focusable: false,
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+  pult.setAlwaysOnTop(true, 'screen-saver');
+  placePult(pult);
+
+  const hashRoute = '#/capture';
+  if (process.env.NODE_ENV === 'development') pult.loadURL('http://localhost:3000/' + hashRoute);
+  else pult.loadFile(path.join(__dirname, '../dist/index.html'), { hash: '/capture' });
+
+  pult.once('ready-to-show', () => { pult?.showInactive(); pushState(); });
+  pult.on('closed', () => { pult = null; });
+  return pult;
+}
+
+export function setupCapture(getMain: () => BrowserWindow | null) {
+  const icon = nativeImage.createFromBuffer(Buffer.from(TRAY_ICON_PNG, 'base64'));
+
+  const start = () => {
+    if (active) return;
+    active = true;
+    basket.length = 0;
+    current = null;
+    try { baseline = clipboardFingerprint(); } catch { baseline = ''; }
+    lastSeen = baseline;
+    getMain()?.hide();
+    createPult();
+    if (timer) clearInterval(timer);
+    timer = setInterval(tick, POLL_MS);
+    updateTrayMenu();
+  };
+
+  const stop = (showMain: boolean) => {
+    active = false;
+    if (timer) { clearInterval(timer); timer = null; }
+    if (pult && !pult.isDestroyed()) pult.close();
+    pult = null;
+    current = null;
+    basket.length = 0;
+    if (showMain) {
+      const m = getMain();
+      if (m) { m.show(); m.focus(); }
+    }
+    updateTrayMenu();
+  };
+
+  const confirm = () => {
+    const items = [...basket];
+    if (current) items.push(current);
+    if (!items.length) return;
+    const main = getMain();
+    stop(true);
+    // Отдаём разбор рендереру: HTML-таблицу там разбирает DOMParser,
+    // а не самодельные регулярки в главном процессе
+    main?.webContents.send('capture:payload', { items });
+  };
+
+  function updateTrayMenu() {
+    if (!tray) return;
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: active ? 'Прекратить захват' : 'Захват с экрана\tCtrl+Shift+X', click: () => (active ? stop(true) : start()) },
+      { type: 'separator' },
+      { label: 'Показать Flux', click: () => { const m = getMain(); if (m) { m.show(); m.focus(); } } },
+      { type: 'separator' },
+      { label: 'Выход', click: () => { stop(false); app.quit(); } },
+    ]));
+  }
+
+  try {
+    tray = new Tray(icon);
+    tray.setToolTip('Flux');
+    // Без трея скрытое главное окно потерялось бы: показать его было бы нечем
+    tray.on('click', () => { const m = getMain(); if (m) { m.show(); m.focus(); } });
+    updateTrayMenu();
+  } catch (e) { tray = null; }
+
+  try { globalShortcut.register('CommandOrControl+Shift+X', () => (active ? stop(true) : start())); } catch (e) {}
+
+  ipcMain.on('capture:start', start);
+  ipcMain.on('capture:cancel', () => stop(true));
+  ipcMain.on('capture:confirm', confirm);
+  ipcMain.on('capture:to-basket', () => {
+    if (!current) return;
+    basket.push(current);
+    current = null;
+    // Следующее копирование снова считается новым
+    baseline = ' ';
+    pushState();
+  });
+  ipcMain.handle('capture:sync', () => {
+    const state = current ? describe(current) : describe(null);
+    return { state, basket: basket.length };
+  });
+  ipcMain.on('capture:move', (_e, dx: number, dy: number) => {
+    if (!pult || pult.isDestroyed()) return;
+    const b = pult.getBounds();
+    pult.setBounds({ ...b, x: Math.round(b.x + dx), y: Math.round(b.y + dy) });
+  });
+
+  app.on('will-quit', () => { try { globalShortcut.unregisterAll(); } catch (e) {} });
+}

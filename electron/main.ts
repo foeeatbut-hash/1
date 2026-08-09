@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, Menu, utilityProcess } from 'electron';
 import path from 'path';
 import { licenseStatus, activateLicense } from './license';
+import { setupCapture } from './capture';
 
 const additionalData = { myKey: 'pdm-system' };
 const gotTheLock = app.requestSingleInstanceLock(additionalData);
@@ -106,6 +107,9 @@ app.whenReady().then(() => {
   // заставкой из index.html. Встроенный Express-сервер поднимается ниже,
   // как только будет вычислен DATABASE_URL.
   createWindow();
+
+  // Захват с экрана: трей, горячая клавиша, пульт (см. electron/capture.ts)
+  setupCapture(() => mainWindow);
 
   const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');
 

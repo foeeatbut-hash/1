@@ -41,6 +41,26 @@ contextBridge.exposeInMainWorld('electron', {
 
   openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
 
+  // Захват с экрана: пульт живёт в отдельном окне, разбор — в главном
+  capture: {
+    start: () => ipcRenderer.send('capture:start'),
+    cancel: () => ipcRenderer.send('capture:cancel'),
+    confirm: () => ipcRenderer.send('capture:confirm'),
+    toBasket: () => ipcRenderer.send('capture:to-basket'),
+    sync: () => ipcRenderer.invoke('capture:sync'),
+    move: (dx: number, dy: number) => ipcRenderer.send('capture:move', dx, dy),
+    onState: (callback: (data: any) => void) => {
+      const subscription = (_event: any, data: any) => callback(data);
+      ipcRenderer.on('capture:state', subscription);
+      return () => ipcRenderer.removeListener('capture:state', subscription);
+    },
+    onPayload: (callback: (data: any) => void) => {
+      const subscription = (_event: any, data: any) => callback(data);
+      ipcRenderer.on('capture:payload', subscription);
+      return () => ipcRenderer.removeListener('capture:payload', subscription);
+    },
+  },
+
   // Управление окном (кастомный заголовок)
   windowControls: {
     minimize: () => ipcRenderer.send('window:minimize'),

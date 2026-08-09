@@ -590,6 +590,28 @@ export const dataService = {
     return request(`/projects/${projectId}/tags/bulk-import`, { method: 'POST', body: JSON.stringify({ rows, mode }) });
   },
 
+  // Применение плана захвата с экрана: решение своё у каждой строки
+  async applyCapturedTags(
+    projectId: string,
+    rows: {
+      identifier: string; brand?: string; name?: string; department?: string;
+      fluid?: string; wbs?: string; actuality?: string;
+      action: 'create' | 'skip' | 'fill' | 'replace' | 'duplicate' | 'link';
+      targetId?: string;
+    }[],
+  ): Promise<{
+    created: { id: string; identifier: string }[];
+    filled: { id: string; identifier: string }[];
+    duplicated: { id: string; identifier: string }[];
+    linked: { id: string; identifier: string }[];
+    skipped: string[];
+  }> {
+    return request(`/projects/${projectId}/tags/capture-apply`, {
+      method: 'POST',
+      body: JSON.stringify({ rows }),
+    });
+  },
+
   async linkTagToComponent(componentId: string, tagId: string): Promise<any> {
     return request(`/components/${componentId}/tags/${tagId}`, {
       method: 'POST',

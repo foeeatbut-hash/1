@@ -3170,6 +3170,109 @@ app.post('/api/projects/:projectId/tags/bulk-import', async (req: Request, res: 
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// Применение плана захвата с экрана.
+//
+// Отличие от bulk-import: там режим один на весь список ('add' | 'update'),
+// а здесь решение своё у каждой строки — их девять классов конфликтов
+// (см. docs/screen-capture-design.md). Возвращаем идентификаторы созданного
+// и дополненного: по ним клиент подсвечивает добавленное в Реестре.
+//
+// Удалений тут нет и быть не может: захват — фрагмент, а не документ.
+app.post('/api/projects/:projectId/tags/capture-apply', async (req: Request, res: Response) => {
+  let { projectId } = req.params;
+  const { rows } = req.body as {
+    rows: {
+      identifier: string; brand?: string; name?: string; department?: string;
+      fluid?: string; wbs?: string; actuality?: string;
+      action: 'create' | 'skip' | 'fill' | 'replace' | 'duplicate' | 'link';
+      targetId?: string;
+    }[];
+  };
+  try {
+    if (!projectId || ['null', 'undefined', 'default'].includes(projectId)) {
+      let fp = await prisma.project.findFirst();
+      if (!fp) fp = await prisma.project.create({ data: { name: 'Общий Проект' } });
+      projectId = fp.id;
+    }
+    const existing = await prisma.tag.findMany({ where: { projectId } });
+    const byId = new Map(existing.map((t: any) => [t.id, t]));
+
+    // Новые карточки кладём под уже занятыми, а не в одну точку холста
+    let maxY = 0;
+    for (const t of existing as any[]) {
+      try { const m = t.metadata ? JSON.parse(t.metadata) : null; if (m && typeof m.y === 'number') maxY = Math.max(maxY, m.y); } catch {}
+    }
+    let col = 0;
+    const nextPos = () => {
+      const p = { x: 120 + (col % 6) * 360, y: maxY + 200 + Math.floor(col / 6) * 150 };
+      col++;
+      return p;
+    };
+
+    const created: { id: string; identifier: string }[] = [];
+    const filled: { id: string; identifier: string }[] = [];
+    const duplicated: { id: string; identifier: string }[] = [];
+    const linked: { id: string; identifier: string }[] = [];
+    const skipped: string[] = [];
+
+    for (const r of (rows || [])) {
+      const code = String(r.identifier || '').trim();
+      if (!code) continue;
+      const action = r.action;
+      if (action === 'skip') { skipped.push(code); continue; }
+
+      const target: any = r.targetId ? byId.get(r.targetId) : null;
+
+      if (action === 'link') {
+        if (target) linked.push({ id: target.id, identifier: target.identifier });
+        else skipped.push(code);
+        continue;
+      }
+
+      if ((action === 'fill' || action === 'replace') && target) {
+        const data: any = {};
+        for (const f of ['brand', 'department', 'fluid', 'wbs'] as const) {
+          const incoming = r[f] ? String(r[f]).trim() : '';
+          if (!incoming) continue;
+          const mine = String(target[f] || '').trim();
+          // «Дополнить» трогает только пустое — в этом вся его безопасность
+          if (action === 'fill' && mine) continue;
+          data[f] = incoming;
+        }
+        let meta: any = {};
+        try { meta = target.metadata ? JSON.parse(target.metadata) : {}; } catch {}
+        if (r.name && (action === 'replace' || !meta.mainName)) meta.mainName = String(r.name);
+        if (r.actuality && (action === 'replace' || !meta.actuality)) meta.actuality = String(r.actuality);
+        if (!Array.isArray(meta.connections)) meta.connections = [];
+        await prisma.tag.update({ where: { id: target.id }, data: { ...data, metadata: JSON.stringify(meta) } });
+        filled.push({ id: target.id, identifier: target.identifier });
+        continue;
+      }
+
+      // create и duplicate пишутся одинаково; разными их делает только то,
+      // что duplicate выбран осознанно при уже существующем коде
+      const pos = nextPos();
+      const meta: any = { connections: [], descriptions: [], x: pos.x, y: pos.y };
+      if (r.name) meta.mainName = String(r.name);
+      if (r.actuality) meta.actuality = String(r.actuality);
+      const t = await prisma.tag.create({
+        data: {
+          projectId,
+          identifier: code,
+          brand: r.brand ? String(r.brand) : null,
+          department: r.department ? String(r.department) : null,
+          fluid: r.fluid ? String(r.fluid) : null,
+          wbs: r.wbs ? String(r.wbs) : null,
+          metadata: JSON.stringify(meta),
+        },
+      });
+      (action === 'duplicate' ? duplicated : created).push({ id: t.id, identifier: code });
+    }
+
+    res.json({ created, filled, duplicated, linked, skipped });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // Update tag fields and json metadata
 // Массовое обновление metadata тегов одним запросом (Менеджмент: этап для N позиций).
 // Раньше клиент слал N последовательных PUT — на больших выборках это заметно тормозило.
