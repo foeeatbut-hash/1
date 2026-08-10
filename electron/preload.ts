@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('electron', {
     cancel: () => ipcRenderer.send('capture:cancel'),
     confirm: () => ipcRenderer.send('capture:confirm'),
     toBasket: () => ipcRenderer.send('capture:to-basket'),
+    clearBasket: () => ipcRenderer.send('capture:clear-basket'),
     sync: () => ipcRenderer.invoke('capture:sync'),
     move: (dx: number, dy: number) => ipcRenderer.send('capture:move', dx, dy),
     onState: (callback: (data: any) => void) => {

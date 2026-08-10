@@ -3274,6 +3274,44 @@ app.post('/api/projects/:projectId/tags/capture-apply', async (req: Request, res
 });
 
 // Update tag fields and json metadata
+// Отмена захвата: удаляем созданное, возвращаем дополненному прежние значения.
+//
+// Прежние значения приходят с клиента — он снял их снимком до применения.
+// Хранить их на сервере незачем: откат живёт ровно столько, сколько открыт
+// отчёт, и нужен на случай «нажал не подумав», а не как полноценная история.
+app.post('/api/projects/:projectId/tags/capture-undo', async (req: Request, res: Response) => {
+  const { projectId } = req.params;
+  const { deleteIds, restore } = req.body as {
+    deleteIds: string[];
+    restore: { id: string; brand: string | null; department: string | null;
+               fluid: string | null; wbs: string | null; metadata: string | null }[];
+  };
+  try {
+    let deleted = 0, restored = 0;
+    // Только теги этого проекта: идентификатор из чужого проекта сюда не пройдёт
+    if (Array.isArray(deleteIds) && deleteIds.length) {
+      const r = await prisma.tag.deleteMany({ where: { id: { in: deleteIds.slice(0, 2000) }, projectId } });
+      deleted = r.count;
+    }
+    for (const t of (restore || []).slice(0, 2000)) {
+      const own = await prisma.tag.findFirst({ where: { id: String(t.id), projectId } });
+      if (!own) continue;
+      await prisma.tag.update({
+        where: { id: t.id },
+        data: {
+          brand: t.brand ?? null,
+          department: t.department ?? null,
+          fluid: t.fluid ?? null,
+          wbs: t.wbs ?? null,
+          metadata: t.metadata ?? null,
+        },
+      });
+      restored++;
+    }
+    res.json({ deleted, restored });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // Массовое обновление metadata тегов одним запросом (Менеджмент: этап для N позиций).
 // Раньше клиент слал N последовательных PUT — на больших выборках это заметно тормозило.
 // ВАЖНО: маршрут объявлен раньше '/api/tags/:id', иначе «bulk-metadata» сматчится как id.

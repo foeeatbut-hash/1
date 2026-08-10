@@ -612,6 +612,21 @@ export const dataService = {
     });
   },
 
+  // Отмена захвата: снимок прежних значений даёт клиент — он снял его до применения
+  async undoCapturedTags(
+    projectId: string,
+    payload: {
+      deleteIds: string[];
+      restore: { id: string; brand: string | null; department: string | null;
+                 fluid: string | null; wbs: string | null; metadata: string | null }[];
+    },
+  ): Promise<{ deleted: number; restored: number }> {
+    return request(`/projects/${projectId}/tags/capture-undo`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
   async linkTagToComponent(componentId: string, tagId: string): Promise<any> {
     return request(`/components/${componentId}/tags/${tagId}`, {
       method: 'POST',

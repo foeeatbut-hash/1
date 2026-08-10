@@ -265,6 +265,38 @@ const rowFromTable = (grid: string[][], r: number, mapping: Record<number, Field
   return out;
 };
 
+/**
+ * Строки из таблицы по заданной разметке колонок. Вынесено отдельно, потому
+ * что разметку можно поправить руками: угадывание шапки ошибается, и тогда
+ * пересобрать строки надо без повторного захвата.
+ */
+export function buildTableRows(
+  table: TableParse,
+  shape: Shape,
+  mapping: Record<number, FieldKey | ''> = table.mapping,
+): { rows: CaptureRow[]; collapsed: number } {
+  const strict = shapeRegex(shape);
+  const rows: CaptureRow[] = [];
+  const seen = new Set<string>();
+  let collapsed = 0;
+  for (let r = table.headerRow + 1; r < table.rows.length; r++) {
+    const data = rowFromTable(table.rows, r, mapping);
+    const identifier = (data.identifier || '').trim();
+    if (!identifier) continue;
+    const norm = normCode(identifier);
+    if (seen.has(norm)) { collapsed++; continue; }
+    seen.add(norm);
+    rows.push({
+      key: `t${r}`,
+      ...data,
+      identifier,
+      verdict: strict.test(identifier) ? 'fits' : 'doubt',
+      spans: [],
+    } as CaptureRow);
+  }
+  return { rows, collapsed };
+}
+
 export function recognize(items: CaptureItem[], existingCodes: string[]): Recognized {
   const shape = buildShape(existingCodes);
   const texts = items.map((i) => i.text);
@@ -276,26 +308,7 @@ export function recognize(items: CaptureItem[], existingCodes: string[]): Recogn
   const table = items.length === 1 && items[0].kind === 'table' ? parseTable(items[0]) : null;
 
   if (table && Object.values(table.mapping).some((v) => v === 'identifier')) {
-    const rows: CaptureRow[] = [];
-    const seen = new Map<string, CaptureRow>();
-    let collapsed = 0;
-    for (let r = table.headerRow + 1; r < table.rows.length; r++) {
-      const data = rowFromTable(table.rows, r, table.mapping);
-      const identifier = (data.identifier || '').trim();
-      if (!identifier) continue;
-      const norm = normCode(identifier);
-      const prev = seen.get(norm);
-      if (prev) { collapsed++; continue; }
-      const row: CaptureRow = {
-        key: `t${r}`,
-        identifier,
-        ...data,
-        verdict: shapeRegex(shape).test(identifier) ? 'fits' : 'doubt',
-        spans: [],
-      } as CaptureRow;
-      rows.push(row);
-      seen.set(norm, row);
-    }
+    const { rows, collapsed } = buildTableRows(table, shape);
     return { raw, rows, junk: [], mode: 'table', shape, table, collapsed, truncated };
   }
 

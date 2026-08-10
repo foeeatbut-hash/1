@@ -4,7 +4,7 @@
  * Проверяем то, что легко сломать незаметно: образец кода, схлопывание
  * повторов, отсев номеров страниц и восемь классов конфликтов.
  */
-import { recognize, buildShape, shapeRegex, normCode, mixedScript, CaptureItem } from '../src/capture/recognize';
+import { recognize, buildShape, buildTableRows, shapeRegex, normCode, mixedScript, CaptureItem } from '../src/capture/recognize';
 import { buildPlan, ExistingTag } from '../src/capture/plan';
 
 let ok = 0, fail = 0;
@@ -132,6 +132,29 @@ console.log('Классы конфликтов');
   );
   eq('разные номера не считаются похожими', other[0].cls, 'new');
   eq('и создаются как новый тег', other[0].action, 'create');
+}
+
+console.log('Переразметка колонок вручную');
+{
+  // Шапка нарочно кривая: «Позиция» угадается кодом, «Изготовитель» — нет
+  const tsv = 'Позиция\tИзготовитель\nAHU-9\tВЕЗА\nFAN-11\tНЕД';
+  const rec = recognize([item(tsv, 'table')], PROJECT);
+  eq('код угадался', rec.rows[0].identifier, 'AHU-9');
+  eq('марка не угадалась', rec.rows[0].brand, undefined);
+
+  // Инженер сам указывает, что вторая колонка — марка
+  const remapped = buildTableRows(rec.table!, rec.shape, { 0: 'identifier', 1: 'brand' });
+  eq('после переразметки марка на месте', remapped.rows[0].brand, 'ВЕЗА');
+  eq('строк столько же', remapped.rows.length, 2);
+}
+
+console.log('Возврат отброшенного');
+{
+  const rec = recognize([item('AHU-2 AHU-3\nстр. 7')], PROJECT);
+  eq('мусор найден и помечен', rec.junk.length, 1);
+  eq('и не попал в строки', rec.rows.length, 2);
+  // Границы мусора должны указывать на него самого — иначе вернуть нечего
+  eq('границы мусора верны', 'AHU-2 AHU-3\nстр. 7'.slice(rec.junk[0].start, rec.junk[0].end), 'стр. 7');
 }
 
 console.log(`\n${ok} проверок пройдено, ${fail} провалено`);

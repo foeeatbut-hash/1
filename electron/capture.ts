@@ -16,7 +16,7 @@ import { TRAY_ICON_PNG } from './trayIcon';
  */
 
 const PULT_W = 306;
-const PULT_H = 150;
+const PULT_H = 172;
 const MARGIN = 18;
 const POLL_MS = 400;
 /** Больше в разбор не тащим: окно перестанет отвечать, а пользы ноль */
@@ -38,7 +38,8 @@ export interface CaptureItem {
 type PultState =
   | { name: 'idle' }
   | { name: 'stale' }
-  | { name: 'ready'; kind: CaptureItem['kind']; lines: number; chars: number; cells: number; truncated: number }
+  | { name: 'ready'; kind: CaptureItem['kind']; lines: number; chars: number; cells: number;
+      truncated: number; preview: string }
   | { name: 'basket'; count: number; lines: number };
 
 let tray: Tray | null = null;
@@ -103,7 +104,10 @@ function describe(item: CaptureItem | null): PultState {
     ? item.text.split(/\r?\n/).filter((l) => l.trim())
         .reduce((n, l) => n + l.split('\t').length, 0)
     : 0;
-  return { name: 'ready', kind: item.kind, lines, chars: item.text.length, cells, truncated: item.truncated };
+  // Первая строка захвата: инженеру надо видеть, что он вообще взял,
+  // не разворачивая программу
+  const preview = item.text.split(/\r?\n/).map((l) => l.trim()).find(Boolean)?.slice(0, 60) || '';
+  return { name: 'ready', kind: item.kind, lines, chars: item.text.length, cells, truncated: item.truncated, preview };
 }
 
 const basketLines = () =>
@@ -127,7 +131,33 @@ function tick() {
   pushState();
 }
 
+/** Где стоял пульт в прошлый раз. Файл, а не память: переживает перезапуск */
+function posFile() {
+  return path.join(app.getPath('userData'), 'capture-pult.json');
+}
+function savedPos(): { x: number; y: number } | null {
+  try {
+    const fs = require('fs');
+    const raw = JSON.parse(fs.readFileSync(posFile(), 'utf-8'));
+    if (typeof raw?.x === 'number' && typeof raw?.y === 'number') return { x: raw.x, y: raw.y };
+  } catch {}
+  return null;
+}
+function savePos(x: number, y: number) {
+  try { require('fs').writeFileSync(posFile(), JSON.stringify({ x, y })); } catch {}
+}
+
 function placePult(win: BrowserWindow) {
+  const saved = savedPos();
+  if (saved) {
+    // Монитор могли отключить — проверяем, что сохранённая точка ещё на экране
+    const onScreen = screen.getAllDisplays().some((d) => {
+      const a = d.workArea;
+      return saved.x + PULT_W > a.x && saved.x < a.x + a.width
+          && saved.y + PULT_H > a.y && saved.y < a.y + a.height;
+    });
+    if (onScreen) { win.setBounds({ x: saved.x, y: saved.y, width: PULT_W, height: PULT_H }); return; }
+  }
   const point = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(point);
   // Именно workArea, а не bounds: иначе пульт уедет под панель задач
@@ -251,10 +281,17 @@ export function setupCapture(getMain: () => BrowserWindow | null) {
     const state = current ? describe(current) : describe(null);
     return { state, basket: basket.length };
   });
+  ipcMain.on('capture:clear-basket', () => {
+    basket.length = 0;
+    pushState();
+  });
   ipcMain.on('capture:move', (_e, dx: number, dy: number) => {
     if (!pult || pult.isDestroyed()) return;
     const b = pult.getBounds();
-    pult.setBounds({ ...b, x: Math.round(b.x + dx), y: Math.round(b.y + dy) });
+    const x = Math.round(b.x + dx);
+    const y = Math.round(b.y + dy);
+    pult.setBounds({ ...b, x, y });
+    savePos(x, y);
   });
 
   app.on('will-quit', () => { try { globalShortcut.unregisterAll(); } catch (e) {} });
