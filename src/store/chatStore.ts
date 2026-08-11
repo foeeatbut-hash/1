@@ -131,6 +131,16 @@ let socketInstance: Socket | null = null;
 let pollTimer: NodeJS.Timeout | null = null;
 let visibilityHandler: (() => void) | null = null;
 
+/**
+ * Метка открытого диалога. Растёт при каждом переключении, и ответ сервера
+ * принимается, только если метка не изменилась, пока он летел.
+ *
+ * Без этого быстрое переключение между чатами кончалось тем, что медленный
+ * ответ первого диалога затирал сообщения второго: в окне чужая переписка
+ * под именем текущего собеседника.
+ */
+let convToken = 0;
+
 // Обновляет messages только если список реально изменился — опрос каждые 3 секунды
 // не должен дергать перерисовку и скролл без новых сообщений
 const messagesSignature = (list: any[]) =>
@@ -169,10 +179,12 @@ export const useChatStore = create<ChatState>((set, get) => {
     setSearchQuery: (query) => set({ searchQuery: query }),
     
     setActiveReceiverId: (id) => {
+      convToken++;
       set({ activeReceiverId: id, activeGroupId: null, activeType: 'DIRECT', messages: [], messageWindow: 300, hasEarlier: false });
     },
 
     setActiveGroupId: (id) => {
+      convToken++;
       set({ activeGroupId: id, activeReceiverId: null, activeType: 'PROJECT', messages: [], messageWindow: 300, hasEarlier: false });
     },
 
@@ -200,6 +212,7 @@ export const useChatStore = create<ChatState>((set, get) => {
 
     fetchMessages: async (currentUserId) => {
       const { activeReceiverId, activeGroupId, activeType, messageWindow } = get();
+      const mine = convToken;
 
       try {
         // Сервер отдаёт хвост переписки. Целиком её тянуть незачем: список
@@ -210,6 +223,8 @@ export const useChatStore = create<ChatState>((set, get) => {
           const res = await fetch(`/api/chat/messages?senderId=${currentUserId}&receiverId=${activeReceiverId}&limit=${limit}`);
           if (!res.ok) throw new Error('Failed response');
           const data = await res.json();
+          // Пока ответ летел, могли открыть другой диалог — тогда он не наш
+          if (mine !== convToken) return;
           set({ hasEarlier: Array.isArray(data) && data.length >= limit });
           setMessagesIfChanged(set, get, data);
         } else {
@@ -218,6 +233,7 @@ export const useChatStore = create<ChatState>((set, get) => {
           const res = await fetch(`/api/chat/group-messages?groupId=${activeGroupId}&limit=${limit}`);
           if (!res.ok) throw new Error('Failed response');
           const data = await res.json();
+          if (mine !== convToken) return;
           set({ hasEarlier: Array.isArray(data) && data.length >= limit });
           setMessagesIfChanged(set, get, data);
         }
@@ -234,6 +250,7 @@ export const useChatStore = create<ChatState>((set, get) => {
 
     sendMessage: async (currentUserId, content, linkedElementId = null, linkedProjectId = null, attachments = [], replyToId = null) => {
       const { activeReceiverId, activeGroupId, activeType } = get();
+      const mine = convToken;
 
       try {
         if (activeType === 'DIRECT') {
@@ -254,7 +271,9 @@ export const useChatStore = create<ChatState>((set, get) => {
           });
           if (res.ok) {
             const data = await res.json();
-            // Сервер сам рассылает chat:message_received через socket.io
+            // Сервер сам рассылает chat:message_received через socket.io.
+            // Если диалог успели сменить — в чужое окно сообщение не кладём
+            if (mine !== convToken) return;
             set((state) => ({ messages: [...state.messages.filter(m => m.id !== data.id), data] }));
           }
         } else {
@@ -276,6 +295,7 @@ export const useChatStore = create<ChatState>((set, get) => {
           });
           if (res.ok) {
             const data = await res.json();
+            if (mine !== convToken) return;
             set((state) => ({ messages: [...state.messages.filter(m => m.id !== data.id), data] }));
           }
         }
@@ -315,8 +335,10 @@ export const useChatStore = create<ChatState>((set, get) => {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: currentUserId, emoji }),
       }).catch(() => null);
-      let reactions: string | null = null;
-      if (res && res.ok) { reactions = (await res.json()).reactions; }
+      // Сорвалась сеть — оставляем как было. Раньше сюда падал null, и одна
+      // неудачная попытка стирала все реакции сообщения на экране
+      if (!res || !res.ok) throw new Error('Не удалось поставить реакцию');
+      const { reactions } = await res.json();
       set((state) => ({ messages: state.messages.map(m => m.id === messageId ? { ...m, reactions } : m) }));
     },
 
@@ -469,6 +491,9 @@ export const useChatStore = create<ChatState>((set, get) => {
 
         socketInstance.on('connect', () => {
           console.log('[ChatStore] Socket.io connected. Handshaking user:', currentUserId);
+          // Пока связи не было, события до нас не дошли. Догоняем сразу, а не
+          // ждём такта опроса: иначе после разрыва чат до 12 секунд «немой»
+          get().fetchMessages(currentUserId);
         });
 
         socketInstance.on('chat:message_received', (msg: ChatMessage) => {

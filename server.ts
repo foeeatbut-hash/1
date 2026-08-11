@@ -1006,6 +1006,12 @@ const emitRoster = (docId: string) => {
 io.on('connection', (socket) => {
   console.log(`[Socket] client connected: ${socket.id}`);
 
+  // Личная комната сокета. Без неё сообщения чата рассылались всем
+  // подключённым: интерфейс чужую переписку прятал, но текст всё равно
+  // приходил на каждую машину в сети
+  const uid = (socket as any).userId;
+  if (uid) socket.join(`user:${uid}`);
+
   socket.on('tag:linked', (data) => {
     socket.broadcast.emit('tag:linked', data);
   });
@@ -3733,8 +3739,8 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
     // Личное уведомление получателю (категория ЧАТ)
     await notify(String(receiverId), 'ЧАТ', `Новое сообщение от ${(fullMessage as any)?.sender?.name || 'сотрудника'}`, String(content || '').slice(0, 80), `/chat?from=${senderId}`);
 
-    // Notify other clients via Socket.io
-    io.emit('chat:message_received', fullMessage);
+    // Только участникам диалога, а не всей сети
+    await emitChat('chat:message_received', fullMessage as any, fullMessage);
 
     res.json(fullMessage);
   } catch (err: any) {
@@ -3766,7 +3772,7 @@ app.put('/api/chat/messages/:id', async (req: Request, res: Response) => {
         replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
       }
     });
-    io.emit('chat:message_updated', updated);
+    await emitChat('chat:message_updated', updated as any, updated);
     res.json(updated);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -3794,7 +3800,7 @@ app.delete('/api/chat/messages/:id', async (req: Request, res: Response) => {
       if (nodeIds.length) await prisma.fileNode.deleteMany({ where: { id: { in: nodeIds }, type: 'CHAT_FILE' } });
     } catch (_) {}
     await prisma.chatMessage.delete({ where: { id } });
-    io.emit('chat:message_deleted', { id });
+    await emitChat('chat:message_deleted', msg as any, { id });
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -4118,6 +4124,42 @@ app.delete('/api/chat/groups/:id', async (req: Request, res: Response) => {
 // Реакция на сообщение (переключение эмодзи для пользователя)
 // Участник ли пользователь диалога/группы, которой принадлежит сообщение.
 // Личка: отправитель или получатель. Группа: член группы (или владелец).
+/**
+ * Кому адресовано событие чата: участникам диалога или членам группы.
+ * Возвращает имена личных комнат сокетов.
+ */
+async function chatRooms(msg: { senderId: string; receiverId: string | null; chatGroupId: string | null }): Promise<string[]> {
+  const ids = new Set<string>();
+  if (msg.senderId) ids.add(String(msg.senderId));
+  if (msg.receiverId) ids.add(String(msg.receiverId));
+  if (msg.chatGroupId) {
+    const g = await prisma.chatGroup.findUnique({
+      where: { id: msg.chatGroupId },
+      select: { ownerId: true, members: { select: { id: true } } },
+    });
+    if (g) {
+      if (g.ownerId) ids.add(String(g.ownerId));
+      for (const m of g.members) ids.add(String(m.id));
+    }
+  }
+  return [...ids].map((id) => `user:${id}`);
+}
+
+/** Событие чата — только участникам, а не всей сети */
+async function emitChat(
+  event: string,
+  msg: { senderId: string; receiverId: string | null; chatGroupId: string | null },
+  payload: any,
+) {
+  try {
+    const rooms = await chatRooms(msg);
+    if (!rooms.length) return;
+    io.to(rooms).emit(event, payload);
+  } catch (err) {
+    console.error('[Socket] не удалось разослать событие чата:', err);
+  }
+}
+
 async function isChatParticipant(userId: string, msg: { senderId: string; receiverId: string | null; chatGroupId: string | null }): Promise<boolean> {
   if (!userId) return false;
   if (msg.senderId === userId || msg.receiverId === userId) return true;
@@ -4154,7 +4196,7 @@ app.post('/api/chat/messages/:id/react', async (req: Request, res: Response) => 
     const updated = await prisma.chatMessage.update({
       where: { id }, data: { reactions: JSON.stringify(reactions) },
     });
-    io.emit('chat:message_updated', { id, reactions: updated.reactions });
+    await emitChat('chat:message_updated', msg as any, { id, reactions: updated.reactions });
     res.json({ success: true, reactions: updated.reactions });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -4172,7 +4214,7 @@ app.post('/api/chat/messages/:id/pin', async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Закреплять можно только в своих диалогах и группах' });
     }
     const updated = await prisma.chatMessage.update({ where: { id }, data: { pinned: !msg.pinned } });
-    io.emit('chat:message_updated', { id, pinned: updated.pinned });
+    await emitChat('chat:message_updated', msg as any, { id, pinned: updated.pinned });
     res.json({ success: true, pinned: updated.pinned });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -4216,7 +4258,7 @@ app.post('/api/chat/forward', async (req: Request, res: Response) => {
         replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } },
       },
     });
-    io.emit('chat:message_received', full);
+    await emitChat('chat:message_received', full as any, full);
     res.json({ success: true, message: full });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -4322,8 +4364,8 @@ app.post('/api/chat/group-messages', async (req: Request, res: Response) => {
       }
     });
 
-    // Notify clients on sockets
-    io.emit('chat:message_received', fullMessage);
+    // Только членам группы
+    await emitChat('chat:message_received', fullMessage as any, fullMessage);
 
     res.json(fullMessage);
   } catch (err: any) {

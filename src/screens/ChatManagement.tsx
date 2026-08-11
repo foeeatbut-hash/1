@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
@@ -100,8 +100,21 @@ const FormattedMessage: React.FC<FormattedMessageProps> = ({ text, onTagClick, o
   return <span className="whitespace-pre-wrap leading-relaxed select-text font-sans">{parts.length > 0 ? parts : text}</span>;
 };
 
+/** Счётчик непрочитанного у строки диалога */
+function UnreadDot({ n }: { n: number }) {
+  return (
+    <span className="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-600 text-white
+                     text-2xs font-extrabold grid place-items-center tabular-nums"
+          title={`Непрочитанных: ${n}`}>
+      {n > 99 ? '99+' : n}
+    </span>
+  );
+}
+
 export default function ChatManagement() {
   const { user, activeProject, setActiveProject } = useStore();
+  // Непрочитанное по каждому диалогу — считает хранилище уведомлений
+  const chatUnreadByKey = useNotificationStore((s) => s.chatUnreadByKey);
   const { addToast } = useToastStore();
   const navigate = useNavigate();
 
@@ -296,8 +309,30 @@ export default function ChatManagement() {
     };
   }, [user?.id, activeReceiverId, activeGroupId]);
 
+  /**
+   * Подгрузка ранних: держим место чтения.
+   *
+   * Сообщения добавляются СВЕРХУ, а браузер сохраняет scrollTop — из-за этого
+   * список уезжал вниз на высоту добавленного, и инженер терял то место, где
+   * читал. Запоминаем расстояние до низа и восстанавливаем его после отрисовки.
+   */
+  const keepAnchorRef = useRef<number | null>(null);
+  const handleLoadEarlier = () => {
+    const el = messagesContainerRef.current;
+    keepAnchorRef.current = el ? el.scrollHeight - el.scrollTop : null;
+    if (user?.id) loadEarlier(user.id);
+  };
+  useLayoutEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el || keepAnchorRef.current === null) return;
+    el.scrollTop = el.scrollHeight - keepAnchorRef.current;
+    keepAnchorRef.current = null;
+  }, [messages]);
+
   // Scroll on message add: только при новых сообщениях и только если пользователь у низа
   useEffect(() => {
+    // Подгрузили ранние — низ списка не менялся, доскроллить нас не должно
+    if (keepAnchorRef.current !== null) return;
     const lastId = messages.length > 0 ? messages[messages.length - 1].id : null;
     if (lastId === lastMessageIdRef.current) return;
     const isFirstLoad = lastMessageIdRef.current === null;
@@ -369,6 +404,15 @@ export default function ChatManagement() {
     if (u.id === user?.id) return false;
     const q = searchQuery.toLowerCase();
     return u.name.toLowerCase().includes(q) || u.symbol.toLowerCase().includes(q);
+  });
+
+  // Группы ищем той же строкой, что и людей: раньше поиск их не касался,
+  // и при десятке групп список приходилось перебирать глазами
+  const filteredGroups = groups.filter(g => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (g.name || '').toLowerCase().includes(q)
+      || (g.description || '').toLowerCase().includes(q);
   });
 
   const activePeer = users.find(u => u.id === activeReceiverId);
@@ -788,9 +832,13 @@ export default function ChatManagement() {
             </div>
             {groups.length === 0 ? (
               <p className="text-xs p-3 text-slate-400 italic">Групп пока нет. Нажмите «+», чтобы создать.</p>
+            ) : filteredGroups.length === 0 ? (
+              // Группы есть, но поиск их не нашёл — молча пустеть список не должен
+              <p className="text-xs p-3 text-slate-400 italic">По запросу групп не найдено.</p>
             ) : (
-              groups.map((g) => {
+              filteredGroups.map((g) => {
                 const active = g.id === activeGroupId;
+                const unread = chatUnreadByKey[`group=${g.id}`] || 0;
                 const isCh = g.type === 'CHANNEL';
                 const isProj = g.type === 'PROJECT';
                 const subtitle = isCh ? 'Канал' : isProj ? 'Группа проекта' : `Группа · ${g.members?.length || 0} уч.`;
@@ -815,6 +863,7 @@ export default function ChatManagement() {
                         {subtitle}
                       </span>
                     </div>
+                    {unread > 0 && !active && <UnreadDot n={unread} />}
                   </button>
                 );
               })
@@ -828,11 +877,12 @@ export default function ChatManagement() {
             </div>
             {filteredUsers.length === 0 ? (
               <div className="text-center py-6 text-xs text-slate-400">
-                Пока нет других сотрудников
+                {searchQuery.trim() ? 'По запросу сотрудников не найдено' : 'Пока нет других сотрудников'}
               </div>
             ) : (
               filteredUsers.map((u) => {
                 const active = u.id === activeReceiverId;
+                const unread = chatUnreadByKey[`from=${u.id}`] || 0;
                 return (
                   <button type="button"
                     key={u.id}
@@ -847,10 +897,13 @@ export default function ChatManagement() {
                       {u.name.charAt(0)}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-850 dark:text-white truncate">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`text-xs truncate ${unread > 0 && !active
+                          ? 'font-extrabold text-slate-900 dark:text-white'
+                          : 'font-bold text-slate-850 dark:text-white'}`}>
                           {u.name}
                         </span>
+                        {unread > 0 && !active && <UnreadDot n={unread} />}
                       </div>
                       <div className="flex items-center justify-between text-xs text-slate-400 leading-normal mt-0.5">
                         <span className="truncate">Таб: {u.symbol}</span>
@@ -1013,7 +1066,7 @@ export default function ChatManagement() {
                 {hasEarlier && !conversationSearch.trim() && (
                   <div className="flex justify-center py-2">
                     <button
-                      onClick={() => user?.id && loadEarlier(user.id)}
+                      onClick={handleLoadEarlier}
                       className="text-2xs font-bold px-3 py-1.5 rounded-full border border-slate-200
                                  dark:border-slate-700 text-slate-500 hover:text-emerald-600
                                  hover:border-emerald-500 cursor-pointer bg-white dark:bg-slate-900"
