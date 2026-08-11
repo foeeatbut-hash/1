@@ -1,4 +1,4 @@
-import { CaptureRow, Shape, normCode, mixedScript, shapeRegex } from './recognize';
+import { CaptureRow, Shape, normCode, mixedScript, fitsShape } from './recognize';
 
 /**
  * План захвата: что случится с каждым кодом, если нажать «Применить».
@@ -157,7 +157,6 @@ export function buildPlan(rows: CaptureRow[], existing: ExistingTag[], shape: Sh
     const n = normCode(code);
     if (!byNorm.has(n)) byNorm.set(n, t);
   }
-  const strict = shapeRegex(shape);
 
   return rows.map((row) => {
     const code = row.identifier.trim();
@@ -210,7 +209,7 @@ export function buildPlan(rows: CaptureRow[], existing: ExistingTag[], shape: Sh
         why = `похож на «${bestTag.identifier}» (${Math.round(bestScore * 100)}%)`;
         return finish(row, code, cls, bestTag, fills, diffs, why);
       }
-      if (row.verdict === 'doubt' || !strict.test(code)) {
+      if (row.verdict === 'doubt' || !fitsShape(code, shape)) {
         cls = 'offShape';
         why = shape.fromCount
           ? `не подошёл под образец кодов проекта (снят с ${shape.fromCount})`

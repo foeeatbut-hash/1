@@ -4,13 +4,13 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X, ArrowRight, ArrowLeft, Check, Loader2, Trash2, Plus, Undo2, Search,
-  RotateCcw, ShieldCheck, AlertTriangle,
+  RotateCcw, ShieldCheck, AlertTriangle, ChevronDown,
 } from 'lucide-react';
 import { dataService } from '../services/dataService';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import {
-  recognize, buildTableRows, CaptureItem, Recognized, CaptureRow, Candidate, normCode, shapeRegex,
+  recognize, buildTableRows, CaptureItem, Recognized, CaptureRow, Candidate, normCode, fitsShape,
 } from '../capture/recognize';
 import { FIELDS, FieldKey } from '../capture/fields';
 import {
@@ -48,6 +48,25 @@ const saveDecisions = (pid: string, plan: PlanRow[]) => {
   } catch {}
 };
 
+/** Поля тега помимо кода — показываются чипами и правятся в раскрытой строке */
+const EXTRA = [
+  { key: 'brand', label: 'Марка' },
+  { key: 'name', label: 'Наименование' },
+  { key: 'department', label: 'Отдел' },
+  { key: 'fluid', label: 'Среда' },
+  { key: 'wbs', label: 'WBS' },
+] as const;
+
+/** Как программа прочитала захват — инженеру важно понимать, что она поняла */
+const MODE_LABEL: Record<string, string> = {
+  table: 'таблица', lines: 'строки с данными', list: 'перечень кодов',
+};
+const MODE_HINT: Record<string, string> = {
+  table: 'Колонки известны из шапки или определены по содержимому',
+  lines: 'В каждой строке код и данные при нём — они разложены по полям',
+  list: 'Сплошной перечень кодов, данных при них нет',
+};
+
 interface UndoSnapshot {
   deleteIds: string[];
   restore: { id: string; brand: string | null; department: string | null;
@@ -75,6 +94,7 @@ export default function CaptureReview() {
   const [result, setResult] = useState<any>(null);
   const [undoSnap, setUndoSnap] = useState<UndoSnapshot | null>(null);
   const [junkOpen, setJunkOpen] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const existingRef = useRef<ExistingTag[]>([]);
 
   // Захват приходит из главного процесса
@@ -86,7 +106,7 @@ export default function CaptureReview() {
       setItems(data.items);
       setStep('parse');
       setPlan([]); setLit(null); setResult(null); setUndoSnap(null);
-      setDropped([]); setQuery(''); setJunkOpen(false);
+      setDropped([]); setQuery(''); setJunkOpen(false); setExpanded(new Set());
     });
   }, []);
 
@@ -102,7 +122,7 @@ export default function CaptureReview() {
         if (cancelled) return;
         const tags: ExistingTag[] = Array.isArray(res) ? res : (res?.tags || []);
         existingRef.current = tags;
-        const r = recognize(items, tags.map((t) => t.identifier || ''));
+        const r = recognize(items, tags.map((t) => t.identifier || ''), tags as any);
         setRec(r); setRows(r.rows); setJunk(r.junk);
         setMapping(r.table?.mapping || {});
       })
@@ -124,7 +144,7 @@ export default function CaptureReview() {
   // ── Правки разбора ──────────────────────────────────────────────────────
   const editCode = (key: string, value: string) =>
     setRows((rs) => rs.map((r) => (r.key === key
-      ? { ...r, identifier: value, verdict: rec && shapeRegex(rec.shape).test(value.trim()) ? 'fits' : 'doubt' }
+      ? { ...r, identifier: value, verdict: rec && fitsShape(value.trim(), rec.shape) ? 'fits' : 'doubt' }
       : r)));
 
   const dropRow = (key: string) => {
@@ -147,6 +167,15 @@ export default function CaptureReview() {
   };
   const addRow = () =>
     setRows((rs) => [...rs, { key: `m${Date.now()}`, identifier: '', verdict: 'doubt', spans: [] }]);
+
+  const editField = (key: string, field: string, value: string) =>
+    setRows((rs) => rs.map((r) => (r.key === key ? { ...r, [field]: value } : r)));
+  const toggleExpand = (key: string) =>
+    setExpanded((s) => {
+      const next = new Set(s);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
 
   // Разметку колонок можно поправить: угадывание шапки ошибается
   const remap = (col: number, field: FieldKey | '') => {
@@ -372,8 +401,9 @@ export default function CaptureReview() {
                                   bg-slate-50 dark:bg-slate-800/40 flex items-center gap-2">
                     <span className="text-xs font-bold">Захват</span>
                     <span className="ml-auto text-2xs font-semibold px-2 py-0.5 rounded-full
-                                     bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300">
-                      {rec.mode === 'table' ? 'таблица' : 'текст'}
+                                     bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300"
+                          title={MODE_HINT[rec.mode]}>
+                      {MODE_LABEL[rec.mode]}
                     </span>
                   </div>
                   <div className="flex-1 overflow-auto p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap
@@ -431,47 +461,85 @@ export default function CaptureReview() {
                     </button>
                   </div>
                   <div className="flex-1 overflow-auto p-1.5 space-y-0.5">
-                    {rows.map((r) => (
-                      <div
-                        key={r.key}
-                        onMouseEnter={() => setLit(r.key)}
-                        className={`flex items-center gap-2 px-2 py-1 rounded-lg border group ${
-                          lit === r.key
-                            ? 'bg-emerald-50 border-emerald-500 dark:bg-emerald-950/40'
-                            : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800/60'
-                        }`}
-                      >
-                        {/* Код правится на месте: разбивка ошибается, и переснимать
-                            захват из-за одного знака — издевательство */}
-                        <input
-                          value={r.identifier}
-                          onChange={(e) => editCode(r.key, e.target.value)}
-                          placeholder="код тега"
-                          className="font-mono text-xs font-bold flex-1 min-w-0 bg-transparent outline-none
-                                     border-b border-transparent focus:border-emerald-500 py-0.5"
-                        />
-                        {dupInside.has(r.key) && (
-                          <span className="text-2xs font-semibold px-1.5 py-0.5 rounded-full
-                                           bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300">
-                            повтор
-                          </span>
-                        )}
-                        {r.spans.length > 1 && (
-                          <span className="text-2xs font-semibold px-1.5 py-0.5 rounded-full
-                                           bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
-                            {r.spans.length}×
-                          </span>
-                        )}
-                        {r.verdict === 'doubt' && !dupInside.has(r.key) && (
-                          <span className="text-2xs text-slate-400">сомнительный</span>
-                        )}
-                        <button onClick={() => dropRow(r.key)} title="Убрать"
-                                className="p-0.5 text-slate-300 hover:text-rose-500 cursor-pointer
-                                           opacity-0 group-hover:opacity-100">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ))}
+                    {rows.map((r) => {
+                      const filled = EXTRA.filter((f) => (r as any)[f.key]);
+                      const open = expanded.has(r.key);
+                      return (
+                        <div
+                          key={r.key}
+                          onMouseEnter={() => setLit(r.key)}
+                          className={`rounded-lg border group ${
+                            lit === r.key
+                              ? 'bg-emerald-50 border-emerald-500 dark:bg-emerald-950/40'
+                              : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800/60'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 px-2 py-1">
+                            {/* Код правится на месте: разбивка ошибается, и переснимать
+                                захват из-за одного знака — издевательство */}
+                            <input
+                              value={r.identifier}
+                              onChange={(e) => editCode(r.key, e.target.value)}
+                              placeholder="код тега"
+                              className="font-mono text-xs font-bold w-28 shrink-0 bg-transparent outline-none
+                                         border-b border-transparent focus:border-emerald-500 py-0.5"
+                            />
+                            {/* Что разложилось по полям — видно сразу, иначе разбор
+                                выглядит так, будто данные из строки потерялись */}
+                            <div className="flex-1 min-w-0 flex flex-wrap gap-1 items-center">
+                              {filled.map((f) => (
+                                <span key={f.key} title={f.label}
+                                      className="text-2xs px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800
+                                                 text-slate-600 dark:text-slate-300 max-w-[11rem] truncate">
+                                  {(r as any)[f.key]}
+                                </span>
+                              ))}
+                            </div>
+                            {dupInside.has(r.key) && (
+                              <span className="text-2xs font-semibold px-1.5 py-0.5 rounded-full shrink-0
+                                               bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300">
+                                повтор
+                              </span>
+                            )}
+                            {r.spans.length > 1 && (
+                              <span className="text-2xs font-semibold px-1.5 py-0.5 rounded-full shrink-0
+                                               bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
+                                {r.spans.length}×
+                              </span>
+                            )}
+                            {r.verdict === 'doubt' && !dupInside.has(r.key) && (
+                              <span className="text-2xs text-slate-400 shrink-0">сомнительный</span>
+                            )}
+                            <button onClick={() => toggleExpand(r.key)} title="Поля тега"
+                                    className={`p-0.5 cursor-pointer shrink-0 ${
+                                      open ? 'text-emerald-600' : 'text-slate-300 hover:text-emerald-600'}`}>
+                              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
+                            </button>
+                            <button onClick={() => dropRow(r.key)} title="Убрать"
+                                    className="p-0.5 text-slate-300 hover:text-rose-500 cursor-pointer shrink-0
+                                               opacity-0 group-hover:opacity-100">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          {open && (
+                            <div className="grid grid-cols-2 gap-1.5 px-2 pb-2">
+                              {EXTRA.map((f) => (
+                                <label key={f.key} className="text-2xs text-slate-400">
+                                  {f.label}
+                                  <input
+                                    value={(r as any)[f.key] || ''}
+                                    onChange={(e) => editField(r.key, f.key, e.target.value)}
+                                    className="w-full text-xs bg-white dark:bg-slate-800 rounded-md px-1.5 py-1
+                                               border border-slate-200 dark:border-slate-700 outline-none
+                                               focus:border-emerald-500 text-slate-800 dark:text-slate-100"
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                     {!rows.length && (
                       <div className="text-center text-xs text-slate-400 py-10 px-4">
                         Кодов не нашлось. Добавьте строку вручную или закройте и выделите иначе.
