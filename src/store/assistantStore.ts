@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import * as XLSX from 'xlsx';
 import { ENV_CONFIG } from '../config/env';
 import { findKnowledge, matchKnowledge } from '../assistant/knowledge';
 import { TOURS, findBestTour, Tour } from '../assistant/tours';
@@ -199,7 +198,11 @@ function triggerDownload(blob: Blob, fileName: string) {
   setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
 }
 
-function exportTableToExcel(table: AssistantTable) {
+// xlsx (около 900 КБ) грузится по требованию: этот стор поднимается при
+// старте программы, и статический импорт держал всю библиотеку в стартовом
+// чанке ради кнопки «выгрузить в Excel», которую нажимают раз в неделю
+async function exportTableToExcel(table: AssistantTable) {
+  const XLSX = await import('xlsx');
   const aoa = [table.columns, ...table.rows];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   const wb = XLSX.utils.book_new();

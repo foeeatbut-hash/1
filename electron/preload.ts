@@ -55,10 +55,12 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.on('capture:state', subscription);
       return () => ipcRenderer.removeListener('capture:state', subscription);
     },
-    onPayload: (callback: (data: any) => void) => {
-      const subscription = (_event: any, data: any) => callback(data);
-      ipcRenderer.on('capture:payload', subscription);
-      return () => ipcRenderer.removeListener('capture:payload', subscription);
+    // Захват не присылается, а забирается: рендерер мог ещё не подняться
+    takePending: () => ipcRenderer.invoke('capture:take-pending'),
+    onReady: (callback: () => void) => {
+      const subscription = () => callback();
+      ipcRenderer.on('capture:ready', subscription);
+      return () => ipcRenderer.removeListener('capture:ready', subscription);
     },
   },
 

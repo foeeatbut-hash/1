@@ -133,7 +133,9 @@ export default function ChatManagement() {
     clearPending,
     pendingReceiverId,
     pendingInsert,
-    clearPendingShare
+    clearPendingShare,
+    hasEarlier,
+    loadEarlier
   } = useChatStore();
   const setFocusTarget = useShareStore(s => s.setFocusTarget);
 
@@ -1005,7 +1007,22 @@ export default function ChatManagement() {
                   </p>
                 </div>
               ) : (
-                visibleMessages.map((msg, msgIndex) => {
+                <>
+                {/* Показываем хвост переписки; ранние подтягиваются по требованию.
+                    Тянуть многолетний чат целиком на каждое событие — дорого */}
+                {hasEarlier && !conversationSearch.trim() && (
+                  <div className="flex justify-center py-2">
+                    <button
+                      onClick={() => user?.id && loadEarlier(user.id)}
+                      className="text-2xs font-bold px-3 py-1.5 rounded-full border border-slate-200
+                                 dark:border-slate-700 text-slate-500 hover:text-emerald-600
+                                 hover:border-emerald-500 cursor-pointer bg-white dark:bg-slate-900"
+                    >
+                      Показать более ранние
+                    </button>
+                  </div>
+                )}
+                {visibleMessages.map((msg, msgIndex) => {
                   const isMe = msg.senderId === user?.id;
                   const msgDay = new Date(msg.createdAt).toDateString();
                   const prevDay = msgIndex > 0 ? new Date(visibleMessages[msgIndex - 1].createdAt).toDateString() : null;
@@ -1216,7 +1233,8 @@ export default function ChatManagement() {
                     </div>
                     </React.Fragment>
                   );
-                })
+                })}
+                </>
               )}
               {/* Кнопка быстрого возврата к последним сообщениям */}
               {showScrollDown && (

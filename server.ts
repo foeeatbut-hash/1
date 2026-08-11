@@ -3656,7 +3656,13 @@ app.get('/api/chat/messages', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'senderId and receiverId are required' });
     }
 
-    const messages = await prisma.chatMessage.findMany({
+    // Отдаём хвост переписки, а не всю целиком: клиент перечитывает её при
+    // каждом событии сокета и раз в 12 секунд страховочным опросом, и на
+    // многолетней переписке это заметная нагрузка на сервер, сеть и отрисовку.
+    // Берём последние N в обратном порядке и переворачиваем — так работает
+    // индекс по дате, в отличие от смещения от начала
+    const limit = Math.min(2000, Math.max(20, Number(req.query.limit) || 300));
+    const tail = await prisma.chatMessage.findMany({
       where: {
         OR: [
           { senderId: String(senderId), receiverId: String(receiverId) },
@@ -3670,10 +3676,11 @@ app.get('/api/chat/messages', async (req: Request, res: Response) => {
         linkedElement: true,
         replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
       },
-      orderBy: { createdAt: 'asc' }
+      orderBy: { createdAt: 'desc' },
+      take: limit,
     });
 
-    res.json(messages);
+    res.json(tail.reverse());
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -4245,7 +4252,9 @@ app.get('/api/chat/group-messages', async (req: Request, res: Response) => {
     if (!groupId) {
       return res.status(400).json({ error: 'groupId is required' });
     }
-    const messages = await prisma.chatMessage.findMany({
+    // Как и в личной переписке — только хвост: групповые чаты живут дольше всех
+    const limit = Math.min(2000, Math.max(20, Number(req.query.limit) || 300));
+    const tail = await prisma.chatMessage.findMany({
       where: { chatGroupId: String(groupId) },
       include: {
         attachments: true,
@@ -4253,9 +4262,10 @@ app.get('/api/chat/group-messages', async (req: Request, res: Response) => {
         linkedElement: true,
         replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
       },
-      orderBy: { createdAt: 'asc' }
+      orderBy: { createdAt: 'desc' },
+      take: limit,
     });
-    res.json(messages);
+    res.json(tail.reverse());
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

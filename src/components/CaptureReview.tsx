@@ -97,17 +97,26 @@ export default function CaptureReview() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const existingRef = useRef<ExistingTag[]>([]);
 
-  // Захват приходит из главного процесса
+  // Захват забираем сами: главный процесс кладёт его в ожидание и только
+  // подсказывает. Проверяем и при появлении окна — иначе захват, сделанный
+  // до того, как рендерер поднялся, пропадал бы молча
   useEffect(() => {
     const api = (window as any).electron?.capture;
-    if (!api) return;
-    return api.onPayload((data: { items: CaptureItem[] }) => {
-      if (!data?.items?.length) return;
-      setItems(data.items);
-      setStep('parse');
-      setPlan([]); setLit(null); setResult(null); setUndoSnap(null);
-      setDropped([]); setQuery(''); setJunkOpen(false); setExpanded(new Set());
-    });
+    if (!api?.takePending) return;
+    let alive = true;
+    const take = async () => {
+      try {
+        const data = await api.takePending();
+        if (!alive || !data?.items?.length) return;
+        setItems(data.items);
+        setStep('parse');
+        setPlan([]); setLit(null); setResult(null); setUndoSnap(null);
+        setDropped([]); setQuery(''); setJunkOpen(false); setExpanded(new Set());
+      } catch {}
+    };
+    take();
+    const off = api.onReady?.(take);
+    return () => { alive = false; off?.(); };
   }, []);
 
   // Разбираем: образец кода снимается с тегов проекта, поэтому их надо прочитать

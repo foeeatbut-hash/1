@@ -75,6 +75,11 @@ export interface ChatGroup {
 
 interface ChatState {
   messages: ChatMessage[];
+  /** Сколько последних сообщений держим в переписке */
+  messageWindow: number;
+  /** Есть ли что показать до текущего окна */
+  hasEarlier: boolean;
+  loadEarlier: (currentUserId: string) => Promise<void>;
   users: ChatUser[];
   groups: ChatGroup[];
   activeReceiverId: string | null;
@@ -124,6 +129,7 @@ interface ChatState {
 
 let socketInstance: Socket | null = null;
 let pollTimer: NodeJS.Timeout | null = null;
+let visibilityHandler: (() => void) | null = null;
 
 // Обновляет messages только если список реально изменился — опрос каждые 3 секунды
 // не должен дергать перерисовку и скролл без новых сообщений
@@ -142,6 +148,8 @@ const setMessagesIfChanged = (set: any, get: any, data: any[]) => {
 export const useChatStore = create<ChatState>((set, get) => {
   return {
     messages: [],
+    messageWindow: 300,
+    hasEarlier: false,
     users: [],
     groups: [],
     activeReceiverId: null,
@@ -161,11 +169,11 @@ export const useChatStore = create<ChatState>((set, get) => {
     setSearchQuery: (query) => set({ searchQuery: query }),
     
     setActiveReceiverId: (id) => {
-      set({ activeReceiverId: id, activeGroupId: null, activeType: 'DIRECT', messages: [] });
+      set({ activeReceiverId: id, activeGroupId: null, activeType: 'DIRECT', messages: [], messageWindow: 300, hasEarlier: false });
     },
 
     setActiveGroupId: (id) => {
-      set({ activeGroupId: id, activeReceiverId: null, activeType: 'PROJECT', messages: [] });
+      set({ activeGroupId: id, activeReceiverId: null, activeType: 'PROJECT', messages: [], messageWindow: 300, hasEarlier: false });
     },
 
     fetchUsers: async () => {
@@ -191,24 +199,37 @@ export const useChatStore = create<ChatState>((set, get) => {
     },
 
     fetchMessages: async (currentUserId) => {
-      const { activeReceiverId, activeGroupId, activeType } = get();
-      
+      const { activeReceiverId, activeGroupId, activeType, messageWindow } = get();
+
       try {
+        // Сервер отдаёт хвост переписки. Целиком её тянуть незачем: список
+        // перечитывается на каждое событие сокета, а читают почти всегда конец
+        const limit = messageWindow || 300;
         if (activeType === 'DIRECT') {
           if (!activeReceiverId) return;
-          const res = await fetch(`/api/chat/messages?senderId=${currentUserId}&receiverId=${activeReceiverId}`);
+          const res = await fetch(`/api/chat/messages?senderId=${currentUserId}&receiverId=${activeReceiverId}&limit=${limit}`);
           if (!res.ok) throw new Error('Failed response');
-          setMessagesIfChanged(set, get, await res.json());
+          const data = await res.json();
+          set({ hasEarlier: Array.isArray(data) && data.length >= limit });
+          setMessagesIfChanged(set, get, data);
         } else {
           // PROJECT Group
           if (!activeGroupId) return;
-          const res = await fetch(`/api/chat/group-messages?groupId=${activeGroupId}`);
+          const res = await fetch(`/api/chat/group-messages?groupId=${activeGroupId}&limit=${limit}`);
           if (!res.ok) throw new Error('Failed response');
-          setMessagesIfChanged(set, get, await res.json());
+          const data = await res.json();
+          set({ hasEarlier: Array.isArray(data) && data.length >= limit });
+          setMessagesIfChanged(set, get, data);
         }
       } catch (err) {
         console.error('[ChatStore] Error fetching messages:', err);
       }
+    },
+
+    /** Показать более раннее: расширяем окно и перечитываем */
+    loadEarlier: async (currentUserId) => {
+      set({ messageWindow: (get().messageWindow || 300) + 500 });
+      await get().fetchMessages(currentUserId);
     },
 
     sendMessage: async (currentUserId, content, linkedElementId = null, linkedProjectId = null, attachments = [], replyToId = null) => {
@@ -409,16 +430,28 @@ export const useChatStore = create<ChatState>((set, get) => {
       get().stopPolling();
       get().fetchMessages(currentUserId);
       // Основной канал теперь socket.io (chat:message_received и т.д.);
-      // опрос — только страховка пропущенного события, поэтому редкий
+      // опрос — только страховка пропущенного события, поэтому редкий.
+      // Пока окно скрыто (свёрнуто, в трее, режим захвата) — не опрашиваем
+      // вовсе: страховать нечего, никто не смотрит
       pollTimer = setInterval(() => {
+        if (typeof document !== 'undefined' && document.hidden) return;
         get().fetchMessages(currentUserId);
       }, 12000);
+      // Вернулись к окну — сразу подтягиваем пропущенное, не дожидаясь такта
+      visibilityHandler = () => {
+        if (typeof document !== 'undefined' && !document.hidden) get().fetchMessages(currentUserId);
+      };
+      document.addEventListener('visibilitychange', visibilityHandler);
     },
 
     stopPolling: () => {
       if (pollTimer) {
         clearInterval(pollTimer);
         pollTimer = null;
+      }
+      if (visibilityHandler) {
+        document.removeEventListener('visibilitychange', visibilityHandler);
+        visibilityHandler = null;
       }
     },
 

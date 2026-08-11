@@ -89,7 +89,7 @@ function SectionFrame({
   // <Router> в <Router>, поэтому подменяем location/navigator напрямую через
   // контексты react-router (ровно то, что делает <Router> внутри, но без запрета
   // на вложенность). Так скрытый раздел «заморожен» и не реагирует на смену URL.
-  const navContext = React.useMemo(() => ({ basename: '', navigator: navigator as any, static: false }), [navigator]);
+  const navContext = React.useMemo<any>(() => ({ basename: '', navigator: navigator as any, static: false }), [navigator]);
   const locContext = React.useMemo(() => ({ location, navigationType: NavigationType.Pop }), [location]);
   return (
     <div

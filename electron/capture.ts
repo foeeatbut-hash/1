@@ -48,6 +48,8 @@ let active = false;
 let timer: NodeJS.Timeout | null = null;
 
 /** Отпечаток буфера на момент входа в режим: защита от устаревшего содержимого */
+/** Захват, ожидающий, пока рендерер за ним придёт */
+let pending: { items: CaptureItem[] } | null = null;
 let baseline = '';
 let lastSeen = '';
 let current: CaptureItem | null = null;
@@ -240,9 +242,14 @@ export function setupCapture(getMain: () => BrowserWindow | null) {
     if (!items.length) return;
     const main = getMain();
     stop(true);
-    // Отдаём разбор рендереру: HTML-таблицу там разбирает DOMParser,
-    // а не самодельные регулярки в главном процессе
-    main?.webContents.send('capture:payload', { items });
+    // Захват кладём в ожидание, а не шлём сразу.
+    //
+    // Раньше отправляли `send` сразу после показа окна, и если рендерер в этот
+    // момент ещё не поднялся (первый запуск, захват из трея на холодной
+    // программе), сообщение уходило в никуда и захват пропадал молча.
+    // Теперь рендерер забирает его сам: и по подсказке, и при своём появлении
+    pending = { items };
+    main?.webContents.send('capture:ready');
   };
 
   function updateTrayMenu() {
@@ -276,6 +283,12 @@ export function setupCapture(getMain: () => BrowserWindow | null) {
     // Следующее копирование снова считается новым
     baseline = ' ';
     pushState();
+  });
+  // Рендерер забирает ожидающий захват: при своём появлении и по подсказке
+  ipcMain.handle('capture:take-pending', () => {
+    const p = pending;
+    pending = null;
+    return p;
   });
   ipcMain.handle('capture:sync', () => {
     const state = current ? describe(current) : describe(null);
