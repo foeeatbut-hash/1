@@ -11,6 +11,7 @@ import Login from './screens/Login';
 
 // Стикер открывается отдельным окном Electron — вне рабочего стола
 const StickerWindow = lazy(() => import('./screens/StickerWindow'));
+const CapturePult = lazy(() => import('./screens/CapturePult'));
 
 import { SocketProvider } from './components/SocketProvider';
 import { ServerGate } from './components/BootSplash';
@@ -42,7 +43,9 @@ function ElectronTitleBar() {
     return () => { off && off(); };
   }, [wc]);
 
-  if (!isElectron || location.pathname === '/sticker') return null;
+  // Отдельные окна рисуют себя сами: у стикера своя шапка, у пульта захвата
+  // её нет вовсе — он и так 306×150 без рамок
+  if (!isElectron || location.pathname === '/sticker' || location.pathname === '/capture') return null;
 
   const btn = "w-11 h-9 flex items-center justify-center text-slate-400 hover:text-white transition-colors cursor-pointer";
   const noDrag = { WebkitAppRegion: 'no-drag' } as React.CSSProperties;
@@ -134,6 +137,16 @@ function AnimatedRoutes() {
     return (
       <Suspense fallback={<ScreenLoader />}>
         <StickerWindow />
+      </Suspense>
+    );
+  }
+
+  // Пульт захвата — тоже отдельное окно. Данных проекта он не трогает,
+  // только следит за буфером, поэтому входа не требует
+  if (location.pathname === '/capture') {
+    return (
+      <Suspense fallback={null}>
+        <CapturePult />
       </Suspense>
     );
   }

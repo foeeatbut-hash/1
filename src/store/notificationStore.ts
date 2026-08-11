@@ -11,6 +11,8 @@ interface NotifState {
   personal: AppNotification[];
   unread: number;        // всего непрочитанных
   chatUnread: number;    // от скольких диалогов пришли сообщения
+  /** Непрочитанные по диалогам: ключ «from=<id>» или «group=<id>» */
+  chatUnreadByKey: Record<string, number>;
   loading: boolean;
   panelOpen: boolean;
   setPanelOpen: (v: boolean) => void;
@@ -26,23 +28,29 @@ let pollTimer: any = null;
 
 const recompute = (list: AppNotification[]) => {
   const unread = list.filter(n => !n.isRead).length;
-  const chatKeys = new Set<string>();
+  // Считаем не только сколько диалогов ждут ответа, но и сколько в каждом:
+  // без этого в списке чатов не показать, где именно накопилось
+  const byKey: Record<string, number> = {};
   for (const n of list) {
-    if (!n.isRead && n.category === 'ЧАТ') { const k = convKey(n); if (k) chatKeys.add(k); }
+    if (!n.isRead && n.category === 'ЧАТ') {
+      const k = convKey(n);
+      if (k) byKey[k] = (byKey[k] || 0) + 1;
+    }
   }
-  return { unread, chatUnread: chatKeys.size };
+  return { unread, chatUnread: Object.keys(byKey).length, chatUnreadByKey: byKey };
 };
 
 export const useNotificationStore = create<NotifState>((set, get) => ({
   personal: [],
   unread: 0,
   chatUnread: 0,
+  chatUnreadByKey: {},
   loading: false,
   panelOpen: false,
   setPanelOpen: (v) => set({ panelOpen: v }),
   togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen })),
   fetch: async (userId) => {
-    if (!userId) { set({ personal: [], unread: 0, chatUnread: 0 }); return; }
+    if (!userId) { set({ personal: [], unread: 0, chatUnread: 0, chatUnreadByKey: {} }); return; }
     set({ loading: true });
     try {
       const list = await dataService.getNotifications(userId);

@@ -19,8 +19,11 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
 
   React.useEffect(() => { load(); }, [load]);
 
-  // Отдельное окно-стикер открывается уже после входа — его не гейтим
-  if (location.pathname === '/sticker') return <>{children}</>;
+  // Отдельные окна открываются уже после входа — их не гейтим.
+  // Пульт захвата к тому же не ходит в базу: он лишь следит за буфером,
+  // а всё, что он захватил, попадёт в программу через главное окно —
+  // а оно за гейтом
+  if (location.pathname === '/sticker' || location.pathname === '/capture') return <>{children}</>;
 
   // Пока статус не загружен — короткий индикатор (заставка уже погашена)
   if (!status) {

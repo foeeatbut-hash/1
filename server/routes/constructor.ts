@@ -107,6 +107,28 @@ async function loadProjectSlice(projectId: string) {
   return { tags, elements };
 }
 
+/** Элемент по коду или имени, без учёта регистра */
+export function findElement(elements: any[], code: string) {
+  const c = String(code ?? '').trim().toLowerCase();
+  if (!c) return null;
+  return elements.find(e =>
+    String(e.itemCode ?? '').toLowerCase() === c || String(e.name ?? '').toLowerCase() === c) || null;
+}
+
+/**
+ * Отбор элементов для сводных функций.
+ *
+ * Пустое поле — берём все: «=ПАРАМ_СУММ("Аэродинамика";"Расход")» считает по
+ * всему проекту. Поле указано — сравниваем значение без учёта регистра, чтобы
+ * «ВЕНТИЛЯТОР» и «Вентилятор» не расходились.
+ */
+export function filterElements(elements: any[], field?: string, value?: string) {
+  const f = String(field ?? '').trim();
+  if (!f) return elements;
+  const want = String(value ?? '').trim().toLowerCase();
+  return elements.filter(e => String(resolveValue('element', e, f) ?? '').toLowerCase() === want);
+}
+
 // Алиас параметра: одно имя для нескольких «группа|ключ» из разных бланков
 export interface ParamAlias { name: string; unit?: string; members: string[] }
 export type AliasMap = Record<string, ParamAlias>; // name → alias
@@ -115,7 +137,7 @@ export type AliasMap = Record<string, ParamAlias>; // name → alias
 // Пути (часть II дизайна, MVP-подмножество):
 //   простые поля своей сущности; param:Группа|Ключ; param:@Алиас; meta:ключ;
 //   system.name / monoblock.name; tags (список тегов элемента)
-function resolveValue(entity: 'tag' | 'element', row: any, path: string, aliases?: AliasMap): string {
+export function resolveValue(entity: 'tag' | 'element', row: any, path: string, aliases?: AliasMap): string {
   if (path.startsWith('param:')) {
     const spec = path.slice(6);
     // Алиас: перебираем участников по порядку, первое непустое значение
@@ -862,6 +884,102 @@ export function registerConstructorRoutes(app: Express): void {
             results.push(v === '' ? '#НЕТ_ПАРАМА' : asCellValue(v));
             continue;
           }
+          // ── Поля элемента по коду ──
+          if (c.fn === 'element') {
+            const { elements } = await getSlice();
+            const el = findElement(elements, args[0]);
+            if (!el) { results.push('#НЕТ_ЭЛЕМЕНТА'); continue; }
+            const v = resolveValue('element', el, args[1]);
+            results.push(v === '' ? '#НЕТ_ПОЛЯ' : asCellValue(v));
+            continue;
+          }
+
+          // ── Теги элемента списком ──
+          if (c.fn === 'tagsOf') {
+            const { elements } = await getSlice();
+            const el = findElement(elements, args[0]);
+            if (!el) { results.push('#НЕТ_ЭЛЕМЕНТА'); continue; }
+            results.push((el.tags || []).map((t: any) => t.identifier).join('; '));
+            continue;
+          }
+
+          // ── Состояние элемента: конфликт и ревизия ──
+          // Этого нет ни в одном табличном редакторе: значение зависит от того,
+          // что принёс последний импорт расчёта, а не от содержимого книги
+          if (c.fn === 'conflict' || c.fn === 'revision') {
+            const { elements } = await getSlice();
+            const el = findElement(elements, args[0]);
+            if (!el) { results.push('#НЕТ_ЭЛЕМЕНТА'); continue; }
+            if (c.fn === 'revision') { results.push(Number(el.version ?? 1)); continue; }
+            results.push(el.hasConflict ? String(el.conflictType || 'КОНФЛИКТ') : '');
+            continue;
+          }
+
+          // ── Свод по параметру: сумма, среднее, максимум, минимум, количество ──
+          // Ради этого всё и затевалось: одна ячейка даёт итог по проекту,
+          // а не ссылку на диапазон, который надо сначала руками собрать
+          if (['pSum', 'pAvg', 'pMax', 'pMin', 'pCount'].includes(c.fn)) {
+            const { elements } = await getSlice();
+            const picked = filterElements(elements, args[2], args[3]);
+            const nums: number[] = [];
+            for (const el of picked) {
+              const raw = resolveValue('element', el, `param:${args[0]}|${args[1]}`);
+              if (raw === '') continue;
+              const n = parseRuNumber(raw);
+              if (n != null && Number.isFinite(n)) nums.push(n);
+            }
+            if (c.fn === 'pCount') { results.push(nums.length); continue; }
+            if (!nums.length) { results.push('#НЕТ_ДАННЫХ'); continue; }
+            const sum = nums.reduce((a, b) => a + b, 0);
+            results.push(
+              c.fn === 'pSum' ? sum
+              : c.fn === 'pAvg' ? Math.round((sum / nums.length) * 1e6) / 1e6
+              : c.fn === 'pMax' ? Math.max(...nums)
+              : Math.min(...nums),
+            );
+            continue;
+          }
+
+          // ── Сколько элементов подходит условию ──
+          if (c.fn === 'countEl') {
+            const { elements } = await getSlice();
+            results.push(filterElements(elements, args[0], args[1]).length);
+            continue;
+          }
+
+          // ── Сколько тегов подходит условию и их перечень ──
+          if (c.fn === 'countTag' || c.fn === 'listTag') {
+            const { tags } = await getSlice();
+            const field = args[0];
+            const want = String(args[1] ?? '').toLowerCase();
+            const picked = !field
+              ? tags
+              : tags.filter(t => String(resolveValue('tag', t, field) ?? '').toLowerCase() === want);
+            results.push(c.fn === 'countTag' ? picked.length
+              : picked.map(t => t.identifier).join('; '));
+            continue;
+          }
+
+          // ── Свод по установке: сколько моноблоков и элементов ──
+          if (c.fn === 'system') {
+            const { elements } = await getSlice();
+            const name = String(args[0] ?? '').toLowerCase();
+            const inSys = elements.filter(e => String(e._system?.name ?? '').toLowerCase() === name);
+            if (!inSys.length) { results.push('#НЕТ_УСТАНОВКИ'); continue; }
+            const field = (args[1] || 'elements').toLowerCase();
+            if (field === 'elements' || field === 'элементы') { results.push(inSys.length); continue; }
+            if (field === 'monoblocks' || field === 'моноблоки') {
+              results.push(new Set(inSys.map(e => e._monoblock?.id)).size);
+              continue;
+            }
+            if (field === 'category' || field === 'категория') {
+              results.push(String(inSys[0]._system?.category ?? ''));
+              continue;
+            }
+            results.push('#НЕТ_ПОЛЯ');
+            continue;
+          }
+
           results.push('#ОШИБКА');
         } catch (_) { results.push('#ОШИБКА'); }
       }

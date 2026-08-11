@@ -776,7 +776,7 @@ export function registerVdrRoutes(app: Express): void {
       const mergedCols = [...columnsConfig, ...customCols.filter((c: any) => !columnsConfig.find(x => x.key === c.key))];
 
       const existing = await prisma.docRegisterItem.findMany({ where: { registerId: register.id } });
-      const byNo = new Map(existing.filter((x: any) => x.contractorNo).map((x: any) => [x.contractorNo, x]));
+      const byNo = new Map<string, any>(existing.filter((x: any) => x.contractorNo).map((x: any) => [String(x.contractorNo), x] as [string, any]));
 
       let created = 0, updated = 0, skipped = 0;
       const regHeader: any = {};

@@ -6,6 +6,7 @@ import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, Chevron
 import { motion, AnimatePresence } from 'motion/react';
 import ToastProvider from './ToastProvider';
 import ModalProvider from './ModalProvider';
+import CaptureReview from './CaptureReview';
 import { dataService } from '../services/dataService';
 import { useLogStore } from '../store/logStore';
 import { useAssistantStore } from '../store/assistantStore';
@@ -588,6 +589,7 @@ export default function Layout() {
       <ToastProvider />
       <ModalProvider />
       <ShareLayer />
+      <CaptureReview />
     </div>
   );
 }

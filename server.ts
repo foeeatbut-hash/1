@@ -1006,6 +1006,12 @@ const emitRoster = (docId: string) => {
 io.on('connection', (socket) => {
   console.log(`[Socket] client connected: ${socket.id}`);
 
+  // Личная комната сокета. Без неё сообщения чата рассылались всем
+  // подключённым: интерфейс чужую переписку прятал, но текст всё равно
+  // приходил на каждую машину в сети
+  const uid = (socket as any).userId;
+  if (uid) socket.join(`user:${uid}`);
+
   socket.on('tag:linked', (data) => {
     socket.broadcast.emit('tag:linked', data);
   });
@@ -3170,7 +3176,148 @@ app.post('/api/projects/:projectId/tags/bulk-import', async (req: Request, res: 
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// Применение плана захвата с экрана.
+//
+// Отличие от bulk-import: там режим один на весь список ('add' | 'update'),
+// а здесь решение своё у каждой строки — их девять классов конфликтов
+// (см. docs/screen-capture-design.md). Возвращаем идентификаторы созданного
+// и дополненного: по ним клиент подсвечивает добавленное в Реестре.
+//
+// Удалений тут нет и быть не может: захват — фрагмент, а не документ.
+app.post('/api/projects/:projectId/tags/capture-apply', async (req: Request, res: Response) => {
+  let { projectId } = req.params;
+  const { rows } = req.body as {
+    rows: {
+      identifier: string; brand?: string; name?: string; department?: string;
+      fluid?: string; wbs?: string; actuality?: string;
+      action: 'create' | 'skip' | 'fill' | 'replace' | 'duplicate' | 'link';
+      targetId?: string;
+    }[];
+  };
+  try {
+    if (!projectId || ['null', 'undefined', 'default'].includes(projectId)) {
+      let fp = await prisma.project.findFirst();
+      if (!fp) fp = await prisma.project.create({ data: { name: 'Общий Проект' } });
+      projectId = fp.id;
+    }
+    const existing = await prisma.tag.findMany({ where: { projectId } });
+    const byId = new Map(existing.map((t: any) => [t.id, t]));
+
+    // Новые карточки кладём под уже занятыми, а не в одну точку холста
+    let maxY = 0;
+    for (const t of existing as any[]) {
+      try { const m = t.metadata ? JSON.parse(t.metadata) : null; if (m && typeof m.y === 'number') maxY = Math.max(maxY, m.y); } catch {}
+    }
+    let col = 0;
+    const nextPos = () => {
+      const p = { x: 120 + (col % 6) * 360, y: maxY + 200 + Math.floor(col / 6) * 150 };
+      col++;
+      return p;
+    };
+
+    const created: { id: string; identifier: string }[] = [];
+    const filled: { id: string; identifier: string }[] = [];
+    const duplicated: { id: string; identifier: string }[] = [];
+    const linked: { id: string; identifier: string }[] = [];
+    const skipped: string[] = [];
+
+    for (const r of (rows || [])) {
+      const code = String(r.identifier || '').trim();
+      if (!code) continue;
+      const action = r.action;
+      if (action === 'skip') { skipped.push(code); continue; }
+
+      const target: any = r.targetId ? byId.get(r.targetId) : null;
+
+      if (action === 'link') {
+        if (target) linked.push({ id: target.id, identifier: target.identifier });
+        else skipped.push(code);
+        continue;
+      }
+
+      if ((action === 'fill' || action === 'replace') && target) {
+        const data: any = {};
+        for (const f of ['brand', 'department', 'fluid', 'wbs'] as const) {
+          const incoming = r[f] ? String(r[f]).trim() : '';
+          if (!incoming) continue;
+          const mine = String(target[f] || '').trim();
+          // «Дополнить» трогает только пустое — в этом вся его безопасность
+          if (action === 'fill' && mine) continue;
+          data[f] = incoming;
+        }
+        let meta: any = {};
+        try { meta = target.metadata ? JSON.parse(target.metadata) : {}; } catch {}
+        if (r.name && (action === 'replace' || !meta.mainName)) meta.mainName = String(r.name);
+        if (r.actuality && (action === 'replace' || !meta.actuality)) meta.actuality = String(r.actuality);
+        if (!Array.isArray(meta.connections)) meta.connections = [];
+        await prisma.tag.update({ where: { id: target.id }, data: { ...data, metadata: JSON.stringify(meta) } });
+        filled.push({ id: target.id, identifier: target.identifier });
+        continue;
+      }
+
+      // create и duplicate пишутся одинаково; разными их делает только то,
+      // что duplicate выбран осознанно при уже существующем коде
+      const pos = nextPos();
+      const meta: any = { connections: [], descriptions: [], x: pos.x, y: pos.y };
+      if (r.name) meta.mainName = String(r.name);
+      if (r.actuality) meta.actuality = String(r.actuality);
+      const t = await prisma.tag.create({
+        data: {
+          projectId,
+          identifier: code,
+          brand: r.brand ? String(r.brand) : null,
+          department: r.department ? String(r.department) : null,
+          fluid: r.fluid ? String(r.fluid) : null,
+          wbs: r.wbs ? String(r.wbs) : null,
+          metadata: JSON.stringify(meta),
+        },
+      });
+      (action === 'duplicate' ? duplicated : created).push({ id: t.id, identifier: code });
+    }
+
+    res.json({ created, filled, duplicated, linked, skipped });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // Update tag fields and json metadata
+// Отмена захвата: удаляем созданное, возвращаем дополненному прежние значения.
+//
+// Прежние значения приходят с клиента — он снял их снимком до применения.
+// Хранить их на сервере незачем: откат живёт ровно столько, сколько открыт
+// отчёт, и нужен на случай «нажал не подумав», а не как полноценная история.
+app.post('/api/projects/:projectId/tags/capture-undo', async (req: Request, res: Response) => {
+  const { projectId } = req.params;
+  const { deleteIds, restore } = req.body as {
+    deleteIds: string[];
+    restore: { id: string; brand: string | null; department: string | null;
+               fluid: string | null; wbs: string | null; metadata: string | null }[];
+  };
+  try {
+    let deleted = 0, restored = 0;
+    // Только теги этого проекта: идентификатор из чужого проекта сюда не пройдёт
+    if (Array.isArray(deleteIds) && deleteIds.length) {
+      const r = await prisma.tag.deleteMany({ where: { id: { in: deleteIds.slice(0, 2000) }, projectId } });
+      deleted = r.count;
+    }
+    for (const t of (restore || []).slice(0, 2000)) {
+      const own = await prisma.tag.findFirst({ where: { id: String(t.id), projectId } });
+      if (!own) continue;
+      await prisma.tag.update({
+        where: { id: t.id },
+        data: {
+          brand: t.brand ?? null,
+          department: t.department ?? null,
+          fluid: t.fluid ?? null,
+          wbs: t.wbs ?? null,
+          metadata: t.metadata ?? null,
+        },
+      });
+      restored++;
+    }
+    res.json({ deleted, restored });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // Массовое обновление metadata тегов одним запросом (Менеджмент: этап для N позиций).
 // Раньше клиент слал N последовательных PUT — на больших выборках это заметно тормозило.
 // ВАЖНО: маршрут объявлен раньше '/api/tags/:id', иначе «bulk-metadata» сматчится как id.
@@ -3515,7 +3662,13 @@ app.get('/api/chat/messages', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'senderId and receiverId are required' });
     }
 
-    const messages = await prisma.chatMessage.findMany({
+    // Отдаём хвост переписки, а не всю целиком: клиент перечитывает её при
+    // каждом событии сокета и раз в 12 секунд страховочным опросом, и на
+    // многолетней переписке это заметная нагрузка на сервер, сеть и отрисовку.
+    // Берём последние N в обратном порядке и переворачиваем — так работает
+    // индекс по дате, в отличие от смещения от начала
+    const limit = Math.min(2000, Math.max(20, Number(req.query.limit) || 300));
+    const tail = await prisma.chatMessage.findMany({
       where: {
         OR: [
           { senderId: String(senderId), receiverId: String(receiverId) },
@@ -3529,10 +3682,11 @@ app.get('/api/chat/messages', async (req: Request, res: Response) => {
         linkedElement: true,
         replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
       },
-      orderBy: { createdAt: 'asc' }
+      orderBy: { createdAt: 'desc' },
+      take: limit,
     });
 
-    res.json(messages);
+    res.json(tail.reverse());
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -3585,8 +3739,8 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
     // Личное уведомление получателю (категория ЧАТ)
     await notify(String(receiverId), 'ЧАТ', `Новое сообщение от ${(fullMessage as any)?.sender?.name || 'сотрудника'}`, String(content || '').slice(0, 80), `/chat?from=${senderId}`);
 
-    // Notify other clients via Socket.io
-    io.emit('chat:message_received', fullMessage);
+    // Только участникам диалога, а не всей сети
+    await emitChat('chat:message_received', fullMessage as any, fullMessage);
 
     res.json(fullMessage);
   } catch (err: any) {
@@ -3618,7 +3772,7 @@ app.put('/api/chat/messages/:id', async (req: Request, res: Response) => {
         replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
       }
     });
-    io.emit('chat:message_updated', updated);
+    await emitChat('chat:message_updated', updated as any, updated);
     res.json(updated);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -3646,7 +3800,7 @@ app.delete('/api/chat/messages/:id', async (req: Request, res: Response) => {
       if (nodeIds.length) await prisma.fileNode.deleteMany({ where: { id: { in: nodeIds }, type: 'CHAT_FILE' } });
     } catch (_) {}
     await prisma.chatMessage.delete({ where: { id } });
-    io.emit('chat:message_deleted', { id });
+    await emitChat('chat:message_deleted', msg as any, { id });
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -3970,6 +4124,42 @@ app.delete('/api/chat/groups/:id', async (req: Request, res: Response) => {
 // Реакция на сообщение (переключение эмодзи для пользователя)
 // Участник ли пользователь диалога/группы, которой принадлежит сообщение.
 // Личка: отправитель или получатель. Группа: член группы (или владелец).
+/**
+ * Кому адресовано событие чата: участникам диалога или членам группы.
+ * Возвращает имена личных комнат сокетов.
+ */
+async function chatRooms(msg: { senderId: string; receiverId: string | null; chatGroupId: string | null }): Promise<string[]> {
+  const ids = new Set<string>();
+  if (msg.senderId) ids.add(String(msg.senderId));
+  if (msg.receiverId) ids.add(String(msg.receiverId));
+  if (msg.chatGroupId) {
+    const g = await prisma.chatGroup.findUnique({
+      where: { id: msg.chatGroupId },
+      select: { ownerId: true, members: { select: { id: true } } },
+    });
+    if (g) {
+      if (g.ownerId) ids.add(String(g.ownerId));
+      for (const m of g.members) ids.add(String(m.id));
+    }
+  }
+  return [...ids].map((id) => `user:${id}`);
+}
+
+/** Событие чата — только участникам, а не всей сети */
+async function emitChat(
+  event: string,
+  msg: { senderId: string; receiverId: string | null; chatGroupId: string | null },
+  payload: any,
+) {
+  try {
+    const rooms = await chatRooms(msg);
+    if (!rooms.length) return;
+    io.to(rooms).emit(event, payload);
+  } catch (err) {
+    console.error('[Socket] не удалось разослать событие чата:', err);
+  }
+}
+
 async function isChatParticipant(userId: string, msg: { senderId: string; receiverId: string | null; chatGroupId: string | null }): Promise<boolean> {
   if (!userId) return false;
   if (msg.senderId === userId || msg.receiverId === userId) return true;
@@ -4006,7 +4196,7 @@ app.post('/api/chat/messages/:id/react', async (req: Request, res: Response) => 
     const updated = await prisma.chatMessage.update({
       where: { id }, data: { reactions: JSON.stringify(reactions) },
     });
-    io.emit('chat:message_updated', { id, reactions: updated.reactions });
+    await emitChat('chat:message_updated', msg as any, { id, reactions: updated.reactions });
     res.json({ success: true, reactions: updated.reactions });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -4024,7 +4214,7 @@ app.post('/api/chat/messages/:id/pin', async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Закреплять можно только в своих диалогах и группах' });
     }
     const updated = await prisma.chatMessage.update({ where: { id }, data: { pinned: !msg.pinned } });
-    io.emit('chat:message_updated', { id, pinned: updated.pinned });
+    await emitChat('chat:message_updated', msg as any, { id, pinned: updated.pinned });
     res.json({ success: true, pinned: updated.pinned });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -4068,7 +4258,7 @@ app.post('/api/chat/forward', async (req: Request, res: Response) => {
         replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } },
       },
     });
-    io.emit('chat:message_received', full);
+    await emitChat('chat:message_received', full as any, full);
     res.json({ success: true, message: full });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -4104,7 +4294,9 @@ app.get('/api/chat/group-messages', async (req: Request, res: Response) => {
     if (!groupId) {
       return res.status(400).json({ error: 'groupId is required' });
     }
-    const messages = await prisma.chatMessage.findMany({
+    // Как и в личной переписке — только хвост: групповые чаты живут дольше всех
+    const limit = Math.min(2000, Math.max(20, Number(req.query.limit) || 300));
+    const tail = await prisma.chatMessage.findMany({
       where: { chatGroupId: String(groupId) },
       include: {
         attachments: true,
@@ -4112,9 +4304,10 @@ app.get('/api/chat/group-messages', async (req: Request, res: Response) => {
         linkedElement: true,
         replyTo: { select: { id: true, content: true, sender: { select: { id: true, name: true } } } }
       },
-      orderBy: { createdAt: 'asc' }
+      orderBy: { createdAt: 'desc' },
+      take: limit,
     });
-    res.json(messages);
+    res.json(tail.reverse());
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -4171,8 +4364,8 @@ app.post('/api/chat/group-messages', async (req: Request, res: Response) => {
       }
     });
 
-    // Notify clients on sockets
-    io.emit('chat:message_received', fullMessage);
+    // Только членам группы
+    await emitChat('chat:message_received', fullMessage as any, fullMessage);
 
     res.json(fullMessage);
   } catch (err: any) {
