@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
-import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, Sparkles, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ToastProvider from './ToastProvider';
 import ModalProvider from './ModalProvider';
@@ -454,7 +454,7 @@ export default function Layout() {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.96, y: 12 }}
                   transition={{ duration: 0.15, ease: 'easeOut' }}
-                  className="w-[min(94vw,420px)] bg-white dark:bg-dark-panel rounded-2xl border border-slate-200 dark:border-dark-border shadow-2xl p-4 flex flex-col gap-2.5 text-left select-none text-slate-800 dark:text-dark-text-main max-h-[88vh] overflow-y-auto scrollbar-none"
+                  className="w-[min(94vw,420px)] bg-white dark:bg-dark-panel rounded-lg border border-slate-200 dark:border-dark-border shadow-2xl p-4 flex flex-col gap-2.5 text-left select-none text-slate-800 dark:text-dark-text-main max-h-[88vh] overflow-y-auto scrollbar-none"
                 >
                   {/* Header info */}
                   <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-100 dark:border-dark-border">
@@ -554,7 +554,7 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-gradient-to-br from-slate-100 to-slate-200/70 dark:from-dark-bg dark:to-dark-surface relative transition-colors duration-250">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-100 dark:bg-dark-bg relative transition-colors duration-250">
         <div className="flex-1 min-h-0">
           <Workspace />
         </div>

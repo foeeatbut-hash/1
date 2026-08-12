@@ -339,7 +339,7 @@ export default function UsersManagement() {
       </div>
 
       {/* Основная таблица / Содержимое списка пользователей */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800  overflow-hidden transition-colors">
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-950/20">
           <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-widest flex items-center gap-2">
             <UserCheck className="w-4 h-4 text-emerald-650 dark:text-emerald-400" />

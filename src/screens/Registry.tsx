@@ -24,7 +24,6 @@ import {
   Info, 
   HelpCircle, 
   Activity, 
-  Sparkles, 
   ZoomIn, 
   ZoomOut, 
   RefreshCw,
@@ -3062,7 +3061,7 @@ export default function Registry() {
               {/* THE GRAPH SPACE WITH OVERLAID CONTROLS */}
               <div 
                 ref={boardRef}
-                className="w-full flex-1 min-h-0 overflow-hidden bg-slate-50 dark:bg-slate-900 border-2 border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-lg relative select-none transition-colors"
+                className="w-full flex-1 min-h-0 overflow-hidden bg-slate-50 dark:bg-slate-900 border-2 border-slate-200/80 dark:border-slate-800/80 rounded-lg shadow-lg relative select-none transition-colors"
               style={{ cursor: isPanning ? 'grabbing' : (linkingFrom ? 'crosshair' : 'default') }}
               onMouseDown={(e) => {
                 hideCanvasHint();
@@ -3400,7 +3399,7 @@ export default function Registry() {
                         key={tag.id}
                         id={`tag-card-${tag.id}`}
                         data-share-focus={`tag:${tag.id}`}
-                        className={`absolute pointer-events-auto w-[310px] rounded-2xl border text-left transition-shadow duration-200 select-none ${
+                        className={`absolute pointer-events-auto w-[310px] rounded-lg border text-left transition-shadow duration-200 select-none ${
                           linkingFrom === tag.id
                             ? 'ring-2 ring-sky-500 border-sky-500 shadow-xl z-40'
                             : linkingFrom
@@ -3999,7 +3998,7 @@ export default function Registry() {
         {dupPanel && createPortal(
           <div
             ref={dupPanelRef}
-            className="fixed right-4 top-28 z-[118] w-72 bg-white/97 dark:bg-slate-950/97 backdrop-blur-md border border-rose-200 dark:border-rose-900 rounded-2xl shadow-2xl overflow-hidden"
+            className="fixed right-4 top-28 z-[118] w-72 bg-white/97 dark:bg-slate-950/97 backdrop-blur-md border border-rose-200 dark:border-rose-900 rounded-lg shadow-2xl overflow-hidden"
           >
             <div className="flex items-center justify-between px-3 py-2 bg-rose-50/80 dark:bg-rose-950/30 border-b border-rose-100 dark:border-rose-900/60">
               <div className="min-w-0">
@@ -4167,7 +4166,7 @@ export default function Registry() {
             )}
 
             {/* SELECTION FILTERS BLOCK */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-sm text-left">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl  text-left">
               
               {/* LEFT COLUMN: TAG FILTERING ZONE */}
               <div className="space-y-4 border-r border-slate-100 dark:border-slate-850 pr-0 lg:pr-6">
@@ -5251,7 +5250,7 @@ export default function Registry() {
               initial={{ scale: 0.96, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.96, opacity: 0 }}
-              className="bg-white dark:bg-slate-950 rounded-2xl shadow-2xl border border-slate-205 dark:border-slate-850 w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]"
+              className="bg-white dark:bg-slate-950 rounded-lg shadow-2xl border border-slate-205 dark:border-slate-850 w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]"
             >
               <div className="p-4 bg-slate-900 dark:bg-slate-900 text-white flex items-center justify-between border-b dark:border-slate-800 gap-3">
                 <div className="flex items-center gap-2.5 min-w-0 flex-1">

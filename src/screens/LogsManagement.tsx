@@ -134,7 +134,7 @@ export default function LogsManagement() {
       className="max-w-6xl mx-auto space-y-6 text-slate-800 dark:text-slate-100 font-sans select-none"
     >
       {/* HEADER SECTION */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs relative overflow-hidden">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 shadow-xs relative overflow-hidden">
         <div className="flex items-center gap-3">
           <button type="button"
             onClick={() => navigate('/')}
@@ -203,7 +203,7 @@ export default function LogsManagement() {
       </div>
 
       {/* FILTER AND SEARCH CONTROLS */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-2xs space-y-3.5">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 shadow-2xs space-y-3.5">
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-bold text-slate-550 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
             <Filter className="w-3.5 h-3.5" />
@@ -270,7 +270,7 @@ export default function LogsManagement() {
       </div>
 
       {/* DETAILED TILES / TABLE LOGS VIEW */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xs overflow-hidden">
         <div className="border-b border-slate-100 dark:border-slate-800/80 px-5 py-4 bg-slate-50/50 dark:bg-slate-900/40 flex items-center justify-between">
           <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
             Отображено: <strong className="font-mono text-emerald-600 font-bold">{filteredLogs.length}</strong> из {countOf(logs.length, 'запись')}

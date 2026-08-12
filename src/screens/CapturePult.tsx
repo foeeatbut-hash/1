@@ -112,7 +112,7 @@ export default function CapturePult() {
 
   return (
     <div className="w-full h-full p-1.5 select-none" style={{ background: 'transparent' }}>
-      <div className="w-full h-full rounded-2xl overflow-hidden bg-white dark:bg-slate-900
+      <div className="w-full h-full rounded-lg overflow-hidden bg-white dark:bg-slate-900
                       border border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col">
         <div
           className={`flex items-center gap-2 px-3 py-2 text-xs font-semibold cursor-move

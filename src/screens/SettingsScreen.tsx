@@ -86,7 +86,7 @@ export default function SettingsScreen() {
       className="h-full flex gap-4 text-slate-800 dark:text-slate-100"
     >
       {/* Категории (левая колонка) */}
-      <div className="w-72 shrink-0 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-2xl shadow-xs overflow-hidden flex flex-col">
+      <div className="w-72 shrink-0 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg shadow-xs overflow-hidden flex flex-col">
         <div className="px-4 py-3.5 border-b border-slate-100 dark:border-slate-850 flex items-center gap-2">
           <Settings className="w-4.5 h-4.5 text-emerald-600" />
           <h1 className="text-base font-bold text-slate-900 dark:text-white">Настройки</h1>
@@ -118,7 +118,7 @@ export default function SettingsScreen() {
       </div>
 
       {/* Содержимое категории */}
-      <div className="flex-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-2xl shadow-xs overflow-y-auto p-6">
+      <div className="flex-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg shadow-xs overflow-y-auto p-6">
         {section === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} density={density} setDensity={setDensity} />}
         {section === 'roles' && <RolesSection user={user} addToast={addToast} />}
         {section === 'management' && <ManagementSection isAdmin={isAdmin} addToast={addToast} />}

@@ -187,7 +187,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
   return (
     <div 
       id="login-screen-root" 
-      className="min-h-screen w-full flex flex-col justify-between bg-slate-50 dark:bg-slate-950 font-sans text-slate-800 dark:text-slate-100 transition-colors duration-250 relative p-4"
+      className="login-ground min-h-screen w-full flex flex-col justify-between font-sans text-slate-800 dark:text-slate-100 transition-colors duration-250 relative p-4"
     >
       {/* Floating theme switcher in upper-right corner */}
       <div className="absolute top-4 right-4 z-40">
@@ -207,8 +207,15 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
           initial={{ opacity: 0, scale: 0.98, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           transition={{ duration: 0.3 }}
-          className="w-full max-w-md bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl transition-ui"
+          className="w-full max-w-md bg-white dark:bg-slate-900 rounded-sm border border-slate-300 dark:border-slate-700 shadow-modal transition-ui"
         >
+          {/* Штамп листа: слева — что это за программа, справа — шифр версии */}
+          <div className="flex items-baseline gap-3 px-6 py-3 border-b border-slate-300 dark:border-slate-700">
+            <span className="text-sm font-semibold tracking-tight">Flux</span>
+            <span className="graf">рабочее место инженера</span>
+            <span className="ml-auto data text-2xs text-slate-400">{__APP_VERSION__}</span>
+          </div>
+          <div className="p-6">
           <AnimatePresence mode="wait">
             {error && (
               <motion.div
@@ -306,6 +313,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
               )}
             </button>
           </form>
+          </div>
         </motion.div>
       </div>
 
@@ -385,8 +393,8 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
         <div className="text-xs text-slate-400 dark:text-slate-600">
           Разработка <span className="font-semibold text-slate-500 dark:text-slate-400">Раупова Хусрава</span>
         </div>
-        <div className="text-xs font-mono text-slate-400 dark:text-slate-600 tracking-wider">
-          Flux · {__APP_VERSION__}
+        <div className="data text-2xs text-slate-400 dark:text-slate-600">
+          {new Date().getFullYear()}
         </div>
       </div>
     </div>

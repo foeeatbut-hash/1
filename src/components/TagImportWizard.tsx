@@ -183,7 +183,7 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
           initial={{ opacity: 0, scale: 0.97, y: 12 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           transition={{ duration: 0.16 }}
-          className="relative w-full max-w-5xl h-[88vh] flex flex-col rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden"
+          className="relative w-full max-w-5xl h-[88vh] flex flex-col rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden"
         >
           {/* HEADER */}
           <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 shrink-0">
@@ -363,7 +363,7 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
         {pasteOpen && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm" onClick={() => setPasteOpen(false)} />
-            <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} className="relative w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5">
+            <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} className="relative w-full max-w-2xl bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-2xl p-5">
               <div className="flex items-center justify-between mb-3">
                 <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2"><ClipboardPaste className="w-4 h-4 text-emerald-600" /> Вставка из буфера</h4>
                 <button type="button" onClick={() => setPasteOpen(false)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"><X className="w-4 h-4" /></button>
@@ -384,7 +384,7 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
         {dupDialog && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm" onClick={() => setDupDialog(null)} />
-            <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5">
+            <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-2xl p-5">
               <div className="flex items-center gap-2 mb-2 text-amber-600">
                 <AlertTriangle className="w-5 h-5" />
                 <h4 className="text-sm font-bold text-slate-900 dark:text-white">Такие теги уже есть</h4>
@@ -414,7 +414,7 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
         {result && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm" onClick={onClose} />
-            <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} className="relative w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6 text-center">
+            <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} className="relative w-full max-w-sm bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-2xl p-6 text-center">
               <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-950/40 flex items-center justify-center text-emerald-600 mx-auto mb-3"><Check className="w-6 h-6" /></div>
               <h4 className="text-base font-bold text-slate-900 dark:text-white mb-1">Импорт завершён</h4>
               <p className="text-sm text-slate-500 mb-1">Создано: <strong className="text-emerald-600">{result.created}</strong> · Обновлено: <strong className="text-emerald-600">{result.updated}</strong></p>

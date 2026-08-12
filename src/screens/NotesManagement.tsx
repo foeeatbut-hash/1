@@ -462,7 +462,7 @@ export default function NotesManagement() {
       className="h-[calc(100vh-100px)] flex gap-4 font-sans select-none"
     >
       {/* LEFT SIDEBAR: NOTES DIRECTORY */}
-      <div id="notes-sidebar" className="w-80 shrink-0 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
+      <div id="notes-sidebar" className="w-80 shrink-0 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-xs">
         {/* Search & Add block */}
         <div className="p-4 border-b border-slate-100 dark:border-slate-800 space-y-3 bg-slate-50/50 dark:bg-slate-900/40">
           <div className="flex items-center justify-between">
@@ -725,7 +725,7 @@ export default function NotesManagement() {
       </div>
 
       {/* RIGHT SIDEBAR: WORKSPACE EDITING AREA */}
-      <div id="notes-content" className="flex-1 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs relative">
+      <div id="notes-content" className="flex-1 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-xs relative">
         {selectedNote ? (
           <div className="flex-grow flex flex-col h-full">
             {/* Header / Meta properties */}

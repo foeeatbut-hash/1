@@ -95,7 +95,10 @@ function SectionFrame({
   const locContext = React.useMemo(() => ({ location, navigationType: NavigationType.Pop }), [location]);
   return (
     <div
-      className={`absolute inset-0 ${def.pad ? 'p-6' : ''} ${def.scroll === 'fixed' ? 'overflow-hidden' : 'overflow-y-auto'}`}
+      /* Отступ уменьшен с 24 до 10 px: раздел — лист, а не карточка,
+         плавающая в сером поле. Поле шириной в палец вокруг каждого
+         экрана съедало место и выглядело одинаково в любой программе */
+      className={`absolute inset-0 ${def.pad ? 'p-2.5' : ''} ${def.scroll === 'fixed' ? 'overflow-hidden' : 'overflow-y-auto'}`}
       style={{ display: visible ? 'block' : 'none' }}
       aria-hidden={!visible}
     >
@@ -143,7 +146,7 @@ function PaneView({ paneId }: { paneId: string }) {
     <div
       data-pane={paneId}
       onMouseDownCapture={() => { if (!isActivePane) setActivePane(paneId); }}
-      className={`relative flex flex-col min-w-0 min-h-0 h-full bg-gradient-to-br from-slate-100 to-slate-200/70 dark:from-dark-bg dark:to-dark-surface ${
+      className={`relative flex flex-col min-w-0 min-h-0 h-full bg-slate-100 dark:bg-dark-bg ${
         layout !== 'single' ? `rounded-xl overflow-hidden border ${isActivePane ? 'border-emerald-500/70 ring-1 ring-emerald-500/30' : 'border-slate-200 dark:border-dark-border'}` : ''
       }`}
     >

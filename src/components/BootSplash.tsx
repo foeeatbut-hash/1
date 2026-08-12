@@ -55,7 +55,7 @@ export function ServerGate({ children }: { children: React.ReactNode }) {
   if (phase === 'failed') {
     return (
       <div className="w-full h-full flex items-center justify-center bg-slate-950 p-6">
-        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-7 text-center space-y-4">
+        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-lg p-7 text-center space-y-4">
           <div className="text-lg font-bold text-white">
             {isRemote ? 'Сервер компании не отвечает' : 'Не удалось запустить встроенный сервер'}
           </div>

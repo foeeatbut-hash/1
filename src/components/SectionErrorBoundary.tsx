@@ -57,7 +57,7 @@ export default class SectionErrorBoundary extends Component<Props, State> {
     if (error) {
       return (
         <div className="w-full h-full flex items-start justify-center pt-16 px-4">
-          <div className="w-full max-w-lg rounded-2xl border border-rose-200 dark:border-rose-900/60 bg-white dark:bg-dark-surface p-6 shadow-sm">
+          <div className="w-full max-w-lg rounded-lg border border-rose-200 dark:border-rose-900/60 bg-white dark:bg-dark-surface p-6 ">
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
               <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">

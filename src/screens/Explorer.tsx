@@ -1776,7 +1776,7 @@ export default function Explorer() {
 
                 return (
                   <div className="p-4 flex flex-col">
-                     <div className="flex-1 flex items-center justify-center min-h-[240px] max-h-[300px] bg-white dark:bg-dark-panel border border-slate-200 dark:border-dark-border rounded mb-4 overflow-hidden relative shadow-sm">
+                     <div className="flex-1 flex items-center justify-center min-h-[240px] max-h-[300px] bg-white dark:bg-dark-panel border border-slate-200 dark:border-dark-border rounded mb-4 overflow-hidden relative ">
                         {isImage && item.content ? (
                           <img src={item.content} alt={item.name} className="max-w-full max-h-full object-contain" />
                         ) : isText && item.content ? (
@@ -2224,7 +2224,7 @@ export default function Explorer() {
             initial={{ opacity: 0, scale: 0.95, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="bg-white dark:bg-dark-panel rounded-2xl shadow-2xl border border-slate-200 dark:border-dark-border w-[min(94vw,460px)] max-h-[88vh] overflow-hidden flex flex-col"
+            className="bg-white dark:bg-dark-panel rounded-lg shadow-2xl border border-slate-200 dark:border-dark-border w-[min(94vw,460px)] max-h-[88vh] overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-5 py-4 border-b border-slate-100 dark:border-dark-border bg-slate-50 dark:bg-dark-surface flex items-center gap-3">

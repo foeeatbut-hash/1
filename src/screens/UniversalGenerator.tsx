@@ -185,14 +185,14 @@ export default function UniversalGenerator() {
       transition={{ duration: 0.2 }}
       className="max-w-6xl mx-auto space-y-6"
     >
-      <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-6 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm transition-colors">
+      <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-6 rounded-lg border border-slate-200 dark:border-slate-800  transition-colors">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Рабочее место инженера</h1>
           {/* Removed heading description as requested */}
         </div>
         <button type="button" 
           onClick={() => setIsSetupMode(!isSetupMode)}
-          className={`flex items-center gap-2 px-4 py-2 rounded font-semibold text-sm transition-colors border cursor-pointer ${isSetupMode ? 'border-amber-205 bg-amber-50 dark:bg-amber-955/20 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-955/40' : 'border-slate-205 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 shadow-sm'}`}
+          className={`flex items-center gap-2 px-4 py-2 rounded font-semibold text-sm transition-colors border cursor-pointer ${isSetupMode ? 'border-amber-205 bg-amber-50 dark:bg-amber-955/20 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-955/40' : 'border-slate-205 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 '}`}
         >
           <Settings className="w-4 h-4" />
           {isSetupMode ? 'Закрыть настройку' : 'Настроить формулу тега'}
@@ -214,7 +214,7 @@ export default function UniversalGenerator() {
 
            <Reorder.Group axis="y" values={template} onReorder={setTemplate} className="space-y-3">
              {template.map((block, index) => (
-                <Reorder.Item key={block.id} value={block} className="flex items-center gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-md p-4 shadow-sm cursor-grab active:cursor-grabbing transition-colors">
+                <Reorder.Item key={block.id} value={block} className="flex items-center gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-md p-4  cursor-grab active:cursor-grabbing transition-colors">
                   <div className="w-6 h-6 flex items-center justify-center bg-slate-100 dark:bg-slate-800 rounded text-xs font-bold text-slate-400 shrink-0">{index + 1}</div>
                   
                   <div className="w-32 shrink-0">
@@ -276,7 +276,7 @@ export default function UniversalGenerator() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
         <div className="space-y-4">
-          <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm p-6 transition-colors">
+          <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800  p-6 transition-colors">
             <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
               <TagIcon className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
               Параметры нового тега
@@ -293,7 +293,7 @@ export default function UniversalGenerator() {
                     <select 
                       value={genValues[block.id] || ''} 
                       onChange={e => setGenValues({...genValues, [block.id]: e.target.value})}
-                      className="w-full text-base px-3 py-2.5 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-ui shadow-sm"
+                      className="w-full text-base px-3 py-2.5 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-ui "
                     >
                       <option value="">-- Выберите значение --</option>
                       {dict?.items.map((item: any) => (

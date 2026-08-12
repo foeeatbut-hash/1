@@ -1734,7 +1734,7 @@ export default function ChatManagement() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white dark:bg-slate-900 border border-slate-250 dark:border-slate-800 shadow-2xl rounded-2xl w-full max-w-lg overflow-hidden flex flex-col"
+              className="bg-white dark:bg-slate-900 border border-slate-250 dark:border-slate-800 shadow-2xl rounded-lg w-full max-w-lg overflow-hidden flex flex-col"
             >
               <div className="p-4 bg-slate-50 dark:bg-slate-950/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                 <div>
@@ -1824,7 +1824,7 @@ export default function ChatManagement() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-slate-900 border border-slate-800 shadow-2xl rounded-2xl w-full max-w-5xl overflow-hidden flex flex-col h-[85vh]"
+              className="bg-slate-900 border border-slate-800 shadow-2xl rounded-lg w-full max-w-5xl overflow-hidden flex flex-col h-[85vh]"
             >
               {/* Head */}
               <div className="p-4 bg-slate-950 border-b border-slate-850 flex items-center justify-between text-left shrink-0">
@@ -1901,7 +1901,7 @@ export default function ChatManagement() {
       {/* ── Модалка: создание группы/канала ── */}
       {showCreateGroup && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/55 backdrop-blur-md" onClick={() => !ngBusy && setShowCreateGroup(false)}>
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-2xl p-5" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-bold text-slate-900 dark:text-white">Создать {ngType === 'CHANNEL' ? 'канал' : 'группу'}</h3>
               <button type="button" onClick={() => setShowCreateGroup(false)} className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5" /></button>
@@ -1953,7 +1953,7 @@ export default function ChatManagement() {
       {/* ── Модалка: пересылка сообщения ── */}
       {forwardFor && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/55 backdrop-blur-md" onClick={() => setForwardFor(null)}>
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-2xl p-5" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-base font-bold text-slate-900 dark:text-white">Переслать сообщение</h3>
               <button type="button" onClick={() => setForwardFor(null)} className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5" /></button>
@@ -1980,7 +1980,7 @@ export default function ChatManagement() {
       {/* ── Модалка: настройки группы/канала ── */}
       {showGroupSettings && activeGroup && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/55 backdrop-blur-md" onClick={() => setShowGroupSettings(false)}>
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-2xl p-5" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-bold text-slate-900 dark:text-white">Настройки {activeGroup.type === 'CHANNEL' ? 'канала' : 'группы'}</h3>
               <button type="button" onClick={() => setShowGroupSettings(false)} className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5" /></button>

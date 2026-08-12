@@ -30,7 +30,7 @@ export default function NoProject({ what }: { what: string }) {
 
   return (
     <div className="w-full h-full flex items-center justify-center p-6">
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface p-6 text-center">
+      <div className="w-full max-w-md rounded-lg border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface p-6 text-center">
         <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 flex items-center justify-center">
           <FolderKanban className="w-6 h-6 text-emerald-700 dark:text-emerald-400" />
         </div>

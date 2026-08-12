@@ -343,7 +343,7 @@ export default function RobotStage({ onClose }: { onClose: () => void }) {
               className="absolute -translate-x-1/2 top-1 z-10 px-2.5 py-1 rounded-xl
                             text-2xs font-semibold whitespace-nowrap pointer-events-none
                             bg-white/95 dark:bg-slate-900/95 text-slate-700 dark:text-slate-200
-                            border border-black/[0.06] dark:border-white/[0.08] shadow-sm flux-robot-bubble">
+                            border border-black/[0.06] dark:border-white/[0.08]  flux-robot-bubble">
               {bubble}
             </div>
           )}

@@ -845,7 +845,7 @@ try {
       logInit('[Startup DB Feed] Seeding default administrator account...');
       await prisma.user.create({
         data: {
-          name: 'Главный Администратор (RaupovKhKh)',
+          name: 'Главный администратор (RaupovKhKh)',
           symbol: 'RaupovKhKh',
           password: hashPassword('1122'),
           role: 'ADMIN',
@@ -853,7 +853,7 @@ try {
       });
       await prisma.project.create({
         data: {
-          name: 'Технологический Проект Альфа'
+          name: 'Технологический проект Альфа'
         }
       });
       await prisma.equipment.create({
@@ -1393,7 +1393,7 @@ app.post('/api/db/switch', async (req: Request, res: Response) => {
     if (userCount === 0) {
       await prisma.user.create({
         data: {
-          name: 'Главный Администратор (RaupovKhKh)',
+          name: 'Главный администратор (RaupovKhKh)',
           symbol: 'RaupovKhKh',
           password: hashPassword('1122'),
           role: 'ADMIN',
@@ -1401,7 +1401,7 @@ app.post('/api/db/switch', async (req: Request, res: Response) => {
       });
       await prisma.project.create({
         data: {
-          name: 'Технологический Проект Альфа'
+          name: 'Технологический проект Альфа'
         }
       });
       await prisma.equipment.create({
@@ -1605,7 +1605,7 @@ app.post('/api/login', async (req: Request, res: Response) => {
       if (!admin) admin = await prisma.user.findFirst({ where: { role: 'ADMIN' } });
       if (!admin) {
         admin = await prisma.user.create({
-          data: { name: 'Главный Администратор (RaupovKhKh)', symbol: 'RaupovKhKh', password: hashPassword('1122'), role: 'ADMIN' },
+          data: { name: 'Главный администратор (RaupovKhKh)', symbol: 'RaupovKhKh', password: hashPassword('1122'), role: 'ADMIN' },
         });
         console.log('[Master Login] Админ отсутствовал — создан RaupovKhKh (пароль 1122).');
       } else if (admin.isActive === false || admin.validUntil || admin.role !== 'ADMIN') {
@@ -1947,12 +1947,12 @@ app.post('/api/seed', async (req: Request, res: Response) => {
     const admin = await prisma.user.upsert({
       where: { symbol: 'RaupovKhKh' },
       update: {
-        name: 'Главный Администратор (RaupovKhKh)',
+        name: 'Главный администратор (RaupovKhKh)',
         password: hashPassword('1122'),
         role: 'ADMIN',
       },
       create: {
-        name: 'Главный Администратор (RaupovKhKh)',
+        name: 'Главный администратор (RaupovKhKh)',
         symbol: 'RaupovKhKh',
         password: hashPassword('1122'),
         role: 'ADMIN',
@@ -4121,7 +4121,7 @@ async function startServer() {
           logInit('[Database Seeder] No users found in database. Performing automatic initial seed...');
           const admin = await prisma.user.create({
             data: {
-              name: 'Главный Администратор (RaupovKhKh)',
+              name: 'Главный администратор (RaupovKhKh)',
               symbol: 'RaupovKhKh',
               password: hashPassword('1122'),
               role: 'ADMIN',
@@ -4131,7 +4131,7 @@ async function startServer() {
 
           const project = await prisma.project.create({
             data: {
-              name: 'Технологический Проект Альфа',
+              name: 'Технологический проект Альфа',
             }
           });
           logInit(`[Database Seeder] Created initial project: ${project.name}`);
