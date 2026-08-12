@@ -2957,6 +2957,11 @@ app.get('/api/chat/messages', async (req: Request, res: Response) => {
     if (!senderId || !receiverId) {
       return res.status(400).json({ error: 'senderId and receiverId are required' });
     }
+    // Читать переписку может только её участник
+    const me = actorId(req);
+    if (me !== String(senderId) && me !== String(receiverId)) {
+      return res.status(403).json({ error: 'Это чужая переписка' });
+    }
 
     // Отдаём хвост переписки, а не всю целиком: клиент перечитывает её при
     // каждом событии сокета и раз в 12 секунд страховочным опросом, и на
@@ -2994,6 +2999,10 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
     const { senderId, receiverId, content, linkedElementId, linkedProjectId, attachments, replyToId } = req.body;
     if (!senderId || !receiverId) {
       return res.status(400).json({ error: 'senderId and receiverId are required' });
+    }
+    // Писать можно только от своего имени
+    if (actorId(req) !== String(senderId)) {
+      return res.status(403).json({ error: 'Сообщение можно отправить только от своего имени' });
     }
 
     const msg = await prisma.chatMessage.create({
@@ -3049,12 +3058,13 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
 app.put('/api/chat/messages/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { userId, content } = req.body;
+    const { content } = req.body;
     const msg = await prisma.chatMessage.findUnique({ where: { id } });
     if (!msg) {
       return res.status(404).json({ error: 'Сообщение не найдено' });
     }
-    if (msg.senderId !== String(userId)) {
+    // Автора берём из сессии: присланному userId верить нельзя
+    if (msg.senderId !== actorId(req)) {
       return res.status(403).json({ error: 'Можно редактировать только свои сообщения' });
     }
     const updated = await prisma.chatMessage.update({
@@ -3079,12 +3089,12 @@ app.put('/api/chat/messages/:id', async (req: Request, res: Response) => {
 app.delete('/api/chat/messages/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const userId = String(req.query.userId || (req.body && req.body.userId) || '');
     const msg = await prisma.chatMessage.findUnique({ where: { id } });
     if (!msg) {
       return res.status(404).json({ error: 'Сообщение не найдено' });
     }
-    if (msg.senderId !== userId) {
+    // Автора берём из сессии, а не из параметра запроса
+    if (msg.senderId !== actorId(req)) {
       return res.status(403).json({ error: 'Можно удалять только свои сообщения' });
     }
     // Вложения в БД (пути /chat_files/{fileNodeId}/{имя}) удаляем вместе с сообщением
@@ -3456,6 +3466,25 @@ async function emitChat(
   }
 }
 
+// Кто на самом деле обращается. Личность берём из проверенного токена сессии,
+// а не из тела запроса: раньше обработчики чата верили полю userId/senderId,
+// присланному клиентом, и любой вошедший сотрудник мог прочитать чужую
+// переписку, написать от чужого имени или удалить чужое сообщение — достаточно
+// было подставить идентификатор коллеги, а он виден в списке сотрудников.
+function actorId(req: Request): string {
+  return String((req as any).authUser?.id || '');
+}
+
+/** Состоит ли сотрудник в группе (владелец тоже считается участником) */
+async function isGroupMember(userId: string, groupId: string): Promise<boolean> {
+  if (!userId || !groupId) return false;
+  const g = await prisma.chatGroup.findUnique({
+    where: { id: String(groupId) },
+    select: { ownerId: true, members: { where: { id: userId }, select: { id: true } } },
+  });
+  return !!g && (g.ownerId === userId || g.members.length > 0);
+}
+
 async function isChatParticipant(userId: string, msg: { senderId: string; receiverId: string | null; chatGroupId: string | null }): Promise<boolean> {
   if (!userId) return false;
   if (msg.senderId === userId || msg.receiverId === userId) return true;
@@ -3472,11 +3501,12 @@ async function isChatParticipant(userId: string, msg: { senderId: string; receiv
 app.post('/api/chat/messages/:id/react', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { userId, emoji } = req.body;
-    if (!userId || !emoji) return res.status(400).json({ error: 'userId и emoji обязательны' });
+    const { emoji } = req.body;
+    const userId = actorId(req); // кто реагирует — из сессии, а не из тела
+    if (!userId || !emoji) return res.status(400).json({ error: 'нужен вход и emoji' });
     const msg = await prisma.chatMessage.findUnique({ where: { id } });
     if (!msg) return res.status(404).json({ error: 'Сообщение не найдено' });
-    if (!(await isChatParticipant(String(userId), msg))) {
+    if (!(await isChatParticipant(userId, msg))) {
       return res.status(403).json({ error: 'Реагировать можно только в своих диалогах и группах' });
     }
     let reactions: Record<string, string[]> = {};
@@ -3503,7 +3533,7 @@ app.post('/api/chat/messages/:id/react', async (req: Request, res: Response) => 
 app.post('/api/chat/messages/:id/pin', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const userId = String(req.body?.userId || '');
+    const userId = actorId(req); // закрепляющий — из сессии
     const msg = await prisma.chatMessage.findUnique({ where: { id } });
     if (!msg) return res.status(404).json({ error: 'Сообщение не найдено' });
     if (!(await isChatParticipant(userId, msg))) {
@@ -3590,6 +3620,10 @@ app.get('/api/chat/group-messages', async (req: Request, res: Response) => {
     if (!groupId) {
       return res.status(400).json({ error: 'groupId is required' });
     }
+    // Переписку группы читает только тот, кто в ней состоит
+    if (!(await isGroupMember(actorId(req), String(groupId)))) {
+      return res.status(403).json({ error: 'Вы не состоите в этой группе' });
+    }
     // Как и в личной переписке — только хвост: групповые чаты живут дольше всех
     const limit = Math.min(2000, Math.max(20, Number(req.query.limit) || 300));
     const tail = await prisma.chatMessage.findMany({
@@ -3615,6 +3649,13 @@ app.post('/api/chat/group-messages', async (req: Request, res: Response) => {
     const { senderId, groupId, content, linkedElementId, linkedProjectId, attachments, replyToId } = req.body;
     if (!senderId || !groupId) {
       return res.status(400).json({ error: 'senderId and groupId are required' });
+    }
+    // От своего имени и только в свою группу
+    if (actorId(req) !== String(senderId)) {
+      return res.status(403).json({ error: 'Сообщение можно отправить только от своего имени' });
+    }
+    if (!(await isGroupMember(String(senderId), String(groupId)))) {
+      return res.status(403).json({ error: 'Вы не состоите в этой группе' });
     }
 
     // В каналах публиковать может только владелец или администратор

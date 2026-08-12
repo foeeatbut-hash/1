@@ -22,6 +22,7 @@ const ok = (n: string, c: boolean, d?: any) =>
   c ? console.log('  ✓', n) : (f++, console.error('  ✗', n, d !== undefined ? JSON.stringify(d).slice(0, 300) : ''));
 
 let token = '';
+let meId = '';
 const call = async (method: string, url: string, body?: any) => {
   const res = await fetch(BASE + url, {
     method,
@@ -59,6 +60,7 @@ const call = async (method: string, url: string, body?: any) => {
     const good = await call('POST', '/api/login', LOGIN);
     ok('вход администратора', good.json?.success === true, good.json?.message);
     token = good.json?.token || '';
+    meId = good.json?.user?.id || '';
     ok('выдан токен сессии', token.length > 50, token.length);
     ok('в ответе нет пароля', !JSON.stringify(good.json?.user || {}).includes('password'));
 
@@ -115,9 +117,12 @@ const call = async (method: string, url: string, body?: any) => {
     const anonChat = await call('GET', '/api/chat/messages');
     ok('чат без собеседника не отдаёт ничего', anonChat.status === 400, anonChat.status);
 
-    const me = (await call('GET', '/api/auth/check')).json?.user?.id;
-    const m = await call('GET', `/api/chat/messages?senderId=${me}&receiverId=${me}`);
+    const m = await call('GET', `/api/chat/messages?senderId=${meId}&receiverId=${meId}`);
     ok('сообщения переписки', m.status === 200, { s: m.status, b: m.text.slice(0, 120) });
+
+    // Чужой диалог закрыт даже для администратора — подробнее в test-chat-privacy
+    const other = await call('GET', `/api/chat/messages?senderId=нездесь&receiverId=итутнет`);
+    ok('чужая переписка закрыта', other.status === 403, other.status);
 
     const t = await call('GET', `/api/chat/autocomplete-tags?projectId=${projectId}&q=`);
     ok('подсказки тегов в чате', t.status === 200, t.status);
