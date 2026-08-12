@@ -119,7 +119,7 @@ console.log('6. Размер файлов не растёт (храповик)')
 const BUDGET = 1200;
 const LEGACY: Record<string, number> = {
   'src/screens/Registry.tsx': 6071,
-  'server.ts': 4919,
+  'server.ts': 4225,
   'src/screens/Explorer.tsx': 2560,
   'src/screens/DictionaryEditor.tsx': 2279,
   'src/screens/ChatManagement.tsx': 2029,

@@ -44,7 +44,7 @@ const hasAction = (m: any, kind: string) => (m.actions || []).some((a: any) => a
     // Ответ раскрывает группы в отдельные экземпляры: у каждого свои кнопки —
     // общая «найти дубли» тут не нужна, нужна привязка к конкретной позиции
     const items = message.list || [];
-    check('дубли: список экземпляров', items.length >= 2, items.length);
+    check('дубли: список экземпляров', items.length >= 2, String(items.length));
     check('дубли: у экземпляра «На холсте»', items.every((i: any) => (i.actions || []).some((a: any) => a.kind === 'focus-tag')));
     check('дубли: у экземпляра «Переименовать»', items.every((i: any) => (i.actions || []).some((a: any) => a.kind === 'prompt-rename-tag')));
   }
