@@ -18,8 +18,9 @@ npx tsx scripts/test-<имя>.ts
 ```
 
 Что уже есть: `test-capture` (распознавание захвата и конфликты),
-`test-constructor-fn` (своды по проекту), `test-blank-parser`, `test-normalize`,
-`test-doc-import`, `test-nlp`, `test-assistant`.
+`test-constructor-fn` (своды по проекту), `test-architecture` (границы между
+слоями и размер файлов, см. skill `flux-architecture`), `test-blank-parser`,
+`test-normalize`, `test-doc-import`, `test-nlp`, `test-assistant`.
 
 Формат — простой и одинаковый, без фреймворка: счётчик, функция сравнения,
 названия проверок по-русски и по существу.

@@ -23,6 +23,7 @@ import { useWorkspaceStore, paneCountFor, openSectionWindow } from '../store/wor
 import { SECTIONS, sectionForPath, isKnownSection } from '../workspace/sections';
 import { useStore } from '../store/store';
 import ContextMenu, { MenuItem } from './ContextMenu';
+import SectionErrorBoundary from './SectionErrorBoundary';
 
 const iconFor = (path: string) => SECTIONS.find((s) => s.path === path);
 
@@ -56,6 +57,7 @@ function SectionFrame({
   const def = sectionForPath(path);
   const user = useStore((s) => s.user);
   const setFrozenHref = useWorkspaceStore((s) => s.setFrozenHref);
+  const closeInPane = useWorkspaceStore((s) => s.closeInPane);
   const initialHref = useWorkspaceStore.getState().frozenHrefs[`${paneId}::${path}`];
   const [frozenLoc, setFrozenLoc] = React.useState<Location>(() => makeLocation(initialHref || path));
 
@@ -99,9 +101,13 @@ function SectionFrame({
     >
       <UNSAFE_NavigationContext.Provider value={navContext}>
         <UNSAFE_LocationContext.Provider value={locContext}>
-          <Suspense fallback={<div className="w-full h-full flex items-center justify-center py-24"><div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" /></div>}>
-            <Comp />
-          </Suspense>
+          {/* Граница внутри панели: сбой одного раздела не должен уносить
+              соседние — они смонтированы рядом и держат несохранённые правки */}
+          <SectionErrorBoundary title={def.title} onClose={() => closeInPane(paneId, path)}>
+            <Suspense fallback={<div className="w-full h-full flex items-center justify-center py-24"><div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" /></div>}>
+              <Comp />
+            </Suspense>
+          </SectionErrorBoundary>
         </UNSAFE_LocationContext.Provider>
       </UNSAFE_NavigationContext.Provider>
     </div>
