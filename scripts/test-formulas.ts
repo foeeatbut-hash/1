@@ -8,6 +8,7 @@ import {
   renderFormula, renderField, formatDate, formatName, isEmptyValue, findCycle, cycleNames,
   type Formula, type FormulaContext,
 } from '../src/lib/docFormula.js';
+import { cutBackground, inkRatio, fitToHeight, checkFile, DEFAULT_THRESHOLD } from '../src/lib/signature.js';
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: any) =>
@@ -142,6 +143,44 @@ console.log('10. Поле напрямую');
 ok('обычное поле как есть', renderField('doc.name', CTX) === 'Пояснительная записка');
 ok('поле-дата форматируется', renderField('date', CTX, { date: { month: 'gen' } }) === '16 августа 2026', renderField('date', CTX, { date: { month: 'gen' } }));
 ok('пустое поле — пусто', renderField('нет.такого', CTX) === '');
+
+
+
+// ── Подпись: удаление фона ──────────────────────────────────────────────────
+
+console.log('11. Подпись: удаление фона');
+/** Полоска: белый фон, серый край, чёрный штрих */
+const strip = () => new Uint8ClampedArray([
+  255, 255, 255, 255,   // белый — фон
+  240, 240, 240, 255,   // почти белый — тоже фон
+  128, 128, 128, 255,   // серый — край штриха
+  20, 20, 20, 255,      // чёрный — штрих
+]);
+
+const s1 = strip();
+cutBackground(s1, DEFAULT_THRESHOLD);
+ok('белый фон стал прозрачным', s1[3] === 0, s1[3]);
+ok('почти белый тоже убран', s1[7] === 0, s1[7]);
+ok('чёрный штрих остался непрозрачным', s1[15] === 255, s1[15]);
+ok('серый край не выброшен целиком', s1[11] > 0, s1[11]);
+
+const s0 = strip();
+cutBackground(s0, 0);
+ok('порог 0 не трогает ничего', s0[3] === 255 && s0[15] === 255);
+
+const s100 = strip();
+cutBackground(s100, 100);
+ok('порог 100 стирает всё', inkRatio(s100) === 0, inkRatio(s100));
+
+ok('доля чернил считается', Math.abs(inkRatio(strip()) - 1) < 1e-9);
+ok('порог вне диапазона не ломает', (() => { const x = strip(); cutBackground(x, 999); return inkRatio(x) === 0; })());
+
+console.log('12. Подпись: размер и проверка файла');
+ok('низкая картинка не растягивается', JSON.stringify(fitToHeight(400, 100, 300)) === JSON.stringify({ w: 400, h: 100 }));
+ok('высокая уменьшается с пропорциями', JSON.stringify(fitToHeight(1200, 600, 300)) === JSON.stringify({ w: 600, h: 300 }), fitToHeight(1200, 600, 300));
+ok('png принимается', checkFile({ type: 'image/png', size: 1000 }) === null);
+ok('pdf отвергается понятным текстом', /PNG/.test(String(checkFile({ type: 'application/pdf', size: 10 }))), checkFile({ type: 'application/pdf', size: 10 }));
+ok('слишком большой файл отвергается', /8 МБ/.test(String(checkFile({ type: 'image/png', size: 9e6 }))), checkFile({ type: 'image/png', size: 9e6 }));
 
 console.log(f === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${f}`);
 process.exit(f === 0 ? 0 : 1);

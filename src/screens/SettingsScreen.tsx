@@ -12,9 +12,10 @@ import {
   Settings, Sun, Moon, Database, Terminal, Bell, Briefcase, Fan, DownloadCloud,
   Plus, Trash2, ChevronUp, ChevronDown, RotateCcw, Loader2, Check,
   Tag, MousePointerClick, Link2, Archive, PlayCircle, FolderOpen, FileSpreadsheet, X,
-  ShieldCheck, Lock, Pencil
+  ShieldCheck, Lock, Pencil, Sigma
 } from 'lucide-react';
 import RoleIcon from '../components/RoleIcon';
+import FormulaManager from '../components/FormulaManager';
 import {
   Role, ROLE_COLORS, ROLE_ICONS, roleColorClass, loadRoles, invalidateRoles, isTopAdmin,
 } from '../lib/roles';
@@ -37,13 +38,14 @@ const { openConfirm, openAlert, openPrompt } = useModalStore.getState();
 // Windows/iOS), содержимое выбранной категории справа. Сюда перенесены
 // настройки из профиля и из отдельных разделов.
 
-type SectionId = 'general' | 'roles' | 'management' | 'docflow' | 'equipment' | 'tags' | 'notifications' | 'database' | 'backup' | 'logs' | 'updates';
+type SectionId = 'general' | 'roles' | 'management' | 'docflow' | 'formulas' | 'equipment' | 'tags' | 'notifications' | 'database' | 'backup' | 'logs' | 'updates';
 
 const SECTIONS: Array<{ id: SectionId; label: string; icon: any; desc: string }> = [
   { id: 'general', label: 'Общие', icon: Settings, desc: 'Тема и плотность' },
   { id: 'roles', label: 'Роли сотрудников', icon: ShieldCheck, desc: 'Кто кем работает' },
   { id: 'management', label: 'Менеджмент', icon: Briefcase, desc: 'Этапы закупки' },
   { id: 'docflow', label: 'Документооборот', icon: FileSpreadsheet, desc: 'Стандарты ВДР' },
+  { id: 'formulas', label: 'Формулы документа', icon: Sigma, desc: 'Дата, подпись, шифр' },
   { id: 'equipment', label: 'Оборудование', icon: Fan, desc: 'Категории оборудования' },
   { id: 'tags', label: 'Теги', icon: Tag, desc: 'Холст связей' },
   { id: 'notifications', label: 'Уведомления', icon: Bell, desc: 'Какие события показывать' },
@@ -124,6 +126,7 @@ export default function SettingsScreen() {
         {section === 'management' && <ManagementSection isAdmin={isAdmin} addToast={addToast} />}
         {section === 'equipment' && <EquipmentSection isAdmin={isAdmin} addToast={addToast} />}
         {section === 'docflow' && <DocflowSection isAdmin={isAdmin} addToast={addToast} />}
+        {section === 'formulas' && <FormulasSection />}
         {section === 'tags' && <TagsSection addToast={addToast} />}
         {section === 'notifications' && (
           <SectionShell title="Уведомления" desc="Какие события показывать в панели уведомлений и как оповещать.">
@@ -1124,6 +1127,39 @@ function CrashLogsSection({ addLog }: any) {
         </div>
       </div>
     </SectionShell>
+  );
+}
+
+// ── Формулы документа ─────────────────────────────────────────────────────
+// Справочник открывается тем же компонентом, что и из панели вставки в титуле:
+// разошедшиеся карточки настройки означали бы, что формула, собранная в одном
+// месте, ведёт себя иначе в другом.
+function FormulasSection() {
+  const activeProject = useStore((st: any) => st.activeProject);
+  if (!activeProject?.id) {
+    return (
+      <SectionShell title="Формулы документа" desc="Именованные значения для титульного листа.">
+        <div className="blank">
+          <div className="blank-title">Проект не выбран</div>
+          <div className="blank-text">
+            Формулы принадлежат проекту: у каждого свои шифры, ревизии и подписанты.
+            Выберите проект — справочник откроется.
+          </div>
+        </div>
+      </SectionShell>
+    );
+  }
+  return (
+    <div className="h-full flex flex-col min-h-0">
+      <h2 className="text-xl font-bold text-slate-900 dark:text-white">Формулы документа</h2>
+      <p className="text-xs text-slate-400 mt-1 mb-4">
+        Что видно в титуле вместо выражения: «Дата», «Инициалы сотрудника», «Подпись»,
+        «Шифр с ревизией». Настройка живёт здесь, документ показывает только название.
+      </p>
+      <div className="flex-1 min-h-0 sheet">
+        <FormulaManager projectId={activeProject.id} />
+      </div>
+    </div>
   );
 }
 

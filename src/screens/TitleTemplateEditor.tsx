@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Loader2, Save, Bold, Italic, AlignLeft, AlignCenter, AlignRight, Eye, Sigma, X, Image as ImageIcon, Table } from 'lucide-react';
 import { useToastStore } from '../store/toastStore';
-import { TITLE_FIELDS, fieldChipHtml, formulaChipHtml, renderTitleHtml } from './titleTemplate';
+import { TITLE_FIELDS, fieldChipHtml, namedChipHtml, renderTitleHtml } from './titleTemplate';
+import FormulaManager from '../components/FormulaManager';
 
 // ── Редактор шаблона титула ────────────────────────────────────────────────
 // A4-полотно (contenteditable): свободный текст + «ссылки» (чипы полей) и
@@ -25,7 +26,7 @@ export default function TitleTemplateEditor({ docId, onClose }: { docId: string;
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState(false);
   const [fxOpen, setFxOpen] = useState(false);
-  const [fxExpr, setFxExpr] = useState('project.code & "-" & doc.revision');
+  const projectId: string = doc?.projectId || '';
 
   useEffect(() => {
     let dead = false;
@@ -196,18 +197,30 @@ export default function TitleTemplateEditor({ docId, onClose }: { docId: string;
               <button onMouseDown={(e) => { e.preventDefault(); insertStamp(); }} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer" title="Таблица основной надписи внизу титула">
                 <Table className="w-3.5 h-3.5" /> Вставить штамп
               </button>
-              <button type="button" onClick={() => setFxOpen((v) => !v)} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-400 text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-950/60 cursor-pointer">
+              <button type="button" onClick={() => setFxOpen((v) => !v)}
+                className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 text-xs font-bold hover:bg-emerald-100 dark:hover:bg-emerald-950/60 cursor-pointer">
                 <Sigma className="w-3.5 h-3.5" /> Вставить формулу
               </button>
-              {fxOpen && (
-                <div className="mt-2 space-y-1.5">
-                  <textarea value={fxExpr} onChange={(e) => setFxExpr(e.target.value)} rows={2}
-                    className="w-full px-2 py-1.5 text-xs font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500" />
-                  <p className="text-2xs text-slate-400 font-mono leading-tight">project.code &amp; "-" &amp; doc.revision</p>
-                  <button onMouseDown={(e) => { e.preventDefault(); insertHtmlAtCaret(formulaChipHtml(fxExpr)); }}
-                    className="w-full px-2 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer">Вставить в титул</button>
-                </div>
-              )}
+            </div>
+          </div>
+        )}
+
+        {/* Справочник формул: выбрать готовую или завести новую, не уходя из
+            документа. Компонент тот же, что в Настройках, — второй карточки
+            настройки нет намеренно. */}
+        {fxOpen && projectId && (
+          <div className="absolute inset-0 z-30 bg-black/25 flex items-center justify-center p-6"
+            onMouseDown={() => setFxOpen(false)}>
+            <div className="w-full max-w-4xl h-[560px] sheet bg-white dark:bg-slate-950 shadow-modal"
+              onMouseDown={(e) => e.stopPropagation()}>
+              <FormulaManager
+                projectId={projectId}
+                onClose={() => setFxOpen(false)}
+                onInsert={(f) => {
+                  insertHtmlAtCaret(namedChipHtml(f));
+                  setFxOpen(false);
+                }}
+              />
             </div>
           </div>
         )}
