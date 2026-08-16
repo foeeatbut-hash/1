@@ -144,6 +144,69 @@ async function isTopAdmin(req: Request): Promise<boolean> {
 export function registerUserRoutes(app: Express, d: UserDeps): void {
   deps = d;
 
+  // ── Подпись сотрудника ────────────────────────────────────────────────────
+  // Подпись — как личная печать: свою ставит человек сам, чужую трогает только
+  // тот, кому доверено управление сотрудниками. Поэтому отдельный маршрут, а не
+  // поле в общем обновлении профиля: там правила доступа другие.
+  app.get('/api/users/:id/signature', async (req: Request, res: Response) => {
+    try {
+      const prisma = getPrisma();
+      const u = await prisma.user.findUnique({
+        where: { id: String(req.params.id) },
+        select: { signatureImage: true, signatureHeightMm: true },
+      });
+      if (!u) return res.status(404).json({ error: 'Сотрудник не найден' });
+      res.json({ signature: u.signatureImage || null, signatureHeightMm: u.signatureHeightMm ?? 8 });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  app.put('/api/users/:id/signature', async (req: Request, res: Response) => {
+    const prisma = getPrisma();
+    try {
+      const me = (req as any).authUser;
+      const id = String(req.params.id);
+      if (!me) return res.status(401).json({ error: 'Требуется вход' });
+
+      const isSelf = me.id === id;
+      const canManage = me.role === 'ADMIN' || (await isTopAdmin(req));
+      if (!isSelf && !canManage) {
+        return res.status(403).json({ error: 'Чужую подпись менять нельзя' });
+      }
+
+      const raw = req.body?.signatureImage;
+      let image: string | null = null;
+      if (raw !== null && raw !== undefined && String(raw).trim() !== '') {
+        const str = String(raw);
+        // Принимаем только картинку, вложенную в сам запрос: ссылка на чужой
+        // адрес утянула бы документ в сеть при каждой печати
+        if (!/^data:image\/(png|jpeg|webp);base64,/.test(str)) {
+          return res.status(400).json({ error: 'Подпись должна быть картинкой PNG, JPG или WebP' });
+        }
+        // 1,5 МБ хватает с большим запасом: после обрезки и уменьшения
+        // подпись весит десятки килобайт
+        if (str.length > 1_500_000) {
+          return res.status(400).json({ error: 'Картинка подписи слишком большая' });
+        }
+        image = str;
+      }
+
+      const mm = Number(req.body?.signatureHeightMm);
+      const heightMm = Number.isFinite(mm) ? Math.max(3, Math.min(30, Math.round(mm))) : 8;
+
+      const updated = await prisma.user.update({
+        where: { id },
+        data: { signatureImage: image, signatureHeightMm: heightMm },
+        select: { id: true, signatureImage: true, signatureHeightMm: true },
+      });
+      invalidateAuthUser(id);
+      res.json({ signature: updated.signatureImage, signatureHeightMm: updated.signatureHeightMm });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
 
 app.get('/api/users', async (req: Request, res: Response) => {
   const prisma = getPrisma();
@@ -156,7 +219,16 @@ app.get('/api/users', async (req: Request, res: Response) => {
     for (const r of roles as any[]) byCode[r.code] = r.permissions || '{}';
     // Не отдаём хеши паролей наружу; права роли прикладываем, чтобы в карточке
     // было видно, что человеку дано должностью, а что лично.
-    res.json((users as any[]).map(({ password, ...u }) => ({ ...u, rolePermissions: byCode[u.role] || '{}' })));
+    //
+    // Картинку подписи в списке не отдаём: список тянут и чат, и выбор
+    // исполнителя, и карточки — при трёх десятках сотрудников это лишний
+    // мегабайт на каждый запрос. Отдаём только признак «подпись есть»,
+    // а саму картинку — отдельным запросом, когда её собрались смотреть.
+    res.json((users as any[]).map(({ password, signatureImage, ...u }) => ({
+      ...u,
+      rolePermissions: byCode[u.role] || '{}',
+      hasSignature: !!signatureImage,
+    })));
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

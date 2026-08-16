@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
-import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+const SignatureEditor = React.lazy(() => import('./SignatureEditor'));
+import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen, PenLine } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ToastProvider from './ToastProvider';
 import ModalProvider from './ModalProvider';
@@ -59,6 +60,8 @@ export default function Layout() {
   const sidebarHidden = wsLayout === 'single' && wsActivePath === '/';
   const chatUnread = useNotificationStore((s) => s.chatUnread);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  // Окно своей подписи: открывается из профиля
+  const [signOpen, setSignOpen] = useState(false);
   const addLog = useLogStore((state) => state.addLog);
   const toggleAssistant = useAssistantStore((s) => s.toggleOpen);
   const assistantOpen = useAssistantStore((s) => s.isOpen);
@@ -475,6 +478,17 @@ export default function Layout() {
                     ))}
                   </div>
 
+                  {/* Своя подпись — здесь, а не в «Сотрудниках»: тот раздел
+                      открыт только администратору, и рядовой инженер иначе не
+                      смог бы завести свою подпись вовсе */}
+                  <button type="button"
+                    onClick={() => { setIsProfileMenuOpen(false); setSignOpen(true); }}
+                    className="flex w-full items-center justify-center gap-1.5 px-2 py-2 text-xs font-bold text-slate-700 dark:text-dark-text-main bg-slate-100 dark:bg-dark-surface hover:bg-slate-200 dark:hover:bg-dark-panel border border-slate-200 dark:border-dark-border rounded-lg transition-ui cursor-pointer"
+                  >
+                    <PenLine className="w-3.5 h-3.5 text-emerald-600" />
+                    Моя подпись
+                  </button>
+
                   {/* Все настройки перенесены в раздел «Настройки» (левая панель) */}
                   <button type="button"
                     onClick={() => { setIsProfileMenuOpen(false); openInActivePane('/settings'); }}
@@ -497,6 +511,22 @@ export default function Layout() {
             )}
             </AnimatePresence>,
             document.body
+          )}
+
+          {/* Через портал в body: у боковой панели свой контейнер для
+              position:fixed, и окно отрисовывалось сжатым в её колонку.
+              Соседнее меню профиля выводится порталом ровно поэтому же. */}
+          {signOpen && user && createPortal(
+            <React.Suspense fallback={null}>
+              <SignatureEditor
+                userId={user.id}
+                userName={user.name || user.symbol}
+                canEdit
+                onSaved={() => {}}
+                onClose={() => setSignOpen(false)}
+              />
+            </React.Suspense>,
+            document.body,
           )}
 
           {/* Ширина меню: только значки или значки с подписями. Выбор

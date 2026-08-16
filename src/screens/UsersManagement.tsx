@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../store/store';
+import SignatureEditor from '../components/SignatureEditor';
 import { useToastStore } from '../store/toastStore';
 import { dataService, User } from '../services/dataService';
 import { FEATURES, parsePermissions, PermMap } from '../lib/permissions';
@@ -22,7 +23,8 @@ import {
   Calendar, 
   FileText,
   Clock,
-  Briefcase
+  Briefcase,
+  PenLine
 } from 'lucide-react';
 import { useModalStore } from '../store/modalStore';
 
@@ -34,6 +36,8 @@ export default function UsersManagement() {
   const { addToast } = useToastStore();
   
   const [usersList, setUsersList] = useState<User[]>([]);
+  // Кому правим подпись; null — окно закрыто
+  const [signFor, setSignFor] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   
@@ -405,13 +409,27 @@ export default function UsersManagement() {
                       </span>
                     </td>
                     <td className="flux-cell text-right">
-                      <button
-                        type="button"
-                        onClick={() => openEdit(emp)}
-                        className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                      >
-                        Изменить
-                      </button>
+                      <div className="inline-flex items-center gap-2">
+                        {/* Подпись прямо в строке: сразу видно, у кого она есть,
+                            и не надо открывать карточку, чтобы это узнать */}
+                        <button
+                          type="button"
+                          onClick={() => setSignFor(emp)}
+                          title={(emp as any).hasSignature ? 'Подпись сотрудника' : 'Подписи нет — задать'}
+                          className="h-7 min-w-[54px] px-2 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                        >
+                          {(emp as any).hasSignature
+                            ? <PenLine className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                            : <span className="text-2xs text-slate-400">подпись</span>}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openEdit(emp)}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                        >
+                          Изменить
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -421,9 +439,23 @@ export default function UsersManagement() {
         )}
       </div>
 
+      {/* Подпись сотрудника — своё окно, вне AnimatePresence */}
+      {signFor && (
+        <SignatureEditor
+          userId={signFor.id}
+          userName={signFor.name || signFor.symbol}
+          value={signFor.hasSignature ? 'есть' : null}
+          heightMm={signFor.signatureHeightMm ?? 8}
+          canEdit={user?.id === signFor.id || user?.role === 'ADMIN'}
+          onSaved={(sig, mm) => setUsersList((prev) => prev.map((u: any) =>
+            u.id === signFor.id ? { ...u, hasSignature: !!sig, signatureHeightMm: mm } : u))}
+          onClose={() => setSignFor(null)}
+        />
+      )}
+
       {/* Модальное окно добавления нового пользователя */}
       <AnimatePresence>
-        {isModalOpen && (
+      {isModalOpen && (
           <div className="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
             {/* Overlay */}
             <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md transition-opacity" onClick={() => !isSubmitting && setIsModalOpen(false)} />

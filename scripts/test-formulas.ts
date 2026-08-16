@@ -8,7 +8,8 @@ import {
   renderFormula, renderField, formatDate, formatName, isEmptyValue, findCycle, cycleNames,
   type Formula, type FormulaContext,
 } from '../src/lib/docFormula.js';
-import { cutBackground, inkRatio, fitToHeight, checkFile, DEFAULT_THRESHOLD } from '../src/lib/signature.js';
+import { cutBackground, inkRatio, fitToHeight, checkFile, DEFAULT_THRESHOLD,
+         inkBounds, suggestThreshold, looksEmpty } from '../src/lib/signature.js';
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: any) =>
@@ -181,6 +182,34 @@ ok('высокая уменьшается с пропорциями', JSON.strin
 ok('png принимается', checkFile({ type: 'image/png', size: 1000 }) === null);
 ok('pdf отвергается понятным текстом', /PNG/.test(String(checkFile({ type: 'application/pdf', size: 10 }))), checkFile({ type: 'application/pdf', size: 10 }));
 ok('слишком большой файл отвергается', /8 МБ/.test(String(checkFile({ type: 'image/png', size: 9e6 }))), checkFile({ type: 'image/png', size: 9e6 }));
+
+
+
+console.log('13. Подпись: обрезка полей и подбор порога');
+{
+  // Лист 6×4 с точкой посередине — как скан с большими полями
+  const W = 6, H = 4;
+  const sheet = new Uint8ClampedArray(W * H * 4);
+  for (let i = 0; i < sheet.length; i += 4) { sheet[i] = sheet[i+1] = sheet[i+2] = 250; sheet[i+3] = 255; }
+  const put = (x: number, y: number) => { const o = (y * W + x) * 4; sheet[o] = sheet[o+1] = sheet[o+2] = 10; };
+  put(2, 1); put(3, 1);
+
+  const t = suggestThreshold(sheet);
+  ok('порог подобран в разумных пределах', t >= 5 && t <= 95, t);
+  cutBackground(sheet, t);
+  ok('после подбора бумага ушла', sheet[3] === 0, sheet[3]);
+  ok('штрих остался', sheet[(1 * W + 2) * 4 + 3] > 0);
+
+  const b = inkBounds(sheet, W, H, 0);
+  ok('границы штриха найдены', !!b && b.x === 2 && b.y === 1 && b.w === 2 && b.h === 1, b);
+  const bp = inkBounds(sheet, W, H, 2);
+  ok('запас вокруг штриха не вылезает за лист', !!bp && bp.x === 0 && bp.y === 0 && bp.w === 6 && bp.h === 4, bp);
+
+  const blank = new Uint8ClampedArray(W * H * 4);
+  ok('на пустой картинке границ нет', inkBounds(blank, W, H) === null);
+  ok('пустая картинка распознаётся как пустая', looksEmpty(blank));
+  ok('картинка со штрихом пустой не считается', !looksEmpty(sheet));
+}
 
 console.log(f === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${f}`);
 process.exit(f === 0 ? 0 : 1);

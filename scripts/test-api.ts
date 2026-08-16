@@ -211,7 +211,50 @@ const call = async (method: string, url: string, body?: any) => {
     ok('после удаления список чист', !(left.json?.formulas || []).some((x: any) => x.name.startsWith('__проверка')));
   }
 
-  console.log('8. Ошибки отвечают внятно, а не падают');
+  console.log('8. Подпись сотрудника');
+  {
+    const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+    const list = await call('GET', '/api/users');
+    const row = (list.json || [])[0];
+    ok('в списке сотрудников нет картинок подписей', row && !('signatureImage' in row), row && Object.keys(row).slice(0, 20));
+    ok('зато есть признак «подпись есть»', row && 'hasSignature' in row);
+
+    const saved = await call('PUT', `/api/users/${meId}/signature`, { signatureImage: PNG, signatureHeightMm: 10 });
+    ok('свою подпись сохранить можно', saved.status === 200, saved.status);
+    const back = await call('GET', `/api/users/${meId}/signature`);
+    ok('подпись читается обратно', back.json?.signature === PNG);
+    ok('высота сохранена', back.json?.signatureHeightMm === 10, back.json?.signatureHeightMm);
+
+    // Ссылка на чужой адрес утянула бы документ в сеть при каждой печати
+    const link = await call('PUT', `/api/users/${meId}/signature`, { signatureImage: 'http://чужой/подпись.png' });
+    ok('ссылка вместо картинки отвергается', link.status === 400, link.status);
+    const huge = await call('PUT', `/api/users/${meId}/signature`, { signatureImage: 'data:image/png;base64,' + 'A'.repeat(1_600_000) });
+    ok('слишком большая картинка отвергается', huge.status === 400, huge.status);
+
+    // Чужую подпись менять нельзя — она как личная печать
+    const symbol = '__podpis_' + Date.now().toString(36);
+    const other = await call('POST', '/api/users', { symbol, lastName: 'Чужой', firstName: 'Сотрудник', role: 'ENGINEER_VENT', password: 'проверка' });
+    const otherId = other.json?.id || other.json?.user?.id;
+    if (otherId) {
+      const asOther = await call('POST', '/api/login', { symbol, password: 'проверка' });
+      const keep = token;
+      token = asOther.json?.token || '';
+      const foreign = await call('PUT', `/api/users/${meId}/signature`, { signatureImage: PNG });
+      ok('рядовой сотрудник не трогает чужую подпись', foreign.status === 403, foreign.status);
+      const own = await call('PUT', `/api/users/${otherId}/signature`, { signatureImage: PNG, signatureHeightMm: 6 });
+      ok('свою — ставит сам', own.status === 200, own.status);
+      token = keep;
+      await call('DELETE', `/api/users/${otherId}`);
+    } else {
+      ok('временный сотрудник заведён', false, other.json);
+    }
+
+    const cleared = await call('PUT', `/api/users/${meId}/signature`, { signatureImage: null });
+    ok('подпись убирается', cleared.status === 200 && cleared.json?.signature === null, cleared.json);
+  }
+
+  console.log('9. Ошибки отвечают внятно, а не падают');
   {
     const missing = await call('GET', '/api/projects/нет-такого/tags');
     ok('несуществующий проект → не 500', missing.status !== 500, missing.status);
