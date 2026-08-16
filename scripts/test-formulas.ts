@@ -59,12 +59,16 @@ ok('мусор вместо даты → пусто', formatDate('не дата'
 console.log('3. ФИО: вид вывода');
 const P = { lastName: 'Иванов', firstName: 'Иван', middleName: 'Иванович' };
 ok('полностью', formatName(P, 'full') === 'Иванов Иван Иванович');
-ok('инициалы после фамилии', formatName(P, 'initialsAfter') === 'Иванов\u00A0И.\u00A0И.', formatName(P, 'initialsAfter'));
-ok('инициалы перед фамилией', formatName(P, 'initialsBefore') === 'И.\u00A0И.\u00A0Иванов', formatName(P, 'initialsBefore'));
+ok('инициалы после фамилии', formatName(P, 'initialsAfter') === 'Иванов\u00A0И.И.', formatName(P, 'initialsAfter'));
+ok('инициалы перед фамилией', formatName(P, 'initialsBefore') === 'И.И.\u00A0Иванов', formatName(P, 'initialsBefore'));
 ok('только фамилия', formatName(P, 'last') === 'Иванов');
 ok('без отчества инициал не выдумывается', formatName({ lastName: 'Ким', firstName: 'Олег' }, 'initialsAfter') === 'Ким\u00A0О.', formatName({ lastName: 'Ким', firstName: 'Олег' }, 'initialsAfter'));
-ok('старый профиль одной строкой разбирается', formatName({ name: 'Сидоров Сидор Сидорович' }, 'initialsAfter') === 'Сидоров\u00A0С.\u00A0С.', formatName({ name: 'Сидоров Сидор Сидорович' }, 'initialsAfter'));
+ok('старый профиль одной строкой разбирается', formatName({ name: 'Сидоров Сидор Сидорович' }, 'initialsAfter') === 'Сидоров\u00A0С.С.', formatName({ name: 'Сидоров Сидор Сидорович' }, 'initialsAfter'));
 ok('пустое ФИО → пусто', formatName({}, 'full') === '');
+const R = { lastName: 'Раупов', firstName: 'Хусрав', middleName: 'Хуршедович' };
+ok('Раупов Хусрав Хуршедович → Раупов Х.Х.', formatName(R, 'initialsAfter') === 'Раупов\u00A0Х.Х.', formatName(R, 'initialsAfter'));
+ok('он же перед фамилией → Х.Х. Раупов', formatName(R, 'initialsBefore') === 'Х.Х.\u00A0Раупов', formatName(R, 'initialsBefore'));
+ok('инициалы слитно, без пробела внутри', !/Х\.\s+Х\./.test(formatName(R, 'initialsAfter')));
 
 console.log('4. Сборка: разделитель принадлежит части');
 const shifr: Formula = {
@@ -106,8 +110,8 @@ ok('у текущего пользователя подписи нет — пу�
 console.log('6. Чьё ФИО');
 const fioAuthor: Formula = { id: 'n1', name: 'Инициалы', kind: 'value', config: { field: 'person', name: 'initialsAfter', person: 'author' } };
 const fioCurrent: Formula = { id: 'n2', name: 'Инициалы открывшего', kind: 'value', config: { field: 'person', name: 'initialsAfter', person: 'current' } };
-ok('автор', txt(renderFormula(fioAuthor, CTX, cat([fioAuthor]))) === 'Иванов\u00A0И.\u00A0И.');
-ok('кто открыл', txt(renderFormula(fioCurrent, CTX, cat([fioCurrent]))) === 'Петров\u00A0П.\u00A0П.');
+ok('автор', txt(renderFormula(fioAuthor, CTX, cat([fioAuthor]))) === 'Иванов\u00A0И.И.');
+ok('кто открыл', txt(renderFormula(fioCurrent, CTX, cat([fioCurrent]))) === 'Петров\u00A0П.П.');
 const fioUser: Formula = { id: 'n3', name: 'Проверил', kind: 'value', config: { field: 'person', name: 'initialsAfter', person: 'user', userId: 'u7' } };
 ok('выбранный сотрудник не найден — пусто', txt(renderFormula(fioUser, CTX, cat([fioUser]))) === '');
 ok('выбранный сотрудник найден', txt(renderFormula(fioUser, { ...CTX, 'person.u7.lastName': 'Смирнов', 'person.u7.firstName': 'Семён' }, cat([fioUser]))) === 'Смирнов\u00A0С.');

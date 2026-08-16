@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { formatName } from '../lib/docFormula';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 const SignatureEditor = React.lazy(() => import('./SignatureEditor'));
@@ -470,7 +471,20 @@ export default function Layout() {
 
                   {/* Данные профиля */}
                   <div className="flex flex-col gap-1.5">
-                    {[['ФИО', user?.name], ['Логин', user?.symbol], ['Роль', user?.role]].map(([k, v]) => (
+                    {[
+                      ['ФИО', user?.name],
+                      // Как человек подпишется в документах: собирается из
+                      // фамилии, имени и отчества — «Раупов Хусрав Хуршедович»
+                      // даёт «Раупов Х.Х.». Видно сразу, правильно ли заведено ФИО
+                      ['В документах', formatName({
+                        lastName: (user as any)?.lastName,
+                        firstName: (user as any)?.firstName,
+                        middleName: (user as any)?.middleName,
+                        name: user?.name,
+                      }, 'initialsAfter')],
+                      ['Логин', user?.symbol],
+                      ['Роль', user?.role],
+                    ].map(([k, v]) => (
                       <div key={k} className="flex items-center justify-between px-2.5 py-2 rounded-lg border border-slate-150 dark:border-dark-border bg-slate-50 dark:bg-dark-surface/40 text-xs">
                         <span className="text-slate-400 dark:text-dark-text-muted font-semibold">{k}</span>
                         <span className="text-slate-800 dark:text-dark-text-main font-bold truncate ml-2">{v || '—'}</span>
@@ -521,6 +535,7 @@ export default function Layout() {
               <SignatureEditor
                 userId={user.id}
                 userName={user.name || user.symbol}
+                nameParts={{ lastName: (user as any).lastName, firstName: (user as any).firstName, middleName: (user as any).middleName, name: user.name }}
                 canEdit
                 onSaved={() => {}}
                 onClose={() => setSignOpen(false)}

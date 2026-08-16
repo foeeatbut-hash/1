@@ -444,6 +444,7 @@ export default function UsersManagement() {
         <SignatureEditor
           userId={signFor.id}
           userName={signFor.name || signFor.symbol}
+          nameParts={{ lastName: signFor.lastName, firstName: signFor.firstName, middleName: signFor.middleName, name: signFor.name }}
           value={signFor.hasSignature ? 'есть' : null}
           heightMm={signFor.signatureHeightMm ?? 8}
           canEdit={user?.id === signFor.id || user?.role === 'ADMIN'}

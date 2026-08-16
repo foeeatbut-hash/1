@@ -18,6 +18,7 @@ import {
   cutBackground, inkBounds, suggestThreshold, looksEmpty, checkFile,
   fitToHeight, STORE_HEIGHT_PX, DEFAULT_THRESHOLD,
 } from '../lib/signature';
+import { formatName } from '../lib/docFormula';
 import { useToastStore } from '../store/toastStore';
 import { useModalStore } from '../store/modalStore';
 
@@ -25,6 +26,9 @@ interface Props {
   /** Чью подпись правим */
   userId: string;
   userName: string;
+  /** ФИО по частям — чтобы в предпросмотре стояли настоящие инициалы владельца,
+      а не чужой пример: человек должен увидеть свою строку штампа */
+  nameParts?: { lastName?: string; firstName?: string; middleName?: string; name?: string };
   /** Что уже сохранено */
   value?: string | null;
   heightMm?: number;
@@ -39,7 +43,9 @@ type Source = 'none' | 'image' | 'draw';
 /** Миллиметр в точках при 96 dpi — для предпросмотра «как в документе» */
 const MM = 3.7795;
 
-export default function SignatureEditor({ userId, userName, value, heightMm = 8, canEdit, onSaved, onClose }: Props) {
+export default function SignatureEditor({ userId, userName, nameParts, value, heightMm = 8, canEdit, onSaved, onClose }: Props) {
+  // «Раупов Х.Х.» — так строка и попадёт в штамп
+  const initials = formatName(nameParts || { name: userName }, 'initialsAfter') || userName;
   const { addToast } = useToastStore();
   const [source, setSource] = useState<Source>(value ? 'image' : 'none');
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD);
@@ -380,7 +386,7 @@ export default function SignatureEditor({ userId, userName, value, heightMm = 8,
               {result && (
                 <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
                   <span className="text-2xs text-slate-400">в строке:</span>
-                  <span className="text-xs">Иванов И.&nbsp;И.</span>
+                  <span className="text-xs">{initials}</span>
                   <img src={result} alt="подпись" style={{ height: `${height * MM}px` }} />
                 </div>
               )}

@@ -39,9 +39,9 @@ const SAMPLE: FormulaContext = {
   year: String(new Date().getFullYear()),
   page: 1,
   pages: 3,
-  'person.author.lastName': 'Иванов',
-  'person.author.firstName': 'Иван',
-  'person.author.middleName': 'Иванович',
+  'person.author.lastName': 'Раупов',
+  'person.author.firstName': 'Хусрав',
+  'person.author.middleName': 'Хуршедович',
 };
 
 interface Props {
@@ -350,10 +350,10 @@ export default function FormulaManager({ projectId, context, onInsert, onClose }
                         <Seg<NameFormat> value={(draft.config as any)?.name || 'full'}
                           onChange={(v) => patchConfig({ name: v })}
                           options={[
-                            { v: 'full', label: 'Иванов Иван Иванович' },
-                            { v: 'initialsAfter', label: 'Иванов И. И.' },
-                            { v: 'initialsBefore', label: 'И. И. Иванов' },
-                            { v: 'last', label: 'Иванов' },
+                            { v: 'full', label: 'Раупов Хусрав Хуршедович' },
+                            { v: 'initialsAfter', label: 'Раупов Х.Х.' },
+                            { v: 'initialsBefore', label: 'Х.Х. Раупов' },
+                            { v: 'last', label: 'Раупов' },
                           ]} />
                       </div>
                     </>

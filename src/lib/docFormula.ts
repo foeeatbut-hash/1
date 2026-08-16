@@ -154,13 +154,15 @@ export function formatName(
   if (!last && !first) return '';
   const i1 = first ? first[0].toUpperCase() + '.' : '';
   const i2 = mid ? mid[0].toUpperCase() + '.' : '';
-  // Инициалы держим неразрывным пробелом: «Иванов И.\u00A0И.» не должно
-  // переноситься по строке в штампе — это одна подпись, а не три слова
+  // Инициалы пишутся слитно — «Раупов Х.Х.», как принято в штампах отдела.
+  // Между фамилией и инициалами неразрывный пробел: «Раупов Х.Х.» не должно
+  // переноситься по строке — это одна подпись, а не два слова.
   const NB = '\u00A0';
+  const ini = i1 + i2;                       // «Х.Х.» без пробела внутри
   switch (fmt) {
     case 'last': return last;
-    case 'initialsAfter': return [last, [i1, i2].filter(Boolean).join(NB)].filter(Boolean).join(NB);
-    case 'initialsBefore': return [[i1, i2].filter(Boolean).join(NB), last].filter(Boolean).join(NB);
+    case 'initialsAfter': return [last, ini].filter(Boolean).join(NB);
+    case 'initialsBefore': return [ini, last].filter(Boolean).join(NB);
     default: return [last, first, mid].filter(Boolean).join(' ');
   }
 }
