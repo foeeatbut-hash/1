@@ -25,6 +25,8 @@ model User {
   isActive         Boolean       @default(true) // Профиль включен администратором
   validUntil       DateTime?     // Срок действия профиля; null = бессрочно
   permissions      String?       @db.Text // JSON персональных прав
+  signatureImage   String?
+  signatureHeightMm Int          @default(8)
   createdAt        DateTime      @default(now())
   createdFiles     FileNode[]    @relation("FileCreator")
   updatedFiles     FileNode[]    @relation("FileUpdater")
@@ -470,4 +472,20 @@ model NoteShare {
 
   @@unique([noteId, userId])
   @@index([userId])
+}
+
+
+model DocFormula {
+  id          String   @id @default(uuid())
+  projectId   String
+  name        String
+  kind        String
+  config      String   @default("{}")
+  sortOrder   Int      @default(0)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  @@index([projectId])
 }

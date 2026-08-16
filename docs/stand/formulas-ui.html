@@ -125,6 +125,8 @@ input[type=text], select {
 }
 .part .what { font-size: 13px; }
 .part .sep { margin-left: auto; font-size: 12px; color: var(--muted); font-family: var(--mono); }
+.part .sep2 { font-size: 12px; color: var(--muted); font-family: var(--mono); min-width: 62px; }
+.part .x { margin-left: auto; }
 .part .x { color: var(--muted); cursor: pointer; }
 .addpart { padding: 7px 10px; font-size: 12px; color: var(--accent); cursor: pointer; background: var(--panel); }
 
@@ -258,14 +260,14 @@ input[type=text], select {
       <div class="field">
         <label class="lab">Из чего собрано</label>
         <div class="parts">
-          <div class="part"><span class="drag">⠿</span><span class="kind">поле</span><span class="what">Номер / шифр</span><span class="sep">+ « рев. »</span><span class="x">✕</span></div>
-          <div class="part"><span class="drag">⠿</span><span class="kind">поле</span><span class="what">Ревизия</span><span class="sep">+ «, »</span><span class="x">✕</span></div>
-          <div class="part"><span class="drag">⠿</span><span class="kind">формула</span><span class="what">Дата</span><span class="sep">—</span><span class="x">✕</span></div>
+          <div class="part"><span class="drag">⠿</span><span class="sep2">—</span><span class="kind">поле</span><span class="what">Номер / шифр</span><span class="x">✕</span></div>
+          <div class="part"><span class="drag">⠿</span><span class="sep2">« рев. »</span><span class="kind">поле</span><span class="what">Ревизия</span><span class="x">✕</span></div>
+          <div class="part"><span class="drag">⠿</span><span class="sep2">«, »</span><span class="kind">формула</span><span class="what">Дата</span><span class="x">✕</span></div>
           <div class="addpart">＋ добавить часть: поле · текст · другая формула</div>
         </div>
         <p class="note">
-          Разделитель принадлежит части. Если у части нет значения — она выпадает
-          вместе со своим разделителем, и в документе не останется висящего «рев.».
+          Разделитель стоит перед частью и печатается, только если слева уже что-то
+          есть. Нет ревизии — выпадает и она, и её « рев. »: в титуле останется «ПЗ-001».
         </p>
       </div>
       <div class="field" style="margin-bottom:0">

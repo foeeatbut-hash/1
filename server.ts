@@ -18,6 +18,7 @@ import { ensureRemoteSchema } from './server/schema-sync.js';
 import { computeMachineId, licenseStatus, activateLicense } from './electron/license.js';
 import { registerNoteRoutes } from './server/routes/notes.js';
 import { registerConstructorRoutes } from './server/routes/constructor.js';
+import { registerFormulaRoutes } from './server/routes/formulas.js';
 import { registerVdrRoutes } from './server/routes/vdr.js';
 import { registerLogRoutes } from './server/routes/logs.js';
 import { registerSettingsRoutes } from './server/routes/settings.js';
@@ -2932,6 +2933,7 @@ app.post('/api/tags/generate', async (req: Request, res: Response) => {
 registerNoteRoutes(app);
 registerLogRoutes(app);
 registerConstructorRoutes(app);
+registerFormulaRoutes(app);
 registerVdrRoutes(app);
 
 // Резервные копии: суточный «Архив» (БД + файлы Проводника в родных форматах

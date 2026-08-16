@@ -315,6 +315,7 @@ async function syncMirror(doc: any): Promise<void> {
   }
 }
 
+
 export function registerConstructorRoutes(app: Express): void {
   const authUserOf = (req: Request): any => (req as any).authUser || null;
 

@@ -5,9 +5,14 @@
 // bindings.subtype='title', bindings.html). Когда шаблон присвоен документу и тот
 // сохранён, титул подставляет значения ИМЕННО этого документа (см. renderTitleHtml).
 
+import { renderFormula, type Formula, type FormulaContext } from '../lib/docFormula';
+
 export interface TitleContext {
   [key: string]: string | number;
 }
+
+/** Каталог формул документа: идентификатор → формула. Читается один раз. */
+export type FormulaCatalog = Record<string, Formula>;
 
 // Каталог полей титула: что можно вставить как «ссылку». dotted-имена совпадают
 // с ключами контекста, который отдаёт /api/constructor/title/context.
@@ -96,10 +101,23 @@ const esc = (x: string) => String(x ?? '').replace(/&/g, '&amp;').replace(/</g, 
 // Подстановка значений в HTML шаблона: чипы <span data-field="..."> и
 // <span data-formula="..."> заменяются на значения из контекста. Остальная
 // вёрстка (текст, стили, выравнивание) сохраняется как есть.
-export function renderTitleHtml(templateHtml: string, ctx: TitleContext): string {
+export function renderTitleHtml(templateHtml: string, ctx: TitleContext, catalog: FormulaCatalog = {}): string {
   if (!templateHtml) return '';
   let html = templateHtml;
-  // Формулы
+  // Именованные формулы: подпись становится картинкой, остальное — текстом.
+  // Удалённая формула не ломает документ: остаётся зачёркнутая метка, чтобы
+  // человек увидел, что здесь было значение, и заменил его осознанно.
+  html = html.replace(/<span[^>]*data-formula-id="([^"]*)"[^>]*>([\s\S]*?)<\/span>/g, (_m, id, label) => {
+    const out = renderFormula(catalog[decodeAttr(id)], ctx as FormulaContext, catalog);
+    if (out.kind === 'image') {
+      return `<img src="${out.src}" alt="подпись" style="height:${out.heightMm}mm;vertical-align:baseline" />`;
+    }
+    if (out.kind === 'missing') {
+      return `<span style="text-decoration:line-through;opacity:.55" title="Формула удалена">${label}</span>`;
+    }
+    return esc(out.text);
+  });
+  // Старые формулы-выражения
   html = html.replace(/<span[^>]*data-formula="([^"]*)"[^>]*>[\s\S]*?<\/span>/g, (_m, expr) =>
     esc(evalFormula(decodeAttr(expr), ctx)));
   // Простые поля
@@ -117,6 +135,16 @@ function decodeAttr(x: string): string {
 export function fieldChipHtml(key: string): string {
   return `<span data-field="${key}" contenteditable="false" class="tt-chip">${esc(fieldTitle(key))}</span>`;
 }
+/**
+ * Плашка именованной формулы. В документе видно название, настройка живёт в
+ * карточке формулы. Идентификатор, а не название, — чтобы переименование не
+ * ломало уже расставленные плашки.
+ */
+export function namedChipHtml(formula: { id: string; name: string; kind?: string }): string {
+  const cls = formula.kind === 'signature' ? 'tt-chip tt-chip-sign' : 'tt-chip tt-chip-fx';
+  return `<span data-formula-id="${esc(formula.id)}" contenteditable="false" class="${cls}">${esc(formula.name)}</span>`;
+}
+
 export function formulaChipHtml(expr: string): string {
   const safe = String(expr).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return `<span data-formula="${safe}" contenteditable="false" class="tt-chip tt-chip-fx">ƒ ${esc(expr)}</span>`;
