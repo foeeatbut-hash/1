@@ -363,7 +363,7 @@ export default function CaptureReview() {
             )}
             <span className="flex-1" />
             <span className="text-2xs text-slate-400 hidden sm:inline">Esc — закрыть · Ctrl+Enter — дальше</span>
-            <button onClick={close} className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer">
+            <button onClick={close} title="Закрыть разбор захвата" className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer">
               <X className="w-4 h-4" />
             </button>
           </div>

@@ -1208,7 +1208,7 @@ function DocflowSection({ isAdmin, addToast }: any) {
           </select>
           <input value={name} onChange={e => setName(e.target.value)} className={inp + ' flex-1'} placeholder="Название стандарта" />
           <button type="button" onClick={createStd} className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer">+ Новый</button>
-          {isAdmin && <button type="button" onClick={removeStd} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>}
+          {isAdmin && <button type="button" title="Удалить стандарт" onClick={removeStd} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>}
         </div>
 
         {/* Коды рассмотрения */}

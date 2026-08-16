@@ -54,7 +54,7 @@ export default function ProjectFormModal({ title = 'Новый проект', in
               <Layers className="w-5 h-5" />
               <h3 className="text-lg font-bold text-slate-900 dark:text-white">{title}</h3>
             </div>
-            <button type="button" onClick={onClose} disabled={busy} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
+            <button type="button" title="Закрыть окно" onClick={onClose} disabled={busy} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
               <X className="w-5 h-5" />
             </button>
           </div>

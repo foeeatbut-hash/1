@@ -136,7 +136,7 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
               Импорт в «{categoryLabel}»{fileIds.length > 1 ? ` · файл ${idx + 1} из ${fileIds.length}` : ''} · предпросмотр (БД не изменена)
             </div>
           </div>
-          <button type="button" onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded cursor-pointer"><X className="w-5 h-5" /></button>
+          <button type="button" title="Закрыть предпросмотр без импорта" onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded cursor-pointer"><X className="w-5 h-5" /></button>
         </div>
 
         {loading ? (

@@ -1918,6 +1918,7 @@ export default function DictionaryEditor() {
                                 <div className="col-span-2 flex items-end">
                                   <button
                                     type="submit"
+                                    title="Добавить значение"
                                     className="w-full py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold transition-colors select-none cursor-pointer flex items-center justify-center h-7 mt-0.5"
                                   >
                                     <Plus className="w-4 h-4" />
@@ -2097,6 +2098,7 @@ export default function DictionaryEditor() {
                           <div className="flex items-center justify-end gap-2">
                             <button type="button"
                               onClick={handleAddItem}
+                              title="Сохранить значение"
                               className="p-1.5 text-emerald-600 hover:bg-emerald-100 dark:hover:bg-emerald-950/40 rounded transition-colors"
                             >
                               <Check className="w-4 h-4" />

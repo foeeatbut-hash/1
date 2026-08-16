@@ -217,7 +217,7 @@ function DataWizard({ projectId, onInsert, onClose }: {
           <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
             <Database className="w-4.5 h-4.5 text-emerald-600" /> Собрать данные — шаг {step} из 3
           </h3>
-          <button type="button" onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded cursor-pointer"><X className="w-4.5 h-4.5" /></button>
+          <button type="button" title="Закрыть сборку данных" onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded cursor-pointer"><X className="w-4.5 h-4.5" /></button>
         </div>
 
         <div className="flex-1 overflow-auto p-5">

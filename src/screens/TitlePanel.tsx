@@ -148,7 +148,7 @@ export default function TitlePanel({ projectId, settings, onChange, onClose, doc
     <div className="absolute right-4 top-14 z-40 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-800">
         <span className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-1.5"><Stamp className="w-4 h-4 text-emerald-600" /> Титульный лист</span>
-        <button type="button" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
+        <button type="button" title="Закрыть титульный лист" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
       </div>
       <div className="p-4 space-y-3">
         <div>

@@ -38,7 +38,7 @@ export default function VdrItemPicker({ projectId, title, onPick, onClose }: {
           <span className="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-1.5">
             <FileSpreadsheet className="w-4 h-4 text-indigo-500" /> {title || 'Выбор строки ВДР'}
           </span>
-          <button type="button" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
+          <button type="button" title="Закрыть" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-3 border-b border-slate-100 dark:border-slate-850">
           <div className="relative">
