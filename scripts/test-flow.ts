@@ -64,7 +64,8 @@ const api = async (method: string, url: string, body?: any) => {
   const BRAND = `ВИР-${stamp}`;
   const NAME = 'Приточный вентилятор проверки';
   const created: string[] = [];             // теги, которые надо убрать
-  const createdNotes: string[] = [];        // и заметки
+  const createdNotes: string[] = [];        // заметки
+  const createdFolders: string[] = [];      // и папки Проводника
 
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
   const page = await browser.newPage({ viewport: { width: 1500, height: 940 } });
@@ -171,7 +172,22 @@ const api = async (method: string, url: string, body?: any) => {
       ok('поле поиска в закупках найдено', false);
     }
 
-    console.log('5. Удаление тега убирает позицию отовсюду');
+    console.log('5. Выгрузка закупок в Excel отдаёт непустой файл');
+    const dl = page.waitForEvent('download', { timeout: 15000 }).catch(() => null);
+    const pressedExcel = await clickByName('В Excel', 5000);
+    ok('кнопка «В Excel» на месте', pressedExcel);
+    const file = await dl;
+    ok('файл выгрузки начал скачиваться', !!file, file ? await file.suggestedFilename() : null);
+    if (file) {
+      const fs = await import('fs');
+      const path = await file.path();
+      const size = path ? fs.statSync(path).size : 0;
+      ok('файл не пустой', size > 1000, { байт: size });
+      const head = path ? fs.readFileSync(path).subarray(0, 2).toString('latin1') : '';
+      ok('это настоящая книга Excel (сигнатура PK)', head === 'PK', head);
+    }
+
+    console.log('6. Удаление тега убирает позицию отовсюду');
     await api('DELETE', `/api/tags/${created[0]}`);
     created.length = 0;
     await page.waitForTimeout(600);
@@ -182,7 +198,7 @@ const api = async (method: string, url: string, body?: any) => {
     ok('кнопка «Обновить» на месте', refresh);
     ok('позиции больше нет в закупках', !(await page.evaluate((c: string) => document.body.innerText.includes(c), CODE)));
 
-    console.log('6. Блокнот: заметка создаётся и её текст доходит до базы');
+    console.log('7. Блокнот: заметка создаётся и её текст доходит до базы');
     ok('раздел «Блокнот» открылся', await clickByName('Блокнот'));
     await page.waitForTimeout(4000);
     const notesBefore = ((await api('GET', '/api/notes')).json?.notes || []).length;
@@ -210,7 +226,51 @@ const api = async (method: string, url: string, body?: any) => {
          saved.map((n: any) => (n.content || '').slice(0, 40)).slice(0, 3));
     }
 
-    console.log('7. Тишина в консоли за весь сценарий');
+    console.log('8. Проводник: папка, корзина и восстановление');
+    ok('раздел «Проводник» открылся', await clickByName('Проводник'));
+    await page.waitForTimeout(4000);
+
+    // Папку можно создать только внутри раздела «Общий» или «Личный»
+    const shared = page.locator('button,[role="button"],div').filter({ hasText: /^Общий$/ }).first();
+    await shared.click({ timeout: 6000 }).catch(() => {});
+    await page.waitForTimeout(1500);
+
+    const FOLDER = `Папка проверки ${stamp}`;
+    ok('кнопка «Новая папка» на месте', await clickByName('Новая папка', 5000));
+    await page.waitForTimeout(1500);
+    const promptOpen = await page.evaluate(() => /Имя папки/i.test(document.body.innerText)
+      && document.activeElement?.tagName === 'INPUT');
+    ok('окно запроса имени открылось и поле в фокусе', promptOpen);
+    if (promptOpen) {
+      await page.keyboard.type(FOLDER, { delay: 10 });
+      await page.waitForTimeout(300);
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(2500);
+    }
+
+    const folders = (await api('GET', `/api/projects/${projectId}/folders`)).json?.folders || [];
+    const made = folders.find((x: any) => x.name === FOLDER);
+    ok('папка записана в базу', !!made, { имя: FOLDER, всего: folders.length });
+    if (made) {
+      createdFolders.push(made.id);
+      ok('папка видна на экране', await page.evaluate((n: string) => document.body.innerText.includes(n), FOLDER));
+
+      // Удаление кладёт в корзину, а не стирает — это опора всей защиты данных
+      await api('DELETE', `/api/folders/${made.id}`);
+      await page.waitForTimeout(500);
+      const listAfter = (await api('GET', `/api/projects/${projectId}/folders`)).json?.folders || [];
+      ok('из обычного списка папка ушла', !listAfter.some((x: any) => x.id === made.id));
+      const trash = (await api('GET', `/api/projects/${projectId}/trash`)).json;
+      const inTrash = JSON.stringify(trash || {}).includes(made.id);
+      ok('папка лежит в корзине, а не стёрта', inTrash, Object.keys(trash || {}));
+
+      const restored = await api('POST', `/api/folders/${made.id}/restore`);
+      ok('восстановление из корзины отвечает успехом', restored.status === 200, restored.status);
+      const back = (await api('GET', `/api/projects/${projectId}/folders`)).json?.folders || [];
+      ok('папка вернулась в список', back.some((x: any) => x.id === made.id));
+    }
+
+    console.log('9. Тишина в консоли за весь сценарий');
     const noisy = errors.filter((e) => !/favicon|Failed to load resource/.test(e));
     ok('ни исключений, ни ошибок ответа', noisy.length === 0, noisy.slice(0, 4));
   } catch (e: any) {
@@ -223,6 +283,7 @@ const api = async (method: string, url: string, body?: any) => {
     await browser.close();
     for (const id of created) await api('DELETE', `/api/tags/${id}`).catch(() => {});
     for (const id of createdNotes) await api('DELETE', `/api/notes/${id}`).catch(() => {});
+    for (const id of createdFolders) await api('DELETE', `/api/folders/${id}`).catch(() => {});
   }
 
   console.log(f === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${f}`);
