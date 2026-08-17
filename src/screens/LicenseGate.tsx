@@ -62,7 +62,7 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
 
   return (
     <div className="w-full h-full flex items-center justify-center bg-slate-950 p-6">
-      <div className="max-w-lg w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 space-y-6">
+      <div className="max-w-lg w-full bg-slate-900 border border-slate-800 rounded-lg p-8 space-y-6">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow">
             <span className="text-sm font-black text-white">M</span>

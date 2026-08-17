@@ -265,7 +265,7 @@ export default function VdrPanel() {
         <button type="button" onClick={createRegister} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
           <Plus className="w-3.5 h-3.5" /> Реестр
         </button>
-        <button type="button" onClick={refresh} className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer"><RefreshCw className="w-3.5 h-3.5" /></button>
+        <button type="button" title="Обновить список" onClick={refresh} className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer"><RefreshCw className="w-3.5 h-3.5" /></button>
       </div>
 
       {register && (
@@ -488,7 +488,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <span className="font-bold text-slate-800 dark:text-white truncate flex-1">{isNew ? 'Новая строка' : (f.contractorNo || f.titleRu || 'Строка реестра')}</span>
           {!isNew && <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${STATUS_META[f.status]?.cls || ''}`}>{STATUS_META[f.status]?.label || f.status}</span>}
-          <button type="button" onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
+          <button type="button" title="Закрыть карточку" onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
@@ -711,7 +711,7 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
       <div className="w-full max-w-2xl max-h-[88vh] overflow-y-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5 space-y-3" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className="font-bold text-slate-800 dark:text-white">Реквизиты реестра (титульный лист)</h3>
-          <button type="button" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
+          <button type="button" title="Закрыть реквизиты" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
         </div>
         <div className="grid grid-cols-2 gap-2.5">
           <F label="Название реестра" k="name" />

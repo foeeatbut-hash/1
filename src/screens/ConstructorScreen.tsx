@@ -217,7 +217,7 @@ function DataWizard({ projectId, onInsert, onClose }: {
           <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
             <Database className="w-4.5 h-4.5 text-emerald-600" /> Собрать данные — шаг {step} из 3
           </h3>
-          <button type="button" onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded cursor-pointer"><X className="w-4.5 h-4.5" /></button>
+          <button type="button" title="Закрыть сборку данных" onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded cursor-pointer"><X className="w-4.5 h-4.5" /></button>
         </div>
 
         <div className="flex-1 overflow-auto p-5">
@@ -1818,7 +1818,7 @@ export default function ConstructorScreen() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
-      <div className="flex flex-col gap-4 bg-white dark:bg-slate-900 p-6 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm">
+      <div className="flex flex-col gap-4 bg-white dark:bg-slate-900 p-6 rounded-lg border border-slate-200 dark:border-slate-800 ">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5">
@@ -1830,10 +1830,10 @@ export default function ConstructorScreen() {
             <button type="button" onClick={() => createDoc('DOC')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новая таблица: формулы, данные проекта, умные блоки">
               <Table2 className="w-4 h-4" /> Таблица
             </button>
-            <button type="button" onClick={() => createDoc('TEXT')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-800 text-sm font-bold shadow-sm cursor-pointer" title="Новый текстовый документ: страницы, стили, списки — как в Word">
+            <button type="button" onClick={() => createDoc('TEXT')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-800 text-sm font-bold  cursor-pointer" title="Новый текстовый документ: страницы, стили, списки — как в Word">
               <FileText className="w-4 h-4" /> Документ
             </button>
-            <button type="button" onClick={() => createDoc('TITLE')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white dark:bg-slate-950 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-sm font-bold shadow-sm cursor-pointer" title="Конструктор титула: ссылки на данные и формулы, присваивается документам">
+            <button type="button" onClick={() => createDoc('TITLE')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white dark:bg-slate-950 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-sm font-bold  cursor-pointer" title="Конструктор титула: ссылки на данные и формулы, присваивается документам">
               <FileText className="w-4 h-4" /> Шаблон титула
             </button>
           </div>

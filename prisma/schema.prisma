@@ -24,6 +24,8 @@ model User {
   isActive         Boolean       @default(true) // Профиль включен администратором
   validUntil       DateTime?     // Срок действия профиля; null = бессрочно
   permissions      String?       // JSON персональных прав: {"project.create":{"enabled":true,"until":null}}
+  signatureImage   String?       // Подпись сотрудника: PNG в виде data-URL, фон уже убран
+  signatureHeightMm Int          @default(8) // Высота подписи в документе, мм — не в точках: иначе она зависит от разрешения скана
   createdAt        DateTime      @default(now())
   createdFiles     FileNode[]    @relation("FileCreator")
   updatedFiles     FileNode[]    @relation("FileUpdater")
@@ -482,4 +484,24 @@ model NoteShare {
 
   @@unique([noteId, userId])
   @@index([userId])
+}
+
+
+// Формула документа: именованное значение, которое подставляется в титул.
+// В документе стоит плашка с названием, а как оно превращается в значение —
+// решает эта запись. Формулы принадлежат проекту: личная формула означала бы,
+// что у коллеги тот же титул соберётся иначе.
+model DocFormula {
+  id          String   @id @default(uuid())
+  projectId   String                       // Проект-владелец
+  name        String                       // То, что видно в документе
+  kind        String                       // value | text | compose | expr | signature
+  config      String   @default("{}")      // JSON настройки: формат даты, части сборки и т.д.
+  sortOrder   Int      @default(0)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  @@index([projectId])
 }

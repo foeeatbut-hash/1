@@ -315,6 +315,7 @@ async function syncMirror(doc: any): Promise<void> {
   }
 }
 
+
 export function registerConstructorRoutes(app: Express): void {
   const authUserOf = (req: Request): any => (req as any).authUser || null;
 
@@ -1018,9 +1019,35 @@ export function registerConstructorRoutes(app: Express): void {
       const dm = settings.docMeta || {};
       const project = await prisma.project.findUnique({ where: { id: doc.projectId } });
       let author = '';
-      if (doc.createdById) {
-        const u = await prisma.user.findUnique({ where: { id: doc.createdById }, select: { name: true, symbol: true } });
-        author = u?.name || u?.symbol || '';
+      // Люди документа: автор, тот кто открыл, и все, на кого сослались
+      // формулы «выбранный сотрудник». ФИО отдаём по частям — вид вывода
+      // (полностью или инициалами) выбирает формула, а не сервер.
+      const people: Record<string, any> = {};
+      const wanted = new Set<string>();
+      if (doc.createdById) wanted.add(doc.createdById);
+      if (me?.id) wanted.add(me.id);
+      for (const id of String(req.query.userIds || '').split(',').filter(Boolean)) wanted.add(id);
+
+      const users = wanted.size
+        ? await prisma.user.findMany({
+            where: { id: { in: [...wanted] } },
+            select: { id: true, name: true, symbol: true, lastName: true, firstName: true, middleName: true,
+                      signatureImage: true, signatureHeightMm: true },
+          })
+        : [];
+      const put = (prefix: string, u: any) => {
+        if (!u) return;
+        people[`${prefix}.name`] = u.name || '';
+        people[`${prefix}.lastName`] = u.lastName || '';
+        people[`${prefix}.firstName`] = u.firstName || '';
+        people[`${prefix}.middleName`] = u.middleName || '';
+        people[`${prefix}.signature`] = u.signatureImage || '';
+        people[`${prefix}.signatureHeightMm`] = u.signatureHeightMm ?? 8;
+      };
+      for (const u of users as any[]) {
+        put(`person.${u.id}`, u);
+        if (u.id === doc.createdById) { put('person.author', u); author = u.name || u.symbol || ''; }
+        if (me?.id && u.id === me.id) put('person.current', u);
       }
       const now = new Date();
       res.json({
@@ -1039,6 +1066,7 @@ export function registerConstructorRoutes(app: Express): void {
           year: String(now.getFullYear()),
           // page/pages подставляет печать (CSS-счётчики), тут плейсхолдеры
           page: '1', pages: '1',
+          ...people,
         },
       });
     } catch (err: any) { sendError(res, err); }

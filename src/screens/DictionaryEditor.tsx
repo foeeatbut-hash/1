@@ -1091,14 +1091,14 @@ export default function DictionaryEditor() {
       transition={{ duration: 0.2 }}
       className="w-full h-full flex flex-col space-y-4 min-h-0"
     >
-      <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-6 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm transition-colors shrink-0">
+      <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-6 rounded-lg border border-slate-200 dark:border-slate-800  transition-colors shrink-0">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
             <Book className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
             Редактор справочников
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Основа для динамической генерации формул тегов.
+            Списки значений, из которых собираются коды тегов.
           </p>
         </div>
         <div className="flex gap-4">
@@ -1210,7 +1210,7 @@ export default function DictionaryEditor() {
                 .sort((a: any, b: any) => a.code.localeCompare(b.code));
 
               return (
-                <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col transition-colors overflow-hidden h-full w-full">
+                <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800  flex flex-col transition-colors overflow-hidden h-full w-full">
                   <div className="p-5 border-b border-slate-200 dark:border-slate-850 bg-slate-50 dark:bg-slate-950 shrink-0">
                     <div className="flex items-center gap-2">
                        <Settings className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
@@ -1219,7 +1219,7 @@ export default function DictionaryEditor() {
                        </h2>
                     </div>
                     <p className="text-xs text-slate-500 dark:text-slate-350 mt-1">
-                      Настройка динамических категорий и списков выбора, отображаемых при создании тегов. Порядок следования категорий можно менять кнопками Up/Down.
+                      Категории и списки значений, которые предлагаются при создании тега. Порядок меняется стрелками справа от строки.
                     </p>
                   </div>
 
@@ -1481,7 +1481,7 @@ export default function DictionaryEditor() {
                 .sort((a: any, b: any) => a.code.localeCompare(b.code));
 
               return (
-                <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col transition-colors overflow-hidden h-full w-full">
+                <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800  flex flex-col transition-colors overflow-hidden h-full w-full">
                   <div className="p-5 border-b border-slate-200 dark:border-slate-850 bg-slate-50 dark:bg-slate-950 shrink-0">
                     <div className="flex items-center gap-2">
                       <Settings className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
@@ -1743,7 +1743,7 @@ export default function DictionaryEditor() {
               const presets = presetItems.filter((i: any) => !i.parentId);
 
               return (
-                <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col transition-colors overflow-hidden text-left">
+                <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800  flex flex-col transition-colors overflow-hidden text-left">
                   <div className="p-4 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/20 flex items-center justify-between">
                     <div>
                       <h2 className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -1918,6 +1918,7 @@ export default function DictionaryEditor() {
                                 <div className="col-span-2 flex items-end">
                                   <button
                                     type="submit"
+                                    title="Добавить значение"
                                     className="w-full py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold transition-colors select-none cursor-pointer flex items-center justify-center h-7 mt-0.5"
                                   >
                                     <Plus className="w-4 h-4" />
@@ -2016,7 +2017,7 @@ export default function DictionaryEditor() {
               );
             })()
           ) : activeDict ? (
-            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col transition-colors h-full w-full overflow-hidden">
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800  flex flex-col transition-colors h-full w-full overflow-hidden">
               <div className="p-4 border-b border-slate-200 dark:border-slate-850 bg-slate-50 dark:bg-slate-950 flex items-center justify-between shrink-0">
                 <h2 className="font-semibold text-slate-800 dark:text-white flex items-center gap-2">
                   <Database className="w-4 h-4 text-emerald-500" />
@@ -2033,7 +2034,7 @@ export default function DictionaryEditor() {
 
               <div className="overflow-x-auto flex-1 overflow-y-auto">
                 <table className="w-full text-sm text-left">
-                  <thead className="bg-white dark:bg-slate-900 text-slate-500 border-b border-slate-200 dark:border-slate-800 shadow-sm z-10 sticky top-0">
+                  <thead className="bg-white dark:bg-slate-900 text-slate-500 border-b border-slate-200 dark:border-slate-800  z-10 sticky top-0">
                     <tr>
                       <th className="flux-cell font-medium text-slate-700 dark:text-slate-300">
                         Код (A)
@@ -2097,6 +2098,7 @@ export default function DictionaryEditor() {
                           <div className="flex items-center justify-end gap-2">
                             <button type="button"
                               onClick={handleAddItem}
+                              title="Сохранить значение"
                               className="p-1.5 text-emerald-600 hover:bg-emerald-100 dark:hover:bg-emerald-950/40 rounded transition-colors"
                             >
                               <Check className="w-4 h-4" />
@@ -2262,7 +2264,7 @@ export default function DictionaryEditor() {
               </div>
             </div>
           ) : (
-            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col items-center justify-center h-full text-slate-400 transition-colors w-full overflow-hidden">
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800  flex flex-col items-center justify-center h-full text-slate-400 transition-colors w-full overflow-hidden">
               <Database className="w-12 h-12 mb-4 opacity-50 text-emerald-600" />
               <p className="text-slate-605 dark:text-slate-300 font-medium">
                 Справочник не выбран

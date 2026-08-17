@@ -1267,7 +1267,7 @@ export default function Explorer() {
             <button type="button" onClick={() => goForward()} disabled={explorerForward.length === 0} className="p-1.5 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-700 dark:text-dark-text-main disabled:opacity-30 cursor-pointer">
               <ArrowRight className="w-4 h-4" />
             </button>
-            <button type="button" onClick={handleNavigateUp} disabled={!currentFolderId} className="p-1.5 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-700 dark:text-dark-text-main disabled:opacity-30 cursor-pointer">
+            <button type="button" title="На уровень выше" onClick={handleNavigateUp} disabled={!currentFolderId} className="p-1.5 hover:bg-slate-100 dark:hover:bg-dark-panel rounded text-slate-700 dark:text-dark-text-main disabled:opacity-30 cursor-pointer">
               <ArrowUp className="w-4 h-4" />
             </button>
           </div>
@@ -1776,7 +1776,7 @@ export default function Explorer() {
 
                 return (
                   <div className="p-4 flex flex-col">
-                     <div className="flex-1 flex items-center justify-center min-h-[240px] max-h-[300px] bg-white dark:bg-dark-panel border border-slate-200 dark:border-dark-border rounded mb-4 overflow-hidden relative shadow-sm">
+                     <div className="flex-1 flex items-center justify-center min-h-[240px] max-h-[300px] bg-white dark:bg-dark-panel border border-slate-200 dark:border-dark-border rounded mb-4 overflow-hidden relative ">
                         {isImage && item.content ? (
                           <img src={item.content} alt={item.name} className="max-w-full max-h-full object-contain" />
                         ) : isText && item.content ? (
@@ -2045,8 +2045,10 @@ export default function Explorer() {
                     <div className="flex">
                       <span className="w-32 text-slate-500">Приложение:</span>
                       <span className="text-slate-900">
-                        {propertiesModal.item.type === 'PDF' ? 'PDF Reader' : 
-                         propertiesModal.item.type === 'TXT' ? 'Блокнот' : 
+                        {propertiesModal.item.type === 'PDF' ? 'PDF Reader' :
+                         propertiesModal.item.type === 'TXT' ? 'Блокнот' :
+                         propertiesModal.item.type === 'DOCX' ? 'Microsoft Word' :
+                         propertiesModal.item.type === 'CONSTRUCTOR' ? 'Конструктор Flux' :
                          propertiesModal.item.type === 'IMAGE' ? 'Фотографии' : 'Неизвестно'}
                       </span>
                     </div>
@@ -2224,7 +2226,7 @@ export default function Explorer() {
             initial={{ opacity: 0, scale: 0.95, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="bg-white dark:bg-dark-panel rounded-2xl shadow-2xl border border-slate-200 dark:border-dark-border w-[min(94vw,460px)] max-h-[88vh] overflow-hidden flex flex-col"
+            className="bg-white dark:bg-dark-panel rounded-lg shadow-2xl border border-slate-200 dark:border-dark-border w-[min(94vw,460px)] max-h-[88vh] overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-5 py-4 border-b border-slate-100 dark:border-dark-border bg-slate-50 dark:bg-dark-surface flex items-center gap-3">

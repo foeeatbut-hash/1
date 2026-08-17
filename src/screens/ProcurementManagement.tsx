@@ -780,14 +780,10 @@ function ProcurementTab() {
     <div className="flex flex-col gap-3 text-slate-800 dark:text-slate-100">
       {/* Заголовок */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shadow-inner shrink-0">
-            <Briefcase className="w-5 h-5" />
-          </div>
-          <div className="text-left">
-            <h1 className="text-lg font-bold tracking-tight text-slate-900 dark:text-white">Менеджмент · Закупки</h1>
-            <p className="text-xs text-slate-400">Жизненный цикл позиций проекта. Этапы настраиваются в «Настройки → Менеджмент».</p>
-          </div>
+        <div className="min-w-0">
+          <div className="graf">Менеджмент</div>
+          <h1 className="text-[15px] font-semibold tracking-tight text-slate-900 dark:text-white">Закупки</h1>
+          <p className="text-xs text-slate-400">Жизненный цикл позиций проекта. Этапы настраиваются в «Настройки → Менеджмент».</p>
         </div>
         <div className="flex items-center gap-2 self-start lg:self-auto">
           <div className="flex bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200/60 dark:border-slate-800">
@@ -828,35 +824,33 @@ function ProcurementTab() {
         </div>
       </div>
 
-      {/* Счётчики этапов: клик — фильтр */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+      {/* Счётчики этапов: клик — фильтр.
+          Было пять плиток с крупной цифрой и цветным значком — вид,
+          одинаковый для любой панели показателей и ничего не говорящий
+          о закупке. Теперь это одна строка граф, как в ведомости:
+          счётчики читаются слева направо в порядке движения позиции,
+          цвет остался только у выбранной графы. */}
+      <div className="tally overflow-x-auto rule-t">
         <button type="button"
           onClick={() => setStageFilter('all')}
           aria-pressed={stageFilter === 'all'}
-          className={`p-3 rounded-xl border text-left transition-ui cursor-pointer ${stageFilter === 'all' ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-600 dark:border-emerald-500 text-emerald-900 dark:text-emerald-200' : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 hover:border-emerald-400'}`}
+          className="tally-item cursor-pointer"
         >
-          <div className="text-2xl font-black leading-none">{rows.length}</div>
-          <div className={`text-xs font-bold mt-1 ${stageFilter === 'all' ? 'text-emerald-800 dark:text-emerald-300' : 'text-slate-400'}`}>Все позиции</div>
+          <span className="tally-num">{rows.length}</span>
+          <span className="tally-lab">Все позиции</span>
         </button>
         {stageCards.map(({ stage: s, templateName }) => {
-          const Icon = stageIcon(s.icon);
-          const c = stageColor(s.color);
           const active = stageFilter === s.id;
           return (
             <button type="button"
               key={s.id}
               onClick={() => setStageFilter(active ? 'all' : s.id)}
+              aria-pressed={active}
               title={templateName ? `Этап шаблона «${templateName}»` : undefined}
-              className={`p-3 rounded-xl border text-left transition-ui cursor-pointer ${active ? `${c.bg} ${c.border} ring-2 ring-offset-1 dark:ring-offset-slate-950 ring-current ${c.color} shadow-md` : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 hover:shadow-sm'}`}
+              className="tally-item cursor-pointer"
             >
-              <div className="flex items-center justify-between">
-                <div className={`text-2xl font-black leading-none ${c.color}`}>{counts[s.id] || 0}</div>
-                <Icon className={`w-5 h-5 ${c.color}`} />
-              </div>
-              <div className="text-xs font-bold mt-1 text-slate-400 truncate">
-                {s.label}
-                {templateName && <span className="ml-1 text-2xs text-indigo-400 font-semibold">· {templateName}</span>}
-              </div>
+              <span className="tally-num">{counts[s.id] || 0}</span>
+              <span className="tally-lab truncate">{s.label}</span>
             </button>
           );
         })}
@@ -996,9 +990,26 @@ function ProcurementTab() {
                 <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" /> Загрузка позиций…
               </td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={8} className="text-center py-16 text-slate-400 text-sm">
-                <Database className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                {rows.length === 0 ? 'В проекте нет позиций. Добавьте теги в разделе «Теги».' : 'Ничего не найдено по заданным фильтрам.'}
+              <tr><td colSpan={8} className="p-0">
+                <div className="blank">
+                  <div className="blank-title">{rows.length === 0 ? 'В проекте нет позиций' : 'Ничего не найдено'}</div>
+                  <div className="blank-text">
+                    {rows.length === 0
+                      ? 'Позиции берутся из тегов проекта: каждый тег с оборудованием попадает сюда и проходит этапы закупки.'
+                      : 'Ни одна позиция не подходит под заданные фильтры. Снимите часть условий или очистите поиск.'}
+                  </div>
+                  {rows.length === 0 ? (
+                    <button type="button" onClick={() => navigate('/registry')}
+                      className="mt-2 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium cursor-pointer transition-colors">
+                      Перейти к тегам
+                    </button>
+                  ) : (
+                    <button type="button" onClick={() => { setSearch(''); setStageFilter('all'); }}
+                      className="mt-2 px-3 py-1.5 rounded-md border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 text-xs font-medium cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors">
+                      Сбросить фильтры
+                    </button>
+                  )}
+                </div>
               </td></tr>
             ) : viewMode === 'list' ? (
               <>

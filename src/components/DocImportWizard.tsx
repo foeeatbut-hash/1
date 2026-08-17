@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X, FileSpreadsheet, FileText, Upload, ClipboardPaste, Loader2, CheckCircle2,
-  AlertTriangle, ChevronDown, ChevronRight, Trash2, ScanLine, Sparkles, Plus,
+  AlertTriangle, ChevronDown, ChevronRight, Trash2, ScanLine, Plus,
 } from 'lucide-react';
 import { useToastStore } from '../store/toastStore';
 import { extractByName, extractClipboard } from '../import/extractors';
@@ -330,7 +330,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
   return createPortal(
     <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/50 backdrop-blur-sm p-4" onClick={onClose}>
       <div
-        className="w-full max-w-5xl h-[86vh] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        className="w-full max-w-5xl h-[86vh] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg shadow-2xl flex flex-col overflow-hidden"
         onClick={e => e.stopPropagation()}
         onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
         onDragLeave={() => setIsDragOver(false)}
@@ -340,7 +340,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <ScanLine className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-900 dark:text-white">Импорт из документов</h2>

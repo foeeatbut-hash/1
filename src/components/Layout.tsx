@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { formatName } from '../lib/docFormula';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
-import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, Sparkles, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+const SignatureEditor = React.lazy(() => import('./SignatureEditor'));
+import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen, PenLine } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ToastProvider from './ToastProvider';
 import ModalProvider from './ModalProvider';
@@ -59,6 +61,8 @@ export default function Layout() {
   const sidebarHidden = wsLayout === 'single' && wsActivePath === '/';
   const chatUnread = useNotificationStore((s) => s.chatUnread);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  // Окно своей подписи: открывается из профиля
+  const [signOpen, setSignOpen] = useState(false);
   const addLog = useLogStore((state) => state.addLog);
   const toggleAssistant = useAssistantStore((s) => s.toggleOpen);
   const assistantOpen = useAssistantStore((s) => s.isOpen);
@@ -454,7 +458,7 @@ export default function Layout() {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.96, y: 12 }}
                   transition={{ duration: 0.15, ease: 'easeOut' }}
-                  className="w-[min(94vw,420px)] bg-white dark:bg-dark-panel rounded-2xl border border-slate-200 dark:border-dark-border shadow-2xl p-4 flex flex-col gap-2.5 text-left select-none text-slate-800 dark:text-dark-text-main max-h-[88vh] overflow-y-auto scrollbar-none"
+                  className="w-[min(94vw,420px)] bg-white dark:bg-dark-panel rounded-lg border border-slate-200 dark:border-dark-border shadow-2xl p-4 flex flex-col gap-2.5 text-left select-none text-slate-800 dark:text-dark-text-main max-h-[88vh] overflow-y-auto scrollbar-none"
                 >
                   {/* Header info */}
                   <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-100 dark:border-dark-border">
@@ -467,13 +471,37 @@ export default function Layout() {
 
                   {/* Данные профиля */}
                   <div className="flex flex-col gap-1.5">
-                    {[['ФИО', user?.name], ['Логин', user?.symbol], ['Роль', user?.role]].map(([k, v]) => (
+                    {[
+                      ['ФИО', user?.name],
+                      // Как человек подпишется в документах: собирается из
+                      // фамилии, имени и отчества — «Раупов Хусрав Хуршедович»
+                      // даёт «Раупов Х.Х.». Видно сразу, правильно ли заведено ФИО
+                      ['В документах', formatName({
+                        lastName: (user as any)?.lastName,
+                        firstName: (user as any)?.firstName,
+                        middleName: (user as any)?.middleName,
+                        name: user?.name,
+                      }, 'initialsAfter')],
+                      ['Логин', user?.symbol],
+                      ['Роль', user?.role],
+                    ].map(([k, v]) => (
                       <div key={k} className="flex items-center justify-between px-2.5 py-2 rounded-lg border border-slate-150 dark:border-dark-border bg-slate-50 dark:bg-dark-surface/40 text-xs">
                         <span className="text-slate-400 dark:text-dark-text-muted font-semibold">{k}</span>
                         <span className="text-slate-800 dark:text-dark-text-main font-bold truncate ml-2">{v || '—'}</span>
                       </div>
                     ))}
                   </div>
+
+                  {/* Своя подпись — здесь, а не в «Сотрудниках»: тот раздел
+                      открыт только администратору, и рядовой инженер иначе не
+                      смог бы завести свою подпись вовсе */}
+                  <button type="button"
+                    onClick={() => { setIsProfileMenuOpen(false); setSignOpen(true); }}
+                    className="flex w-full items-center justify-center gap-1.5 px-2 py-2 text-xs font-bold text-slate-700 dark:text-dark-text-main bg-slate-100 dark:bg-dark-surface hover:bg-slate-200 dark:hover:bg-dark-panel border border-slate-200 dark:border-dark-border rounded-lg transition-ui cursor-pointer"
+                  >
+                    <PenLine className="w-3.5 h-3.5 text-emerald-600" />
+                    Моя подпись
+                  </button>
 
                   {/* Все настройки перенесены в раздел «Настройки» (левая панель) */}
                   <button type="button"
@@ -497,6 +525,23 @@ export default function Layout() {
             )}
             </AnimatePresence>,
             document.body
+          )}
+
+          {/* Через портал в body: у боковой панели свой контейнер для
+              position:fixed, и окно отрисовывалось сжатым в её колонку.
+              Соседнее меню профиля выводится порталом ровно поэтому же. */}
+          {signOpen && user && createPortal(
+            <React.Suspense fallback={null}>
+              <SignatureEditor
+                userId={user.id}
+                userName={user.name || user.symbol}
+                nameParts={{ lastName: (user as any).lastName, firstName: (user as any).firstName, middleName: (user as any).middleName, name: user.name }}
+                canEdit
+                onSaved={() => {}}
+                onClose={() => setSignOpen(false)}
+              />
+            </React.Suspense>,
+            document.body,
           )}
 
           {/* Ширина меню: только значки или значки с подписями. Выбор
@@ -554,7 +599,7 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-gradient-to-br from-slate-100 to-slate-200/70 dark:from-dark-bg dark:to-dark-surface relative transition-colors duration-250">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-100 dark:bg-dark-bg relative transition-colors duration-250">
         <div className="flex-1 min-h-0">
           <Workspace />
         </div>

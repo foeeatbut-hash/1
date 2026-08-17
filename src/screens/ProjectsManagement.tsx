@@ -197,7 +197,7 @@ export default function ProjectsManagement() {
         <div className="p-4 border-b border-slate-150 dark:border-slate-800 flex items-center justify-between">
           <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Layers className="w-4 h-4 text-emerald-600" />
-            <span>Инженерные Проекты</span>
+            <span>Проекты</span>
           </h2>
           {canCreate && (
             <button type="button"
@@ -341,11 +341,11 @@ export default function ProjectsManagement() {
                   onClick={() => handleToggleActiveProject(selectedProject)}
                   className={`px-3 py-1.5 text-xs font-bold rounded-lg border cursor-pointer transition-colors ${
                     activeProject?.id === selectedProject.id
-                      ? 'bg-amber-500 hover:bg-amber-450 border-amber-650 text-white'
-                      : 'bg-emerald-700 hover:bg-emerald-650 border-emerald-800 text-white'
+                      ? 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-850 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300'
+                      : 'bg-emerald-600 hover:bg-emerald-700 border-emerald-700 text-white'
                   }`}
                 >
-                  {activeProject?.id === selectedProject.id ? 'Снять выделение' : 'Отметить галочкой (Выбрать)'}
+                  {activeProject?.id === selectedProject.id ? 'Снять с работы' : 'Взять в работу'}
                 </button>
               </div>
             </div>
@@ -354,10 +354,10 @@ export default function ProjectsManagement() {
             <div className="flex-grow overflow-y-auto p-6 space-y-6">
               {canManage ? (
                 // ADMIN EDIT MODE FORM
-                <div className="max-w-2xl bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-5">
+                <div className="max-w-2xl bg-white dark:bg-slate-900 p-6 rounded-lg border border-slate-200 dark:border-slate-800 shadow-xs space-y-5">
                   <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
                     <Edit3 className="w-4 h-4 text-emerald-600" />
-                    <h2 className="text-xs font-bold text-slate-850 dark:text-slate-150 uppercase tracking-wider">Редактирование проекта (Суперпользователь)</h2>
+                    <h2 className="graf">Карточка проекта</h2>
                   </div>
 
                   <div className="space-y-1.5">
@@ -372,7 +372,7 @@ export default function ProjectsManagement() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-350">Краткое описание (Отображается в карточках)</label>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-350">Краткое описание</label>
                     <input
                       type="text"
                       value={editDesc}
@@ -383,7 +383,7 @@ export default function ProjectsManagement() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-350">Описание и подробная информация (Текст для всех)</label>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-350">Подробное описание</label>
                     <textarea
                       value={editInfo}
                       onChange={(e) => setEditInfo(e.target.value)}
@@ -400,7 +400,7 @@ export default function ProjectsManagement() {
                       onChange={(e) => setEditStatus(e.target.value)}
                       className="w-full text-xs px-3 px-3.5 py-2 border border-slate-250 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 rounded-lg transition-colors focus:outline-none"
                     >
-                      <option value="ACTIVE">Активен (Показывается в реестрах)</option>
+                      <option value="ACTIVE">В работе</option>
                       <option value="ARCHIVED">Архив</option>
                     </select>
                   </div>
@@ -427,7 +427,7 @@ export default function ProjectsManagement() {
                       ) : (
                         <>
                           <Save className="w-3.5 h-3.5" />
-                          <span>Сохранить данные</span>
+                          <span>Сохранить</span>
                         </>
                       )}
                     </button>
@@ -435,7 +435,7 @@ export default function ProjectsManagement() {
                 </div>
               ) : (
                 // NON-ADMIN VIEW MODE
-                <div className="max-w-2xl bg-white dark:bg-slate-900 duration-200 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-6">
+                <div className="max-w-2xl bg-white dark:bg-slate-900 duration-200 p-6 rounded-lg border border-slate-200 dark:border-slate-800 shadow-xs space-y-6">
                   {/* Status Block */}
                   <div className="flex items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
                     <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider flex items-center gap-1">

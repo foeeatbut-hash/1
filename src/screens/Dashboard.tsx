@@ -301,33 +301,47 @@ export default function Dashboard() {
       transition={{ duration: 0.18 }}
       className="relative z-10 max-w-6xl mx-auto min-h-full flex flex-col gap-5 text-slate-800 dark:text-dark-text-main"
     >
-      {/* ── Шапка: кто и когда ── */}
-      <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
-        <div className="min-w-0">
-          <h1 className="text-[26px] leading-[1.15] font-bold tracking-[-0.02em] text-slate-900 dark:text-white flex items-center gap-2">
-            {isBirthday && <Cake className="w-6 h-6 text-rose-500 shrink-0" />}
-            {isBirthday
-              ? `С днём рождения, ${greetName}!`
-              : `С возвращением, ${greetName}`}
-          </h1>
-          <p className="mt-1 text-[13px] text-slate-600 dark:text-dark-text-muted first-letter:uppercase">
-            {today}
-            <span className="mx-2 text-slate-300 dark:text-slate-700">·</span>
-            {activeProject ? (
-              <>Проект: <span className="font-semibold text-slate-700 dark:text-dark-text-main">{activeProject.name}</span></>
-            ) : (
+      {/* ── Шапка: над чем работаем ──
+           Раньше первой строкой стояло крупное «С возвращением, имя», а
+           название проекта пряталось мелким шрифтом под ним. Приветствие
+           инженеру ничего не сообщает, а проект определяет всё, что он
+           увидит дальше в любом разделе. Поменяли местами и оформили
+           штампом: слева графа с проектом, справа — дата и шифр. */}
+      <header className="flux-surface rounded-sm">
+        <div className="flex items-baseline gap-3 px-4 py-2 rule-b">
+          <span className="graf">{isBirthday ? 'С днём рождения' : 'Смена'}</span>
+          <span className="text-[13px] text-slate-600 dark:text-dark-text-muted flex items-center gap-1.5">
+            {isBirthday && <Cake className="w-3.5 h-3.5 text-rose-500 shrink-0" />}
+            {greetName}
+          </span>
+          <span className="ml-auto data text-2xs text-slate-400 first-letter:uppercase">{today}</span>
+        </div>
+        <div className="px-4 py-3">
+          <div className="graf mb-1">Проект</div>
+          {activeProject ? (
+            <>
+              <h1 className="text-[22px] leading-[1.15] font-semibold tracking-[-0.02em] text-slate-900 dark:text-white truncate">
+                {activeProject.name}
+              </h1>
+              <div className="mt-1 data text-2xs text-slate-400 truncate">шифр {activeProject.id}</div>
+            </>
+          ) : (
+            <>
+              <h1 className="text-[22px] leading-[1.15] font-semibold tracking-[-0.02em] text-slate-400">
+                Проект не выбран
+              </h1>
               <button type="button" onClick={() => open('/projects')}
-                className="font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer">
-                проект не выбран
+                className="mt-1 text-[13px] font-medium text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer">
+                Выбрать проект
               </button>
-            )}
-          </p>
+            </>
+          )}
         </div>
       </header>
 
       {/* ── Поиск: одна дверь во всё ── */}
       <div className="relative">
-        <div className="flex items-center gap-3 px-4 h-12 rounded-2xl flux-surface transition-ui
+        <div className="flex items-center gap-3 px-4 h-12 rounded-lg flux-surface transition-ui
                         focus-within:border-emerald-600/60 dark:focus-within:border-emerald-400/60
                         focus-within:shadow-[0_0_0_4px_color-mix(in_oklab,var(--color-emerald-500)_18%,transparent)]">
           <Search className="w-[18px] h-[18px] text-slate-400 shrink-0" />
@@ -355,7 +369,7 @@ export default function Dashboard() {
             под ним, и читать найденное было невозможно. */}
         {query.trim() && (
           <div role="listbox" aria-label="Результаты поиска"
-            className="absolute z-30 left-0 right-0 mt-1.5 rounded-2xl flux-surface bg-white dark:bg-dark-panel shadow-xl overflow-hidden">
+            className="absolute z-30 left-0 right-0 mt-1.5 rounded-lg flux-surface bg-white dark:bg-dark-panel shadow-xl overflow-hidden">
             {hits.length === 0 ? (
               <p className="px-3.5 py-3 text-xs text-slate-500 dark:text-dark-text-muted">
                 Ничего не нашлось. Попробуйте код тега, название заметки или раздела.
@@ -527,7 +541,7 @@ export default function Dashboard() {
            лучше, чем растянутая до края пустая карточка. */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5 items-stretch pb-1">
         {/* Последние изменения */}
-        <section className="rounded-2xl flux-surface overflow-hidden flex flex-col min-h-[240px]">
+        <section className="rounded-lg flux-surface overflow-hidden flex flex-col min-h-[240px]">
           <CardHead icon={History} title="Последние изменения"
             action={<CardLink onClick={() => open('/logs')}>Все</CardLink>} />
           <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin divide-y divide-black/[0.05] dark:divide-white/[0.06]">
@@ -552,7 +566,7 @@ export default function Dashboard() {
         </section>
 
         {/* Мои заметки */}
-        <section className="rounded-2xl flux-surface overflow-hidden flex flex-col min-h-[240px]">
+        <section className="rounded-lg flux-surface overflow-hidden flex flex-col min-h-[240px]">
           <CardHead icon={NotebookPen} title="Мои заметки"
             action={<CardLink onClick={() => open('/notes')}>Все</CardLink>} />
           <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin divide-y divide-black/[0.05] dark:divide-white/[0.06]">
@@ -587,7 +601,7 @@ export default function Dashboard() {
         </section>
 
         {/* Проекты */}
-        <section className="rounded-2xl flux-surface overflow-hidden flex flex-col min-h-[240px]">
+        <section className="rounded-lg flux-surface overflow-hidden flex flex-col min-h-[240px]">
           <CardHead icon={FolderKanban} title="Проекты"
             action={(
               <CardLink onClick={() => setShowCreate(true)}>

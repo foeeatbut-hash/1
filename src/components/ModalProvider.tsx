@@ -88,7 +88,7 @@ export default function ModalProvider() {
                        value={inputValue}
                        onChange={(e) => setInputValue(e.target.value)}
                        placeholder={currentModal.placeholder}
-                       className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm"
+                       className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white rounded-lg  focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm"
                      />
                    </div>
                 )}
@@ -98,7 +98,7 @@ export default function ModalProvider() {
                      <select
                        value={inputValue}
                        onChange={(e) => setInputValue(e.target.value)}
-                       className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm"
+                       className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white rounded-lg  focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm"
                      >
                        {currentModal.options.map((opt) => (
                          <option key={opt.value} value={opt.value} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
@@ -115,7 +115,7 @@ export default function ModalProvider() {
                     <button 
                       type="button" 
                       onClick={() => closeModal()}
-                      className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-705 rounded-lg text-sm font-medium text-slate-705 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm cursor-pointer"
+                      className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-705 rounded-lg text-sm font-medium text-slate-705 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors  cursor-pointer"
                     >
                        Отмена
                     </button>

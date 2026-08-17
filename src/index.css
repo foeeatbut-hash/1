@@ -891,3 +891,132 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
 }
 .dark .flux-fog { background: linear-gradient(to bottom, transparent, oklch(0.62 0.02 220) 45%, transparent); opacity: 0.3; }
 @media (prefers-reduced-motion: reduce) { .flux-fog { animation: none !important; } }
+
+/* ═════════════════════════════════════════════════════════════
+   ЛИСТ. Язык оформления взят из того, с чем инженер работает
+   каждый день, — из чертёжного листа: рамка, зоны, разлиновка,
+   штамп, графы. До этого экраны были набором плавающих карточек
+   со скруглениями и тенями на сером поле — вид, одинаковый для
+   любой программы и ничего не говорящий о работе отдела.
+
+   Правила короткие:
+     • разделяет линия, а не отступ с тенью;
+     • тень только у всплывающего (меню, окно, подсказка);
+     • зоны примыкают к рамке, а не плавают в ней;
+     • цвет — маркировка (что выбрано, что требует внимания),
+       а не украшение.
+   ═══════════════════════════════════════════════════════════ */
+
+/* Лист: рабочая поверхность раздела. Занимает всю панель. */
+/* Лист задаёт только поверхность и рамку. Направление раскладки остаётся
+   за разметкой: класс объявлен после утилит Tailwind и, задавая
+   flex-direction, молча переворачивал ряд зон в столбец. */
+.sheet {
+  background: var(--flux-surface);
+  border: 1px solid var(--flux-line);
+  min-height: 0;
+}
+
+/* Зона листа: примыкает к соседней, разделена волосяной линией */
+.zone      { min-width: 0; min-height: 0; }
+.zone + .zone           { border-left: 1px solid var(--flux-line); }
+.zone-stack > * + *     { border-top: 1px solid var(--flux-line); }
+
+/* Штамп раздела: слева — что это, справа — по какому проекту.
+   Одна полоса вместо разномастных шапок с иконкой в квадратике. */
+.stamp {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  height: 38px;
+  border-bottom: 1px solid var(--flux-line);
+  background: var(--flux-surface);
+  flex: none;
+}
+.stamp-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--flux-text);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.stamp-sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--flux-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stamp-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+/* Подпись графы — как в штампе: мелко, вразрядку, прописными */
+.graf {
+  font-size: 11px;
+  line-height: 1.3;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--flux-text-muted);
+  font-weight: 500;
+}
+
+/* Данные: шифры, номера, количества, даты — моноширинным и
+   с табличными цифрами, чтобы столбцы совпадали по разрядам */
+.data { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* Волосяные линии */
+.rule-t { border-top: 1px solid var(--flux-line); }
+.rule-b { border-bottom: 1px solid var(--flux-line); }
+.rule-l { border-left: 1px solid var(--flux-line); }
+.rule-r { border-right: 1px solid var(--flux-line); }
+
+/* Полоса счётчиков: вместо ряда «плиток с большой цифрой».
+   Счётчики стоят в одну строку, как графы ведомости. */
+.tally { display: flex; align-items: stretch; border-bottom: 1px solid var(--flux-line); }
+.tally-item {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 16px;
+  border-right: 1px solid var(--flux-line);
+  min-width: 104px;
+  text-align: left;
+  transition: background var(--flux-dur-fast) var(--flux-ease);
+}
+.tally-item:hover { background: var(--flux-panel); }
+.tally-item[aria-pressed="true"] {
+  background: var(--flux-accent-soft);
+  box-shadow: inset 2px 0 0 var(--flux-accent);
+}
+.tally-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 17px; font-weight: 600; color: var(--flux-text); line-height: 1.1; }
+.tally-lab { font-size: 11px; letter-spacing: 0.02em; color: var(--flux-text-muted); }
+
+/* Пустая зона — приглашение к действию, а не серая надпись
+   посреди пустоты. Заголовок, одна поясняющая строка, кнопка. */
+.blank { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 28px 20px; max-width: 460px; }
+.blank-title { font-size: 13px; font-weight: 600; color: var(--flux-text); }
+.blank-text  { font-size: 12px; line-height: 1.5; color: var(--flux-text-muted); }
+
+/* Основание экрана входа: миллиметровка. Это первое, что видит инженер,
+   и оно должно говорить, куда он вошёл. Раньше здесь было пустое серое
+   поле с белой карточкой посередине — вид, общий для любой программы. */
+.login-ground {
+  background-color: var(--color-slate-50);
+  background-image:
+    linear-gradient(to right, oklch(0% 0 0 / 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(0% 0 0 / 0.035) 1px, transparent 1px),
+    linear-gradient(to right, oklch(0% 0 0 / 0.055) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(0% 0 0 / 0.055) 1px, transparent 1px);
+  background-size: 8px 8px, 8px 8px, 40px 40px, 40px 40px;
+}
+.dark .login-ground {
+  background-color: var(--color-dark-bg);
+  background-image:
+    linear-gradient(to right, oklch(100% 0 0 / 0.030) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(100% 0 0 / 0.030) 1px, transparent 1px),
+    linear-gradient(to right, oklch(100% 0 0 / 0.050) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(100% 0 0 / 0.050) 1px, transparent 1px);
+}
+.shadow-modal { box-shadow: var(--flux-shadow-modal); }

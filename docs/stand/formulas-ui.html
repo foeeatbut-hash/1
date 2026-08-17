@@ -1,0 +1,390 @@
+<meta charset="utf-8">
+<title>Формулы документа — интерфейс</title>
+
+<style>
+/* Палитра и приёмы — из самой программы: акцент emerald-600, нейтральные с
+   уклоном в тон 163°, разделяет линия, а не тень. Макет намеренно не вводит
+   свой стиль: его ценность в узнаваемости. */
+:root {
+  --bg:        oklch(97.8% 0.004 163);
+  --surface:   #ffffff;
+  --panel:     oklch(95.5% 0.005 163);
+  --line:      oklch(91.2% 0.006 163);
+  --text:      oklch(28.5% 0.014 163);
+  --text-2:    oklch(45.0% 0.013 163);
+  --muted:     oklch(56.5% 0.012 163);
+  --accent:    oklch(54.0% 0.115 163);
+  --accent-soft: oklch(95.0% 0.030 163);
+  --warn:      oklch(56.0% 0.115 75);
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 28px 20px 60px;
+  background: var(--bg); color: var(--text);
+  font: 14px/1.5 Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  letter-spacing: -0.011em;
+}
+.wrap { max-width: 1120px; margin: 0 auto; }
+h1 { font-size: 20px; font-weight: 650; margin: 0 0 4px; letter-spacing: -0.02em; }
+.lead { color: var(--text-2); font-size: 13px; margin: 0 0 28px; max-width: 70ch; }
+h2 {
+  font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); margin: 34px 0 10px;
+}
+.note { font-size: 12px; color: var(--text-2); margin: 8px 0 0; max-width: 76ch; }
+.row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.card { background: var(--surface); border: 1px solid var(--line); }
+.card-head {
+  display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+.card-title { font-size: 13px; font-weight: 600; }
+.graf { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.body { padding: 14px; }
+
+/* ── Плашка формулы: то, что видно в документе ─────────────────── */
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 1px 8px 2px; border-radius: 4px;
+  background: var(--accent-soft); border: 1px solid oklch(88% 0.05 163);
+  color: oklch(38% 0.09 163); font-size: 13px; font-weight: 500;
+  white-space: nowrap; vertical-align: baseline;
+}
+.chip::before { content: 'ƒ'; font-family: var(--mono); font-size: 10px; opacity: .55; }
+.chip.field::before { content: '§'; }
+.chip.sign::before { content: '✎'; }
+.chip.old {
+  background: oklch(96% 0.02 75); border-color: oklch(88% 0.06 75); color: oklch(42% 0.10 75);
+  font-family: var(--mono); font-size: 11.5px;
+}
+.chip.old::before { content: none; }
+
+/* ── Титульный лист ─────────────────────────────────────────────── */
+.sheet-doc {
+  width: 430px; background: #fff; border: 1px solid var(--line);
+  padding: 22px 24px; font-size: 13px;
+}
+.sheet-doc .t-title { font-size: 15px; font-weight: 650; margin: 0 0 2px; }
+.sheet-doc .t-sub { color: var(--text-2); font-size: 12px; margin: 0 0 18px; }
+.stamp-grid { border: 1px solid var(--line); border-bottom: none; }
+.stamp-row { display: flex; border-bottom: 1px solid var(--line); min-height: 34px; align-items: center; }
+.stamp-row > .c1 {
+  width: 104px; padding: 6px 10px; font-size: 11px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--muted); border-right: 1px solid var(--line); align-self: stretch;
+  display: flex; align-items: center;
+}
+.stamp-row > .c2 { padding: 6px 10px; flex: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sig-img { height: 26px; }
+
+/* ── Список формул ──────────────────────────────────────────────── */
+.list { width: 296px; }
+.f-item {
+  display: flex; align-items: center; gap: 9px; padding: 7px 12px;
+  border-bottom: 1px solid var(--line); cursor: default;
+}
+.f-item:last-child { border-bottom: none; }
+.f-item.sel { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.f-name { font-size: 13px; font-weight: 500; }
+.f-kind { margin-left: auto; font-size: 11px; color: var(--muted); }
+.f-built { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+.group-h { padding: 8px 12px 4px; border-bottom: 1px solid var(--line); background: var(--panel); }
+
+/* ── Карточка настройки ─────────────────────────────────────────── */
+.edit { flex: 1; min-width: 420px; }
+.field { margin-bottom: 14px; }
+.lab { display: block; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; font-weight: 500; }
+input[type=text], select {
+  width: 100%; padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px;
+  font: inherit; font-size: 13px; background: #fff; color: var(--text);
+}
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button {
+  border: none; background: #fff; padding: 5px 11px; font: inherit; font-size: 12px;
+  color: var(--text-2); cursor: pointer; border-right: 1px solid var(--line);
+}
+.seg button:last-child { border-right: none; }
+.seg button.on { background: var(--accent); color: #fff; font-weight: 550; }
+.preview {
+  margin-top: 4px; padding: 9px 12px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 6px;
+  display: flex; align-items: center; gap: 10px;
+}
+.preview .val { font-size: 14px; font-weight: 550; }
+.preview .cap { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+
+/* ── Сборка из частей ───────────────────────────────────────────── */
+.parts { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.part { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+.part:last-child { border-bottom: none; }
+.drag { color: var(--muted); font-size: 13px; cursor: grab; }
+.part .kind {
+  font-size: 11px; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--line);
+  color: var(--text-2); background: #fff;
+}
+.part .what { font-size: 13px; }
+.part .sep { margin-left: auto; font-size: 12px; color: var(--muted); font-family: var(--mono); }
+.part .sep2 { font-size: 12px; color: var(--muted); font-family: var(--mono); min-width: 62px; }
+.part .x { margin-left: auto; }
+.part .x { color: var(--muted); cursor: pointer; }
+.addpart { padding: 7px 10px; font-size: 12px; color: var(--accent); cursor: pointer; background: var(--panel); }
+
+/* ── Подпись ────────────────────────────────────────────────────── */
+.sig-box {
+  border: 1px dashed oklch(85% 0.01 163); border-radius: 8px; padding: 12px;
+  display: flex; align-items: center; gap: 16px; background:
+    repeating-conic-gradient(oklch(96% 0.003 163) 0% 25%, #fff 0% 50%) 50%/14px 14px;
+}
+.slider { width: 190px; accent-color: var(--accent); }
+.btn {
+  border: 1px solid var(--line); background: #fff; color: var(--text-2);
+  padding: 5px 11px; border-radius: 6px; font: inherit; font-size: 12px; cursor: pointer;
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 550; }
+.cap-under { font-size: 11px; color: var(--muted); margin-top: 6px; }
+</style>
+
+<div class="wrap">
+
+<h1>Формулы документа</h1>
+<p class="lead">
+  В документе видно название формулы, а не выражение. Настройка живёт в карточке
+  формулы: порядок частей даты, вид ФИО, из чего собрано составное значение.
+  Подпись сотрудника — картинка из его профиля, с прозрачным фоном и заданной высотой.
+</p>
+
+<h2>1. Как это выглядит в титуле</h2>
+<div class="row">
+  <div class="sheet-doc">
+    <p class="t-title">Пояснительная записка</p>
+    <p class="t-sub">Система приточно-вытяжной вентиляции</p>
+    <div class="stamp-grid">
+      <div class="stamp-row">
+        <div class="c1">Документ</div>
+        <div class="c2"><span class="chip">Шифр с ревизией</span></div>
+      </div>
+      <div class="stamp-row">
+        <div class="c1">Разработал</div>
+        <div class="c2">
+          <span class="chip">Инициалы сотрудника</span>
+          <span class="chip sign">Подпись</span>
+        </div>
+      </div>
+      <div class="stamp-row">
+        <div class="c1">Проверил</div>
+        <div class="c2">
+          <span class="chip">Инициалы проверяющего</span>
+          <span class="chip sign">Подпись проверяющего</span>
+        </div>
+      </div>
+      <div class="stamp-row">
+        <div class="c1">Дата</div>
+        <div class="c2"><span class="chip">Дата</span></div>
+      </div>
+      <div class="stamp-row">
+        <div class="c1">Заказчик</div>
+        <div class="c2"><span class="chip field">Заказчик</span></div>
+      </div>
+    </div>
+    <p class="cap-under">§ — поле программы · ƒ — формула · ✎ — подпись</p>
+  </div>
+
+  <div style="flex:1; min-width:330px">
+    <div class="card">
+      <div class="card-head"><span class="card-title">Тот же титул после сохранения</span></div>
+      <div class="body">
+        <div class="stamp-grid">
+          <div class="stamp-row"><div class="c1">Документ</div><div class="c2">ПЗ-001 рев. B</div></div>
+          <div class="stamp-row"><div class="c1">Разработал</div><div class="c2">Иванов И.&nbsp;И.
+            <svg class="sig-img" viewBox="0 0 120 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M4 26c9-14 14-19 17-13 3 7-6 16-9 13-2-2 4-9 12-13 6-3 9-1 8 3-1 5-6 9-4 11 2 2 7-3 11-9 3-5 6-9 8-6 2 4-4 12-1 14 3 2 9-6 13-12 3-5 7-9 9-6 2 4-5 13-2 15 2 2 8-4 12-9"
+                stroke="oklch(35% 0.08 250)" stroke-width="1.7" stroke-linecap="round"/>
+            </svg>
+          </div></div>
+          <div class="stamp-row"><div class="c1">Проверил</div><div class="c2">Петров П.&nbsp;П.
+            <svg class="sig-img" viewBox="0 0 110 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M5 24c6-11 11-16 14-12 3 5-3 14-6 12-2-2 6-11 14-13 5-1 7 2 5 6-2 5-7 8-5 10 3 2 10-5 14-11 3-4 6-6 7-3 1 4-3 10 0 11 3 1 8-4 11-8"
+                stroke="oklch(35% 0.08 250)" stroke-width="1.7" stroke-linecap="round"/>
+            </svg>
+          </div></div>
+          <div class="stamp-row"><div class="c1">Дата</div><div class="c2">16.08.2026</div></div>
+          <div class="stamp-row"><div class="c1">Заказчик</div><div class="c2">ООО «Заказчик»</div></div>
+        </div>
+        <p class="note">
+          Плашка исчезает, остаётся значение. Ничего не «съезжает»: подпись
+          вставлена по заданной высоте, а не по разрешению скана.
+        </p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-head"><span class="card-title">Как было</span></div>
+      <div class="body">
+        <span class="chip old">ƒ doc.code &amp; " рев. " &amp; doc.revision</span>
+        <span class="chip old" style="margin-left:6px">ƒ date &amp; " г."</span>
+        <p class="note">Выражение прямо в документе. Чтобы поменять порядок в дате — надо знать синтаксис.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>2. Справочник формул · Настройки → Документооборот</h2>
+<div class="row">
+  <div class="card list">
+    <div class="card-head">
+      <span class="card-title">Формулы</span>
+      <span style="margin-left:auto"><button class="btn primary">＋ Новая</button></span>
+    </div>
+    <div class="group-h"><span class="graf">Встроенные</span></div>
+    <div class="f-item"><span class="f-name">Дата</span><span class="f-built">сист</span><span class="f-kind">значение</span></div>
+    <div class="f-item"><span class="f-name">Инициалы сотрудника</span><span class="f-built">сист</span><span class="f-kind">значение</span></div>
+    <div class="f-item"><span class="f-name">Подпись</span><span class="f-built">сист</span><span class="f-kind">подпись</span></div>
+    <div class="f-item"><span class="f-name">Ревизия</span><span class="f-built">сист</span><span class="f-kind">значение</span></div>
+    <div class="group-h"><span class="graf">Проекта</span></div>
+    <div class="f-item sel"><span class="f-name">Шифр с ревизией</span><span class="f-kind">сборка</span></div>
+    <div class="f-item"><span class="f-name">Дата приёмки</span><span class="f-kind">значение</span></div>
+    <div class="f-item"><span class="f-name">Осталось листов</span><span class="f-kind">выражение</span></div>
+  </div>
+
+  <div class="card edit">
+    <div class="card-head">
+      <span class="card-title">Шифр с ревизией</span>
+      <span class="graf" style="margin-left:auto">сборка</span>
+    </div>
+    <div class="body">
+      <div class="field">
+        <label class="lab">Название — его видно в документе</label>
+        <input type="text" value="Шифр с ревизией">
+      </div>
+      <div class="field">
+        <label class="lab">Из чего собрано</label>
+        <div class="parts">
+          <div class="part"><span class="drag">⠿</span><span class="sep2">—</span><span class="kind">поле</span><span class="what">Номер / шифр</span><span class="x">✕</span></div>
+          <div class="part"><span class="drag">⠿</span><span class="sep2">« рев. »</span><span class="kind">поле</span><span class="what">Ревизия</span><span class="x">✕</span></div>
+          <div class="part"><span class="drag">⠿</span><span class="sep2">«, »</span><span class="kind">формула</span><span class="what">Дата</span><span class="x">✕</span></div>
+          <div class="addpart">＋ добавить часть: поле · текст · другая формула</div>
+        </div>
+        <p class="note">
+          Разделитель стоит перед частью и печатается, только если слева уже что-то
+          есть. Нет ревизии — выпадает и она, и её « рев. »: в титуле останется «ПЗ-001».
+        </p>
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <label class="lab">Предпросмотр на текущем документе</label>
+        <div class="preview"><span class="cap">выйдет</span><span class="val">ПЗ-001 рев. B, 16.08.2026</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>3. Настройка даты — то, что нельзя было поменять</h2>
+<div class="row">
+  <div class="card edit" style="max-width:520px">
+    <div class="card-head"><span class="card-title">Дата</span><span class="graf" style="margin-left:auto">значение</span></div>
+    <div class="body">
+      <div class="field">
+        <label class="lab">Порядок</label>
+        <div class="seg">
+          <button class="on">Д · М · Г</button><button>М · Д · Г</button><button>Г · М · Д</button>
+        </div>
+      </div>
+      <div class="field">
+        <label class="lab">Месяц</label>
+        <div class="seg"><button class="on">08</button><button>августа</button><button>Август</button><button>VIII</button></div>
+      </div>
+      <div class="field">
+        <label class="lab">Год</label>
+        <div class="seg"><button class="on">2026</button><button>26</button><button>2026 г.</button></div>
+      </div>
+      <div class="field">
+        <label class="lab">Разделитель</label>
+        <div class="seg"><button class="on">.</button><button>/</button><button>-</button><button>пробел</button></div>
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <label class="lab">Предпросмотр</label>
+        <div class="preview"><span class="cap">выйдет</span><span class="val">16.08.2026</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card edit" style="max-width:460px">
+    <div class="card-head"><span class="card-title">Инициалы сотрудника</span><span class="graf" style="margin-left:auto">значение</span></div>
+    <div class="body">
+      <div class="field">
+        <label class="lab">Чей</label>
+        <div class="seg"><button class="on">Автор документа</button><button>Кто открыл</button><button>Выбранный</button></div>
+      </div>
+      <div class="field">
+        <label class="lab">Как показать</label>
+        <div class="seg" style="flex-wrap:wrap">
+          <button>Иванов Иван Иванович</button><button class="on">Иванов И. И.</button><button>И. И. Иванов</button><button>Иванов</button>
+        </div>
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <label class="lab">Предпросмотр</label>
+        <div class="preview"><span class="cap">выйдет</span><span class="val">Иванов И.&nbsp;И.</span></div>
+      </div>
+      <p class="note">
+        Отдельного поля «инициалы» в базе нет и не нужно: это вид вывода того же
+        ФИО, которое уже хранится по частям.
+      </p>
+    </div>
+  </div>
+</div>
+
+<h2>4. Подпись сотрудника · карточка сотрудника</h2>
+<div class="card" style="max-width:640px">
+  <div class="card-head"><span class="card-title">Иванов Иван Иванович</span><span class="graf" style="margin-left:auto">подпись</span></div>
+  <div class="body">
+    <div class="sig-box">
+      <svg width="150" height="42" viewBox="0 0 120 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M4 26c9-14 14-19 17-13 3 7-6 16-9 13-2-2 4-9 12-13 6-3 9-1 8 3-1 5-6 9-4 11 2 2 7-3 11-9 3-5 6-9 8-6 2 4-4 12-1 14 3 2 9-6 13-12 3-5 7-9 9-6 2 4-5 13-2 15 2 2 8-4 12-9"
+          stroke="oklch(35% 0.08 250)" stroke-width="1.7" stroke-linecap="round"/>
+      </svg>
+      <div style="flex:1">
+        <label class="lab">Убрать фон</label>
+        <input class="slider" type="range" min="0" max="100" value="72">
+        <p class="cap-under">Точки светлее порога становятся прозрачными. Клетка под подписью — прозрачность.</p>
+      </div>
+    </div>
+    <div class="row" style="margin-top:12px; align-items:center">
+      <button class="btn">Загрузить картинку</button>
+      <button class="btn">Убрать подпись</button>
+      <div style="margin-left:auto; display:flex; align-items:center; gap:8px">
+        <span class="lab" style="margin:0">Высота в документе</span>
+        <div class="seg"><button>6 мм</button><button class="on">8 мм</button><button>10 мм</button></div>
+      </div>
+    </div>
+    <p class="note">
+      Задаётся при заведении сотрудника и меняется позже — здесь же и в своём
+      профиле. Высота хранится в миллиметрах, поэтому подпись в документе не
+      зависит от того, каким разрешением её отсканировали.
+    </p>
+  </div>
+</div>
+
+<h2>5. Вставка в документ</h2>
+<div class="card" style="max-width:560px">
+  <div class="card-head"><span class="card-title">Панель вставки в редакторе титула</span></div>
+  <div class="body">
+    <div class="field">
+      <label class="lab">Поиск</label>
+      <input type="text" placeholder="дата, подпись, шифр…">
+    </div>
+    <div class="parts">
+      <div class="part"><span class="chip">Дата</span><span class="sep">16.08.2026</span></div>
+      <div class="part"><span class="chip">Инициалы сотрудника</span><span class="sep">Иванов И. И.</span></div>
+      <div class="part"><span class="chip sign">Подпись</span><span class="sep">картинка</span></div>
+      <div class="part"><span class="chip">Шифр с ревизией</span><span class="sep">ПЗ-001 рев. B</span></div>
+      <div class="addpart">＋ Новая формула</div>
+    </div>
+    <p class="note">
+      Справа от каждой — что она даст на этом документе прямо сейчас. Выбирать
+      вслепую не приходится, а «＋ Новая формула» открывает ту же карточку, что
+      и в Настройках, — второй реализации нет.
+    </p>
+  </div>
+</div>
+
+</div>
