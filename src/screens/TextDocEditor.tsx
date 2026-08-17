@@ -5,14 +5,21 @@ import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import {
   ArrowLeft, Loader2, Download, FolderOpen, Printer, History, X, FileText, Database, StickyNote, Stamp,
-  Share2, LayoutTemplate, Check,
+  Share2, LayoutTemplate,
 } from 'lucide-react';
 import TitlePanel, { fetchTitlePageHtml, buildPageTemplates, fetchRevisionsSheetHtml, TitleSettings } from './TitlePanel';
 import { useModalStore } from '../store/modalStore';
 import {
-  buildDocHtml, safeFileName, DOC_FONTS, PAGE_SIZES, MARGIN_PRESETS,
-  readPageSetup, applyPageSetup, ptToMm, FLAVOR_WORD, MARGIN_HEADER_PT, PageSetup,
-} from './docExport';
+  buildDocHtml, safeFileName, DOC_FONTS,
+  readPageSetup, applyPageSetup, FLAVOR_WORD, MARGIN_HEADER_PT, PageSetup, pageOf,
+} from '../lib/docExport';
+import DocRuler from '../components/DocRuler';
+import ParagraphSpacingMenu from '../components/ParagraphSpacingMenu';
+import PageSetupDialog from '../components/PageSetupDialog';
+import { describeParagraph, type RulerModel } from '../lib/docStyle';
+import {
+  patchParagraphs, patchDocumentStyle, readParagraphStyle, readZoom, type EngineCtx,
+} from '../lib/docEngine';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm } = useModalStore.getState();
@@ -230,6 +237,13 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   // ── Титул: присвоенный шаблон + реквизиты именно этого документа ──
   const [titleOpen, setTitleOpen] = useState(false);
   const [settings, setSettings] = useState<TitleSettings>({});
+  // ── Линейка и стиль абзаца под курсором ──
+  // Состояние обновляется по командам движка (курсор, правка, масштаб): линейка
+  // должна показывать отступы того абзаца, в котором человек сейчас стоит.
+  const [ruler, setRuler] = useState<{ model: RulerModel; pxPerPt: number; leftPx: number; topPx: number; hasSelection: boolean } | null>(null);
+  const [paraStyle, setParaStyle] = useState<any>(null);
+  const presetRef = useRef<any>(null);       // модуль пресета: служба выделения и масштаб
+
   // «Разметка страницы» — формат листа, ориентация, поля (как в Ворде)
   const [pageDialog, setPageDialog] = useState(false);
   const [pageSetup, setPageSetup] = useState<PageSetup | null>(null);
@@ -367,6 +381,9 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
           ],
         });
         univerRef.current = { univer, univerAPI };
+        // Модуль пресета держим у себя: из него берём службу выделения и
+        // масштаб полотна — ядро их наружу не отдаёт
+        presetRef.current = docsPreset;
 
         // Список шрифтов в ленте. Через настройку пресета не проходит — он
         // пропускает только часть полей (customFontFamily среди них нет), это
@@ -426,6 +443,9 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
           finally { setTimeout(() => { applyingRemoteRef.current = false; }, 0); }
         });
         const cmdDisposer = univerAPI.onCommandExecuted((command: any, options: any) => {
+          // Линейка следит за курсором, правкой и масштабом — иначе она
+          // показывала бы отступы того абзаца, где человек стоял раньше
+          scheduleRulerRefresh();
           if (applyingRemoteRef.current || options?.fromCollab || options?.fromChangeset) return;
           if (command?.type !== 2) return; // MUTATION
           const cmdId = String(command.id || '');
@@ -435,6 +455,8 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         (univerRef.current as any).cmdDisposer = cmdDisposer;
 
         setLoading(false);
+        // Первый пересчёт после того, как движок разложил страницу
+        setTimeout(() => { if (!disposed) refreshRuler(); }, 400);
       } catch (err: any) {
         console.error('[Constructor] Ошибка инициализации текстового редактора:', err);
         addToast('Не удалось загрузить редактор документов', 'error');
@@ -459,9 +481,110 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
       const dying = univerRef.current;
       univerRef.current = null;
       fdocRef.current = null;
+      presetRef.current = null;
+      clearTimeout(rulerTimerRef.current);
       setTimeout(() => { try { dying?.univer?.dispose?.(); } catch (_) {} }, 0);
     };
   }, [docId, reloadTick]);
+
+  // Полотно меняет ширину при сворачивании боковой панели и окна — линейка
+  // должна оставаться ровно над листом
+  useEffect(() => {
+    const box = containerRef.current;
+    if (!box || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => scheduleRulerRefresh());
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [loading]);
+
+  // ── Линейка: пересчёт и перетаскивание ──
+  // Команды движка идут пачками (одно нажатие клавиши — несколько команд),
+  // поэтому пересчёт откладываем, а не считаем на каждую
+  const rulerTimerRef = useRef<any>(null);
+  const scheduleRulerRefresh = () => {
+    clearTimeout(rulerTimerRef.current);
+    rulerTimerRef.current = setTimeout(() => refreshRuler(), 120);
+  };
+
+  const engineCtx = (): EngineCtx | null => {
+    const u = univerRef.current;
+    const fdoc = fdocRef.current;
+    if (!u || !fdoc || !presetRef.current) return null;
+    return { univer: u.univer, univerAPI: u.univerAPI, preset: presetRef.current, fdoc };
+  };
+
+  const refreshRuler = () => {
+    const ctx = engineCtx();
+    const box = containerRef.current;
+    if (!ctx || !box) return;
+    let snap: any = {};
+    try { snap = ctx.fdoc.getSnapshot?.() || {}; } catch (_) { return; }
+    const page = pageOf(snap);
+    const st = readParagraphStyle(ctx);      // null — курсора в тексте нет
+    const d = describeParagraph(st);
+    setParaStyle(st);
+    // Лист движок рисует по центру полотна, пункт в пиксель на масштаб
+    const pxPerPt = readZoom(ctx);
+    const widthPx = page.widthPt * pxPerPt;
+
+    // Место линейки считаем по самому полотну, а не по всей области редактора:
+    // сверху внутри неё лежит лента движка, и от её высоты зависит, где
+    // начинается лист. В Ворде линейка стоит между лентой и листом — тут так же.
+    const canvas = box.querySelector('canvas');
+    const cRect = canvas?.getBoundingClientRect();
+    const bRect = box.getBoundingClientRect();
+    const topPx = cRect ? Math.max(0, Math.round(cRect.top - bRect.top)) : 0;
+    const centerPx = cRect ? (cRect.left - bRect.left) + cRect.width / 2 : box.clientWidth / 2;
+
+    setRuler({
+      model: {
+        pageWidthPt: page.widthPt,
+        marginLeftPt: page.left,
+        marginRightPt: page.right,
+        firstLinePt: d.firstLinePt,
+        indentStartPt: d.startPt,
+        indentEndPt: d.endPt,
+      },
+      pxPerPt,
+      leftPx: Math.max(0, centerPx - widthPx / 2),
+      topPx,
+      hasSelection: st !== null,
+    });
+  };
+
+  // Поля страницы — свойство документа, применяем сразу и без перезагрузки
+  const dragMargins = (patch: { marginLeftPt?: number; marginRightPt?: number }) => {
+    const ctx = engineCtx();
+    if (!ctx) return;
+    const next: Record<string, number> = {};
+    if (patch.marginLeftPt !== undefined) next.marginLeft = patch.marginLeftPt;
+    if (patch.marginRightPt !== undefined) next.marginRight = patch.marginRightPt;
+    if (!patchDocumentStyle(ctx, next)) { addToast('Не удалось изменить поля', 'error'); return; }
+    refreshRuler();
+    saveNow();
+  };
+
+  // Отступы — свойство выделенных абзацев, а не всего документа
+  const dragIndents = (patch: { firstLinePt?: number; indentStartPt?: number; indentEndPt?: number }) => {
+    const ctx = engineCtx();
+    if (!ctx) return;
+    const next: any = {};
+    if (patch.firstLinePt !== undefined) next.indentFirstLine = { v: patch.firstLinePt };
+    if (patch.indentStartPt !== undefined) next.indentStart = { v: patch.indentStartPt };
+    if (patch.indentEndPt !== undefined) next.indentEnd = { v: patch.indentEndPt };
+    if (!patchParagraphs(ctx, next)) { addToast('Поставьте курсор в текст', 'error'); return; }
+    refreshRuler();
+    saveNow();
+  };
+
+  /** Интервалы и красная строка — к выделенным абзацам */
+  const applyParagraph = (patch: any) => {
+    const ctx = engineCtx();
+    if (!ctx) { addToast('Редактор ещё загружается', 'error'); return; }
+    if (!patchParagraphs(ctx, patch)) { addToast('Поставьте курсор в текст', 'error'); return; }
+    refreshRuler();
+    saveNow();
+  };
 
   // Вставка «умного поля»: живое значение проекта/тега/даты — в позицию курсора
   const insertField = async (text: string) => {
@@ -624,12 +747,14 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     setPageDialog(true);
   };
 
-  const applyPageDialog = async () => {
-    if (!pageSetup) return;
+  // Настройку берём из окна, а не из своего состояния: окно правит свою копию,
+  // и чтение здешней (ещё не тронутой) означало бы «Применить» без действия
+  const applyPageDialog = async (chosen: PageSetup) => {
+    if (!chosen) return;
     try {
       const snap = JSON.parse(takeSnapshot() || '{}');
       if (!snap.body) { addToast('Документ ещё загружается', 'error'); return; }
-      const next = applyPageSetup(snap, pageSetup);
+      const next = applyPageSetup(snap, chosen);
       const res = await fetch(`/api/constructor/docs/${docId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workbook: JSON.stringify(next) }),
@@ -716,6 +841,8 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
           <History className="w-3.5 h-3.5" /> История
         </button>
+        {/* Интервалы: междустрочный, до и после абзаца, красная строка */}
+        <ParagraphSpacingMenu style={paraStyle} onApply={applyParagraph} />
         <button type="button" onClick={openPageDialog}
           title="Разметка страницы: формат листа, ориентация, поля — как в Ворде"
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
@@ -763,6 +890,21 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
 
       {/* Полотно движка: страницы документа */}
       <div className="flex-1 min-h-0 relative bg-slate-100 dark:bg-slate-950">
+        {/* Линейка над листом — в полосе между лентой движка и страницей */}
+        {!loading && ruler && (
+          <div className="absolute left-0 right-0 z-20 pointer-events-none" style={{ top: ruler.topPx }}>
+            <div className="pointer-events-auto">
+              <DocRuler
+                model={ruler.model}
+                pxPerPt={ruler.pxPerPt}
+                leftPx={ruler.leftPx}
+                hasSelection={ruler.hasSelection}
+                onMargins={dragMargins}
+                onIndents={dragIndents}
+              />
+            </div>
+          </div>
+        )}
         <div ref={containerRef} className="absolute inset-0" />
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-slate-950">
@@ -771,83 +913,14 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         )}
       </div>
 
-      {/* «Разметка страницы» — то же, что вкладка Ворда: формат, ориентация, поля */}
+      {/* «Разметка страницы»: формат листа, ориентация, поля */}
       {pageDialog && pageSetup && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4" onClick={() => setPageDialog(false)}>
-          <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 dark:border-slate-800">
-              <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                <LayoutTemplate className="w-4 h-4 text-sky-600" /> Разметка страницы
-              </h3>
-              <button type="button" onClick={() => setPageDialog(false)} className="text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="p-5 space-y-4">
-              <div>
-                <div className="text-xs font-bold text-slate-500 mb-1.5">Формат листа</div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {Object.entries(PAGE_SIZES).map(([key, s]) => (
-                    <button key={key} type="button" onClick={() => setPageSetup(p => p && { ...p, size: key })}
-                      className={`px-3 py-2 rounded-lg text-xs font-bold text-left cursor-pointer border ${pageSetup.size === key ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300' : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="text-xs font-bold text-slate-500 mb-1.5">Ориентация</div>
-                <div className="flex gap-1.5">
-                  {([['portrait', 'Книжная'], ['landscape', 'Альбомная']] as const).map(([v, label]) => (
-                    <button key={v} type="button" onClick={() => setPageSetup(p => p && { ...p, orientation: v })}
-                      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold cursor-pointer border ${pageSetup.orientation === v ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300' : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
-                      <span className={`border-2 border-current ${v === 'portrait' ? 'w-2.5 h-3.5' : 'w-3.5 h-2.5'}`} />
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="text-xs font-bold text-slate-500 mb-1.5">Поля</div>
-                <div className="space-y-1.5">
-                  {Object.entries(MARGIN_PRESETS).map(([key, m]) => {
-                    const same = pageSetup.margins.top === m.top && pageSetup.margins.right === m.right
-                      && pageSetup.margins.bottom === m.bottom && pageSetup.margins.left === m.left;
-                    return (
-                      <button key={key} type="button" onClick={() => setPageSetup(p => p && { ...p, margins: { top: m.top, right: m.right, bottom: m.bottom, left: m.left } })}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-bold cursor-pointer border ${same ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300' : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
-                        {m.label}
-                        {same && <Check className="w-3.5 h-3.5" />}
-                      </button>
-                    );
-                  })}
-                </div>
-                {/* Свои значения: вводим в миллиметрах, храним в пунктах */}
-                <div className="grid grid-cols-4 gap-1.5 mt-2">
-                  {([['top', 'Сверху'], ['bottom', 'Снизу'], ['left', 'Слева'], ['right', 'Справа']] as const).map(([k, label]) => (
-                    <label key={k} className="text-2xs font-bold text-slate-500">
-                      {label}, мм
-                      <input type="number" min={0} max={100} step={1} value={ptToMm(pageSetup.margins[k])}
-                        onChange={e => {
-                          const mm = Math.max(0, Math.min(100, Number(e.target.value) || 0));
-                          setPageSetup(p => p && { ...p, margins: { ...p.margins, [k]: Math.round(mm / (25.4 / 72) * 10) / 10 } });
-                        }}
-                        className="w-full mt-0.5 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs font-bold text-slate-700 dark:text-slate-200" />
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
-              <button type="button" onClick={() => setPageDialog(false)} className="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer">Отмена</button>
-              <button type="button" onClick={applyPageDialog} className="px-4 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold cursor-pointer">Применить</button>
-            </div>
-          </div>
-        </div>
+        <PageSetupDialog
+          value={pageSetup}
+          onApply={applyPageDialog}
+          onClose={() => setPageDialog(false)}
+        />
       )}
-
       {/* Панель «Титул»: выбор шаблона + реквизиты этого документа */}
       {titleOpen && (
         <TitlePanel

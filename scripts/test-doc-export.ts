@@ -8,7 +8,7 @@
 import {
   bodyToHtml, buildDocHtml, runCss, paraCss, pageOf, ptToMm, safeFileName, DEFAULT_PAGE,
   readPageSetup, applyPageSetup, PAGE_SIZES, MARGIN_PRESETS, DOC_FONTS,
-} from '../src/screens/docExport.js';
+} from '../src/lib/docExport.js';
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: any) =>

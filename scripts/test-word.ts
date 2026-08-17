@@ -127,6 +127,12 @@ const api = async (method: string, url: string, body?: any) => {
     body: JSON.stringify({ licensed: true, machineId: 'TEST', expiresAt: Date.now() + 9e8, daysLeft: 30, reason: '' }),
   }));
 
+  /** Снапшот документа из базы — сверяем то, что реально сохранилось */
+  const docSnapshot = async (): Promise<any> => {
+    const doc = (await api('GET', `/api/constructor/docs/${docId}`)).json?.doc;
+    try { return JSON.parse(doc?.workbook || '{}'); } catch (_) { return {}; }
+  };
+
   const clickByName = async (name: string | RegExp, timeout = 6000) => {
     const loc = page.getByRole('button', { name });
     const n = await loc.count();
@@ -213,7 +219,119 @@ const api = async (method: string, url: string, body?: any) => {
       await page.waitForTimeout(500);
     }
 
-    console.log('3. Разметка страницы');
+    console.log('3. Линейка над листом');
+    // Линейку рисуем после того, как движок разложил страницу, — ждём её
+    // появления, а не «подольше поспим»: на медленной машине сон не спасёт
+    await page.waitForSelector('[data-doc-ruler] > div', { timeout: 20000 }).catch(() => {});
+    if (process.env.FLUX_DEBUG) {
+      console.log('    отладка:', JSON.stringify(await page.evaluate(() => ({
+        линеек: document.querySelectorAll('[data-doc-ruler]').length,
+        кнопкаИнтервал: [...document.querySelectorAll('button')].filter(b => /Интервал/.test(b.textContent || '')).length,
+        видимаяКнопка: [...document.querySelectorAll('button')].filter(b => /Интервал/.test(b.textContent || '') && b.getClientRects().length > 0).length,
+        именаКнопок: [...document.querySelectorAll('button')].map(b => (b.textContent || '').trim()).filter(Boolean).slice(0, 22),
+      }))));
+    }
+    // Линейка должна стоять ровно по ширине листа. Проверяем не «есть элемент»,
+    // а совпадение с самим листом: движок рисует лист на полотне, поэтому
+    // сравниваем ширину линейки с шириной листа в пунктах и масштабом.
+    const rulerGeom = await page.evaluate(() => {
+      const strip = document.querySelector('[data-doc-ruler] > div') as HTMLElement | null;
+      if (!strip) return null;
+      const box = strip.getBoundingClientRect();
+      const canvas = document.querySelector('canvas') as HTMLCanvasElement | null;
+      const cbox = canvas?.getBoundingClientRect();
+      // Светлая полоса внутри — текстовая область между полями
+      const text = strip.firstElementChild as HTMLElement | null;
+      const tbox = text?.getBoundingClientRect();
+      return {
+        left: Math.round(box.left), width: Math.round(box.width),
+        textLeft: tbox ? Math.round(tbox.left - box.left) : null,
+        textWidth: tbox ? Math.round(tbox.width) : null,
+        canvasLeft: cbox ? Math.round(cbox.left) : null,
+        canvasWidth: cbox ? Math.round(cbox.width) : null,
+      };
+    });
+    ok('линейка на экране', !!rulerGeom, rulerGeom);
+    if (rulerGeom) {
+      // А4 книжная: 595,3 pt при 100% — это 595 px (пункт в пиксель)
+      ok('ширина линейки равна ширине листа', Math.abs(rulerGeom.width - 595) <= 2, rulerGeom.width);
+      // Поля 2,54 см = 72 pt с каждой стороны → текст 451 px
+      ok('светлая полоса — текстовая область между полями',
+        Math.abs((rulerGeom.textWidth ?? 0) - 451) <= 3, rulerGeom.textWidth);
+      ok('текстовая область начинается на левом поле',
+        Math.abs((rulerGeom.textLeft ?? 0) - 72) <= 2, rulerGeom.textLeft);
+      // Линейка по центру полотна — там же, где движок рисует лист
+      const rulerCenter = rulerGeom.left + rulerGeom.width / 2;
+      const canvasCenter = (rulerGeom.canvasLeft ?? 0) + (rulerGeom.canvasWidth ?? 0) / 2;
+      ok('линейка стоит над листом, а не сбоку', Math.abs(rulerCenter - canvasCenter) <= 12,
+        { rulerCenter, canvasCenter });
+    }
+
+    const handles = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-doc-ruler] button')].map(b => b.getAttribute('title') || ''));
+    ok('бегунки полей есть', handles.some(t => /Левое поле/.test(t)) && handles.some(t => /Правое поле/.test(t)), handles);
+    ok('значение поля показано в миллиметрах', handles.some(t => /25,4 мм/.test(t)), handles);
+
+    // Тянем левое поле линейкой и сверяем с базой: 72 pt → примерно 20 мм
+    const leftHandle = await page.evaluate(() => {
+      const b = [...document.querySelectorAll('[data-doc-ruler] button')]
+        .find(x => /Левое поле/.test(x.getAttribute('title') || '')) as HTMLElement | undefined;
+      if (!b) return null;
+      const r = b.getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    });
+    ok('бегунок левого поля пойман', !!leftHandle, leftHandle);
+    if (leftHandle) {
+      await page.mouse.move(leftHandle.x, leftHandle.y);
+      await page.mouse.down();
+      // Влево на 15 px: 72 pt → 57 pt (примерно 20 мм), с прилипанием к 0,5 мм
+      await page.mouse.move(leftHandle.x - 15, leftHandle.y, { steps: 6 });
+      const tip = await page.evaluate(() => {
+        const el = [...document.querySelectorAll('[data-doc-ruler] div')]
+          .find(x => /Левое:/.test(x.textContent || ''));
+        return el?.textContent || '';
+      });
+      ok('пока тянем, видно значение', /Левое:\s*\d+/.test(tip), tip);
+      await page.mouse.up();
+      await page.waitForTimeout(2500);
+
+      const snap = await docSnapshot();
+      const left = snap?.documentStyle?.marginLeft;
+      ok('поле в документе уменьшилось', typeof left === 'number' && left < 72 && left > 45, left);
+      ok('прилипло к полумиллиметру',
+        typeof left === 'number' && Math.abs((left * 25.4 / 72) * 2 - Math.round((left * 25.4 / 72) * 2)) < 0.02,
+        left && left * 25.4 / 72);
+      ok('текст документа при этом не пострадал', typeof snap?.body?.dataStream === 'string');
+    }
+
+    console.log('4. Интервалы к выделению');
+    // Ставим курсор в текст: без курсора интервал применять некуда
+    await page.mouse.click(760, 300);
+    await page.waitForTimeout(600);
+    await page.keyboard.type('Проверка интервала', { delay: 12 });
+    await page.waitForTimeout(1200);
+
+    ok('кнопка «Интервал» на месте', await clickByName('Интервал', 6000));
+    await page.waitForTimeout(800);
+    const spacingMenu = await page.evaluate(() => document.body.innerText);
+    ok('в меню есть 1,5 для ГОСТ', /1,5 · ГОСТ/.test(spacingMenu), spacingMenu.slice(-300));
+    ok('и интервалы до и после абзаца',
+      /Интервал до абзаца/.test(spacingMenu) && /Интервал после абзаца/.test(spacingMenu));
+    ok('и красная строка 1,25 см', /Красная строка 1,25 см/.test(spacingMenu));
+
+    await clickByName('Как в записке по ГОСТ', 6000);
+    await page.waitForTimeout(2500);
+    {
+      const snap = await docSnapshot();
+      const para = (snap?.body?.paragraphs || []).find((p: any) => p.paragraphStyle);
+      ok('междустрочный интервал 1,5 записан в абзац', para?.paragraphStyle?.lineSpacing === 1.5, para?.paragraphStyle);
+      ok('красная строка 1,25 см записана',
+        Math.abs((para?.paragraphStyle?.indentFirstLine?.v || 0) * 25.4 / 72 - 12.5) < 0.2,
+        para?.paragraphStyle?.indentFirstLine);
+      ok('набранный текст на месте', /Проверка интервала/.test(snap?.body?.dataStream || ''), snap?.body?.dataStream?.slice(0, 60));
+    }
+
+    console.log('5. Разметка страницы');
     ok('кнопка «Лист» на месте', await clickByName('Лист', 6000));
     await page.waitForTimeout(1200);
     const dlg = await page.evaluate(() => document.body.innerText);
@@ -236,7 +354,7 @@ const api = async (method: string, url: string, body?: any) => {
     ok('лист стал альбомным', ds.pageSize?.width > ds.pageSize?.height, ds.pageSize);
     ok('текст документа при смене разметки не потерялся', typeof snap.body?.dataStream === 'string', Object.keys(snap));
 
-    console.log('4. Выгрузка в Ворд');
+    console.log('6. Выгрузка в Ворд');
     // Перехватываем скачивание и читаем сам файл
     const dl = page.waitForEvent('download', { timeout: 20000 }).catch(() => null);
     ok('меню выгрузки открылось', await clickByName('Выгрузить', 6000));
@@ -270,7 +388,7 @@ const api = async (method: string, url: string, body?: any) => {
       ok('формул в файле нет, только значения', !/data-formula/.test(text) && !/tt-chip/.test(text));
     }
 
-    console.log('5. Титул с формулами: получатель в Windows видит значения');
+    console.log('7. Титул с формулами: получатель в Windows видит значения');
     // Присвоенный титул виден по кнопке: она зелёная. Не зелёная — редактор не
     // прочитал настройки, и проверять выгрузку бессмысленно
     const titleAssigned = await page.evaluate(() => {
@@ -301,7 +419,7 @@ const api = async (method: string, url: string, body?: any) => {
       ok('титул отделён разрывом страницы', /page-break-after:always/.test(t2));
     }
 
-    console.log('6. Ошибок в консоли нет');
+    console.log('8. Ошибок в консоли нет');
     // Свои ошибки движка про отсутствующие шрифты не считаем: их нет в контейнере
     const real = errors.filter(e => !/font|Font|favicon|ResizeObserver/.test(e));
     ok('исключений и ответов 4xx/5xx не было', real.length === 0, real.slice(0, 4));
