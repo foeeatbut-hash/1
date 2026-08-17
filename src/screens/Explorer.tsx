@@ -2045,8 +2045,10 @@ export default function Explorer() {
                     <div className="flex">
                       <span className="w-32 text-slate-500">Приложение:</span>
                       <span className="text-slate-900">
-                        {propertiesModal.item.type === 'PDF' ? 'PDF Reader' : 
-                         propertiesModal.item.type === 'TXT' ? 'Блокнот' : 
+                        {propertiesModal.item.type === 'PDF' ? 'PDF Reader' :
+                         propertiesModal.item.type === 'TXT' ? 'Блокнот' :
+                         propertiesModal.item.type === 'DOCX' ? 'Microsoft Word' :
+                         propertiesModal.item.type === 'CONSTRUCTOR' ? 'Конструктор Flux' :
                          propertiesModal.item.type === 'IMAGE' ? 'Фотографии' : 'Неизвестно'}
                       </span>
                     </div>

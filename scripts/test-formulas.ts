@@ -6,8 +6,9 @@
  */
 import {
   renderFormula, renderField, formatDate, formatName, isEmptyValue, findCycle, cycleNames,
-  type Formula, type FormulaContext,
+  formulaUserIds, type Formula, type FormulaContext,
 } from '../src/lib/docFormula.js';
+import { renderTitleHtml, usedFormulaIds, namedChipHtml } from '../src/screens/titleTemplate.js';
 import { cutBackground, inkRatio, fitToHeight, checkFile, DEFAULT_THRESHOLD,
          inkBounds, suggestThreshold, looksEmpty } from '../src/lib/signature.js';
 
@@ -106,6 +107,32 @@ const noSig = { ...CTX, 'person.author.signature': '' };
 ok('подписи нет — пусто, а НЕ ФИО вместо неё', txt(renderFormula(sig, noSig, cat([sig]))) === '', txt(renderFormula(sig, noSig, cat([sig]))));
 const sigCur: Formula = { id: 's2', name: 'Подпись открывшего', kind: 'signature', config: { person: 'current' } };
 ok('у текущего пользователя подписи нет — пусто', txt(renderFormula(sigCur, CTX, cat([sigCur]))) === '');
+
+// Подпись внутри сборки: «Подписал: Иванов И.И. ✎». Раньше картинка молча
+// выбрасывалась — в документе оставались одни инициалы.
+{
+  const ini: Formula = { id: 'n0', name: 'Инициалы', kind: 'value', config: { field: 'person', name: 'initialsAfter', person: 'author' } };
+  const mixed: Formula = { id: 'c9', name: 'Подписал', kind: 'compose', config: { parts: [
+    { kind: 'text', value: 'Подписал:' },
+    { kind: 'formula', value: 'n0', sep: ' ' },
+    { kind: 'formula', value: 's1', sep: ' ' },
+  ] } };
+  const r = renderFormula(mixed, CTX, cat([ini, sig, mixed]));
+  ok('сборка с подписью отдаёт и текст, и картинку', r.kind === 'rich', r);
+  const segs = r.kind === 'rich' ? r.segments : [];
+  ok('сначала текст', segs[0]?.kind === 'text' && segs[0].text === 'Подписал: Иванов И.И. ', segs[0]);
+  ok('потом подпись', segs[1]?.kind === 'image', segs[1]);
+  ok('частей ровно две', segs.length === 2, segs.length);
+
+  // Подписи у человека нет — остаётся обычный текст, без пустой картинки
+  const flat = renderFormula(mixed, { ...CTX, 'person.author.signature': '' }, cat([ini, sig, mixed]));
+  ok('нет подписи — сборка снова обычный текст', flat.kind === 'text', flat);
+  ok('и хвостового разделителя не осталось', flat.kind === 'text' && flat.text === 'Подписал: Иванов И.И.', flat);
+
+  // Только подпись в сборке — незачем оборачивать в rich
+  const onlySig: Formula = { id: 'c10', name: 'Только подпись', kind: 'compose', config: { parts: [{ kind: 'formula', value: 's1' }] } };
+  ok('одна часть-картинка отдаётся картинкой', renderFormula(onlySig, CTX, cat([sig, onlySig])).kind === 'image');
+}
 
 console.log('6. Чьё ФИО');
 const fioAuthor: Formula = { id: 'n1', name: 'Инициалы', kind: 'value', config: { field: 'person', name: 'initialsAfter', person: 'author' } };
@@ -213,6 +240,57 @@ console.log('13. Подпись: обрезка полей и подбор по�
   ok('на пустой картинке границ нет', inkBounds(blank, W, H) === null);
   ok('пустая картинка распознаётся как пустая', looksEmpty(blank));
   ok('картинка со штрихом пустой не считается', !looksEmpty(sheet));
+}
+
+console.log('14. Титул на печати и в файле Ворда');
+{
+  // Ровно та связка, которая была сломана: плашки на листе → каталог → контекст.
+  const CAT = cat([
+    { id: 'f-date', name: 'Дата', kind: 'value', config: { field: 'date', date: { order: 'dmy', month: 'gen' } } },
+    { id: 'f-ini', name: 'Инициалы', kind: 'value', config: { field: 'person', name: 'initialsAfter', person: 'user', userId: 'u-77' } },
+    { id: 'f-sign', name: 'Подпись', kind: 'signature', config: { person: 'user', userId: 'u-99', heightMm: 10 } },
+    { id: 'f-both', name: 'Подписал', kind: 'compose', config: { parts: [
+      { kind: 'formula', value: 'f-ini' }, { kind: 'formula', value: 'f-sign', sep: ' ' },
+    ] } },
+  ] as Formula[]);
+
+  const sheet = `<p>Дата: ${namedChipHtml({ id: 'f-date', name: 'Дата' })}</p>`
+    + `<p>${namedChipHtml({ id: 'f-both', name: 'Подписал' })}</p>`;
+
+  ok('плашки на листе найдены', usedFormulaIds(sheet).sort().join(',') === 'f-both,f-date', usedFormulaIds(sheet));
+  ok('пустой лист — ни одной плашки', usedFormulaIds('').length === 0);
+  ok('лист без плашек не выдумывает формул', usedFormulaIds('<p>обычный текст</p>').length === 0);
+
+  const ids = formulaUserIds(usedFormulaIds(sheet), CAT);
+  ok('сотрудники из вложенных формул собраны', ids.sort().join(',') === 'u-77,u-99', ids);
+  ok('формула без сотрудника никого не добавляет', formulaUserIds(['f-date'], CAT).length === 0);
+  ok('ссылка на несуществующую формулу не роняет', formulaUserIds(['нет-такой'], CAT).length === 0);
+  ok('кольцо в формулах не уводит в бесконечность',
+    formulaUserIds(['a'], cat([{ id: 'a', name: 'A', kind: 'compose', config: { parts: [{ kind: 'formula', value: 'a' }] } }] as Formula[])).length === 0);
+
+  const CTX2: FormulaContext = {
+    date: '2026-08-17',
+    'person.u-77.lastName': 'Раупов', 'person.u-77.firstName': 'Хусрав', 'person.u-77.middleName': 'Хуршедович',
+    'person.u-99.signature': 'data:image/png;base64,AAA', 'person.u-99.signatureHeightMm': 10,
+  };
+  const out = renderTitleHtml(sheet, CTX2 as any, CAT);
+  ok('дата подставлена значением', out.includes('17 августа 2026'), out);
+  // Неразрывный пробел — намеренно: «Раупов» и «Х.Х.» не должны разъезжаться по строкам
+  ok('инициалы собраны из ФИО', out.includes('Раупов Х.Х.'), out);
+  ok('подпись стала картинкой', out.includes('<img src="data:image/png;base64,AAA"') && out.includes('height:10mm'), out);
+  ok('в сборке подпись стоит после инициалов, а не пропадает',
+    /Раупов Х\.Х\. <img/.test(out), out);
+  ok('разметки плашек в готовом листе не осталось', !out.includes('data-formula-id') && !out.includes('tt-chip'), out);
+  ok('«ƒ» из документа не уехало в файл', !out.includes('ƒ'), out);
+
+  // Без каталога — именно то, что печаталось до правки: зачёркнутое название
+  const noCat = renderTitleHtml(sheet, CTX2 as any, {});
+  ok('без каталога видно, что значение потеряно', noCat.includes('line-through'), noCat);
+  ok('и это не молчаливая пустота — название остаётся', noCat.includes('Дата'));
+
+  // Подпись есть, а сотрудника в контексте нет — пусто, но лист собирается
+  const noPerson = renderTitleHtml(sheet, { date: '2026-08-17' } as any, CAT);
+  ok('без подписи лист всё равно собирается', noPerson.includes('17 августа 2026') && !noPerson.includes('<img'), noPerson);
 }
 
 console.log(f === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${f}`);

@@ -76,9 +76,18 @@ export interface FormulaContext {
 }
 
 /** Что формула отдала: текст или картинка (подпись) */
-export type FormulaResult =
+export type FormulaSegment =
   | { kind: 'text'; text: string }
-  | { kind: 'image'; src: string; heightMm: number }
+  | { kind: 'image'; src: string; heightMm: number };
+
+/**
+ * `rich` — сборка, в которой есть и текст, и подпись: «Раупов Х.Х. ✎».
+ * Отдельный вид нужен потому, что склеить картинку в строку нельзя, а
+ * выбрасывать её (как было раньше) — значит терять подпись без предупреждения.
+ */
+export type FormulaResult =
+  | FormulaSegment
+  | { kind: 'rich'; segments: FormulaSegment[] }
   | { kind: 'missing' };
 
 export const MAX_DEPTH = 5;
@@ -305,22 +314,44 @@ export function renderFormula(
 
       case 'compose': {
         const parts = ((formula.config as any)?.parts || []) as ComposePart[];
+        const segs: FormulaSegment[] = [];
+        // Текст копится в одну строку, пока не встретится подпись
         let out = '';
+        const something = () => out !== '' || segs.length > 0;
+        const flush = () => { if (out) { segs.push({ kind: 'text', text: out }); out = ''; } };
+
         for (const part of parts) {
-          let text = '';
-          if (part.kind === 'text') text = String(part.value ?? '');
-          else if (part.kind === 'field') text = renderField(part.value, ctx, part.format);
-          else if (part.kind === 'formula') {
-            const inner = renderFormula(catalog[part.value], ctx, catalog, depth + 1);
-            text = inner.kind === 'text' ? inner.text : '';
-          }
-          if (isEmptyValue(text)) continue;
           // Разделитель части ставится перед ней и только если слева уже что-то
           // есть: нет ревизии — в титуле «ПЗ-001», а не «ПЗ-001 рев. »
-          if (out) out += part.sep ?? '';
+          const sep = part.sep ?? '';
+
+          if (part.kind === 'formula') {
+            const inner = renderFormula(catalog[part.value], ctx, catalog, depth + 1);
+            const innerSegs: FormulaSegment[] =
+              inner.kind === 'rich' ? inner.segments
+              : inner.kind === 'image' ? [inner]
+              : inner.kind === 'text' ? (isEmptyValue(inner.text) ? [] : [inner])
+              : [];
+            if (!innerSegs.length) continue;
+            if (something()) out += sep;
+            for (const s of innerSegs) {
+              if (s.kind === 'text') out += s.text;
+              else { flush(); segs.push(s); }
+            }
+            continue;
+          }
+
+          const text = part.kind === 'text'
+            ? String(part.value ?? '')
+            : renderField(part.value, ctx, part.format);
+          if (isEmptyValue(text)) continue;
+          if (something()) out += sep;
           out += text;
         }
-        return { kind: 'text', text: out };
+        flush();
+        if (!segs.length) return { kind: 'text', text: '' };
+        if (segs.length === 1) return segs[0];
+        return { kind: 'rich', segments: segs };
       }
     }
   } catch (_) {
@@ -328,6 +359,49 @@ export function renderFormula(
     return { kind: 'text', text: '' };
   }
   return { kind: 'text', text: '' };
+}
+
+/**
+ * Значение формулы одним списком частей — чтобы показывающему коду не нужно
+ * было разбирать три вида результата. Пустой текст и «нет такой формулы» дают
+ * пустой список: значит, показывать нечего.
+ */
+export function resultSegments(r: FormulaResult | null | undefined): FormulaSegment[] {
+  if (!r || r.kind === 'missing') return [];
+  if (r.kind === 'rich') return r.segments;
+  if (r.kind === 'text') return r.text === '' ? [] : [r];
+  return [r];
+}
+
+/**
+ * Сотрудники, на которых ссылаются формулы.
+ *
+ * Нужно перед сборкой документа: подпись и ФИО конкретного человека сервер
+ * кладёт в контекст только по запросу — иначе пришлось бы отдавать картинки
+ * подписей всего КБ на каждый титул. Обходим и вложенные формулы: «Подписал»
+ * может собираться из «ФИО» и «Подпись», у каждой свой сотрудник.
+ */
+export function formulaUserIds(
+  ids: string[],
+  catalog: Record<string, Formula>,
+): string[] {
+  const out = new Set<string>();
+  const seen = new Set<string>();
+  const walk = (id: string, depth: number) => {
+    if (depth > MAX_DEPTH || seen.has(id)) return;
+    seen.add(id);
+    const f = catalog[id];
+    if (!f) return;
+    const c: any = f.config || {};
+    if (c.person === 'user' && c.userId) out.add(String(c.userId));
+    if (f.kind === 'compose') {
+      for (const part of (c.parts || []) as ComposePart[]) {
+        if (part.kind === 'formula') walk(part.value, depth + 1);
+      }
+    }
+  };
+  for (const id of ids) walk(id, 0);
+  return [...out];
 }
 
 /**

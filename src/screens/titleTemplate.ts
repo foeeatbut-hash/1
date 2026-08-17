@@ -5,7 +5,7 @@
 // bindings.subtype='title', bindings.html). Когда шаблон присвоен документу и тот
 // сохранён, титул подставляет значения ИМЕННО этого документа (см. renderTitleHtml).
 
-import { renderFormula, type Formula, type FormulaContext } from '../lib/docFormula';
+import { renderFormula, type Formula, type FormulaContext, type FormulaSegment } from '../lib/docFormula';
 
 export interface TitleContext {
   [key: string]: string | number;
@@ -98,6 +98,13 @@ function evalFormula(expr: string, ctx: TitleContext): string {
 
 const esc = (x: string) => String(x ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+// Часть значения формулы → HTML. Подпись остаётся картинкой: в файле Ворда она
+// живёт как data-URI, поэтому доходит до получателя вместе с документом.
+const segHtml = (s: FormulaSegment): string =>
+  s.kind === 'image'
+    ? `<img src="${s.src}" alt="подпись" style="height:${s.heightMm}mm;vertical-align:baseline" />`
+    : esc(s.text);
+
 // Подстановка значений в HTML шаблона: чипы <span data-field="..."> и
 // <span data-formula="..."> заменяются на значения из контекста. Остальная
 // вёрстка (текст, стили, выравнивание) сохраняется как есть.
@@ -109,13 +116,12 @@ export function renderTitleHtml(templateHtml: string, ctx: TitleContext, catalog
   // человек увидел, что здесь было значение, и заменил его осознанно.
   html = html.replace(/<span[^>]*data-formula-id="([^"]*)"[^>]*>([\s\S]*?)<\/span>/g, (_m, id, label) => {
     const out = renderFormula(catalog[decodeAttr(id)], ctx as FormulaContext, catalog);
-    if (out.kind === 'image') {
-      return `<img src="${out.src}" alt="подпись" style="height:${out.heightMm}mm;vertical-align:baseline" />`;
-    }
     if (out.kind === 'missing') {
       return `<span style="text-decoration:line-through;opacity:.55" title="Формула удалена">${label}</span>`;
     }
-    return esc(out.text);
+    // rich — сборка с подписью внутри: «Раупов Х.Х.» и рядом картинка
+    if (out.kind === 'rich') return out.segments.map(segHtml).join('');
+    return segHtml(out);
   });
   // Старые формулы-выражения
   html = html.replace(/<span[^>]*data-formula="([^"]*)"[^>]*>[\s\S]*?<\/span>/g, (_m, expr) =>
@@ -124,6 +130,22 @@ export function renderTitleHtml(templateHtml: string, ctx: TitleContext, catalog
   html = html.replace(/<span[^>]*data-field="([^"]*)"[^>]*>[\s\S]*?<\/span>/g, (_m, key) =>
     esc(String(ctx[key] ?? '')));
   return html;
+}
+
+/**
+ * Какие формулы стоят на листе. По ним подтягиваем каталог и сотрудников:
+ * без этого именованные плашки печатались зачёркнутыми, а подпись выбранного
+ * сотрудника — пустой, потому что его не было в контексте.
+ */
+export function usedFormulaIds(templateHtml: string): string[] {
+  const out = new Set<string>();
+  const re = /data-formula-id="([^"]*)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(String(templateHtml || '')))) {
+    const id = decodeAttr(m[1]).trim();
+    if (id) out.add(id);
+  }
+  return [...out];
 }
 
 // Атрибуты в HTML экранированы (&quot; и т.д.) — раскодируем для формулы

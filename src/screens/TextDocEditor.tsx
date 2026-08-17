@@ -5,9 +5,14 @@ import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import {
   ArrowLeft, Loader2, Download, FolderOpen, Printer, History, X, FileText, Database, StickyNote, Stamp,
+  Share2, LayoutTemplate, Check,
 } from 'lucide-react';
 import TitlePanel, { fetchTitlePageHtml, buildPageTemplates, fetchRevisionsSheetHtml, TitleSettings } from './TitlePanel';
 import { useModalStore } from '../store/modalStore';
+import {
+  buildDocHtml, safeFileName, DOC_FONTS, PAGE_SIZES, MARGIN_PRESETS,
+  readPageSetup, applyPageSetup, ptToMm, FLAVOR_WORD, MARGIN_HEADER_PT, PageSetup,
+} from './docExport';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm } = useModalStore.getState();
@@ -38,10 +43,37 @@ function emptyDocSnapshot(id: string, title: string) {
       sectionBreaks: [{ startIndex: 1 }],
     },
     documentStyle: {
-      pageSize: { width: 595.3, height: 841.98 }, // А4 в pt
-      marginTop: 50, marginBottom: 50, marginLeft: 45, marginRight: 45,
+      // Разбивка на страницы как в Ворде, а не бесконечная лента
+      documentFlavor: FLAVOR_WORD,
+      pageSize: { width: 595.3, height: 841.9 },  // А4 в pt
+      pageOrient: 0,
+      // Поля как у Ворда по умолчанию — 2,54 см. Прежние 45/50 pt (1,6/1,8 см)
+      // делали лист непохожим на вордовский и расходились с печатью.
+      marginTop: 72, marginBottom: 72, marginLeft: 72, marginRight: 72,
+      marginHeader: MARGIN_HEADER_PT, marginFooter: MARGIN_HEADER_PT,
+      // Шрифт документа по умолчанию: в КБ пишут Times New Roman 12,
+      // а движок без этого ставит свой Arial 11
+      textStyle: { ff: 'Times New Roman', fs: 12 },
     },
   };
+}
+
+/**
+ * Скачать файл под нужным именем.
+ *
+ * Ссылку обязательно кладём в страницу: у ссылки вне документа браузер
+ * игнорирует атрибут download и сохраняет файл как «download» — без имени и
+ * без расширения, Ворд такой файл не открывает.
+ */
+function download(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1000);
 }
 
 // Плоский текст документа из снапшота (для экспорта TXT и поиска)
@@ -51,62 +83,9 @@ function snapshotToPlainText(snap: any): string {
   return ds.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '').replace(/\r/g, '\n').replace(/\n+$/, '');
 }
 
-// Печатный HTML: абзацы + жирный/курсив/подчёркивание/размер/цвет из textRuns
-function snapshotToPrintHtml(snap: any, title: string, subtitle: string): string {
-  const body = snap?.body || {};
-  const ds: string = body.dataStream || '';
-  const runs: any[] = Array.isArray(body.textRuns) ? body.textRuns : [];
-  const esc = (x: string) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-  // Разметка символов стилями: для каждого абзаца собираем HTML c учётом runs
-  const styleAt = (idx: number) => runs.find(r => idx >= r.st && idx < r.ed)?.ts || null;
-  const openTag = (ts: any) => {
-    if (!ts) return '';
-    const css: string[] = [];
-    if (ts.bl === 1) css.push('font-weight:bold');
-    if (ts.it === 1) css.push('font-style:italic');
-    if (ts.ul?.s === 1) css.push('text-decoration:underline');
-    if (ts.fs) css.push(`font-size:${ts.fs}pt`);
-    if (ts.cl?.rgb) css.push(`color:${ts.cl.rgb}`);
-    if (ts.bg?.rgb) css.push(`background:${ts.bg.rgb}`);
-    return css.length ? `<span style="${css.join(';')}">` : '';
-  };
-
-  let html = '';
-  let para = '';
-  let curTs: any = undefined;
-  let open = '';
-  const flushRun = () => { if (open) { para += '</span>'; open = ''; } };
-  const flushPara = () => { flushRun(); html += `<p>${para || '&nbsp;'}</p>`; para = ''; curTs = undefined; };
-
-  for (let i = 0; i < ds.length; i++) {
-    const ch = ds[i];
-    if (ch === '\r') { flushPara(); continue; }
-    if (ch === '\n') continue; // конец секции
-    if (ch.charCodeAt(0) < 32) continue; // служебные маркеры (объекты, таблицы)
-    const ts = styleAt(i);
-    if (JSON.stringify(ts) !== JSON.stringify(curTs)) {
-      flushRun();
-      curTs = ts;
-      open = openTag(ts);
-      para += open;
-    }
-    para += esc(ch);
-  }
-  if (para) flushPara();
-
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
-    <style>
-      body { font-family: Calibri, Arial, sans-serif; margin: 20mm 18mm; color: #0f172a; font-size: 11pt; line-height: 1.45; }
-      h1 { font-size: 14px; margin: 0 0 2px; }
-      .sub { font-size: 9px; color: #64748b; margin-bottom: 12px; border-bottom: 0.5pt solid #cbd5e1; padding-bottom: 6px; }
-      p { margin: 0 0 6px; }
-      @page { margin: 15mm; }
-    </style></head><body>
-    <h1>${esc(title)}</h1>
-    <div class="sub">${esc(subtitle)}</div>
-    ${html}</body></html>`;
-}
+// Сборка печатного HTML и файла для Ворда живёт в ./docExport — там же её тесты
+// (scripts/test-doc-export.ts). Прежняя версия лежала здесь и незаметно теряла
+// шрифт абзаца, выравнивание и поля страницы.
 
 // ── Панель «Данные»: вставка живых значений проекта в текст ──
 // Значения берутся из тех же серверных функций, что и формулы таблиц
@@ -251,6 +230,10 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   // ── Титул: присвоенный шаблон + реквизиты именно этого документа ──
   const [titleOpen, setTitleOpen] = useState(false);
   const [settings, setSettings] = useState<TitleSettings>({});
+  // «Разметка страницы» — формат листа, ориентация, поля (как в Ворде)
+  const [pageDialog, setPageDialog] = useState(false);
+  const [pageSetup, setPageSetup] = useState<PageSetup | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
   // «Выпустить ревизию» — для документов, привязанных к строке ВДР
   const [revDialog, setRevDialog] = useState(false);
   const [revPlace, setRevPlace] = useState('');
@@ -374,12 +357,32 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
           locales: { [LocaleType.RU_RU]: mergeLocales(pick(ruRU), pick(linkRu), pick(drawRu)) },
           theme: defaultTheme,
           presets: [
-            (docsPreset as any).UniverDocsCorePreset({ container: containerRef.current }),
+            (docsPreset as any).UniverDocsCorePreset({
+              container: containerRef.current,
+              // Лента вкладками — ближе всего к ленте Ворда
+              ribbonType: 'classic',
+            }),
             (linkP as any).UniverDocsHyperLinkPreset(),
             (drawP as any).UniverDocsDrawingPreset(),
           ],
         });
         univerRef.current = { univer, univerAPI };
+
+        // Список шрифтов в ленте. Через настройку пресета не проходит — он
+        // пропускает только часть полей (customFontFamily среди них нет), это
+        // видно по тому, что в списке оставались китайские шрифты. Поэтому
+        // правим сам справочник шрифтов движка: убираем всё лишнее и кладём
+        // свой набор в нужном порядке.
+        try {
+          const fontService: any = (univer as any).__getInjector?.().get((docsPreset as any).IFontService);
+          if (fontService?.getFonts) {
+            for (const f of [...fontService.getFonts()]) fontService.removeFont(f.value);
+            for (const f of DOC_FONTS) fontService.addFont({ ...f });
+          }
+        } catch (_) {
+          // Не вышло — в ленте останется список движка. Документ от этого не
+          // страдает: шрифт можно вписать руками, а выгрузка его сохранит.
+        }
 
         let snapshot: any = null;
         try { snapshot = loaded.workbook ? JSON.parse(loaded.workbook) : null; } catch (_) {}
@@ -449,9 +452,14 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         collabSocketRef.current?.disconnect();
       } catch (_) {}
       collabSocketRef.current = null;
-      try { univerRef.current?.univer?.dispose?.(); } catch (_) {}
+      // Движок держит свой корень React. Снести его прямо здесь нельзя: уборка
+      // эффекта идёт внутри отрисовки, и React ругается «нельзя размонтировать
+      // корень во время отрисовки». Отпускаем в следующий тик — к этому моменту
+      // отрисовка закончена.
+      const dying = univerRef.current;
       univerRef.current = null;
       fdocRef.current = null;
+      setTimeout(() => { try { dying?.univer?.dispose?.(); } catch (_) {} }, 0);
     };
   }, [docId, reloadTick]);
 
@@ -494,20 +502,22 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     setReloadTick(t => t + 1);
   };
 
-  // ── Печать / PDF / экспорт ──
-  const buildHtml = () => {
+  // ── Печать / PDF / Ворд / экспорт ──
+  // Полный документ: титульный лист и лист ревизий (уже со значениями формул,
+  // их подставляет сервер) + тело документа. forWord добавляет разметку, по
+  // которой Ворд открывает файл своим документом с нашими полями листа.
+  const buildFullHtml = async (forWord = false): Promise<string> => {
     const snap = JSON.parse(takeSnapshot() || '{}');
-    return snapshotToPrintHtml(snap, doc?.name || 'Документ', `${activeProject?.name || ''} · ${new Date().toLocaleDateString('ru-RU')} · Flux Конструктор`);
-  };
-  // Полный HTML на печать: титульный лист (если присвоен) + тело документа
-  const buildFullHtml = async (): Promise<string> => {
-    const base = buildHtml();
     const [title, revSheet] = await Promise.all([
       fetchTitlePageHtml(docId, settings.titleTemplateId),
       fetchRevisionsSheetHtml(settings),
     ]);
     const front = (title || '') + (revSheet || '');
-    return front ? base.replace('<body>', `<body>${front}`) : base;
+    return buildDocHtml(snap, {
+      title: doc?.name || 'Документ',
+      subtitle: `${activeProject?.name || ''} · ${new Date().toLocaleDateString('ru-RU')} · Flux Конструктор`,
+      titlePageHtml: front || undefined,
+    }, forWord);
   };
 
   const handlePrint = async () => {
@@ -533,14 +543,57 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     } catch (_) { addToast('Ошибка экспорта PDF', 'error'); }
   };
 
+  // Выгрузка в Ворд. Файл — HTML с разметкой страницы Ворда: он открывается в
+  // Ворде как обычный документ, шрифты/начертания/выравнивание и поля листа
+  // сохраняются. Формул внутри нет — на их месте стоят значения на момент
+  // выгрузки, поэтому получатель в Windows видит готовый текст.
+  const exportWord = async () => {
+    try {
+      const html = await buildFullHtml(true);
+      const name = doc?.name || 'Документ';
+
+      // В программе на рабочем месте — обычное окно «Сохранить как», как у
+      // Ворда: человек сам выбирает папку и имя
+      const win = window as any;
+      if (win.electron?.ipcRenderer?.invoke) {
+        const r = await win.electron.ipcRenderer.invoke('doc:save-word', { html, title: name });
+        if (r?.success) addToast('Документ сохранён для Ворда', 'success');
+        else if (!r?.canceled) addToast(r?.error || 'Не удалось сохранить', 'error');
+        return;
+      }
+
+      // В браузере — обычное скачивание. BOM в начале: по нему Ворд определяет
+      // кодировку, иначе кириллица открывается кракозябрами
+      const blob = new Blob(['﻿', html], { type: 'application/msword;charset=utf-8' });
+      download(blob, safeFileName(name, 'doc'));
+      addToast('Документ выгружен для Ворда', 'success');
+    } catch (_) { addToast('Не удалось выгрузить в Ворд', 'error'); }
+  };
+
+  // Тот же файл, но в общий Проводник — чтобы отдать коллеге, не пересылая почтой
+  const wordToExplorer = async () => {
+    try {
+      const html = await buildFullHtml(true);
+      const fileName = safeFileName(doc?.name || 'Документ', 'doc');
+      const b64 = btoa(unescape(encodeURIComponent(html)));
+      const res = await fetch('/api/files', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          // Тип как у загруженных вордовских файлов Проводника — один значок
+          name: fileName, filePath: `/shared/${fileName}`, type: 'DOCX',
+          size: html.length, content: b64, createdById: user?.id || null,
+        }),
+      });
+      if (!res.ok) throw new Error('files failed');
+      addToast(`«${fileName}» сохранён в Проводник`, 'success');
+    } catch (_) { addToast('Не удалось сохранить в Проводник', 'error'); }
+  };
+
   const exportTxt = () => {
     try {
       const text = snapshotToPlainText(JSON.parse(takeSnapshot() || '{}'));
-      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `${doc?.name || 'Документ'}.txt`; a.click();
-      URL.revokeObjectURL(url);
+      download(new Blob([text], { type: 'text/plain;charset=utf-8' }),
+        safeFileName(doc?.name || 'Документ', 'txt'));
     } catch (_) { addToast('Ошибка экспорта', 'error'); }
   };
 
@@ -559,6 +612,35 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
       if (!res.ok) throw new Error('files failed');
       addToast(`«${fileName}» сохранён в Проводник`, 'success');
     } catch (_) { addToast('Не удалось сохранить в Проводник', 'error'); }
+  };
+
+  // ── Разметка страницы ──
+  // Движок читает размер листа и поля из снапшота при создании документа,
+  // поэтому меняем снапшот, сохраняем и пересоздаём редактор — лист сразу
+  // становится нужного формата, и печать с выгрузкой берут те же значения.
+  const openPageDialog = () => {
+    try { setPageSetup(readPageSetup(JSON.parse(takeSnapshot() || '{}'))); }
+    catch (_) { setPageSetup(readPageSetup({})); }
+    setPageDialog(true);
+  };
+
+  const applyPageDialog = async () => {
+    if (!pageSetup) return;
+    try {
+      const snap = JSON.parse(takeSnapshot() || '{}');
+      if (!snap.body) { addToast('Документ ещё загружается', 'error'); return; }
+      const next = applyPageSetup(snap, pageSetup);
+      const res = await fetch(`/api/constructor/docs/${docId}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workbook: JSON.stringify(next) }),
+      });
+      if (!res.ok) { addToast('Не удалось изменить разметку', 'error'); return; }
+      lastSavedRef.current = JSON.stringify(next);
+      setPageDialog(false);
+      setLoading(true);
+      setReloadTick(t => t + 1);   // пересоздаём движок с новым листом
+      addToast('Разметка страницы применена', 'success');
+    } catch (_) { addToast('Не удалось изменить разметку', 'error'); }
   };
 
   const handleClose = async () => {
@@ -634,18 +716,46 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
           <History className="w-3.5 h-3.5" /> История
         </button>
+        <button type="button" onClick={openPageDialog}
+          title="Разметка страницы: формат листа, ориентация, поля — как в Ворде"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
+          <LayoutTemplate className="w-3.5 h-3.5" /> Лист
+        </button>
         <button type="button" onClick={handlePrint} title="Печать документа" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
           <Printer className="w-3.5 h-3.5" /> Печать
         </button>
-        <button type="button" onClick={handlePdf} title="Сохранить в PDF" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
-          PDF
-        </button>
-        <button type="button" onClick={exportTxt} title="Скачать как текст" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
-          <Download className="w-3.5 h-3.5" /> TXT
-        </button>
-        <button type="button" onClick={exportToExplorer} title="Сохранить текст в Проводник" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
-          <FolderOpen className="w-3.5 h-3.5" /> В Проводник
-        </button>
+        {/* Выгрузка одним меню: раньше пять кнопок в ряд забирали место у листа */}
+        <div className="relative">
+          <button type="button" onClick={() => setExportOpen(v => !v)}
+            title="Выгрузить документ: Ворд, PDF, текст, в Проводник"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
+            <Share2 className="w-3.5 h-3.5" /> Выгрузить
+          </button>
+          {exportOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setExportOpen(false)} />
+              <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden py-1">
+                {[
+                  { label: 'В Ворд (.doc)', hint: 'Откроется в Ворде: шрифты, поля и значения формул на месте', icon: FileText, run: exportWord },
+                  { label: 'В PDF', hint: 'Готовый к рассылке файл', icon: Printer, run: handlePdf },
+                  { label: 'Ворд в Проводник', hint: 'Файл появится в общей папке /shared', icon: FolderOpen, run: wordToExplorer },
+                  { label: 'Текст (.txt)', hint: 'Только текст, без оформления', icon: Download, run: exportTxt },
+                  { label: 'Текст в Проводник', hint: 'Плоский текст в общую папку', icon: FolderOpen, run: exportToExplorer },
+                ].map(it => (
+                  <button key={it.label} type="button"
+                    onClick={() => { setExportOpen(false); it.run(); }}
+                    className="w-full flex items-start gap-2.5 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">
+                    <it.icon className="w-3.5 h-3.5 mt-0.5 text-slate-400 shrink-0" />
+                    <span>
+                      <span className="block text-xs font-bold text-slate-700 dark:text-slate-200">{it.label}</span>
+                      <span className="block text-2xs text-slate-400 leading-snug">{it.hint}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
         <span className="text-xs text-slate-400 w-24 text-right">
           {saveState === 'saving' ? 'сохраняю…' : saveState === 'saved' ? 'сохранено' : ''}
         </span>
@@ -660,6 +770,83 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
           </div>
         )}
       </div>
+
+      {/* «Разметка страницы» — то же, что вкладка Ворда: формат, ориентация, поля */}
+      {pageDialog && pageSetup && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4" onClick={() => setPageDialog(false)}>
+          <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 dark:border-slate-800">
+              <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                <LayoutTemplate className="w-4 h-4 text-sky-600" /> Разметка страницы
+              </h3>
+              <button type="button" onClick={() => setPageDialog(false)} className="text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <div className="text-xs font-bold text-slate-500 mb-1.5">Формат листа</div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {Object.entries(PAGE_SIZES).map(([key, s]) => (
+                    <button key={key} type="button" onClick={() => setPageSetup(p => p && { ...p, size: key })}
+                      className={`px-3 py-2 rounded-lg text-xs font-bold text-left cursor-pointer border ${pageSetup.size === key ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300' : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs font-bold text-slate-500 mb-1.5">Ориентация</div>
+                <div className="flex gap-1.5">
+                  {([['portrait', 'Книжная'], ['landscape', 'Альбомная']] as const).map(([v, label]) => (
+                    <button key={v} type="button" onClick={() => setPageSetup(p => p && { ...p, orientation: v })}
+                      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold cursor-pointer border ${pageSetup.orientation === v ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300' : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
+                      <span className={`border-2 border-current ${v === 'portrait' ? 'w-2.5 h-3.5' : 'w-3.5 h-2.5'}`} />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs font-bold text-slate-500 mb-1.5">Поля</div>
+                <div className="space-y-1.5">
+                  {Object.entries(MARGIN_PRESETS).map(([key, m]) => {
+                    const same = pageSetup.margins.top === m.top && pageSetup.margins.right === m.right
+                      && pageSetup.margins.bottom === m.bottom && pageSetup.margins.left === m.left;
+                    return (
+                      <button key={key} type="button" onClick={() => setPageSetup(p => p && { ...p, margins: { top: m.top, right: m.right, bottom: m.bottom, left: m.left } })}
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-bold cursor-pointer border ${same ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300' : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
+                        {m.label}
+                        {same && <Check className="w-3.5 h-3.5" />}
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* Свои значения: вводим в миллиметрах, храним в пунктах */}
+                <div className="grid grid-cols-4 gap-1.5 mt-2">
+                  {([['top', 'Сверху'], ['bottom', 'Снизу'], ['left', 'Слева'], ['right', 'Справа']] as const).map(([k, label]) => (
+                    <label key={k} className="text-2xs font-bold text-slate-500">
+                      {label}, мм
+                      <input type="number" min={0} max={100} step={1} value={ptToMm(pageSetup.margins[k])}
+                        onChange={e => {
+                          const mm = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                          setPageSetup(p => p && { ...p, margins: { ...p.margins, [k]: Math.round(mm / (25.4 / 72) * 10) / 10 } });
+                        }}
+                        className="w-full mt-0.5 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs font-bold text-slate-700 dark:text-slate-200" />
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
+              <button type="button" onClick={() => setPageDialog(false)} className="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer">Отмена</button>
+              <button type="button" onClick={applyPageDialog} className="px-4 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold cursor-pointer">Применить</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Панель «Титул»: выбор шаблона + реквизиты этого документа */}
       {titleOpen && (

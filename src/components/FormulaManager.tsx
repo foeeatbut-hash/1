@@ -8,7 +8,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, Copy, GripVertical, X, AlertTriangle } from 'lucide-react';
 import {
-  renderFormula, DEFAULT_DATE,
+  renderFormula, resultSegments, DEFAULT_DATE,
   type Formula, type FormulaKind, type FormulaContext, type ComposePart,
   type DateFormat, type NameFormat, type PersonSource,
 } from '../lib/docFormula';
@@ -108,6 +108,10 @@ export default function FormulaManager({ projectId, context, onInsert, onClose }
     const cat = { ...catalog, [draft.id]: draft };
     return renderFormula(draft, ctx, cat as any);
   }, [draft, catalog, ctx]);
+
+  // Части значения одним списком: сборка с подписью внутри показывается так же,
+  // как встанет в документ
+  const segs = useMemo(() => resultSegments(preview), [preview]);
 
   const select = (f: Formula) => { setSelId(f.id); setDraft(JSON.parse(JSON.stringify(f))); };
 
@@ -476,14 +480,18 @@ export default function FormulaManager({ projectId, context, onInsert, onClose }
                   Предпросмотр {context ? 'на этом документе' : '— на примере'}
                 </label>
                 <div className="flex items-center gap-2.5 px-3 py-2 rounded-md bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-                  {preview?.kind === 'image' ? (
-                    <img src={preview.src} alt="подпись" style={{ height: `${preview.heightMm * 3.78}px` }} />
-                  ) : preview?.kind === 'missing' ? (
+                  {preview?.kind === 'missing' ? (
                     <span className="text-xs text-slate-400 flex items-center gap-1.5">
                       <AlertTriangle className="w-3.5 h-3.5" /> формула не найдена
                     </span>
-                  ) : preview?.text ? (
-                    <span className="text-sm font-medium">{preview.text}</span>
+                  ) : segs.length ? (
+                    // Сборка с подписью внутри показывается так же, как встанет
+                    // в документ: текст и картинка в одну строку
+                    segs.map((s, i) => s.kind === 'image' ? (
+                      <img key={i} src={s.src} alt="подпись" style={{ height: `${s.heightMm * 3.78}px` }} />
+                    ) : (
+                      <span key={i} className="text-sm font-medium whitespace-pre">{s.text}</span>
+                    ))
                   ) : (
                     <span className="text-xs text-slate-400">пусто при нынешних данных</span>
                   )}

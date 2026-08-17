@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Stamp, X, FileSpreadsheet, Unlink } from 'lucide-react';
-import { renderTitleHtml } from './titleTemplate';
+import { renderTitleHtml, usedFormulaIds } from './titleTemplate';
+import { formulaUserIds, type Formula } from '../lib/docFormula';
 import VdrItemPicker from '../components/VdrItemPicker';
 
 // ── Панель «Титул» (общая для Ворда и таблиц) ──
@@ -49,20 +50,41 @@ export async function buildPageTemplates(docId: string, settings: TitleSettings)
 }
 
 // Титульный лист документа: шаблон + контекст → готовый HTML для печати
+/** Каталог формул проекта по идентификатору. Пустой — если формул нет. */
+export async function fetchFormulaCatalog(projectId?: string): Promise<Record<string, Formula>> {
+  if (!projectId) return {};
+  try {
+    const r = await fetch(`/api/projects/${projectId}/formulas`);
+    if (!r.ok) return {};
+    const list: Formula[] = (await r.json()).formulas || [];
+    return Object.fromEntries(list.map(f => [f.id, f]));
+  } catch (_) { return {}; }
+}
+
+/**
+ * Титульный лист со значениями. Порядок важен: сначала шаблон, потом каталог
+ * формул этого проекта, и только после — контекст, потому что список нужных
+ * сотрудников известен лишь из формул, стоящих на листе. Без каталога плашки
+ * печатались зачёркнутыми, без сотрудников подпись выходила пустой.
+ */
 export async function fetchTitlePageHtml(docId: string, templateId?: string): Promise<string> {
   if (!templateId) return '';
   try {
-    const [tplRes, ctxRes] = await Promise.all([
-      fetch(`/api/constructor/docs/${templateId}`),
-      fetch(`/api/constructor/title/context?docId=${docId}`),
-    ]);
-    if (!tplRes.ok || !ctxRes.ok) return '';
+    const tplRes = await fetch(`/api/constructor/docs/${templateId}`);
+    if (!tplRes.ok) return '';
     const tpl = (await tplRes.json()).doc;
-    const ctx = (await ctxRes.json()).context;
     let html = '';
     try { html = JSON.parse(tpl.bindings || '{}')?.html || ''; } catch (_) {}
     if (!html) return '';
-    return `<div style="page-break-after:always;padding:10mm 0">${renderTitleHtml(html, ctx)}</div>`;
+
+    const catalog = await fetchFormulaCatalog(tpl.projectId);
+    const userIds = formulaUserIds(usedFormulaIds(html), catalog);
+    const q = `docId=${encodeURIComponent(docId)}${userIds.length ? `&userIds=${encodeURIComponent(userIds.join(','))}` : ''}`;
+    const ctxRes = await fetch(`/api/constructor/title/context?${q}`);
+    if (!ctxRes.ok) return '';
+    const ctx = (await ctxRes.json()).context;
+
+    return `<div style="page-break-after:always;padding:10mm 0">${renderTitleHtml(html, ctx, catalog)}</div>`;
   } catch (_) { return ''; }
 }
 

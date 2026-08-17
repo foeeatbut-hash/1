@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Loader2, Save, Bold, Italic, AlignLeft, AlignCenter, AlignRight, Eye, Sigma, X, Image as ImageIcon, Table } from 'lucide-react';
 import { useToastStore } from '../store/toastStore';
 import { TITLE_FIELDS, fieldChipHtml, namedChipHtml, renderTitleHtml } from './titleTemplate';
+import { fetchFormulaCatalog } from './TitlePanel';
+import type { Formula } from '../lib/docFormula';
 import FormulaManager from '../components/FormulaManager';
 
 // ── Редактор шаблона титула ────────────────────────────────────────────────
@@ -14,6 +16,12 @@ const SAMPLE = {
   'project.code': 'PRJ-2026', 'project.name': 'АБК завода', 'project.customer': 'ООО «Заказчик»', 'project.contractor': 'ООО «Подрядчик»',
   author: 'Иванов И.И.', date: new Date().toLocaleDateString('ru-RU'), dateTime: new Date().toLocaleString('ru-RU'),
   year: String(new Date().getFullYear()), page: '1', pages: '3',
+  // ФИО по частям — чтобы в предпросмотре формулы «Инициалы» было видно
+  // «Иванов И.И.», а не пустое место
+  'person.author.name': 'Иванов Иван Иванович',
+  'person.author.lastName': 'Иванов', 'person.author.firstName': 'Иван', 'person.author.middleName': 'Иванович',
+  'person.current.name': 'Иванов Иван Иванович',
+  'person.current.lastName': 'Иванов', 'person.current.firstName': 'Иван', 'person.current.middleName': 'Иванович',
 };
 
 export default function TitleTemplateEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
@@ -26,7 +34,17 @@ export default function TitleTemplateEditor({ docId, onClose }: { docId: string;
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState(false);
   const [fxOpen, setFxOpen] = useState(false);
+  const [catalog, setCatalog] = useState<Record<string, Formula>>({});
   const projectId: string = doc?.projectId || '';
+
+  // Каталог формул проекта — для предпросмотра. Перечитываем при закрытии
+  // справочника: там формулу могли создать или перенастроить.
+  useEffect(() => {
+    if (!projectId || fxOpen) return;
+    let dead = false;
+    fetchFormulaCatalog(projectId).then(c => { if (!dead) setCatalog(c); });
+    return () => { dead = true; };
+  }, [projectId, fxOpen]);
 
   useEffect(() => {
     let dead = false;
@@ -131,7 +149,9 @@ export default function TitleTemplateEditor({ docId, onClose }: { docId: string;
     setSaving(false);
   };
 
-  const previewHtml = () => renderTitleHtml(htmlRef.current || '', SAMPLE as any);
+  // Предпросмотр — с каталогом формул проекта: иначе плашки показывались
+  // зачёркнутыми, как будто формулу удалили
+  const previewHtml = () => renderTitleHtml(htmlRef.current || '', SAMPLE as any, catalog);
 
   const grouped = TITLE_FIELDS.reduce((acc, f) => { (acc[f.group] ||= []).push(f); return acc; }, {} as Record<string, typeof TITLE_FIELDS>);
 
