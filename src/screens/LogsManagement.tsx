@@ -180,8 +180,8 @@ export default function LogsManagement() {
         </div>
 
         <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-indigo-100/60 dark:bg-indigo-950/40 flex items-center justify-center shrink-0">
-            <User className="w-5 h-5 text-indigo-650 dark:text-indigo-400" />
+          <div className="w-10 h-10 rounded-lg bg-emerald-100/60 dark:bg-emerald-950/40 flex items-center justify-center shrink-0">
+            <User className="w-5 h-5 text-emerald-650 dark:text-emerald-400" />
           </div>
           <div>
             <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Активных инженеров</h4>

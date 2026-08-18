@@ -252,7 +252,7 @@ export default function UniversalGenerator() {
                     )}
                   </div>
 
-                  <button type="button" onClick={() => removeBlock(block.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded transition-colors shrink-0 cursor-pointer"><X className="w-4 h-4" /></button>
+                  <button type="button" onClick={() => removeBlock(block.id)} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded transition-colors shrink-0 cursor-pointer"><X className="w-4 h-4" /></button>
                 </Reorder.Item>
              ))}
              {template.length === 0 && (
@@ -326,7 +326,7 @@ export default function UniversalGenerator() {
         
         <div className="space-y-4">
           <div className="bg-slate-900 rounded-xl shadow-lg p-8 pl-10 text-white relative overflow-hidden flex flex-col justify-center min-h-[220px]">
-            <div className="absolute top-0 left-0 w-2 h-full bg-gradient-to-b from-emerald-500 to-teal-400"></div>
+            <div className="absolute top-0 left-0 w-2 h-full bg-gradient-to-b from-emerald-500 to-emerald-400"></div>
             
             {/* Removed label as requested */}
             

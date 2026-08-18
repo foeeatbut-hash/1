@@ -266,7 +266,7 @@ export default function ProjectsManagement() {
                           e.stopPropagation();
                           handleToggleActiveProject(p);
                         }}
-                        className="w-4 h-4 text-emerald-700 bg-gray-100 border-gray-300 rounded focus:ring-emerald-500 cursor-pointer"
+                        className="w-4 h-4 text-emerald-700 bg-slate-100 border-slate-300 rounded focus:ring-emerald-500 cursor-pointer"
                         title={isActive ? "Снять активный статус" : "Выбрать как активный проект"}
                       />
                       <span className="font-bold text-xs text-slate-800 dark:text-slate-150 group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors leading-tight">
@@ -297,7 +297,7 @@ export default function ProjectsManagement() {
                           e.stopPropagation();
                           handleDeleteProject(p.id, p.name);
                         }}
-                        className="opacity-0 group-hover:opacity-100 hover:text-red-500 p-1 rounded hover:bg-red-50 dark:hover:bg-red-950/20 transition-ui text-slate-400 cursor-pointer"
+                        className="opacity-0 group-hover:opacity-100 hover:text-rose-500 p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-ui text-slate-400 cursor-pointer"
                         title="Удалить проект"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -316,18 +316,18 @@ export default function ProjectsManagement() {
         {selectedProject ? (
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Detail Pane Header */}
-            <div className="p-4 border-b border-slate-200 dark:border-slate-850 bg-white dark:bg-slate-900 flex items-center justify-between shadow-xs">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 bg-emerald-100 dark:bg-emerald-950/45 text-emerald-700 dark:text-emerald-400 rounded-lg flex items-center justify-center">
+            <div className="p-4 border-b border-slate-200 dark:border-slate-850 bg-white dark:bg-slate-900 flex flex-wrap items-center justify-between gap-2 shadow-xs">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 shrink-0 bg-emerald-100 dark:bg-emerald-950/45 text-emerald-700 dark:text-emerald-400 rounded-lg flex items-center justify-center">
                   <Folder className="w-5 h-5" />
                 </div>
-                <div>
-                  <h1 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                    <span>{selectedProject.name}</span>
+                <div className="min-w-0">
+                  <h1 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2 min-w-0">
+                    <span className="truncate min-w-[7rem]" title={selectedProject.name}>{selectedProject.name}</span>
                     {activeProject?.id === selectedProject.id && (
-                      <span className="text-xs bg-emerald-700 text-white font-semibold rounded px-2.5 py-0.5 flex items-center gap-1 select-none">
-                        <CheckCircle2 className="w-3 h-3" />
-                        <span>Выбран для работы</span>
+                      <span className="text-xs bg-emerald-700 text-white font-semibold rounded px-2.5 py-0.5 flex items-center gap-1 select-none shrink-0">
+                        <CheckCircle2 className="w-3 h-3 shrink-0" />
+                        <span className="hidden @[720px]:inline">Выбран для работы</span>
                       </span>
                     )}
                   </h1>

@@ -249,7 +249,7 @@ function DataWizard({ projectId, onInsert, onClose }: {
               </div>
               {rawSelectedCount >= 2 && (
                 <button type="button" onClick={mergeSelectedIntoAlias}
-                  className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-400 text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-950/50 cursor-pointer">
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 text-xs font-bold hover:bg-emerald-100 dark:hover:bg-emerald-950/50 cursor-pointer">
                   ⚭ Объединить выбранные {rawSelectedCount} параметра в одно поле
                 </button>
               )}
@@ -257,10 +257,10 @@ function DataWizard({ projectId, onInsert, onClose }: {
                 {fields.map(f => {
                   const on = !!selected.find(s => s.path === f.path);
                   return (
-                    <label key={f.path} className={`flex items-center gap-3 px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer ${(f as any).alias ? 'bg-indigo-50/40 dark:bg-indigo-950/10' : ''}`}>
+                    <label key={f.path} className={`flex items-center gap-3 px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer ${(f as any).alias ? 'bg-emerald-50/40 dark:bg-emerald-950/10' : ''}`}>
                       <input type="checkbox" checked={on} onChange={() => toggle(f.path, f.title)} className="w-4 h-4 accent-emerald-500" />
                       <span className="text-sm text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                        {(f as any).alias && <span className="text-indigo-500" title="Объединённое поле (алиас)">⚭</span>}
+                        {(f as any).alias && <span className="text-emerald-500" title="Объединённое поле (алиас)">⚭</span>}
                         {f.title}
                       </span>
                       {(f as any).note && <span className="text-xs text-slate-400 ml-auto shrink-0">{(f as any).note}</span>}

@@ -527,7 +527,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                             <span className="text-2xs font-mono font-bold px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 text-slate-700 dark:text-slate-300">{item.brand}</span>
                           )}
                           {item.system && (
-                            <span className="text-2xs font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300">{item.system}</span>
+                            <span className="text-2xs font-bold px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">{item.system}</span>
                           )}
                           <button type="button"
                             onClick={() => removeItem(activeJob.id, item.id)}

@@ -204,9 +204,12 @@ export default function AssistantPanel() {
   };
 
   return (
-    // Раздвижная панель справа — как левый сайдбар: меняет ширину и сдвигает контент
+    /* На широком окне панель раздвигает содержимое, на узком — ложится
+       поверх. Раньше она отжимала всегда: при окне 1024 разделу оставалось
+       492 px, при 820 — 268, и таблицы уходили в горизонтальную прокрутку.
+       Отступ справа — на ширину рельса, чтобы он оставался доступен. */
     <aside
-      className={`${isOpen ? 'w-[380px] opacity-100' : 'w-0 opacity-0 pointer-events-none'} shrink-0 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col transition-ui duration-300 overflow-hidden`}
+      className={`${isOpen ? 'w-[380px] opacity-100' : 'w-0 opacity-0 pointer-events-none'} shrink-0 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col transition-ui duration-300 overflow-hidden absolute top-0 bottom-0 right-[var(--flux-rail-w)] z-50 shadow-2xl xl:static xl:right-auto xl:z-auto xl:shadow-none`}
     >
       <div className="w-[380px] h-full flex flex-col shrink-0">
       {/* Шапка — она же полка робота: заголовок и подпись убраны, панель

@@ -154,19 +154,7 @@
   --color-emerald-205: var(--color-emerald-200);
   --color-emerald-505: var(--color-emerald-500);
   --color-emerald-855: var(--color-emerald-900);
-  --color-indigo-150: var(--color-indigo-100);
-  --color-indigo-205: var(--color-indigo-200);
-  --color-indigo-250: var(--color-indigo-200);
-  --color-indigo-505: var(--color-indigo-500);
-  --color-indigo-650: var(--color-indigo-600);
-  --color-indigo-850: var(--color-indigo-800);
-  --color-indigo-855: var(--color-indigo-900);
   --color-purple-750: var(--color-purple-700);
-  --color-red-105: var(--color-red-100);
-  --color-red-154: var(--color-red-200);
-  --color-red-450: var(--color-red-400);
-  --color-red-650: var(--color-red-600);
-  --color-red-655: var(--color-red-700);
   --color-rose-250: var(--color-rose-200);
   --color-rose-350: var(--color-rose-300);
   --color-rose-450: var(--color-rose-400);
@@ -203,10 +191,6 @@
   --color-slate-905: var(--color-slate-900);
   --color-slate-955: var(--color-slate-950);
   --color-slate-990: var(--color-slate-950);
-  --color-yellow-250: var(--color-yellow-200);
-  --color-yellow-405: var(--color-yellow-400);
-  --color-yellow-555: var(--color-yellow-600);
-  --color-yellow-650: var(--color-yellow-600);
 }
 
 @variant dark (&:where(.dark, .dark *));
@@ -247,6 +231,11 @@
   --flux-shadow-card: 0 1px 2px oklch(16% 0.009 163 / 0.06);
   --flux-shadow-pop: 0 4px 16px oklch(16% 0.009 163 / 0.12);
   --flux-shadow-modal: 0 16px 48px oklch(16% 0.009 163 / 0.22);
+
+  /* Ширина правого рельса. Значение по умолчанию — сжатый вид; оболочка
+     переставляет его при переключении ширины меню. Объявлено здесь, чтобы
+     всё, что от него отступает, работало и до появления оболочки. */
+  --flux-rail-w: 56px;
 
   /* Слои. В разметке было двенадцать значений от z-10 до z-[999]. */
   --flux-z-content: 1;
@@ -973,7 +962,7 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
 
 /* Полоса счётчиков: вместо ряда «плиток с большой цифрой».
    Счётчики стоят в одну строку, как графы ведомости. */
-.tally { display: flex; align-items: stretch; border-bottom: 1px solid var(--flux-line); }
+.tally { display: flex; align-items: stretch; overflow-x: auto; border-bottom: 1px solid var(--flux-line); }
 .tally-item {
   display: flex;
   flex-direction: column;
@@ -981,6 +970,10 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   gap: 2px;
   padding: 8px 16px;
   border-right: 1px solid var(--flux-line);
+  /* Счётчики делят ширину поровну и не уже 104 px. Раньше ширина считалась
+     по содержимому, и полоса обрывалась на середине ведомости пустым хвостом
+     справа — ряд читался как незаконченный. */
+  flex: 1 1 0;
   min-width: 104px;
   text-align: left;
   transition: background var(--flux-dur-fast) var(--flux-ease);
@@ -995,7 +988,9 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
 
 /* Пустая зона — приглашение к действию, а не серая надпись
    посреди пустоты. Заголовок, одна поясняющая строка, кнопка. */
-.blank { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 28px 20px; max-width: 460px; }
+/* Ширина «не больше 460, но и не больше места»: одного max-width: 460px не
+   хватало — в узкой панели приглашение вылезало за свою зону на 51 px. */
+.blank { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 28px 20px; max-width: min(460px, 100%); }
 .blank-title { font-size: 13px; font-weight: 600; color: var(--flux-text); }
 .blank-text  { font-size: 12px; line-height: 1.5; color: var(--flux-text-muted); }
 

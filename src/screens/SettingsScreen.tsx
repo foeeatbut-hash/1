@@ -87,8 +87,10 @@ export default function SettingsScreen() {
       transition={{ duration: 0.2 }}
       className="h-full flex gap-4 text-slate-800 dark:text-slate-100"
     >
-      {/* Категории (левая колонка) */}
-      <div className="w-72 shrink-0 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg shadow-xs overflow-hidden flex flex-col">
+      {/* Категории (левая колонка). Ширину спрашиваем у панели, а не у окна:
+          при 288 px намертво в узкой панели содержимому оставалось меньше
+          трети, и ряды кнопок внутри резались многоточием. */}
+      <div className="w-56 @[980px]:w-72 shrink-0 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg shadow-xs overflow-hidden flex flex-col">
         <div className="px-4 py-3.5 border-b border-slate-100 dark:border-slate-850 flex items-center gap-2">
           <Settings className="w-4.5 h-4.5 text-emerald-600" />
           <h1 className="text-base font-bold text-slate-900 dark:text-white">Настройки</h1>
@@ -111,7 +113,10 @@ export default function SettingsScreen() {
                 <Icon className={`w-4.5 h-4.5 mt-0.5 shrink-0 ${active ? 'text-emerald-700 dark:text-emerald-300' : 'text-emerald-600 dark:text-emerald-400'}`} />
                 <span className="min-w-0">
                   <span className="block text-sm font-semibold leading-tight">{s.label}</span>
-                  <span className={`block text-xs leading-tight mt-0.5 truncate ${active ? 'text-emerald-700/80 dark:text-emerald-300/80' : 'text-slate-400'}`}>{s.desc}</span>
+                  {/* Пояснение под названием — только когда панель широкая:
+                      в узкой оно всё равно обрывалось многоточием, а место
+                      забирало у содержимого настроек */}
+                  <span className={`hidden @[980px]:block text-xs leading-tight mt-0.5 truncate ${active ? 'text-emerald-700/80 dark:text-emerald-300/80' : 'text-slate-400'}`}>{s.desc}</span>
                 </span>
               </button>
             );
@@ -194,7 +199,11 @@ function GeneralSection({ theme, toggleTheme, density, setDensity }: any) {
           <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
             Сколько строк помещается на экране. Влияет на таблицы и списки во всех разделах.
           </p>
-          <div className="inline-flex p-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
+          {/* Три равные доли ширины вместо ряда по содержимому. Было inline-flex:
+              ряд считался по самым длинным подписям, не переносился и не сжимался —
+              при узком окне он вылезал за карточку на 47 px, и «Компактно»
+              обрезалось. Сетка не может стать шире родителя. */}
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(96px,1fr))] gap-1 p-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
             {([
               { key: 'comfortable', label: 'Просторно' },
               { key: 'standard', label: 'Стандарт' },
@@ -205,7 +214,8 @@ function GeneralSection({ theme, toggleTheme, density, setDensity }: any) {
                 type="button"
                 onClick={() => setDensity(opt.key)}
                 aria-pressed={density === opt.key}
-                className={`py-2 px-4 rounded-lg text-sm font-semibold transition-colors duration-[120ms] cursor-pointer ${
+                title={opt.label}
+                className={`min-w-0 truncate py-2 px-2 rounded-lg text-sm font-semibold transition-colors duration-[120ms] cursor-pointer ${
                   density === opt.key ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
                 }`}
               >
@@ -483,7 +493,7 @@ function ManagementSection({ isAdmin, addToast }: any) {
           <button type="button"
             key={t.id}
             onClick={() => setActiveId(t.id)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-ui ${activeId === t.id ? 'bg-indigo-600 border-indigo-700 text-white' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:border-indigo-400'}`}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-ui ${activeId === t.id ? 'bg-emerald-600 border-emerald-700 text-white' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:border-emerald-400'}`}
           >
             {t.name}
           </button>
@@ -491,7 +501,7 @@ function ManagementSection({ isAdmin, addToast }: any) {
         {isAdmin && (
           <button type="button"
             onClick={addTemplate}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold border border-dashed border-slate-300 dark:border-slate-700 text-slate-500 hover:border-indigo-400 hover:text-indigo-600 cursor-pointer"
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold border border-dashed border-slate-300 dark:border-slate-700 text-slate-500 hover:border-emerald-400 hover:text-emerald-600 cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" /> Новый шаблон
           </button>
@@ -523,7 +533,7 @@ function ManagementSection({ isAdmin, addToast }: any) {
               disabled={!isAdmin}
               defaultValue={activeTemplate.name}
               onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== activeTemplate.name) updateTemplate(activeTemplate.id, { name: v }); }}
-              className="flex-1 px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+              className="flex-1 min-w-0 px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-emerald-500"
               placeholder="Название шаблона"
             />
             {isAdmin && (
@@ -719,7 +729,7 @@ function BackupSection({ isAdmin, addToast }: any) {
               defaultValue={settings.dir || ''}
               placeholder="пусто = стандартная в папке данных программы"
               onBlur={(e) => { const v = e.target.value.trim(); if (v !== (settings.dir || '')) saveSettings({ dir: v }); }}
-              className="flex-1 px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono"
+              className="flex-1 min-w-0 px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono"
             />
           </div>
           <p className="text-2xs text-amber-600 dark:text-amber-400">
@@ -806,7 +816,7 @@ function EquipmentSection({ isAdmin, addToast }: any) {
           </div>
           {isAdmin && (
             <div className="flex gap-2 max-w-md">
-              <input value={newCat} onChange={e => setNewCat(e.target.value)} placeholder="Новая категория…" className="flex-1 px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs focus:outline-none focus:border-emerald-500" />
+              <input value={newCat} onChange={e => setNewCat(e.target.value)} placeholder="Новая категория…" className="flex-1 min-w-0 px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs focus:outline-none focus:border-emerald-500" />
               <button type="button"
                 onClick={() => {
                   const label = newCat.trim();
@@ -1231,7 +1241,7 @@ function DocflowSection({ isAdmin, addToast }: any) {
   const addRow = (path: string, row: any) => setCfg((c: any) => ({ ...c, [path]: [...(c[path] || []), row] }));
   const delRow = (path: string, idx: number) => setCfg((c: any) => ({ ...c, [path]: (c[path] || []).filter((_: any, i: number) => i !== idx) }));
 
-  const inp = 'px-2 py-1 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500';
+  const inp = 'px-2 py-1 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500';
 
   if (!cfg) return <SectionShell title="Документооборот" desc="Стандарты ВДР."><div className="text-sm text-slate-400">Загрузка…</div></SectionShell>;
 
@@ -1265,7 +1275,7 @@ function DocflowSection({ isAdmin, addToast }: any) {
               </div>
             ))}
           </div>
-          <button type="button" onClick={() => addRow('reviewCodes', { code: '', label: '', action: 'revise', deadlineDays: 7 })} className="mt-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-700 cursor-pointer">+ код</button>
+          <button type="button" onClick={() => addRow('reviewCodes', { code: '', label: '', action: 'revise', deadlineDays: 7 })} className="mt-1.5 text-xs font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer">+ код</button>
         </div>
 
         {/* Причины выпуска */}
@@ -1284,7 +1294,7 @@ function DocflowSection({ isAdmin, addToast }: any) {
               </div>
             ))}
           </div>
-          <button type="button" onClick={() => addRow('reasons', { code: '', label: '', revKind: 'letter' })} className="mt-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-700 cursor-pointer">+ причина</button>
+          <button type="button" onClick={() => addRow('reasons', { code: '', label: '', revKind: 'letter' })} className="mt-1.5 text-xs font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer">+ причина</button>
         </div>
 
         {/* Маски и спец-ревизии */}
@@ -1320,10 +1330,10 @@ function DocflowSection({ isAdmin, addToast }: any) {
               </div>
             ))}
           </div>
-          <button type="button" onClick={() => addRow('vdrTypes', { code: '', titleEn: '', titleRu: '' })} className="mt-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-700 cursor-pointer">+ тип</button>
+          <button type="button" onClick={() => addRow('vdrTypes', { code: '', titleEn: '', titleRu: '' })} className="mt-1.5 text-xs font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer">+ тип</button>
         </div>
 
-        <button type="button" onClick={save} disabled={busy} className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">
+        <button type="button" onClick={save} disabled={busy} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">
           {busy ? 'Сохраняю…' : 'Сохранить стандарт'}
         </button>
       </div>
@@ -1642,7 +1652,10 @@ function RobotLevelRow() {
         {OPTS.map((o) => (
           <button key={o.key} type="button" onClick={() => pick(o.key)} aria-pressed={level === o.key}
             title={o.hint}
-            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
+            /* min-w-0 обязателен: без него элемент ряда не сжимается уже своей
+               подписи — у flex-элементов минимальная ширина по содержимому.
+               Одного flex-1 не хватало, и ряд вылезал за карточку на 29 px. */
+            className={`flex-1 min-w-0 truncate py-1.5 px-2 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
               level === o.key
                 ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300'
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'

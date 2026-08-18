@@ -154,7 +154,12 @@ function PaneView({ paneId }: { paneId: string }) {
         <div
           role="tablist"
           aria-label="Открытые разделы"
-          className="shrink-0 flex items-stretch gap-px px-1.5 pt-1 overflow-x-auto scrollbar-none border-b border-slate-200 dark:border-dark-border bg-white/60 dark:bg-dark-surface/50"
+          /* Полоса прокрутки видимая, а не убранная. Раньше стояло scrollbar-none:
+             вкладки, не поместившиеся по ширине, просто отсутствовали на экране —
+             ни полосы, ни стрелок, и найти их было нельзя. Теперь до прокрутки
+             дело почти не доходит (вкладки сжимаются, см. ниже), а если дойдёт —
+             это видно. */
+          className="shrink-0 flex items-stretch gap-px px-1.5 pt-1 overflow-x-auto scrollbar-thin border-b border-slate-200 dark:border-dark-border bg-white/60 dark:bg-dark-surface/50"
         >
           {pane.stack.map((p) => {
             const def = iconFor(p);
@@ -173,7 +178,11 @@ function PaneView({ paneId }: { paneId: string }) {
                 }}
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, path: p }); }}
                 title={def?.title || p}
-                className={`group relative flex items-center gap-1.5 pl-2.5 pr-1 py-1.5 rounded-t-lg text-xs cursor-pointer select-none max-w-[190px] transition-colors duration-[120ms] ${
+                /* Вкладки делят ширину полосы и сжимаются до 76 px — столько
+                   нужно значку, обрывку названия и крестику. Раньше ширина
+                   считалась по содержимому: шесть вкладок требовали 1140 px и
+                   при окне 1280 последние уезжали за край. */
+                className={`group relative flex items-center gap-1.5 pl-2.5 pr-1 py-1.5 rounded-t-lg text-xs cursor-pointer select-none flex-1 min-w-[76px] max-w-[190px] transition-colors duration-[120ms] ${
                   active
                     // Активная вкладка — поверхность содержимого плюс зелёная
                     // метка сверху: раньше она отличалась только жирностью.
@@ -187,7 +196,10 @@ function PaneView({ paneId }: { paneId: string }) {
                   type="button"
                   onMouseDown={(e) => { e.stopPropagation(); closeInPane(paneId, p); }}
                   aria-label={`Закрыть вкладку «${def?.title || p}»`}
-                  className={`w-4 h-4 shrink-0 rounded flex items-center justify-center hover:bg-slate-300 dark:hover:bg-dark-border cursor-pointer ${
+                  /* 20×20 вместо 16×16: в крестик надо попасть мышью, а не
+                     целиться. Место под него занято всегда, даже когда он
+                     невидим, — иначе название дёргается при наведении. */
+                  className={`w-5 h-5 shrink-0 rounded flex items-center justify-center hover:bg-slate-300 dark:hover:bg-dark-border cursor-pointer ${
                     active ? 'opacity-70 hover:opacity-100' : 'opacity-0 group-hover:opacity-100'
                   }`}
                   title="Закрыть вкладку"
@@ -199,7 +211,12 @@ function PaneView({ paneId }: { paneId: string }) {
           })}
         </div>
       )}
-      <div className="relative flex-1 min-h-0">
+      {/* Панель объявляет себя мерой ширины для всего, что внутри.
+          Раньше разделы спрашивали ширину окна (md:, lg:), а живут они в
+          панели: на мониторе 1920 в режиме четырёх панелей каждая панель —
+          940 px, и ни одна контрольная точка не срабатывала. Одна строка
+          здесь — и разделы получают, что спрашивать: @[900px]: и подобные. */}
+      <div className="@container relative flex-1 min-h-0">
         {pane.stack.map((p) => (
           <SectionFrame
             key={p}

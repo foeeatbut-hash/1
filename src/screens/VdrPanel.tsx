@@ -225,20 +225,20 @@ export default function VdrPanel() {
     <div className="flex flex-col gap-3 text-slate-800 dark:text-slate-100">
       {/* Шапка */}
       <div className="flex flex-wrap items-center gap-2 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs">
-        <FileSpreadsheet className="w-5 h-5 text-indigo-500 shrink-0" />
+        <FileSpreadsheet className="w-5 h-5 text-emerald-500 shrink-0" />
         {registers.length > 0 ? (
           <>
             <select value={regId} onChange={e => setRegId(e.target.value)}
               className="px-2.5 py-1.5 text-sm font-semibold border border-slate-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950 text-slate-800 dark:text-white cursor-pointer max-w-64">
               {registers.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
-            {register && <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-400 text-xs font-bold" title="Текущая ревизия самого ВДР">рев. {register.revision}</span>}
+            {register && <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-xs font-bold" title="Текущая ревизия самого ВДР">рев. {register.revision}</span>}
           </>
         ) : (
           <span className="text-sm text-slate-400">Реестров нет — создайте или импортируйте Excel-ВДР</span>
         )}
         <div className="flex-1" />
-        <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer ${importing ? 'opacity-60 pointer-events-none' : ''}`}>
+        <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer ${importing ? 'opacity-60 pointer-events-none' : ''}`}>
           {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Импорт
           <input type="file" accept=".xlsx,.xls,.xlsm" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) importXlsx(f); e.target.value = ''; }} />
         </label>
@@ -274,7 +274,7 @@ export default function VdrPanel() {
           <div className="flex flex-wrap items-center gap-2">
             {Object.entries(STATUS_META).map(([st, meta]) => (
               <button type="button" key={st} onClick={() => setStatusFilter(statusFilter === st ? '' : st)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-ui ${statusFilter === st ? 'border-indigo-500 ring-1 ring-indigo-400' : 'border-transparent'} ${meta.cls}`}>
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-ui ${statusFilter === st ? 'border-emerald-500 ring-1 ring-emerald-400' : 'border-transparent'} ${meta.cls}`}>
                 {meta.label}: {counts[st] || 0}
               </button>
             ))}
@@ -283,13 +283,13 @@ export default function VdrPanel() {
               Просрочено: {counts.OVERDUE}
             </button>
             <button type="button" onClick={() => setOnlyMine(v => !v)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-ui ${onlyMine ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-950 text-slate-500 border-slate-200 dark:border-slate-800'}`}>
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-ui ${onlyMine ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white dark:bg-slate-950 text-slate-500 border-slate-200 dark:border-slate-800'}`}>
               Мои
             </button>
             <div className="flex-1" />
             {selected.size > 0 && (
               <select defaultValue="" onChange={e => { if (e.target.value !== '') bulkAssign(e.target.value); }}
-                className="px-2 py-1.5 text-xs border border-indigo-300 dark:border-indigo-800 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 cursor-pointer font-bold">
+                className="px-2 py-1.5 text-xs border border-emerald-300 dark:border-emerald-800 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 cursor-pointer font-bold">
                 <option value="" disabled>Назначить {countOf(selected.size, 'строка')}…</option>
                 {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
               </select>
@@ -304,7 +304,7 @@ export default function VdrPanel() {
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Номер, название, тег…"
-                className="pl-8 pr-3 py-1.5 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500 w-52" />
+                className="pl-8 pr-3 py-1.5 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500 w-52" />
             </div>
           </div>
 
@@ -315,7 +315,7 @@ export default function VdrPanel() {
                 <thead className="bg-slate-50 dark:bg-slate-900 sticky top-0 z-10">
                   <tr className="text-left text-slate-500 dark:text-slate-400">
                     <th className="flux-cell w-8">
-                      <input type="checkbox" className="w-3.5 h-3.5 accent-indigo-500 cursor-pointer"
+                      <input type="checkbox" className="w-3.5 h-3.5 accent-emerald-500 cursor-pointer"
                         checked={selected.size > 0 && selected.size === filtered.length}
                         onChange={e => setSelected(e.target.checked ? new Set(filtered.map(i => i.id)) : new Set())} />
                     </th>
@@ -335,9 +335,9 @@ export default function VdrPanel() {
                   {filtered.map(it => (
                     <tr key={it.id}
                       onClick={() => setCardItem(it)}
-                      className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/60 ${focusItemId === it.id ? 'bg-indigo-50 dark:bg-indigo-950/30' : ''}`}>
+                      className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/60 ${focusItemId === it.id ? 'bg-emerald-50 dark:bg-emerald-950/30' : ''}`}>
                       <td className="flux-cell" onClick={e => e.stopPropagation()}>
-                        <input type="checkbox" className="w-3.5 h-3.5 accent-indigo-500 cursor-pointer"
+                        <input type="checkbox" className="w-3.5 h-3.5 accent-emerald-500 cursor-pointer"
                           checked={selected.has(it.id)}
                           onChange={e => setSelected(s => { const n = new Set(s); e.target.checked ? n.add(it.id) : n.delete(it.id); return n; })} />
                       </td>
@@ -471,7 +471,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
     } finally { setBusy(false); }
   };
 
-  const inputCls = 'w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500';
+  const inputCls = 'w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500';
   const F = ({ label, k, ph }: { label: string; k: keyof Item; ph?: string }) => (
     <div>
       <label className="block text-xs font-bold text-slate-500 uppercase">{label}</label>
@@ -479,7 +479,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
     </div>
   );
   const Sect = ({ title }: { title: string }) => (
-    <div className="pt-2 mt-1 border-t border-slate-100 dark:border-slate-850 text-2xs font-bold uppercase tracking-wide text-indigo-500">{title}</div>
+    <div className="pt-2 mt-1 border-t border-slate-100 dark:border-slate-850 text-2xs font-bold uppercase tracking-wide text-emerald-500">{title}</div>
   );
 
   return (
@@ -504,7 +504,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
                   <Plus className="w-3.5 h-3.5" /> Сформировать документ
                 </button>
               )}
-              <button type="button" onClick={() => setRevDialog('next')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer" title="Выпустить новую ревизию">
+              <button type="button" onClick={() => setRevDialog('next')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer" title="Выпустить новую ревизию">
                 <ArrowUpCircle className="w-3.5 h-3.5" /> Рев. {f.revision} ↑
               </button>
             </div>
@@ -623,7 +623,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
                 <div className="border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-850">
                   {revisions.map(v => (
                     <div key={v.id} className="px-3 py-1.5 flex items-center gap-2 text-xs">
-                      <span className="w-7 font-black text-indigo-600">{v.revision}</span>
+                      <span className="w-7 font-black text-emerald-600">{v.revision}</span>
                       <span className="text-slate-400 w-20">{fmtD(v.date)}</span>
                       <span className="text-slate-500 w-12">{v.reason}</span>
                       <span className="flex-1 truncate text-slate-700 dark:text-slate-300" title={`${v.place}\n${v.description}`}>{[v.place, v.description].filter(Boolean).join(' — ')}</span>
@@ -641,7 +641,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
 
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-200 dark:border-slate-800 shrink-0">
           <button type="button" onClick={onClose} className="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Закрыть</button>
-          <button type="button" onClick={save} disabled={busy} className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">
+          <button type="button" onClick={save} disabled={busy} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">
             {busy ? 'Сохраняю…' : 'Сохранить'}
           </button>
         </div>
@@ -661,7 +661,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
                   <button type="button" onClick={() => { setRevDialog('certify'); setTimeout(issueRevision, 0); }} disabled={busy}
                     className="px-3 py-1.5 rounded-lg border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 text-xs font-bold hover:bg-emerald-50 dark:hover:bg-emerald-950/30 cursor-pointer">Утвердить (→0)</button>
                 )}
-                <button type="button" onClick={issueRevision} disabled={busy} className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer disabled:opacity-50">Выпустить</button>
+                <button type="button" onClick={issueRevision} disabled={busy} className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer disabled:opacity-50">Выпустить</button>
               </div>
             </div>
           </div>
@@ -698,7 +698,7 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
     } finally { setBusy(false); }
   };
 
-  const inputCls = 'w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500';
+  const inputCls = 'w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500';
   const F = ({ label, k }: { label: string; k: string }) => (
     <div>
       <label className="block text-xs font-bold text-slate-500 uppercase">{label}</label>
@@ -746,7 +746,7 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
         </div>
 
         <div className="pt-2 border-t border-slate-100 dark:border-slate-850">
-          <div className="text-xs font-bold uppercase tracking-wide text-indigo-500 mb-1.5">Свои колонки реестра ({cols.filter(c => !c.field).length} доп. / {cols.length} всего)</div>
+          <div className="text-xs font-bold uppercase tracking-wide text-emerald-500 mb-1.5">Свои колонки реестра ({cols.filter(c => !c.field).length} доп. / {cols.length} всего)</div>
           <div className="flex flex-wrap gap-1.5 mb-2 max-h-28 overflow-auto">
             {cols.filter(c => !c.field).map(c => (
               <span key={c.key} className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold">
@@ -768,7 +768,7 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
 
         <div className="flex items-center justify-end gap-2 pt-1">
           <button type="button" onClick={onClose} className="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Отмена</button>
-          <button type="button" onClick={save} disabled={busy} className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">Сохранить</button>
+          <button type="button" onClick={save} disabled={busy} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">Сохранить</button>
         </div>
       </div>
     </div>

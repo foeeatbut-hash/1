@@ -57,6 +57,18 @@ export default function Layout() {
   React.useEffect(() => {
     useWorkspaceStore.getState().bindUser(user?.id || null);
   }, [user?.id]);
+
+  /**
+   * Ширина правого рельса — на корне документа, а не на этом узле.
+   * Ею пользуются и то, что внутри оболочки (боковые панели, когда на узком
+   * окне ложатся поверх содержимого и должны оставить рельс открытым), и то,
+   * что вне её (плавающий значок журнала живёт в App, рядом с Layout).
+   * Раньше отступ был вписан числом 72 и после первой же смены ширины рельса
+   * оказался бы неверным.
+   */
+  React.useEffect(() => {
+    document.documentElement.style.setProperty('--flux-rail-w', sidebarCompact ? '56px' : '96px');
+  }, [sidebarCompact]);
   // На Главной (/) в режиме одного окна левой панели нет; иначе она закреплена
   const sidebarHidden = wsLayout === 'single' && wsActivePath === '/';
   const chatUnread = useNotificationStore((s) => s.chatUnread);
@@ -424,7 +436,10 @@ export default function Layout() {
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-slate-50 dark:bg-dark-bg text-slate-800 dark:text-dark-text-main font-sans relative transition-colors duration-250">
-      <aside className={`${sidebarHidden ? 'w-0 opacity-0 -translate-x-full pointer-events-none' : `${sidebarCompact ? 'w-14' : 'w-24'} opacity-100 translate-x-0`} bg-white dark:bg-dark-surface text-slate-700 dark:text-dark-text-muted flex flex-col transition-[width,opacity,transform] duration-[240ms] shrink-0 border-r border-slate-200 dark:border-dark-border`}>
+      {/* overflow-hidden обязателен: в скрытом состоянии ширина 0, и без обрезки
+          содержимое меню продолжает рисоваться поверх раздела — держалось это
+          только на прозрачности. */}
+      <aside className={`${sidebarHidden ? 'w-0 opacity-0 -translate-x-full pointer-events-none' : `${sidebarCompact ? 'w-14' : 'w-24'} opacity-100 translate-x-0`} overflow-hidden bg-white dark:bg-dark-surface text-slate-700 dark:text-dark-text-muted flex flex-col transition-[width,opacity,transform] duration-[240ms] shrink-0 border-r border-slate-200 dark:border-dark-border`}>
         <div className="px-1.5 pt-2 pb-1.5 flex flex-col items-center gap-1 border-b border-slate-200 dark:border-dark-border">
           <div className="flex items-center gap-1.5">
             <FluxLogo size={sidebarCompact ? 24 : 28} />

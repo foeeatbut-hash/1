@@ -303,7 +303,7 @@ export default function Equipment() {
   return (
     <div className="h-full flex sheet text-slate-800 dark:text-slate-100">
       {/* КАТЕГОРИИ */}
-      <div className="zone w-56 shrink-0 flex flex-col overflow-hidden">
+      <div className="zone w-40 @[1000px]:w-56 shrink-0 flex flex-col overflow-hidden">
         <div className="px-3 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <span className="text-sm font-bold">Категории</span>
           <button type="button" onClick={() => setShowSettings(true)} className="p-1 text-slate-400 hover:text-emerald-600 cursor-pointer" title="Настройки оборудования"><Settings className="w-4 h-4" /></button>
@@ -347,7 +347,7 @@ export default function Equipment() {
       )}
 
       {/* ДЕРЕВО */}
-      <div className="zone w-80 shrink-0 flex flex-col overflow-hidden">
+      <div className="zone w-64 @[1000px]:w-80 shrink-0 flex flex-col overflow-hidden">
         <div className="px-3 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <span className="text-sm font-bold truncate">{categories.find(c => c.id === activeCat)?.label || activeCat}</span>
           <div className="flex items-center gap-1.5">
@@ -963,7 +963,7 @@ function SettingsModal({ onClose, categories, setCategories, isAdmin, visMode, s
               ))}
             </div>
             <div className="flex gap-2">
-              <input value={newCat} onChange={e => setNewCat(e.target.value)} placeholder="Новая категория…" className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs" />
+              <input value={newCat} onChange={e => setNewCat(e.target.value)} placeholder="Новая категория…" className="flex-1 min-w-0 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs" />
               <button type="button" onClick={addCategory} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold cursor-pointer">Добавить</button>
             </div>
           </div>

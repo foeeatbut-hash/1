@@ -232,14 +232,14 @@ export default function TitlePanel({ projectId, settings, onChange, onClose, doc
             {settings.vdrItemId ? (
               <div className="flex items-center gap-2">
                 <span className="flex-1 text-xs text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-500" /> Привязан к строке ВДР
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" /> Привязан к строке ВДР
                 </span>
                 <button type="button" onClick={() => linkVdr(null)} title="Отвязать от строки ВДР"
                   className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 cursor-pointer"><Unlink className="w-3.5 h-3.5" /></button>
               </div>
             ) : (
               <button type="button" onClick={() => setVdrPickerOpen(true)}
-                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-300 dark:border-indigo-800 text-indigo-700 dark:text-indigo-400 text-xs font-bold hover:bg-indigo-50 dark:hover:bg-indigo-950/30 cursor-pointer">
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 text-xs font-bold hover:bg-emerald-50 dark:hover:bg-emerald-950/30 cursor-pointer">
                 <FileSpreadsheet className="w-3.5 h-3.5" /> Привязать к строке ВДР…
               </button>
             )}

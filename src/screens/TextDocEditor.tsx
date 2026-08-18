@@ -175,7 +175,7 @@ function DataFieldsPanel({ projectId, projectName, userName, onInsert, onClose }
             <label className="block text-xs font-bold text-slate-500 uppercase mt-2">Поле тега</label>
             <div className="flex gap-2">
               <select value={tagField} onChange={e => setTagField(e.target.value)}
-                className="flex-1 px-2 py-1.5 text-sm border border-slate-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950 text-slate-800 dark:text-white">
+                className="flex-1 min-w-0 px-2 py-1.5 text-sm border border-slate-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950 text-slate-800 dark:text-white">
                 <option value="brand">Марка</option>
                 <option value="department">Отдел</option>
                 <option value="fluid">Среда</option>
@@ -190,7 +190,7 @@ function DataFieldsPanel({ projectId, projectName, userName, onInsert, onClose }
                 className="w-full mt-1 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-sky-500" />
               <div className="flex gap-2 mt-1.5">
                 <input value={paramKey} onChange={e => setParamKey(e.target.value)} placeholder="параметр (напр. Высота)"
-                  className="flex-1 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-sky-500" />
+                  className="flex-1 min-w-0 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-sky-500" />
                 <button type="button" disabled={busy || !tagId.trim() || !paramKey.trim()} onClick={insertParam}
                   className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 disabled:opacity-40 text-white text-xs font-bold cursor-pointer">Вставить</button>
               </div>
@@ -833,7 +833,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         {settings.vdrItemId && (
           <button type="button" onClick={() => setRevDialog(true)}
             title={`Выпустить новую ревизию (текущая: ${settings.docMeta?.revision || '—'}) — обновит ВДР, титул и лист ревизий`}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer">
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer">
             Рев. {settings.docMeta?.revision || '—'} ↑
           </button>
         )}
@@ -986,12 +986,12 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase">Место изменения</label>
               <input value={revPlace} onChange={e => setRevPlace(e.target.value)} placeholder="напр. Разд. 3, лист 2"
-                className="w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500" />
+                className="w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500" />
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase">Описание изменения</label>
               <textarea value={revDesc} onChange={e => setRevDesc(e.target.value)} rows={2} placeholder="что изменено"
-                className="w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500" />
+                className="w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500" />
             </div>
             <div className="flex items-center justify-end gap-2">
               <button type="button" onClick={() => setRevDialog(false)} className="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Отмена</button>
@@ -1002,7 +1002,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
                 </button>
               )}
               <button type="button" onClick={() => issueRevision('next')} disabled={revBusy}
-                className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">
+                className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">
                 Следующая ревизия
               </button>
             </div>

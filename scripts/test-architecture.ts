@@ -141,5 +141,36 @@ for (const file of all) {
 const gone = Object.keys(LEGACY).filter((p) => !all.includes(p));
 ok('в списке крупных файлов нет исчезнувших путей', gone.length === 0, gone);
 
+// ── Палитра ────────────────────────────────────────────────────────────────
+// В программе объявлены зелёный акцент и три смысловых цвета: янтарный —
+// предупреждение, розовый — конфликт, небесный — изменение. Всё остальное
+// когда-то расползлось само: к версии 0.64 в разметке жило 230 обращений мимо
+// системы, из них 167 — indigo, второй акцент, которого никто не объявлял.
+// Проверка держит границу: чужой оттенок — это отказ, а не замечание.
+//
+// Палитры маркировки (цвет роли, цвет этапа закупки, цвет типа оборудования)
+// — другое дело: там цвет выбирает человек и различать нужно много значений.
+// Они перечислены поимённо и живут в отдельных файлах-справочниках.
+const ALLOWED_HUES = ['emerald', 'slate', 'amber', 'rose', 'sky'];
+// Перечисляем оттенки поимённо: по образцу «-любое слово-цифра» в сеть попадают
+// border-l-2 и прочие направления с размерами
+const HUE_NAMES = 'red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|slate|gray|zinc|neutral|stone';
+const LABEL_PALETTES = [
+  'src/lib/roles.ts',              // цвет роли сотрудника
+  'src/lib/procurementStages.ts',  // цвет этапа закупки
+  'src/screens/Equipment.tsx',     // цвет типа оборудования
+  'src/screens/LogsManagement.tsx', // цвет категории журнала
+];
+const STRAY = new RegExp(String.raw`\b(?:bg|text|border|ring|from|to|via|fill|stroke|decoration|accent|outline|divide|placeholder|caret|shadow)-(${HUE_NAMES})-\d`, 'g');
+const strays: string[] = [];
+for (const file of SRC) {
+  if (!file.endsWith('.tsx') || LABEL_PALETTES.includes(file)) continue;
+  const body = read(file);
+  for (const m of body.matchAll(STRAY)) {
+    if (!ALLOWED_HUES.includes(m[1])) strays.push(`${file}: ${m[0]}`);
+  }
+}
+ok(`оформление держится палитры (найдено чужих оттенков: ${strays.length})`, strays.length === 0, strays.slice(0, 12));
+
 console.log(f === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${f}`);
 process.exit(f === 0 ? 0 : 1);
