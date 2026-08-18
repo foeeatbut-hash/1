@@ -1,0 +1,153 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: oklch(50% 0.112 163); } a:hover { color: oklch(46% 0.105 163); }
+    .f { font-family: 'Inter', system-ui, -apple-system, sans-serif; letter-spacing: -0.011em; }
+    .m { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+
+<div class="f" style="width: 900px; background: oklch(97.8% 0.004 163); color: oklch(28.5% 0.014 163); padding: 0">
+
+  <!-- Штамп: та же полоса, что у разделов программы — 38px, линия снизу -->
+  <div style="display: flex; align-items: center; gap: 12px; padding: 0 18px; height: 44px; border-bottom: 1px solid oklch(91.2% 0.006 163); background: #fff">
+    <div style="width: 18px; height: 18px; border-radius: 5px; background: oklch(54% 0.115 163); display: flex; align-items: center; justify-content: center">
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"><path d="M2 6h8M6 2v8"/></svg>
+    </div>
+    <span style="font-size: 13px; font-weight: 600">Разбор оформления Flux</span>
+    <span class="m" style="font-size: 11px; color: oklch(56.5% 0.012 163); margin-left: auto">версия 0.64.0 · 12 разделов · 6 ширин окна</span>
+  </div>
+
+  <div style="padding: 26px 28px 30px">
+
+    <h1 style="margin: 0 0 8px; font-size: 27px; font-weight: 700; line-height: 1.15; letter-spacing: -0.02em; text-wrap: pretty">
+      Оформление в порядке.<br>Ломается поведение при сжатии.
+    </h1>
+    <p style="margin: 0 0 22px; font-size: 14px; line-height: 1.55; color: oklch(45% 0.013 163); max-width: 62ch; text-wrap: pretty">
+      Программу прошли живьём: вход, все двенадцать разделов, шесть ширин окна от 1920 до 820,
+      замер геометрии каждого элемента на экране. Ниже только то, что подтверждено измерением
+      или снимком, — без догадок по коду.
+    </p>
+
+    <!-- Полоса счётчиков — как .tally в программе -->
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid oklch(91.2% 0.006 163); border-radius: 10px; overflow: hidden; background: #fff; margin-bottom: 26px">
+      <div style="padding: 12px 16px; border-right: 1px solid oklch(91.2% 0.006 163)">
+        <div class="m" style="font-size: 21px; font-weight: 600; line-height: 1.1">7</div>
+        <div style="font-size: 11px; color: oklch(56.5% 0.012 163); margin-top: 3px">дефектов видно глазом</div>
+      </div>
+      <div style="padding: 12px 16px; border-right: 1px solid oklch(91.2% 0.006 163)">
+        <div class="m" style="font-size: 21px; font-weight: 600; line-height: 1.1; color: oklch(52% 0.17 25)">230</div>
+        <div style="font-size: 11px; color: oklch(56.5% 0.012 163); margin-top: 3px">цветов вне палитры</div>
+      </div>
+      <div style="padding: 12px 16px; border-right: 1px solid oklch(91.2% 0.006 163)">
+        <div class="m" style="font-size: 21px; font-weight: 600; line-height: 1.1; color: oklch(52% 0.17 25)">0</div>
+        <div style="font-size: 11px; color: oklch(56.5% 0.012 163); margin-top: 3px">запросов к ширине панели</div>
+      </div>
+      <div style="padding: 12px 16px">
+        <div class="m" style="font-size: 21px; font-weight: 600; line-height: 1.1">49</div>
+        <div style="font-size: 11px; color: oklch(56.5% 0.012 163); margin-top: 3px">файлов без правил сжатия</div>
+      </div>
+    </div>
+
+    <!-- Главный вывод -->
+    <div style="border: 1px solid oklch(90.5% 0.055 163); background: oklch(97.5% 0.016 163); border-radius: 10px; padding: 18px 20px; margin-bottom: 26px">
+      <div style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: oklch(50% 0.112 163); font-weight: 600; margin-bottom: 7px">Главное</div>
+      <p style="margin: 0; font-size: 14px; line-height: 1.6; text-wrap: pretty">
+        Разметка считает, что вокруг неё окно. А вокруг неё <strong>панель</strong> — рабочий стол
+        делит окно на две или четыре. На мониторе 1920 в режиме четырёх панелей каждая панель
+        шириной 940&nbsp;px, но правила <span class="m" style="font-size: 12.5px">md:</span> и
+        <span class="m" style="font-size: 12.5px">lg:</span> смотрят на окно и молчат. Поэтому
+        добавлять контрольные точки бесполезно — нужны запросы к контейнеру.
+      </p>
+    </div>
+
+    <!-- Список находок -->
+    <div style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: oklch(56.5% 0.012 163); font-weight: 600; margin-bottom: 10px">Что чинить, по порядку</div>
+
+    <div style="display: flex; flex-direction: column; gap: 1px; background: oklch(91.2% 0.006 163); border: 1px solid oklch(91.2% 0.006 163); border-radius: 10px; overflow: hidden">
+
+      <sc-for list="{{rows}}" as="r" hint-placeholder-count="9">
+        <div style="display: grid; grid-template-columns: 30px 1fr 118px; gap: 14px; align-items: start; background: #fff; padding: 13px 16px">
+          <div class="m" style="font-size: 12px; font-weight: 600; color: oklch(56.5% 0.012 163); padding-top: 1px">{{r.n}}</div>
+          <div style="min-width: 0">
+            <div style="font-size: 13.5px; font-weight: 600; line-height: 1.35; margin-bottom: 3px; text-wrap: pretty">{{r.title}}</div>
+            <div style="font-size: 12px; line-height: 1.5; color: oklch(45% 0.013 163); text-wrap: pretty">{{r.detail}}</div>
+            <div class="m" style="font-size: 11px; color: oklch(56.5% 0.012 163); margin-top: 5px">{{r.where}}</div>
+          </div>
+          <div style="display: flex; justify-content: flex-end; padding-top: 1px">
+            <span style="font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 6px; white-space: nowrap; background: {{r.bg}}; color: {{r.fg}}">{{r.tag}}</span>
+          </div>
+        </div>
+      </sc-for>
+
+    </div>
+
+    <p style="margin: 20px 0 0; font-size: 12px; line-height: 1.55; color: oklch(56.5% 0.012 163); text-wrap: pretty">
+      Порядок — по тому, сколько людей это заденет и как часто. Первые пять человек видит каждый день;
+      последние две — при определённой ширине окна.
+    </p>
+
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    const red = { bg: 'oklch(93% 0.04 25)', fg: 'oklch(45% 0.16 25)', tag: 'ошибка' };
+    const amb = { bg: 'oklch(95% 0.05 85)', fg: 'oklch(45% 0.11 75)', tag: 'сжатие' };
+    const gry = { bg: 'oklch(95.5% 0.005 163)', fg: 'oklch(45% 0.013 163)', tag: 'стройность' };
+    return {
+      rows: [
+        { n: '01', ...red,
+          title: 'Переключатель проекта показывает обрубок «Проек не…»',
+          detail: 'Название режется на 6 px посреди слова и без многоточия: в колонке 96 px строка обрывается там, где кончилось место.',
+          where: 'ProjectSwitcher.tsx:73 — line-clamp-2 в узкой колонке' },
+        { n: '02', ...red,
+          title: '«Компактный» вылезает за карточку в Настройках',
+          detail: 'Три кнопки плотности стоят в ряд, который не переносится и не сжимается: при 820 px ряд шире карточки на 47 px и третья кнопка обрезана.',
+          where: 'SettingsScreen.tsx:197 — inline-flex без переноса' },
+        { n: '03', ...red,
+          title: '«Закупки привязано к проекту»',
+          detail: 'Заглушка написана в среднем роде и подставляет туда название раздела. Из трёх мест верно одно: «Оборудование». «Реестр тегов» и «Закупки» читаются как опечатка.',
+          where: 'NoProject.tsx:41 — одна фраза на три рода' },
+        { n: '04', ...red,
+          title: 'Открытые вкладки уезжают за край без следа',
+          detail: 'Полоса вкладок прокручивается, но полосу прокрутки у неё убрали и стрелок нет. При шести открытых разделах последние просто отсутствуют на экране.',
+          where: 'Workspace.tsx:157 — overflow-x-auto + scrollbar-none' },
+        { n: '05', ...red,
+          title: 'Флакси разрезан правым рельсом пополам',
+          detail: 'Задумано «выглядывает из-за края», получилось «обрезан по вертикали ровной линией». Половина робота и половина его тени.',
+          where: 'RobotDock.tsx рядом с RightRail' },
+        { n: '06', ...amb,
+          title: 'Боковые панели отжимают работу вместо того, чтобы лечь поверх',
+          detail: 'Помощник 380 px и Уведомления 360 px не сжимаются. При окне 1024 разделу остаётся 492 px, при 820 — 268 px, и таблицы уходят в горизонтальную прокрутку.',
+          where: 'AssistantPanel.tsx:209, NotificationsPanel.tsx:92 — shrink-0' },
+        { n: '07', ...amb,
+          title: 'Таблица закупок требует 980 px и не отдаёт ни пикселя',
+          detail: 'В панели уже 980 px таблица не перестраивается, а начинает ездить вбок. В режиме четырёх панелей это её обычное состояние.',
+          where: 'ProcurementManagement.tsx:953 — min-w-[980px]' },
+        { n: '08', ...gry,
+          title: '230 цветов мимо палитры, из них 167 — indigo',
+          detail: 'В программе объявлены зелёный акцент и три смысловых цвета. Помимо них в разметке живут indigo, teal, violet, orange, blue, purple, cyan и «зелёный не тот».',
+          where: 'Теги 25, ВДР 19, Закупки 12, Настройки 8' },
+        { n: '09', ...gry,
+          title: 'Левое меню 96 px, правый рельс 56 px',
+          detail: 'В коде рельс назван зеркалом левого меню, но зеркала нет: рабочее поле смещено на 40 px влево от середины окна, и это видно на пустых разделах.',
+          where: 'Layout.tsx:427 (w-24) и RightRail.tsx:29 (w-14)' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

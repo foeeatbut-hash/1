@@ -1,0 +1,260 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: oklch(50% 0.112 163); } a:hover { color: oklch(46% 0.105 163); }
+    .f { font-family: 'Inter', system-ui, -apple-system, sans-serif; letter-spacing: -0.011em; }
+    .m { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+
+<div class="f" style="width: 1180px; background: oklch(97.8% 0.004 163); color: oklch(28.5% 0.014 163)">
+
+  <div style="display: flex; align-items: center; gap: 12px; padding: 0 18px; height: 44px; border-bottom: 1px solid oklch(91.2% 0.006 163); background: #fff">
+    <span style="font-size: 13px; font-weight: 600">Что видно на экране</span>
+    <span class="m" style="font-size: 11px; color: oklch(56.5% 0.012 163); margin-left: auto">слева — как сейчас, справа — предложение</span>
+  </div>
+
+  <div style="padding: 24px 26px 30px; display: flex; flex-direction: column; gap: 26px">
+
+    <!-- ══ 01 · Переключатель проекта ══ -->
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px">
+        <span class="m" style="font-size: 12px; font-weight: 600; color: oklch(56.5% 0.012 163)">01</span>
+        <span style="font-size: 15px; font-weight: 600">Переключатель проекта</span>
+        <span style="font-size: 12px; color: oklch(45% 0.013 163)">— обрубок «Проек не…» вместо названия</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px">
+
+        <div style="border: 1px solid oklch(91.2% 0.006 163); border-radius: 10px; background: #fff; overflow: hidden">
+          <div style="padding: 7px 12px; border-bottom: 1px solid oklch(91.2% 0.006 163); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; color: oklch(52% 0.17 25)">Сейчас</div>
+          <div style="padding: 20px; display: flex; gap: 22px; align-items: flex-start; background: oklch(95.5% 0.005 163)">
+            <!-- колонка меню 96px, как в программе -->
+            <div style="width: 96px; background: #fff; border: 1px solid oklch(91.2% 0.006 163); border-radius: 6px; padding: 8px 6px">
+              <div style="display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 6px; border: 1px solid oklch(91.2% 0.006 163); border-radius: 6px; overflow: hidden">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="oklch(56.5% 0.012 163)" stroke-width="1.5" style="flex: none"><rect x="1.5" y="3.5" width="13" height="10" rx="1.5"/><path d="M1.5 6.5h13"/></svg>
+                <span style="font-size: 11px; font-weight: 600; line-height: 1.25; color: oklch(56.5% 0.012 163); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-all">Проек не…</span>
+                <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="oklch(56.5% 0.012 163)" stroke-width="1.6" style="flex: none"><path d="M4 6.5L8 10.5L12 6.5"/></svg>
+              </div>
+            </div>
+            <div style="flex: 1; min-width: 0; font-size: 12px; line-height: 1.55; color: oklch(45% 0.013 163); text-wrap: pretty">
+              Строка режется по букве и без многоточия — <span class="m" style="font-size: 11.5px">line-clamp-2</span>
+              обрывает вторую строку там, где кончилась ширина. Инженер видит «Проек не…»
+              и не понимает, это название проекта или сбой.
+            </div>
+          </div>
+        </div>
+
+        <div style="border: 1px solid oklch(90.5% 0.055 163); border-radius: 10px; background: #fff; overflow: hidden">
+          <div style="padding: 7px 12px; border-bottom: 1px solid oklch(90.5% 0.055 163); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; color: oklch(50% 0.112 163)">Предлагаю</div>
+          <div style="padding: 20px; display: flex; gap: 22px; align-items: flex-start; background: oklch(95.5% 0.005 163)">
+            <div style="width: 96px; background: #fff; border: 1px solid oklch(91.2% 0.006 163); border-radius: 6px; padding: 8px 6px">
+              <div style="display: flex; flex-direction: column; gap: 3px; padding: 5px 6px; border: 1px solid oklch(91.2% 0.006 163); border-radius: 6px">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px">
+                  <span style="font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; color: oklch(56.5% 0.012 163)">проект</span>
+                  <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="oklch(56.5% 0.012 163)" stroke-width="1.6"><path d="M4 6.5L8 10.5L12 6.5"/></svg>
+                </div>
+                <span style="font-size: 11px; font-weight: 600; line-height: 1.25; color: oklch(56.5% 0.012 163); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">не выбран</span>
+              </div>
+            </div>
+            <div style="flex: 1; min-width: 0; font-size: 12px; line-height: 1.55; color: oklch(45% 0.013 163); text-wrap: pretty">
+              Подпись графы отдельно, значение отдельно — язык штампа, уже принятый в программе.
+              Значение в одну строку с настоящим многоточием, полное имя остаётся в подсказке.
+              Обрыв по букве больше невозможен.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ══ 02 · Плотность ══ -->
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px">
+        <span class="m" style="font-size: 12px; font-weight: 600; color: oklch(56.5% 0.012 163)">02</span>
+        <span style="font-size: 15px; font-weight: 600">Плотность в Настройках</span>
+        <span style="font-size: 12px; color: oklch(45% 0.013 163)">— ряд шире карточки на 47 px при узком окне</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px">
+
+        <div style="border: 1px solid oklch(91.2% 0.006 163); border-radius: 10px; background: #fff; overflow: hidden">
+          <div style="padding: 7px 12px; border-bottom: 1px solid oklch(91.2% 0.006 163); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; color: oklch(52% 0.17 25)">Сейчас</div>
+          <div style="padding: 20px; background: oklch(95.5% 0.005 163)">
+            <!-- карточка фиксированной ширины: показываем срез -->
+            <div style="width: 300px; border: 1px solid oklch(91.2% 0.006 163); border-radius: 10px; background: oklch(97.8% 0.004 163); padding: 14px; overflow: hidden; position: relative">
+              <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: oklch(56.5% 0.012 163); margin-bottom: 4px">Плотность</div>
+              <div style="font-size: 11.5px; line-height: 1.45; color: oklch(53% 0.012 163); margin-bottom: 11px">Сколько строк помещается на экране.</div>
+              <div style="display: inline-flex; padding: 4px; border-radius: 10px; border: 1px solid oklch(91.2% 0.006 163); background: #fff; width: max-content">
+                <div style="padding: 7px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; color: oklch(53% 0.012 163); white-space: nowrap">Просторно</div>
+                <div style="padding: 7px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; background: oklch(97.5% 0.016 163); color: oklch(40% 0.09 163); white-space: nowrap">Стандарт</div>
+                <div style="padding: 7px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; color: oklch(53% 0.012 163); white-space: nowrap">Компактно</div>
+              </div>
+              <!-- линия обрыва -->
+              <div style="position: absolute; top: 0; bottom: 0; right: 0; width: 2px; background: oklch(60% 0.20 25)"></div>
+            </div>
+            <div class="m" style="font-size: 11px; color: oklch(52% 0.17 25); margin-top: 9px">↑ третья кнопка уходит за красную линию — за край карточки</div>
+          </div>
+        </div>
+
+        <div style="border: 1px solid oklch(90.5% 0.055 163); border-radius: 10px; background: #fff; overflow: hidden">
+          <div style="padding: 7px 12px; border-bottom: 1px solid oklch(90.5% 0.055 163); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; color: oklch(50% 0.112 163)">Предлагаю</div>
+          <div style="padding: 20px; background: oklch(95.5% 0.005 163)">
+            <div style="width: 300px; border: 1px solid oklch(91.2% 0.006 163); border-radius: 10px; background: oklch(97.8% 0.004 163); padding: 14px">
+              <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: oklch(56.5% 0.012 163); margin-bottom: 4px">Плотность</div>
+              <div style="font-size: 11.5px; line-height: 1.45; color: oklch(53% 0.012 163); margin-bottom: 11px">Сколько строк помещается на экране.</div>
+              <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; padding: 4px; border-radius: 10px; border: 1px solid oklch(91.2% 0.006 163); background: #fff">
+                <div style="padding: 7px 4px; border-radius: 6px; font-size: 12.5px; font-weight: 600; color: oklch(53% 0.012 163); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Просторно</div>
+                <div style="padding: 7px 4px; border-radius: 6px; font-size: 12.5px; font-weight: 600; background: oklch(97.5% 0.016 163); color: oklch(40% 0.09 163); text-align: center">Стандарт</div>
+                <div style="padding: 7px 4px; border-radius: 6px; font-size: 12.5px; font-weight: 600; color: oklch(53% 0.012 163); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Компактно</div>
+              </div>
+            </div>
+            <div class="m" style="font-size: 11px; color: oklch(50% 0.112 163); margin-top: 9px">↑ три равные доли ширины — ряд не может стать шире карточки</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ══ 03 · Заглушка ══ -->
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px">
+        <span class="m" style="font-size: 12px; font-weight: 600; color: oklch(56.5% 0.012 163)">03</span>
+        <span style="font-size: 15px; font-weight: 600">Заглушка «выберите проект»</span>
+        <span style="font-size: 12px; color: oklch(45% 0.013 163)">— одна фраза на три рода</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px">
+
+        <div style="border: 1px solid oklch(91.2% 0.006 163); border-radius: 10px; background: #fff; overflow: hidden">
+          <div style="padding: 7px 12px; border-bottom: 1px solid oklch(91.2% 0.006 163); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; color: oklch(52% 0.17 25)">Сейчас</div>
+          <div style="padding: 18px 20px; background: oklch(95.5% 0.005 163); display: flex; flex-direction: column; gap: 7px">
+            <div style="font-size: 13px; line-height: 1.5; color: oklch(45% 0.013 163)"><span style="color: oklch(52% 0.17 25); font-weight: 600">Закупки привязано</span> к проекту&nbsp;—</div>
+            <div style="font-size: 13px; line-height: 1.5; color: oklch(45% 0.013 163)"><span style="color: oklch(52% 0.17 25); font-weight: 600">Реестр тегов привязано</span> к проекту&nbsp;—</div>
+            <div style="font-size: 13px; line-height: 1.5; color: oklch(45% 0.013 163)"><span style="color: oklch(50% 0.112 163); font-weight: 600">Оборудование привязано</span> к проекту&nbsp;—</div>
+            <div class="m" style="font-size: 11px; color: oklch(56.5% 0.012 163); margin-top: 4px">из трёх мест верно одно</div>
+          </div>
+        </div>
+
+        <div style="border: 1px solid oklch(90.5% 0.055 163); border-radius: 10px; background: #fff; overflow: hidden">
+          <div style="padding: 7px 12px; border-bottom: 1px solid oklch(90.5% 0.055 163); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; color: oklch(50% 0.112 163)">Предлагаю</div>
+          <div style="padding: 18px 20px; background: oklch(95.5% 0.005 163); display: flex; flex-direction: column; gap: 7px">
+            <div style="font-size: 13px; line-height: 1.5; color: oklch(45% 0.013 163)">Закупки <span style="color: oklch(50% 0.112 163); font-weight: 600">ведутся по проекту</span>&nbsp;—</div>
+            <div style="font-size: 13px; line-height: 1.5; color: oklch(45% 0.013 163)">Реестр тегов <span style="color: oklch(50% 0.112 163); font-weight: 600">ведётся по проекту</span>&nbsp;—</div>
+            <div style="font-size: 13px; line-height: 1.5; color: oklch(45% 0.013 163)">Оборудование <span style="color: oklch(50% 0.112 163); font-weight: 600">ведётся по проекту</span>&nbsp;—</div>
+            <div class="m" style="font-size: 11px; color: oklch(50% 0.112 163); margin-top: 4px">род уходит из фразы: раздел сам подставляет свой глагол</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ══ 04 · Вкладки ══ -->
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px">
+        <span class="m" style="font-size: 12px; font-weight: 600; color: oklch(56.5% 0.012 163)">04</span>
+        <span style="font-size: 15px; font-weight: 600">Полоса вкладок</span>
+        <span style="font-size: 12px; color: oklch(45% 0.013 163)">— лишние вкладки исчезают бесследно</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px">
+
+        <div style="border: 1px solid oklch(91.2% 0.006 163); border-radius: 10px; background: #fff; overflow: hidden">
+          <div style="padding: 7px 12px; border-bottom: 1px solid oklch(91.2% 0.006 163); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; color: oklch(52% 0.17 25)">Сейчас</div>
+          <div style="padding: 18px 20px; background: oklch(95.5% 0.005 163)">
+            <div style="display: flex; gap: 1px; padding: 4px 6px 0; background: #fff; border: 1px solid oklch(91.2% 0.006 163); border-radius: 6px 6px 0 0; overflow: hidden; height: 34px; align-items: stretch">
+              <sc-for list="{{tabsNow}}" as="t" hint-placeholder-count="5">
+                <div style="display: flex; align-items: center; gap: 6px; padding: 0 8px 0 10px; border-radius: 6px 6px 0 0; font-size: 12px; white-space: nowrap; color: {{t.fg}}; font-weight: {{t.fw}}; background: {{t.bg}}">{{t.name}}</div>
+              </sc-for>
+            </div>
+            <div class="m" style="font-size: 11px; color: oklch(52% 0.17 25); margin-top: 9px">«Менеджмент» обрезан, дальше ещё три — ни полосы прокрутки, ни стрелок</div>
+          </div>
+        </div>
+
+        <div style="border: 1px solid oklch(90.5% 0.055 163); border-radius: 10px; background: #fff; overflow: hidden">
+          <div style="padding: 7px 12px; border-bottom: 1px solid oklch(90.5% 0.055 163); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; color: oklch(50% 0.112 163)">Предлагаю</div>
+          <div style="padding: 18px 20px; background: oklch(95.5% 0.005 163)">
+            <div style="display: flex; gap: 1px; padding: 4px 6px 0; background: #fff; border: 1px solid oklch(91.2% 0.006 163); border-radius: 6px 6px 0 0; height: 34px; align-items: stretch">
+              <sc-for list="{{tabsFix}}" as="t" hint-placeholder-count="4">
+                <div style="display: flex; align-items: center; gap: 6px; padding: 0 8px 0 10px; border-radius: 6px 6px 0 0; font-size: 12px; white-space: nowrap; color: {{t.fg}}; font-weight: {{t.fw}}; background: {{t.bg}}; min-width: 0; overflow: hidden; text-overflow: ellipsis">{{t.name}}</div>
+              </sc-for>
+              <div style="margin-left: auto; display: flex; align-items: center; gap: 5px; padding: 0 4px 4px">
+                <div style="display: flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 6px; background: oklch(97.5% 0.016 163); color: oklch(40% 0.09 163); font-size: 11px; font-weight: 600; white-space: nowrap">ещё 3
+                  <svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6.5L8 10.5L12 6.5"/></svg>
+                </div>
+              </div>
+            </div>
+            <div class="m" style="font-size: 11px; color: oklch(50% 0.112 163); margin-top: 9px">вкладки сжимаются до значка, остаток честно считается в кнопке «ещё»</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ══ 05 · Флакси ══ -->
+    <div>
+      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px">
+        <span class="m" style="font-size: 12px; font-weight: 600; color: oklch(56.5% 0.012 163)">05</span>
+        <span style="font-size: 15px; font-weight: 600">Флакси у правого края</span>
+        <span style="font-size: 12px; color: oklch(45% 0.013 163)">— разрезан рельсом, а не выглядывает</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px">
+
+        <div style="border: 1px solid oklch(91.2% 0.006 163); border-radius: 10px; background: #fff; overflow: hidden">
+          <div style="padding: 7px 12px; border-bottom: 1px solid oklch(91.2% 0.006 163); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; color: oklch(52% 0.17 25)">Сейчас</div>
+          <div style="padding: 18px 20px; background: oklch(95.5% 0.005 163); display: flex; align-items: center; gap: 0">
+            <div style="flex: 1; height: 96px; background: #fff; border: 1px solid oklch(91.2% 0.006 163); border-right: none; border-radius: 6px 0 0 6px; position: relative; overflow: hidden">
+              <div style="position: absolute; right: 0; top: 18px; width: 34px; height: 60px; border-radius: 8px 0 0 8px; background: oklch(70% 0.12 163)"></div>
+              <div style="position: absolute; right: 6px; top: 30px; width: 8px; height: 8px; border-radius: 50%; background: #fff"></div>
+              <div style="position: absolute; right: 22px; top: 30px; width: 8px; height: 8px; border-radius: 50%; background: #fff"></div>
+            </div>
+            <div style="width: 44px; height: 96px; background: #fff; border: 1px solid oklch(91.2% 0.006 163); border-radius: 0 6px 6px 0"></div>
+          </div>
+          <div class="m" style="font-size: 11px; color: oklch(52% 0.17 25); padding: 0 20px 16px">рельс режет фигуру по прямой — читается как сбой отрисовки</div>
+        </div>
+
+        <div style="border: 1px solid oklch(90.5% 0.055 163); border-radius: 10px; background: #fff; overflow: hidden">
+          <div style="padding: 7px 12px; border-bottom: 1px solid oklch(90.5% 0.055 163); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; color: oklch(50% 0.112 163)">Предлагаю</div>
+          <div style="padding: 18px 20px; background: oklch(95.5% 0.005 163); display: flex; align-items: center; gap: 0">
+            <div style="flex: 1; height: 96px; background: #fff; border: 1px solid oklch(91.2% 0.006 163); border-right: none; border-radius: 6px 0 0 6px; position: relative">
+              <div style="position: absolute; right: 10px; top: 22px; width: 52px; height: 52px; border-radius: 12px; background: oklch(70% 0.12 163)"></div>
+              <div style="position: absolute; right: 20px; top: 38px; width: 8px; height: 8px; border-radius: 50%; background: #fff"></div>
+              <div style="position: absolute; right: 44px; top: 38px; width: 8px; height: 8px; border-radius: 50%; background: #fff"></div>
+            </div>
+            <div style="width: 44px; height: 96px; background: #fff; border: 1px solid oklch(91.2% 0.006 163); border-radius: 0 6px 6px 0"></div>
+          </div>
+          <div class="m" style="font-size: 11px; color: oklch(50% 0.112 163); padding: 0 20px 16px">целая фигура внутри поля, у самого рельса — робот не обрезан</div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    const off = { fg: 'oklch(53% 0.012 163)', fw: '400', bg: 'transparent' };
+    const on = { fg: 'oklch(22% 0.012 163)', fw: '600', bg: 'oklch(95.5% 0.005 163)' };
+    return {
+      tabsNow: [
+        { name: 'Главная', ...off }, { name: 'Проекты', ...off }, { name: 'Теги', ...off },
+        { name: 'Оборудование', ...off }, { name: 'Справочник', ...off }, { name: 'Менеджмент', ...on },
+      ],
+      tabsFix: [
+        { name: 'Главная', ...off }, { name: 'Проекты', ...off }, { name: 'Теги', ...off },
+        { name: 'Менеджмент', ...on },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

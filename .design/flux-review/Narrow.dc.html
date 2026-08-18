@@ -1,0 +1,253 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: oklch(50% 0.112 163); } a:hover { color: oklch(46% 0.105 163); }
+    .f { font-family: 'Inter', system-ui, -apple-system, sans-serif; letter-spacing: -0.011em; }
+    .m { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+
+<div class="f" style="width: 1300px; background: oklch(97.8% 0.004 163); color: oklch(28.5% 0.014 163)">
+
+  <div style="display: flex; align-items: center; gap: 12px; padding: 0 18px; height: 44px; border-bottom: 1px solid oklch(91.2% 0.006 163); background: #fff">
+    <span style="font-size: 13px; font-weight: 600">Сжатие: что переносится, что убирается</span>
+    <span class="m" style="font-size: 11px; color: oklch(56.5% 0.012 163); margin-left: auto">потяните «Ширина панели» над макетом</span>
+  </div>
+
+  <div style="padding: 22px 26px 28px">
+
+    <p style="margin: 0 0 18px; font-size: 13.5px; line-height: 1.6; color: oklch(45% 0.013 163); max-width: 74ch; text-wrap: pretty">
+      Ширина меряется у <strong>панели</strong>, а не у окна: в режиме четырёх панелей на мониторе 1920
+      каждая панель — 940&nbsp;px, и раздел обязан вести себя как на узком экране. Ниже — раздел
+      «Закупки» на выбранной ширине и правило, которое на ней срабатывает.
+    </p>
+
+    <!-- ── Текущее состояние ── -->
+    <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 14px; flex-wrap: wrap">
+      <div style="display: flex; align-items: baseline; gap: 8px">
+        <span class="m" style="font-size: 22px; font-weight: 600">{{paneWidth}}</span>
+        <span style="font-size: 12px; color: oklch(56.5% 0.012 163)">px ширина панели</span>
+      </div>
+      <div style="height: 20px; width: 1px; background: oklch(91.2% 0.006 163)"></div>
+      <span style="font-size: 12px; font-weight: 600; padding: 4px 11px; border-radius: 6px; background: {{mode.bg}}; color: {{mode.fg}}">{{mode.name}}</span>
+      <span style="font-size: 12px; color: oklch(45% 0.013 163); flex: 1; min-width: 240px; text-wrap: pretty">{{mode.rule}}</span>
+    </div>
+
+    <!-- ── Сцена: панель заданной ширины ── -->
+    <div style="border: 1px solid oklch(91.2% 0.006 163); border-radius: 10px; background: oklch(95.5% 0.005 163); padding: 18px; margin-bottom: 24px; min-height: 340px">
+      <div style="width: {{paneWidth}}px; max-width: 100%; background: #fff; border: 1px solid oklch(91.2% 0.006 163); border-radius: 6px; overflow: hidden">
+
+        <!-- штамп раздела: 38px, как .stamp -->
+        <div style="display: flex; align-items: center; gap: 10px; padding: 0 12px; height: 38px; border-bottom: 1px solid oklch(91.2% 0.006 163); min-width: 0">
+          <span style="font-size: 13px; font-weight: 600; white-space: nowrap">Закупки</span>
+          <sc-if value="{{showSub}}" hint-placeholder-val="{{true}}">
+            <span class="m" style="font-size: 11px; color: oklch(56.5% 0.012 163); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Технологический Проект Альфа</span>
+          </sc-if>
+          <div style="margin-left: auto; display: flex; align-items: center; gap: 6px; flex: none">
+            <sc-for list="{{actions}}" as="a" hint-placeholder-count="2">
+              <div style="height: 26px; display: flex; align-items: center; gap: 5px; padding: 0 10px; border-radius: 6px; font-size: 11.5px; font-weight: 600; white-space: nowrap; background: {{a.bg}}; color: {{a.fg}}; border: 1px solid {{a.bd}}">{{a.label}}</div>
+            </sc-for>
+          </div>
+        </div>
+
+        <!-- полоса счётчиков: .tally -->
+        <div style="display: flex; border-bottom: 1px solid oklch(91.2% 0.006 163); overflow: hidden">
+          <sc-for list="{{tally}}" as="t" hint-placeholder-count="4">
+            <div style="flex: 1; min-width: 0; padding: 7px 12px; border-right: 1px solid oklch(91.2% 0.006 163)">
+              <div class="m" style="font-size: 16px; font-weight: 600; line-height: 1.1">{{t.n}}</div>
+              <div style="font-size: 10.5px; color: oklch(56.5% 0.012 163); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{t.label}}</div>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="display: flex; align-items: stretch; min-height: 214px">
+
+          <!-- боковая колонка фильтров -->
+          <sc-if value="{{showFilters}}" hint-placeholder-val="{{true}}">
+            <div style="width: 168px; flex: none; border-right: 1px solid oklch(91.2% 0.006 163); padding: 11px 12px">
+              <div style="font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: oklch(56.5% 0.012 163); font-weight: 600; margin-bottom: 8px">Этап</div>
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <sc-for list="{{stages}}" as="s" hint-placeholder-count="5">
+                  <div style="font-size: 11.5px; padding: 5px 8px; border-radius: 6px; color: {{s.fg}}; background: {{s.bg}}; font-weight: {{s.fw}}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{s.label}}</div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+
+          <div style="flex: 1; min-width: 0">
+
+            <!-- строка поиска -->
+            <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid oklch(91.2% 0.006 163)">
+              <sc-if value="{{showFiltersButton}}" hint-placeholder-val="{{false}}">
+                <div style="height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 11px; border-radius: 6px; border: 1px solid oklch(91.2% 0.006 163); font-size: 11.5px; font-weight: 600; color: oklch(45% 0.013 163); white-space: nowrap; flex: none">
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M4.5 8h7M6.5 12h3"/></svg>
+                  Фильтры
+                </div>
+              </sc-if>
+              <div style="flex: 1; min-width: 0; height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 10px; border-radius: 6px; border: 1px solid oklch(91.2% 0.006 163); background: oklch(97.8% 0.004 163)">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="oklch(56.5% 0.012 163)" stroke-width="1.5" style="flex: none"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+                <span style="font-size: 11.5px; color: oklch(56.5% 0.012 163); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Поиск по закупкам</span>
+              </div>
+            </div>
+
+            <!-- таблица или карточки -->
+            <sc-if value="{{asCards}}" hint-placeholder-val="{{false}}">
+              <div style="padding: 10px 12px; display: flex; flex-direction: column; gap: 8px">
+                <sc-for list="{{rows}}" as="r" hint-placeholder-count="3">
+                  <div style="border: 1px solid oklch(91.2% 0.006 163); border-radius: 6px; padding: 9px 11px">
+                    <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px">
+                      <span class="m" style="font-size: 11.5px; font-weight: 600">{{r.tag}}</span>
+                      <span style="font-size: 11.5px; color: oklch(45% 0.013 163); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{r.name}}</span>
+                    </div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 10.5px; color: oklch(56.5% 0.012 163)">
+                      <span>{{r.vendor}}</span><span class="m">{{r.qty}}</span><span class="m">{{r.due}}</span>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{asTable}}" hint-placeholder-val="{{true}}">
+              <div>
+                <div style="display: flex; height: 30px; align-items: center; border-bottom: 1px solid oklch(91.2% 0.006 163); background: oklch(97.8% 0.004 163)">
+                  <sc-for list="{{cols}}" as="cl" hint-placeholder-count="5">
+                    <div style="flex: {{cl.flex}}; min-width: 0; padding: 0 10px; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; color: oklch(56.5% 0.012 163); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: {{cl.align}}">{{cl.label}}</div>
+                  </sc-for>
+                </div>
+                <sc-for list="{{rows}}" as="r" hint-placeholder-count="4">
+                  <div style="display: flex; height: 34px; align-items: center; border-bottom: 1px solid oklch(91.2% 0.006 163)">
+                    <sc-for list="{{r.cells}}" as="cell" hint-placeholder-count="5">
+                      <div style="flex: {{cell.flex}}; min-width: 0; padding: 0 10px; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: {{cell.align}}; font-family: {{cell.ff}}; color: {{cell.fg}}">{{cell.v}}</div>
+                    </sc-for>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Правила ── -->
+    <div style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: oklch(56.5% 0.012 163); font-weight: 600; margin-bottom: 10px">Правила по ширине панели</div>
+
+    <div style="border: 1px solid oklch(91.2% 0.006 163); border-radius: 10px; overflow: hidden; background: #fff">
+      <div style="display: flex; height: 32px; align-items: center; background: oklch(97.8% 0.004 163); border-bottom: 1px solid oklch(91.2% 0.006 163)">
+        <div style="width: 132px; flex: none; padding: 0 14px; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; color: oklch(56.5% 0.012 163)">Ширина</div>
+        <div style="flex: 1; padding: 0 14px; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; color: oklch(56.5% 0.012 163)">Что происходит</div>
+        <div style="width: 230px; flex: none; padding: 0 14px; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; color: oklch(56.5% 0.012 163)">Почему так, а не прокрутка</div>
+      </div>
+      <sc-for list="{{ruleRows}}" as="r" hint-placeholder-count="4">
+        <div style="display: flex; align-items: stretch; border-bottom: 1px solid oklch(91.2% 0.006 163); background: {{r.bg}}">
+          <div class="m" style="width: 132px; flex: none; padding: 11px 14px; font-size: 11.5px; font-weight: 600">{{r.range}}</div>
+          <div style="flex: 1; min-width: 0; padding: 11px 14px; font-size: 12px; line-height: 1.5; text-wrap: pretty">{{r.what}}</div>
+          <div style="width: 230px; flex: none; padding: 11px 14px; font-size: 11.5px; line-height: 1.5; color: oklch(45% 0.013 163); text-wrap: pretty">{{r.why}}</div>
+        </div>
+      </sc-for>
+    </div>
+
+    <p style="margin: 16px 0 0; font-size: 12px; line-height: 1.55; color: oklch(56.5% 0.012 163); max-width: 78ch; text-wrap: pretty">
+      Ни одно правило не прячет данные насовсем: свёрнутые колонки видны в карточке строки,
+      свёрнутые фильтры — под кнопкой. Убирается только то, у чего есть другой путь.
+    </p>
+
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"paneWidth":{"editor":"range","default":1040,"min":560,"max":1240,"step":40,"unit":"px","section":"Панель"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const w = Number(this.props.paneWidth ?? 1040);
+    const mono = "'JetBrains Mono', monospace";
+    const sans = "'Inter', system-ui, sans-serif";
+    const muted = 'oklch(45% 0.013 163)';
+    const ink = 'oklch(28.5% 0.014 163)';
+
+    // Пороги меряются у панели. Значения взяты от содержимого, а не круглые:
+    // ниже 1100 перестают помещаться все семь колонок, ниже 900 — фильтры сбоку.
+    const wide = w >= 1100, mid = w >= 900, narrow = w >= 720;
+
+    const modes = {
+      wide:  { name: 'Полная', bg: 'oklch(95% 0.030 163)', fg: 'oklch(40% 0.09 163)',
+               rule: 'Помещается всё: фильтры сбоку, семь колонок, подзаголовок проекта.' },
+      mid:   { name: 'Собранная', bg: 'oklch(95% 0.030 163)', fg: 'oklch(40% 0.09 163)',
+               rule: 'Колонка «Изменён» ушла в карточку строки. Остальное на месте.' },
+      slim:  { name: 'Сжатая', bg: 'oklch(95% 0.05 85)', fg: 'oklch(45% 0.11 75)',
+               rule: 'Фильтры свернулись в кнопку, «Поставщик» и «Срок» ушли в карточку строки.' },
+      cards: { name: 'Карточки', bg: 'oklch(95% 0.05 85)', fg: 'oklch(45% 0.11 75)',
+               rule: 'Таблица стала списком карточек: колонок для строки уже не хватает.' },
+    };
+    const mode = wide ? modes.wide : mid ? modes.mid : narrow ? modes.slim : modes.cards;
+
+    // Колонки: отпадают справа налево, по убыванию нужности
+    const allCols = [
+      { key: 'tag',    label: 'Тег',        flex: '0 0 96px',  align: 'left',  ff: mono, fg: ink },
+      { key: 'name',   label: 'Позиция',    flex: '1 1 auto',  align: 'left',  ff: sans, fg: ink },
+      { key: 'vendor', label: 'Поставщик',  flex: '0 0 150px', align: 'left',  ff: sans, fg: muted, from: 720 },
+      { key: 'qty',    label: 'Кол-во',     flex: '0 0 78px',  align: 'right', ff: mono, fg: ink },
+      { key: 'stage',  label: 'Этап',       flex: '0 0 116px', align: 'left',  ff: sans, fg: muted },
+      { key: 'due',    label: 'Срок',       flex: '0 0 92px',  align: 'right', ff: mono, fg: muted, from: 720 },
+      { key: 'edited', label: 'Изменён',    flex: '0 0 96px',  align: 'right', ff: mono, fg: muted, from: 1100 },
+    ];
+    const cols = allCols.filter((c) => !c.from || w >= c.from);
+
+    const data = [
+      { tag: 'AHU-2',  name: 'Приточная установка', vendor: 'Systemair',  qty: '2 шт', stage: 'Заявка',    due: '12.09', edited: '17.08' },
+      { tag: 'VAV-14', name: 'Клапан регулирующий', vendor: 'Belimo',     qty: '14 шт', stage: 'Счёт',     due: '20.09', edited: '16.08' },
+      { tag: 'FC-07',  name: 'Фанкойл кассетный',   vendor: 'Daikin',     qty: '7 шт', stage: 'Оплачено',  due: '02.10', edited: '16.08' },
+      { tag: 'PMP-01', name: 'Насос циркуляционный', vendor: 'Grundfos',  qty: '1 шт', stage: 'В пути',    due: '28.09', edited: '15.08' },
+    ];
+    const rows = data.map((d) => ({
+      ...d,
+      cells: cols.map((c) => ({ v: d[c.key], flex: c.flex, align: c.align, ff: c.ff, fg: c.fg })),
+    }));
+
+    const stageList = ['Все', 'Заявка', 'Счёт', 'Оплачено', 'В пути', 'На складе'];
+    const stages = stageList.map((label, i) => i === 0
+      ? { label, fg: 'oklch(40% 0.09 163)', bg: 'oklch(97.5% 0.016 163)', fw: '600' }
+      : { label, fg: muted, bg: 'transparent', fw: '400' });
+
+    // Действия в штампе: при узкой панели остаётся одно главное
+    const primary = { label: '+ Позиция', bg: 'oklch(54% 0.115 163)', fg: '#ffffff', bd: 'oklch(54% 0.115 163)' };
+    const ghost = (label) => ({ label, bg: 'transparent', fg: muted, bd: 'oklch(91.2% 0.006 163)' });
+    const actions = mid ? [ghost('Выгрузить'), ghost('Этапы'), primary] : narrow ? [ghost('•••'), primary] : [primary];
+
+    const hi = 'oklch(97.5% 0.016 163)';
+    const ruleRows = [
+      { range: '≥ 1100', bg: wide ? hi : '#fff',
+        what: 'Всё на месте: фильтры отдельной колонкой, семь колонок таблицы, шифр проекта в штампе.',
+        why: 'Ширины хватает — прятать нечего.' },
+      { range: '900 – 1100', bg: (!wide && mid) ? hi : '#fff',
+        what: 'Уходит колонка «Изменён». Действия в штампе остаются все.',
+        why: 'Дата правки нужна редко, а забирает 96 px у названия позиции.' },
+      { range: '720 – 900', bg: (!mid && narrow) ? hi : '#fff',
+        what: 'Фильтры сворачиваются в кнопку. Уходят «Поставщик» и «Срок». Второстепенные действия — под «•••».',
+        why: 'Колонка фильтров 168 px стоит дороже, чем нажатие кнопки.' },
+      { range: '< 720', bg: !narrow ? hi : '#fff',
+        what: 'Таблица становится списком карточек: тег и позиция крупно, остальное строкой ниже. Поиск во всю ширину.',
+        why: 'Строка из семи ячеек по 40 px нечитаема; карточка читается.' },
+    ];
+
+    return {
+      paneWidth: w, mode, cols, rows, stages, actions,
+      tally: [{ n: '24', label: 'позиций' }, { n: '7', label: 'в заявке' }, { n: '11', label: 'оплачено' }, { n: '6', label: 'на складе' }],
+      showFilters: mid, showFiltersButton: !mid, showSub: mid,
+      asTable: narrow, asCards: !narrow,
+      ruleRows,
+    };
+  }
+}
+</script>
+</body>
+</html>

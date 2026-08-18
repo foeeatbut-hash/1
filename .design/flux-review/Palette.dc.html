@@ -1,0 +1,152 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: oklch(50% 0.112 163); } a:hover { color: oklch(46% 0.105 163); }
+    .f { font-family: 'Inter', system-ui, -apple-system, sans-serif; letter-spacing: -0.011em; }
+    .m { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+
+<div class="f" style="width: 1020px; background: {{c.page}}; color: {{c.text}}">
+
+  <div style="display: flex; align-items: center; gap: 12px; padding: 0 18px; height: 44px; border-bottom: 1px solid {{c.line}}; background: {{c.surface}}">
+    <span style="font-size: 13px; font-weight: 600">Палитра: объявлено и что на самом деле</span>
+    <span class="m" style="font-size: 11px; color: {{c.muted}}; margin-left: auto">230 обращений мимо системы</span>
+  </div>
+
+  <div style="padding: 24px 26px 30px">
+
+    <!-- ── Объявленная система ── -->
+    <div style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: {{c.muted}}; font-weight: 600; margin-bottom: 10px">Объявлено в index.css — и это хорошая система</div>
+
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px">
+      <sc-for list="{{roles}}" as="r" hint-placeholder-count="4">
+        <div style="border: 1px solid {{c.line}}; border-radius: 10px; background: {{c.surface}}; overflow: hidden">
+          <div style="height: 46px; background: {{r.color}}"></div>
+          <div style="padding: 10px 12px">
+            <div style="font-size: 12.5px; font-weight: 600">{{r.name}}</div>
+            <div style="font-size: 11px; color: {{c.muted}}; margin-top: 2px; line-height: 1.4">{{r.use}}</div>
+            <div class="m" style="font-size: 10px; color: {{c.muted}}; margin-top: 5px">{{r.token}}</div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+
+    <p style="margin: 0 0 24px; font-size: 12px; line-height: 1.55; color: {{c.muted}}; max-width: 80ch; text-wrap: pretty">
+      Все ступени сведены к одному тону 163°, светлота подобрана под контраст 4.5 с белым текстом,
+      а нейтральные подкрашены тем же тоном — поэтому светлая и тёмная темы ощущаются одним продуктом.
+      Ломает это не система, а разметка, которая мимо неё ходит.
+    </p>
+
+    <!-- ── Нарушения ── -->
+    <div style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: {{c.muted}}; font-weight: 600; margin-bottom: 10px">Чем красят вопреки системе</div>
+
+    <div style="border: 1px solid {{c.line}}; border-radius: 10px; overflow: hidden; background: {{c.surface}}; margin-bottom: 24px">
+      <sc-for list="{{strays}}" as="s" hint-placeholder-count="6">
+        <div style="display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 1px solid {{c.line}}">
+          <div style="width: 22px; height: 22px; border-radius: 6px; flex: none; background: {{s.color}}"></div>
+          <div class="m" style="width: 78px; flex: none; font-size: 12px; font-weight: 600">{{s.name}}</div>
+          <div style="width: 128px; flex: none; display: flex; align-items: center; gap: 8px">
+            <div style="flex: 1; height: 5px; border-radius: 3px; background: {{c.panel}}; overflow: hidden">
+              <div style="height: 100%; width: {{s.pct}}; background: {{s.color}}"></div>
+            </div>
+            <span class="m" style="font-size: 11px; color: {{c.muted}}; width: 26px; text-align: right">{{s.n}}</span>
+          </div>
+          <div style="flex: 1; min-width: 0; font-size: 12px; color: {{c.muted}}; line-height: 1.45; text-wrap: pretty">{{s.note}}</div>
+        </div>
+      </sc-for>
+    </div>
+
+    <!-- ── Куда это переводится ── -->
+    <div style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: {{c.muted}}; font-weight: 600; margin-bottom: 10px">Перевод — по роли, а не по похожести оттенка</div>
+
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px">
+      <sc-for list="{{mapping}}" as="m" hint-placeholder-count="4">
+        <div style="border: 1px solid {{c.line}}; border-radius: 10px; background: {{c.surface}}; padding: 14px 15px">
+          <div style="display: flex; align-items: center; gap: 9px; margin-bottom: 8px">
+            <div style="width: 16px; height: 16px; border-radius: 5px; background: {{m.from}}"></div>
+            <svg width="14" height="10" viewBox="0 0 16 10" fill="none" stroke="{{c.muted}}" stroke-width="1.4"><path d="M1 5h13M10 1.5L14 5l-4 3.5"/></svg>
+            <div style="width: 16px; height: 16px; border-radius: 5px; background: {{m.to}}"></div>
+            <span style="font-size: 12.5px; font-weight: 600; margin-left: 3px">{{m.title}}</span>
+          </div>
+          <div style="font-size: 12px; line-height: 1.5; color: {{c.muted}}; text-wrap: pretty">{{m.text}}</div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="margin-top: 22px; border: 1px solid {{c.accentLine}}; background: {{c.accentSoft}}; border-radius: 10px; padding: 15px 17px">
+      <div style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: {{c.accent}}; font-weight: 600; margin-bottom: 7px">Чем это чинится навсегда</div>
+      <p style="margin: 0; font-size: 12.5px; line-height: 1.6; color: {{c.text}}; text-wrap: pretty">
+        Проверкой в наборе <span class="m" style="font-size: 12px">test-architecture</span>: любой оттенок
+        вне объявленных зелёного, серого, янтарного, розового и небесного — это отказ, а не замечание.
+        Иначе к следующей версии их снова станет две сотни: сейчас 167 из 230 — это один indigo,
+        расползшийся из Тегов в ВДР, Закупки и Настройки.
+      </p>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"dark":{"editor":"boolean","default":false,"section":"Тема"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dark = !!this.props.dark;
+    const light = {
+      page: 'oklch(97.8% 0.004 163)', surface: '#ffffff', panel: 'oklch(95.5% 0.005 163)',
+      line: 'oklch(91.2% 0.006 163)', text: 'oklch(28.5% 0.014 163)', muted: 'oklch(56.5% 0.012 163)',
+      accent: 'oklch(50% 0.112 163)', accentLine: 'oklch(90.5% 0.055 163)', accentSoft: 'oklch(97.5% 0.016 163)',
+    };
+    const night = {
+      page: 'oklch(16% 0.009 163)', surface: 'oklch(21% 0.011 163)', panel: 'oklch(25.2% 0.013 163)',
+      line: 'oklch(28.5% 0.016 163)', text: 'oklch(92.9% 0.007 163)', muted: 'oklch(70.5% 0.020 163)',
+      accent: 'oklch(76% 0.130 163)', accentLine: 'oklch(34% 0.040 163)', accentSoft: 'oklch(24% 0.030 163)',
+    };
+
+    const emerald = 'oklch(54% 0.115 163)';
+    const amber = 'oklch(76% 0.15 75)';
+    const rose = 'oklch(64% 0.20 15)';
+    const sky = 'oklch(70% 0.13 235)';
+    const indigo = 'oklch(51% 0.22 275)';
+
+    return {
+      c: dark ? night : light,
+      roles: [
+        { name: 'Акцент', use: 'выбрано, главное действие', token: 'emerald-600', color: emerald },
+        { name: 'Предупреждение', use: 'требует внимания', token: 'amber', color: amber },
+        { name: 'Конфликт', use: 'дубль, расхождение', token: 'rose', color: rose },
+        { name: 'Изменение', use: 'правка, новая ревизия', token: 'sky', color: sky },
+      ],
+      strays: [
+        { name: 'indigo', n: '167', pct: '100%', color: indigo, note: 'Теги 25, ВДР 19, Закупки 12, Настройки 8 — второй акцент, которого система не объявляла' },
+        { name: 'green', n: '15', pct: '9%', color: 'oklch(65% 0.19 145)', note: 'зелёный не тот: рядом с фирменным читается как рассинхрон, а не как акцент' },
+        { name: 'orange', n: '13', pct: '8%', color: 'oklch(70% 0.17 55)', note: 'роль предупреждения уже занята янтарным' },
+        { name: 'blue', n: '12', pct: '7%', color: 'oklch(60% 0.19 255)', note: 'роль изменения уже занята небесным' },
+        { name: 'teal', n: '11', pct: '7%', color: 'oklch(70% 0.11 190)', note: 'в двух шагах от акцента по тону — выглядит как промах, а не как выбор' },
+        { name: 'прочие', n: '12', pct: '7%', color: 'oklch(60% 0.16 320)', note: 'purple 6, violet 3, gray 2, cyan 1 — единичные, но каждый ломает ряд' },
+      ],
+      mapping: [
+        { from: indigo, to: emerald, title: 'indigo → акцент',
+          text: 'Там, где indigo помечает выбранное или главное действие. Это большинство из 167 — в Тегах он означает ровно «выбрано».' },
+        { from: indigo, to: sky, title: 'indigo → изменение',
+          text: 'Там, где им помечена правка или новая ревизия: в ВДР и Закупках он стоит именно на «изменилось».' },
+        { from: 'oklch(70% 0.17 55)', to: amber, title: 'orange → предупреждение',
+          text: 'Просроченный срок, ждёт проверки. Роль та же, цвет системный.' },
+        { from: 'oklch(28.5% 0.014 163)', to: emerald, title: 'чёрная плашка → акцент',
+          text: 'Активная вкладка «Закупки/ВДР» залита почти чёрным. Выбранное во всей программе зелёное — здесь тоже.' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>
