@@ -24,7 +24,7 @@
       <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"><path d="M2 6h8M6 2v8"/></svg>
     </div>
     <span style="font-size: 13px; font-weight: 600">Разбор оформления Flux</span>
-    <span class="m" style="font-size: 11px; color: oklch(56.5% 0.012 163); margin-left: auto">разобрано на 0.64.0 · исправлено в 0.65.0</span>
+    <span class="m" style="font-size: 11px; color: oklch(56.5% 0.012 163); margin-left: auto">разобрано на 0.64.0 · исправлено в 0.65.0 и 0.66.0</span>
   </div>
 
   <div style="padding: 26px 28px 30px">
@@ -50,11 +50,11 @@
         <div style="font-size: 11px; color: oklch(56.5% 0.012 163); margin-top: 3px">цветов вне палитры</div>
       </div>
       <div style="padding: 12px 16px; border-right: 1px solid oklch(91.2% 0.006 163)">
-        <div class="m" style="font-size: 21px; font-weight: 600; line-height: 1.1; color: oklch(45% 0.15 163)">0 → 34</div>
+        <div class="m" style="font-size: 21px; font-weight: 600; line-height: 1.1; color: oklch(45% 0.15 163)">0 → 147</div>
         <div style="font-size: 11px; color: oklch(56.5% 0.012 163); margin-top: 3px">запросов к ширине панели</div>
       </div>
       <div style="padding: 12px 16px">
-        <div class="m" style="font-size: 21px; font-weight: 600; line-height: 1.1">5</div>
+        <div class="m" style="font-size: 21px; font-weight: 600; line-height: 1.1">13</div>
         <div style="font-size: 11px; color: oklch(56.5% 0.012 163); margin-top: 3px">разделов переведено на панель</div>
       </div>
     </div>
@@ -68,7 +68,7 @@
         шириной 940&nbsp;px, но правила <span class="m" style="font-size: 12.5px">md:</span> и
         <span class="m" style="font-size: 12.5px">lg:</span> смотрели на окно и молчали. Поэтому
         добавлять контрольные точки было бесполезно — нужны запросы к контейнеру. Панель объявлена
-        мерой ширины; Закупки, Проводник, Теги, Настройки и Оборудование уже спрашивают её.
+        мерой ширины, и все тринадцать разделов спрашивают её. Правил окна в разделах не осталось.
       </p>
     </div>
 
@@ -96,7 +96,9 @@
     <p style="margin: 20px 0 0; font-size: 12px; line-height: 1.55; color: oklch(56.5% 0.012 163); text-wrap: pretty">
       Порядок — по тому, сколько людей это задевало и как часто. Правки в ветке
       <span class="m" style="font-size: 11.5px">claude/custom-table-builder-design-38h1b8</span>,
-      версия 0.65.0. Пятнадцать наборов проверок проходят полностью.
+      версия 0.66.0. Обход идёт в двух режимах — одна панель и четыре: во втором панель
+      вдвое уже окна, и это настоящее рабочее состояние. Замечаний сверх уровня шума не
+      осталось нигде, вплоть до панели 302 px. Пятнадцать наборов проверок проходят полностью.
     </p>
 
   </div>
