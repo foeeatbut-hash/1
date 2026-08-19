@@ -792,7 +792,7 @@ export default function ChatManagement() {
     <div className="h-full flex bg-white dark:bg-slate-900 rounded-xl overflow-hidden shadow-xs border border-slate-200 dark:border-slate-800 transition-colors">
       
       {/* LEFT PANEL: Users List & Automated Project Rooms */}
-      <div className="w-80 flex flex-col border-r border-slate-200 dark:border-slate-800 shrink-0 bg-slate-50/55 dark:bg-slate-900/40 select-none">
+      <div className="w-44 @[700px]:w-56 @[900px]:w-80 flex flex-col border-r border-slate-200 dark:border-slate-800 shrink-0 bg-slate-50/55 dark:bg-slate-900/40 select-none">
         
         {/* Top Header & Fast Search bar */}
         <div className="p-4 border-b border-slate-200 dark:border-slate-800 shrink-0">
@@ -1520,12 +1520,12 @@ export default function ChatManagement() {
             )}
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-50/20 select-none">
+          <div className="flex-1 min-w-0 flex flex-col items-center justify-center p-4 @[700px]:p-8 text-center bg-slate-50/20 select-none">
             <MessageSquare className="w-12 h-12 text-slate-200 dark:text-slate-800 mb-4 animate-pulse" />
             <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 mb-1">
               Выберите диалог
             </h3>
-            <p className="text-xs text-slate-400 max-w-sm leading-relaxed">
+            <p className="text-xs text-slate-400 max-w-sm min-w-0 leading-relaxed text-pretty">
               Слева — группы проекта и личные диалоги. Откройте любой, чтобы переписываться, ссылаться на оборудование и отправлять файлы.
             </p>
           </div>
@@ -1534,7 +1534,7 @@ export default function ChatManagement() {
 
       {/* RIGHT PANEL: Collapsible Active Peer Profile / Dynamic TAG Card File History list */}
       {(activePeer || activeGroup) && isRightPanelOpen && (
-        <div className="w-72 border-l border-slate-200 dark:border-slate-800 flex flex-col bg-slate-50/50 dark:bg-slate-900/40 select-none shrink-0 overflow-y-auto">
+        <div className="hidden @[1000px]:flex w-72 border-l border-slate-200 dark:border-slate-800 flex-col bg-slate-50/50 dark:bg-slate-900/40 select-none shrink-0 overflow-y-auto">
           
           {selectedTagElement ? (
             /* DYNAMIC TAG CARD SECTION (ФИЧА 2: Быстрая карточка тега) */

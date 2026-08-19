@@ -1621,8 +1621,8 @@ function ToggleRow({ storageKey, event, title, desc }: {
         <span className={`block w-4 h-4 rounded-full bg-white transition-transform ${on ? 'translate-x-4' : ''}`} />
       </span>
       <span className="min-w-0">
-        <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</span>
-        <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">{desc}</span>
+        <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100 break-words">{title}</span>
+        <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5 break-words text-pretty">{desc}</span>
       </span>
     </button>
   );

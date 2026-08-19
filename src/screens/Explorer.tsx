@@ -1272,9 +1272,9 @@ export default function Explorer() {
             </button>
           </div>
  
-          <div className="flex-1 flex items-center bg-white dark:bg-dark-panel border border-slate-250 dark:border-dark-border px-2 py-1 rounded-md flex-wrap gap-1 hover:border-emerald-405 transition-colors">
-            <Folder className="w-4 h-4 text-amber-600 mr-2" />
-            <span className="cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-surface text-slate-700 dark:text-dark-text-main px-1.5 py-0.5 rounded hover:underline" onClick={() => navigateTo(null)}>{activeProject?.name || 'Общий проводник'}</span>
+          <div className="flex-1 min-w-0 flex items-center bg-white dark:bg-dark-panel border border-slate-250 dark:border-dark-border px-2 py-1 rounded-md flex-wrap gap-1 hover:border-emerald-405 transition-colors">
+            <Folder className="w-4 h-4 shrink-0 text-amber-600 mr-1 @[560px]:mr-2" />
+            <span className="min-w-0 truncate cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-surface text-slate-700 dark:text-dark-text-main px-1.5 py-0.5 rounded hover:underline" title={activeProject?.name || 'Общий проводник'} onClick={() => navigateTo(null)}>{activeProject?.name || 'Общий проводник'}</span>
             {currentSectionId && (
               <>
                 <ChevronRight className="w-3 h-3 text-slate-400 dark:text-slate-655 mx-0.5" />

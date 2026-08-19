@@ -344,12 +344,12 @@ export default function UsersManagement() {
 
       {/* Основная таблица / Содержимое списка пользователей */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800  overflow-hidden transition-colors">
-        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-950/20">
-          <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-widest flex items-center gap-2">
-            <UserCheck className="w-4 h-4 text-emerald-650 dark:text-emerald-400" />
-            Зарегистрированные сотрудники ({usersList.length})
+        <div className="px-3 @[700px]:px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 bg-slate-50/50 dark:bg-slate-950/20">
+          <h3 className="min-w-0 text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-widest flex items-center gap-2">
+            <UserCheck className="w-4 h-4 shrink-0 text-emerald-650 dark:text-emerald-400" />
+            <span className="text-pretty">Зарегистрированные сотрудники ({usersList.length})</span>
           </h3>
-          <span className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded font-mono">
+          <span className="shrink-0 text-xs bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded font-mono">
             База: SQLite
           </span>
         </div>

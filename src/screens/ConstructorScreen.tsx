@@ -1818,23 +1818,23 @@ export default function ConstructorScreen() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
-      <div className="flex flex-col gap-4 bg-white dark:bg-slate-900 p-6 rounded-lg border border-slate-200 dark:border-slate-800 ">
+      <div className="flex flex-col gap-4 bg-white dark:bg-slate-900 p-3 @[700px]:p-6 rounded-lg border border-slate-200 dark:border-slate-800 min-w-0">
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5">
-              <Table2 className="w-6 h-6 text-emerald-600" /> Конструктор
+          <div className="min-w-0">
+            <h1 className="text-xl @[700px]:text-2xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5 min-w-0">
+              <Table2 className="w-6 h-6 shrink-0 text-emerald-600" /> <span className="truncate">Конструктор</span>
             </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Таблицы и текстовые документы из данных проекта — в одном месте</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 text-pretty">Таблицы и текстовые документы из данных проекта — в одном месте</p>
           </div>
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={() => createDoc('DOC')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новая таблица: формулы, данные проекта, умные блоки">
-              <Table2 className="w-4 h-4" /> Таблица
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
+            <button type="button" onClick={() => createDoc('DOC')} className="flex items-center gap-2 px-2.5 @[560px]:px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новая таблица: формулы, данные проекта, умные блоки">
+              <Table2 className="w-4 h-4 shrink-0" /> <span className="hidden @[560px]:inline">Таблица</span>
             </button>
-            <button type="button" onClick={() => createDoc('TEXT')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-800 text-sm font-bold  cursor-pointer" title="Новый текстовый документ: страницы, стили, списки — как в Word">
-              <FileText className="w-4 h-4" /> Документ
+            <button type="button" onClick={() => createDoc('TEXT')} className="flex items-center gap-2 px-2.5 @[560px]:px-4 py-2.5 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-800 text-sm font-bold  cursor-pointer" title="Новый текстовый документ: страницы, стили, списки — как в Word">
+              <FileText className="w-4 h-4 shrink-0" /> <span className="hidden @[560px]:inline">Документ</span>
             </button>
-            <button type="button" onClick={() => createDoc('TITLE')} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white dark:bg-slate-950 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-sm font-bold  cursor-pointer" title="Конструктор титула: ссылки на данные и формулы, присваивается документам">
-              <FileText className="w-4 h-4" /> Шаблон титула
+            <button type="button" onClick={() => createDoc('TITLE')} className="flex items-center gap-2 px-2.5 @[560px]:px-4 py-2.5 rounded-lg bg-white dark:bg-slate-950 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-sm font-bold  cursor-pointer" title="Конструктор титула: ссылки на данные и формулы, присваивается документам">
+              <FileText className="w-4 h-4 shrink-0" /> <span className="hidden @[560px]:inline">Шаблон титула</span>
             </button>
           </div>
         </div>
@@ -1853,7 +1853,7 @@ export default function ConstructorScreen() {
             </button>
           ))}
           <div className="flex-1 min-w-[8rem]" />
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
@@ -1861,7 +1861,7 @@ export default function ConstructorScreen() {
                 onChange={(e) => setDocQuery(e.target.value)}
                 placeholder="Найти документ по названию"
                 aria-label="Поиск по документам"
-                className="pl-8 pr-3 py-1.5 w-56 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs outline-none focus:border-emerald-600 dark:focus:border-emerald-400"
+                className="pl-8 pr-3 py-1.5 w-full @[560px]:w-56 min-w-0 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs outline-none focus:border-emerald-600 dark:focus:border-emerald-400"
               />
             </div>
             <select
@@ -1869,7 +1869,7 @@ export default function ConstructorScreen() {
               onChange={(e) => setDocSort(e.target.value as 'updated' | 'name')}
               aria-label="Порядок документов"
               title="Порядок в списке"
-              className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs cursor-pointer"
+              className="px-2 py-1.5 max-w-36 min-w-0 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs cursor-pointer"
             >
               <option value="updated">Сначала недавние</option>
               <option value="name">По названию</option>

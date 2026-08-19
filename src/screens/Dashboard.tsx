@@ -331,7 +331,7 @@ export default function Dashboard() {
                 Проект не выбран
               </h1>
               <button type="button" onClick={() => open('/projects')}
-                className="mt-1 text-[13px] font-medium text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer">
+                className="mt-1 -mx-1 px-1 min-h-6 inline-flex items-center text-[13px] font-medium text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer">
                 Выбрать проект
               </button>
             </>
