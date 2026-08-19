@@ -459,16 +459,16 @@ export default function NotesManagement() {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -12 }}
       transition={{ duration: 0.25 }}
-      className="h-[calc(100vh-100px)] flex gap-4 font-sans select-none"
+      className="h-full flex gap-4 overflow-x-auto font-sans select-none"
     >
       {/* LEFT SIDEBAR: NOTES DIRECTORY */}
-      <div id="notes-sidebar" className="w-80 shrink-0 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-xs">
+      <div id="notes-sidebar" className="w-56 @[900px]:w-80 shrink-0 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-xs">
         {/* Search & Add block */}
         <div className="p-4 border-b border-slate-100 dark:border-slate-800 space-y-3 bg-slate-50/50 dark:bg-slate-900/40">
-          <div className="flex items-center justify-between">
-            <h2 className="text-md font-bold text-slate-850 dark:text-white flex items-center gap-2">
-              <BookOpen className="w-4 h-4 text-emerald-600" />
-              <span>Инженерный блокнот</span>
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <h2 className="min-w-0 text-md font-bold text-slate-850 dark:text-white flex items-center gap-2">
+              <BookOpen className="w-4 h-4 shrink-0 text-emerald-600" />
+              <span className="truncate">Инженерный блокнот</span>
             </h2>
             <button type="button"
               onClick={() => handleCreateNote()}
@@ -520,7 +520,7 @@ export default function NotesManagement() {
             )}
           </div>
           {/* Сортировка списка */}
-          <div className="flex items-center gap-1 text-xs">
+          <div className="flex flex-wrap items-center gap-1 text-xs min-w-0">
             <span className="text-slate-400 mr-0.5">Сортировка:</span>
             {([['updated','Изменённые'],['created','Новые'],['title','А–Я']] as const).map(([v, label]) => (
               <button type="button"
@@ -726,12 +726,12 @@ export default function NotesManagement() {
       </div>
 
       {/* RIGHT SIDEBAR: WORKSPACE EDITING AREA */}
-      <div id="notes-content" className="flex-1 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-xs relative">
+      <div id="notes-content" className="flex-1 min-w-[300px] flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-xs relative">
         {selectedNote ? (
           <div className="flex-grow flex flex-col h-full">
             {/* Header / Meta properties */}
             <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-50/20 dark:bg-slate-900/10">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3 min-w-0">
                 {/* Save status notification badge */}
                 <div className="flex items-center gap-1.5 text-xs">
                   {saveStatus === 'saving' && (

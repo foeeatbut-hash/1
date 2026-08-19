@@ -318,7 +318,7 @@ export default function UsersManagement() {
       className="max-w-6xl mx-auto space-y-6 pb-12"
     >
       {/* Шапка страницы */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 md:p-0">
+      <div className="flex flex-col @[640px]:flex-row @[640px]:items-center @[640px]:justify-between gap-4 p-4 @[820px]:p-0">
         <div>
           <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-450 mb-1">
             <Users className="w-6 h-6" />

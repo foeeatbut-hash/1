@@ -2733,12 +2733,12 @@ export default function Registry() {
       
       {/* MODULE HEADER AND TAB SWITCHER */}
       <div className="flex flex-col @[1080px]:flex-row @[1080px]:items-center @[1080px]:justify-between gap-3 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shadow-inner shrink-0">
             <Network className="w-5.5 h-5.5" />
           </div>
-          <div className="text-left">
-            <h1 className="text-lg font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
+          <div className="text-left min-w-0">
+            <h1 className="text-lg font-bold tracking-tight text-slate-900 dark:text-white flex flex-wrap items-center gap-2 min-w-0">
               Реестр технологических тегов
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200/50">
                 {countOf(tags.length, 'тег')}
@@ -2770,9 +2770,10 @@ export default function Registry() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800">
+          <div className="flex flex-wrap bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800">
             <button type="button"
               onClick={() => setActiveTab('board')}
+              title="Интерактивный граф (Dynamo)"
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
                 activeTab === 'board' 
                   ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
@@ -2780,10 +2781,11 @@ export default function Registry() {
               }`}
             >
               <Network className="w-3.5 h-3.5" />
-              <span>Интерактивный граф (Dynamo)</span>
+              <span className="hidden @[760px]:inline">Интерактивный граф (Dynamo)</span>
             </button>
             <button type="button"
               onClick={() => setActiveTab('tree')}
+              title="Дерево связей"
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
                 activeTab === 'tree' 
                   ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
@@ -2791,7 +2793,7 @@ export default function Registry() {
               }`}
             >
               <FolderTree className="w-3.5 h-3.5" />
-              <span>Дерево связей</span>
+              <span className="hidden @[760px]:inline">Дерево связей</span>
             </button>
             <button type="button"
               onClick={() => setActiveTab('segments')}
@@ -2802,10 +2804,11 @@ export default function Registry() {
               }`}
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
-              <span className="text-emerald-700 dark:text-emerald-300">Экспорт и импорт</span>
+              <span className="hidden @[760px]:inline text-emerald-700 dark:text-emerald-300">Экспорт и импорт</span>
             </button>
             <button type="button"
               onClick={() => setActiveTab('table')}
+              title="Спецификация"
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
                 activeTab === 'table' 
                   ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
@@ -2813,7 +2816,7 @@ export default function Registry() {
               }`}
             >
               <List className="w-3.5 h-3.5" />
-              <span>Спецификация</span>
+              <span className="hidden @[760px]:inline">Спецификация</span>
             </button>
           </div>
         </div>

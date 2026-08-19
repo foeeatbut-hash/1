@@ -273,7 +273,7 @@ export default function UniversalGenerator() {
       )}
 
       {/* Execution Mode */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 @[900px]:grid-cols-2 gap-6">
         
         <div className="space-y-4">
           <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800  p-6 transition-colors">
@@ -330,8 +330,8 @@ export default function UniversalGenerator() {
             
             {/* Removed label as requested */}
             
-            <div className="text-4xl md:text-5xl font-mono tracking-tight font-bold break-all text-emerald-400 drop-shadow-md">
-              {generatePreview() || <span className="text-xl md:text-2xl font-sans font-normal text-slate-500">формула не задана</span>}
+            <div className="text-4xl @[820px]:text-5xl font-mono tracking-tight font-bold break-all text-emerald-400 drop-shadow-md">
+              {generatePreview() || <span className="text-xl @[820px]:text-2xl font-sans font-normal text-slate-500">формула не задана</span>}
             </div>
             
             <p className="text-slate-500 text-xs mt-6 max-w-sm leading-relaxed">

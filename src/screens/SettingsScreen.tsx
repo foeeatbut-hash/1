@@ -90,10 +90,10 @@ export default function SettingsScreen() {
       {/* Категории (левая колонка). Ширину спрашиваем у панели, а не у окна:
           при 288 px намертво в узкой панели содержимому оставалось меньше
           трети, и ряды кнопок внутри резались многоточием. */}
-      <div className="w-56 @[980px]:w-72 shrink-0 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg shadow-xs overflow-hidden flex flex-col">
-        <div className="px-4 py-3.5 border-b border-slate-100 dark:border-slate-850 flex items-center gap-2">
-          <Settings className="w-4.5 h-4.5 text-emerald-600" />
-          <h1 className="text-base font-bold text-slate-900 dark:text-white">Настройки</h1>
+      <div className="w-14 @[700px]:w-56 @[980px]:w-72 shrink-0 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg shadow-xs overflow-hidden flex flex-col">
+        <div className="px-2 @[700px]:px-4 py-3.5 border-b border-slate-100 dark:border-slate-850 flex items-center justify-center @[700px]:justify-start gap-2">
+          <Settings className="w-4.5 h-4.5 text-emerald-600 shrink-0" />
+          <h1 className="hidden @[700px]:block text-base font-bold text-slate-900 dark:text-white">Настройки</h1>
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {SECTIONS.map(s => {
@@ -104,14 +104,15 @@ export default function SettingsScreen() {
                 key={s.id}
                 onClick={() => pick(s.id)}
                 aria-current={active ? 'page' : undefined}
-                className={`relative w-full flex items-start gap-3 px-3 py-2.5 rounded-xl text-left transition-ui cursor-pointer ${
+                title={`${s.label} — ${s.desc}`}
+                className={`relative w-full flex items-start justify-center @[700px]:justify-start gap-3 px-1.5 @[700px]:px-3 py-2.5 rounded-xl text-left transition-ui cursor-pointer ${
                   active
                     ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-200 font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-r before:bg-emerald-600 dark:before:bg-emerald-400'
                     : 'hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300'
                 }`}
               >
                 <Icon className={`w-4.5 h-4.5 mt-0.5 shrink-0 ${active ? 'text-emerald-700 dark:text-emerald-300' : 'text-emerald-600 dark:text-emerald-400'}`} />
-                <span className="min-w-0">
+                <span className="hidden @[700px]:block min-w-0">
                   <span className="block text-sm font-semibold leading-tight">{s.label}</span>
                   {/* Пояснение под названием — только когда панель широкая:
                       в узкой оно всё равно обрывалось многоточием, а место
@@ -125,7 +126,7 @@ export default function SettingsScreen() {
       </div>
 
       {/* Содержимое категории */}
-      <div className="flex-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg shadow-xs overflow-y-auto p-6">
+      <div className="flex-1 min-w-0 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg shadow-xs overflow-y-auto p-3 @[700px]:p-6">
         {section === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} density={density} setDensity={setDensity} />}
         {section === 'roles' && <RolesSection user={user} addToast={addToast} />}
         {section === 'management' && <ManagementSection isAdmin={isAdmin} addToast={addToast} />}
@@ -170,12 +171,12 @@ function GeneralSection({ theme, toggleTheme, density, setDensity }: any) {
           <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Тема интерфейса</div>
           {/* Переключатель, а не две залитые кнопки: выбранное состояние
               показывается плашкой, а не полным фирменным цветом. */}
-          <div className="inline-flex p-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(120px,1fr))] gap-1 p-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
             <button
               type="button"
               onClick={() => { if (theme === 'dark') toggleTheme(); }}
               aria-pressed={theme !== 'dark'}
-              className={`py-2 px-4 rounded-lg text-sm font-semibold transition-colors duration-[120ms] flex items-center justify-center gap-2 cursor-pointer ${
+              className={`py-2 px-2 min-w-0 rounded-lg text-sm font-semibold transition-colors duration-[120ms] flex items-center justify-center gap-2 cursor-pointer ${
                 theme !== 'dark' ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
               }`}
             >
@@ -185,7 +186,7 @@ function GeneralSection({ theme, toggleTheme, density, setDensity }: any) {
               type="button"
               onClick={() => { if (theme !== 'dark') toggleTheme(); }}
               aria-pressed={theme === 'dark'}
-              className={`py-2 px-4 rounded-lg text-sm font-semibold transition-colors duration-[120ms] flex items-center justify-center gap-2 cursor-pointer ${
+              className={`py-2 px-2 min-w-0 rounded-lg text-sm font-semibold transition-colors duration-[120ms] flex items-center justify-center gap-2 cursor-pointer ${
                 theme === 'dark' ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
               }`}
             >
@@ -550,7 +551,7 @@ function ManagementSection({ isAdmin, addToast }: any) {
           {/* Правила применения */}
           <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
             <div className="text-xs font-bold uppercase tracking-wider text-slate-400">Когда применяется (автоматически)</div>
-            <div className="grid md:grid-cols-2 gap-3">
+            <div className="grid @[820px]:grid-cols-2 gap-3">
               <RuleListInput
                 label="Отделы / классы тегов"
                 hint="ОВ, ВК, ЭОМ (через запятую)"
@@ -859,7 +860,7 @@ function LinkModeChooser({ value, onChange, clickDesc, dragDesc }: {
     </button>
   );
   return (
-    <div className="flex gap-3 max-w-xl flex-col sm:flex-row">
+    <div className="flex gap-3 max-w-xl flex-col @[640px]:flex-row">
       {opt('click', <MousePointerClick className="w-4 h-4" />, 'Кликом', clickDesc)}
       {opt('drag', <Link2 className="w-4 h-4" />, 'Перетаскиванием', dragDesc)}
     </div>
@@ -1474,7 +1475,7 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 @[640px]:grid-cols-2 gap-3">
             <div>
               <label className="block text-2xs font-semibold text-slate-500 uppercase tracking-widest mb-1">Название</label>
               <input type="text" value={draft.name || ''} autoFocus
@@ -1500,7 +1501,7 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
               className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 @[640px]:grid-cols-2 gap-3">
             <div>
               <label className="block text-2xs font-semibold text-slate-500 uppercase tracking-widest mb-1.5">Цвет значка</label>
               <div className="flex flex-wrap gap-1.5">

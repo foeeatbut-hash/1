@@ -1367,7 +1367,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
             ))}
 
             <div className="ml-auto flex items-center gap-2 self-end">
-              <span className="text-2xs text-slate-400 max-w-[16rem] hidden xl:block">
+              <span className="text-2xs text-slate-400 max-w-[16rem] hidden @[1100px]:block">
                 Кнопка вставляет метку в выбранную ячейку. Когда шаблон готов — «Заполнить данными».
               </span>
               {phCount > 0 && (
@@ -1789,7 +1789,7 @@ export default function ConstructorScreen() {
         <Icon className="w-4 h-4 text-slate-400" /> {title} <span className="text-slate-400 font-normal">({items.length})</span>
       </h2>
       {items.length > 0 ? (
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 @[560px]:grid-cols-2 @[820px]:grid-cols-3 @[1100px]:grid-cols-4 gap-3">
           {items.map((d: DocMeta) => <Card key={d.id} d={d} inTrash={inTrash} />)}
         </div>
       ) : (
@@ -1896,7 +1896,7 @@ export default function ConstructorScreen() {
                 <Trash2 className="w-4 h-4" /> Корзина ({trash.length}) {trashOpen ? '▾' : '▸'}
               </button>
               {trashOpen && (
-                <div className="mt-3 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 opacity-70">
+                <div className="mt-3 grid grid-cols-1 @[560px]:grid-cols-2 @[820px]:grid-cols-3 @[1100px]:grid-cols-4 gap-3 opacity-70">
                   {trash.map(d => <Card key={d.id} d={d} inTrash />)}
                 </div>
               )}
