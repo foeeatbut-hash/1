@@ -22,6 +22,11 @@ prisma-clients/**
 !prisma-clients/client-mysql/
 !prisma-clients/client-mysql/package.json
 
+# Собранный exe уходит в GitHub Releases, а не в историю репозитория
+portable/*.part
+portable/*.exe
+portable/СОБРАТЬ-EXE.bat
+
 # Офлайн-генератор лицензий содержит приватный ключ — никогда не коммитить
 license-generator.html
 **/license-generator.html

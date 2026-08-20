@@ -88,9 +88,9 @@ export default function ActionLogWidget() {
   const getLogIcon = (type: LogItem['type']) => {
     switch (type) {
       case 'ERROR':
-        return <AlertCircle className="w-3.5 h-3.5 text-red-500 shrink-0" />;
+        return <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />;
       case 'WARN':
-        return <AlertTriangle className="w-3.5 h-3.5 text-yellow-500 shrink-0" />;
+        return <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />;
       case 'INFO':
       default:
         return <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />;
@@ -100,9 +100,9 @@ export default function ActionLogWidget() {
   const getLogColorClass = (type: LogItem['type']) => {
     switch (type) {
       case 'ERROR':
-        return 'text-red-500 dark:text-red-400 bg-red-100/10 border-l-2 border-red-500';
+        return 'text-rose-500 dark:text-rose-400 bg-rose-100/10 border-l-2 border-rose-500';
       case 'WARN':
-        return 'text-yellow-600 dark:text-yellow-400 bg-yellow-100/10 border-l-2 border-yellow-500';
+        return 'text-amber-600 dark:text-amber-400 bg-amber-100/10 border-l-2 border-amber-500';
       case 'INFO':
       default:
         return 'text-slate-700 dark:text-slate-300 border-l-2 border-slate-300 dark:border-slate-700';
@@ -207,7 +207,10 @@ export default function ActionLogWidget() {
     <div
       id="dx-logs-widget"
       className="fixed bottom-4 z-[9999] flex flex-col items-end pointer-events-none transition-ui duration-300"
-      style={{ right: (assistantOpen || notifOpen) ? 380 + 72 : 72 }}
+      /* Отступ считается от ширины рельса, а не от вписанного числа 72:
+         рельс теперь меняет ширину вместе с левым меню, и значок журнала
+         иначе наезжал бы на него. */
+      style={{ right: `calc(var(--flux-rail-w) + 16px${(assistantOpen || notifOpen) ? ' + 380px' : ''})` }}
     >
       
       {/* Mini Window Popover */}
@@ -292,7 +295,7 @@ export default function ActionLogWidget() {
                       {log.message}
                     </div>
                     {log.stack && (
-                      <pre className="mt-1.5 p-1.5 bg-red-154/5 dark:bg-red-950/20 text-red-600 dark:text-red-300 border border-red-500/10 rounded overflow-x-auto text-xs whitespace-pre-wrap max-h-32">
+                      <pre className="mt-1.5 p-1.5 bg-rose-200/5 dark:bg-rose-950/20 text-rose-600 dark:text-rose-300 border border-rose-500/10 rounded overflow-x-auto text-xs whitespace-pre-wrap max-h-32">
                         {log.stack}
                       </pre>
                     )}
@@ -311,7 +314,7 @@ export default function ActionLogWidget() {
                 title={filter === 'ALL' ? 'Копировать весь журнал' : `Копировать только категорию «${filter === 'INFO' ? 'Инфо' : filter === 'WARN' ? 'Предупреждения' : 'Ошибки'}»`}
                 className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-150 dark:hover:bg-slate-800 disabled:opacity-40 rounded-md cursor-pointer border border-slate-200 dark:border-slate-850 shadow-xs transition font-medium"
               >
-                {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+                {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
                 <span>Копировать{filter !== 'ALL' ? ` (${filteredLogs.length})` : ''}</span>
               </button>
 
@@ -346,7 +349,7 @@ export default function ActionLogWidget() {
           widgetOpen 
             ? 'bg-slate-800 text-white hover:bg-slate-900 border-slate-700' 
             : hasUnreadError
-              ? 'bg-red-500 text-white hover:bg-red-600 border-red-400 animate-pulse'
+              ? 'bg-rose-500 text-white hover:bg-rose-600 border-rose-400 animate-pulse'
               : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-emerald-500 dark:hover:text-emerald-400 border-slate-200 dark:border-slate-800 opacity-40 hover:opacity-100'
         }`}
         whileHover={{ scale: 1.08 }}
@@ -358,7 +361,7 @@ export default function ActionLogWidget() {
         {/* Unread Indicator Badge */}
         {!widgetOpen && logs.length > 0 && (
           <span className={`absolute -top-1 -right-1 text-xs font-bold px-1.5 py-0.5 rounded-full border border-white text-white ${
-            hasUnreadError ? 'bg-red-500 animate-bounce' : 'bg-slate-500'
+            hasUnreadError ? 'bg-rose-500 animate-bounce' : 'bg-slate-500'
           }`}>
             {logs.length > 99 ? '99+' : logs.length}
           </span>

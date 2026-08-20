@@ -46,10 +46,10 @@ const getFileIcon = (item: any, classNameStr: string) => {
       : <Folder className={`${classNameStr} text-sky-600 fill-sky-200`} />;
   }
   if (item.isFolder && item.system) return <Folder className={`${classNameStr} text-emerald-600 fill-emerald-100`} />;
-  if (item.isFolder) return <Folder className={`${classNameStr} text-yellow-500 fill-yellow-200`} />;
+  if (item.isFolder) return <Folder className={`${classNameStr} text-amber-500 fill-amber-200`} />;
   if (item.type === 'CONSTRUCTOR') return <FileSpreadsheet className={`${classNameStr} text-emerald-600`} />;
   if (item.type === 'IMAGE' || item.name?.match(/\.(jpe?g|png|gif|webp)$/i)) return <ImageIcon className={`${classNameStr} text-emerald-500`} />;
-  if (item.type === 'PDF' || item.name?.match(/\.pdf$/i)) return <FileText className={`${classNameStr} text-red-500`} />;
+  if (item.type === 'PDF' || item.name?.match(/\.pdf$/i)) return <FileText className={`${classNameStr} text-rose-500`} />;
   if (item.type === 'DOCX' || item.name?.match(/\.(doc|docx)$/i)) return <FileText className={`${classNameStr} text-emerald-600`} />;
   if (item.type === 'TXT' || item.name?.match(/\.(txt|md|csv)$/i)) return <FileText className={`${classNameStr} text-slate-500`} />;
   return <FileIcon className={`${classNameStr} text-slate-400`} />;
@@ -1216,7 +1216,7 @@ export default function Explorer() {
       {/* Explorer Top Bar - Like Windows */}
       <div className="flex flex-col bg-slate-100/95 dark:bg-slate-900/90 border-b border-slate-200 dark:border-slate-800">
         {/* Современный компактный тулбар */}
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-slate-850">
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-slate-850">
            <button type="button" onClick={createFolder} title="Новая папка"
              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 shadow-xs cursor-pointer">
               <FolderPlus className="w-4 h-4 text-amber-500" /> Новая папка
@@ -1272,9 +1272,9 @@ export default function Explorer() {
             </button>
           </div>
  
-          <div className="flex-1 flex items-center bg-white dark:bg-dark-panel border border-slate-250 dark:border-dark-border px-2 py-1 rounded-md flex-wrap gap-1 hover:border-emerald-405 transition-colors">
-            <Folder className="w-4 h-4 text-yellow-555 mr-2" />
-            <span className="cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-surface text-slate-700 dark:text-dark-text-main px-1.5 py-0.5 rounded hover:underline" onClick={() => navigateTo(null)}>{activeProject?.name || 'Общий проводник'}</span>
+          <div className="flex-1 min-w-0 flex items-center bg-white dark:bg-dark-panel border border-slate-250 dark:border-dark-border px-2 py-1 rounded-md flex-wrap gap-1 hover:border-emerald-405 transition-colors">
+            <Folder className="w-4 h-4 shrink-0 text-amber-600 mr-1 @[560px]:mr-2" />
+            <span className="min-w-0 truncate cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-surface text-slate-700 dark:text-dark-text-main px-1.5 py-0.5 rounded hover:underline" title={activeProject?.name || 'Общий проводник'} onClick={() => navigateTo(null)}>{activeProject?.name || 'Общий проводник'}</span>
             {currentSectionId && (
               <>
                 <ChevronRight className="w-3 h-3 text-slate-400 dark:text-slate-655 mx-0.5" />
@@ -1289,7 +1289,7 @@ export default function Explorer() {
             ))}
           </div>
  
-          <div className="relative w-64 ml-2">
+          <div className="relative w-40 @[900px]:w-64 ml-2 min-w-0">
            <Search className="w-4 h-4 absolute left-2.5 top-2 text-slate-400 dark:text-dark-text-muted" />
            <input 
              type="text" 
@@ -1302,13 +1302,13 @@ export default function Explorer() {
         </div>
 
         {/* Фильтр по статусу документа */}
-        <div className="flex items-center gap-1.5 px-3 pb-2">
+        <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2">
           <span className="text-2xs font-mono uppercase tracking-wider text-slate-400 mr-1">Статус</span>
           <button
             type="button"
             onClick={() => setStatusFilter(null)}
             aria-pressed={statusFilter === null}
-            className={`px-2 py-0.5 rounded-full text-2xs font-semibold transition-ui cursor-pointer ${
+            className={`px-2 py-1 min-h-6 rounded-full text-2xs font-semibold transition-ui cursor-pointer ${
               statusFilter === null
                 ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 ring-1 ring-emerald-600/40'
                 : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-panel'
@@ -1326,7 +1326,7 @@ export default function Explorer() {
                 onClick={() => setStatusFilter(active ? null : code)}
                 aria-pressed={active}
                 title={`Показать только «${st.label}»`}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-2xs font-semibold transition-ui cursor-pointer ${
+                className={`inline-flex items-center gap-1 px-2 py-1 min-h-6 rounded-full text-2xs font-semibold transition-ui cursor-pointer ${
                   active ? `${st.chip} ring-1 ring-slate-400/40` : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-panel'
                 }`}
               >
@@ -1345,7 +1345,7 @@ export default function Explorer() {
       <div className="flex flex-1 overflow-hidden">
         {/* Tree Sidebar */}
         <div 
-          className="w-56 border-r border-slate-200 dark:border-slate-850 bg-slate-50/60 dark:bg-slate-950/40 overflow-y-auto pt-2 flex-shrink-0 select-none scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-800"
+          className="w-44 @[900px]:w-56 border-r border-slate-200 dark:border-slate-850 bg-slate-50/60 dark:bg-slate-950/40 overflow-y-auto pt-2 flex-shrink-0 select-none scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-800"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
             <div
@@ -1436,7 +1436,7 @@ export default function Explorer() {
         {/* Main Pane - Table View */}
         <div 
           ref={mainPaneRef}
-          className={`flex-1 overflow-y-auto overflow-x-auto bg-white dark:bg-dark-bg relative select-none scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-850 ${isDragging ? 'bg-emerald-50/10' : ''}`}
+          className={`@container flex-1 overflow-y-auto overflow-x-auto bg-white dark:bg-dark-bg relative select-none scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-850 ${isDragging ? 'bg-emerald-50/10' : ''}`}
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           onDragOver={handleDragOver}
           onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
@@ -1540,9 +1540,9 @@ export default function Explorer() {
                       <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Имя</th>
                       <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Дата изменения</th>
                       <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Статус</th>
-                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Размер</th>
-                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Теги</th>
-                      <th className="flux-cell font-medium cursor-default">Отдел</th>
+                      <th className="flux-cell hidden @[760px]:table-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Размер</th>
+                      <th className="flux-cell hidden @[880px]:table-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-default">Теги</th>
+                      <th className="flux-cell hidden @[1000px]:table-cell font-medium cursor-default">Отдел</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1581,14 +1581,14 @@ export default function Explorer() {
                         <span onMouseDown={startColResize('statusCode')} onClick={(e) => e.stopPropagation()}
                           className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-emerald-400/60" title="Потянуть — изменить ширину колонки" />
                       </th>
-                      <th className="relative flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('size')} style={colStyle('size')}>
+                      <th className="relative flux-cell hidden @[760px]:table-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel" onClick={() => handleSort('size')} style={colStyle('size')}>
                         Размер {sortConfig.key === 'size' && (sortConfig.direction==='asc'?'↑':'↓')}
                       
                         <span onMouseDown={startColResize('size')} onClick={(e) => e.stopPropagation()}
                           className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-emerald-400/60" title="Потянуть — изменить ширину колонки" />
                       </th>
-                      <th className="flux-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel">Теги</th>
-                      <th className="flux-cell font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel">Отдел</th>
+                      <th className="flux-cell hidden @[880px]:table-cell border-r border-slate-200 dark:border-dark-border font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel">Теги</th>
+                      <th className="flux-cell hidden @[1000px]:table-cell font-medium cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-panel">Отдел</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1751,7 +1751,7 @@ export default function Explorer() {
 
         {/* Preview Pane */}
         {showPreviewPane && (
-          <div className="w-64 border-l border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-surface overflow-y-auto flex flex-col flex-shrink-0">
+          <div className="hidden @[820px]:flex w-64 border-l border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-surface overflow-y-auto flex-col flex-shrink-0">
              {(() => {
                 if (selectedIds.size === 0) return <div className="p-4 text-center text-slate-500 dark:text-dark-text-muted text-xs mt-10">Выберите файл для предпросмотра.</div>;
                 if (selectedIds.size > 1) return <div className="p-4 text-center text-slate-500 dark:text-dark-text-muted text-xs mt-10">Выбрано: {countOf(selectedIds.size, 'элемент')}.</div>;
@@ -1763,7 +1763,7 @@ export default function Explorer() {
                 if (item.isFolder) {
                   return (
                      <div className="p-4 flex flex-col items-center mt-10">
-                       <Folder className="w-16 h-16 text-yellow-500 fill-yellow-200 mb-4" />
+                       <Folder className="w-16 h-16 text-amber-500 fill-amber-200 mb-4" />
                        <h3 className="font-semibold text-slate-800 dark:text-dark-text-main text-center break-words w-full">{item.name}</h3>
                        <p className="text-xs text-slate-500 dark:text-dark-text-muted mt-2">Папка с файлами</p>
                      </div>
@@ -1827,7 +1827,7 @@ export default function Explorer() {
                        <div className="flex flex-col border-b border-slate-100 pb-1 pt-1">
                          <span className="text-slate-500 dark:text-dark-text-muted mb-1.5">Назначенные теги</span>
                          <div className="flex flex-wrap gap-1">
-                           {item.mainTags?.map((t:any) => <span key={t.id} className="bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded text-xs font-bold font-mono border border-yellow-200" title="Основной тег">{t.identifier}</span>)}
+                           {item.mainTags?.map((t:any) => <span key={t.id} className="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded text-xs font-bold font-mono border border-amber-200" title="Основной тег">{t.identifier}</span>)}
                            {item.additionalTags?.map((t:any) => <span key={t.id} className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-xs font-mono border border-slate-200" title="Дополнительный тег">{t.identifier}</span>)}
                          </div>
                        </div>
@@ -2331,7 +2331,7 @@ const TreeFolder = ({ folder, allFolders, currentFolderId, onSelect, depth = 1, 
         >
           {children.length > 0 ? (expanded ? <ChevronDown className="w-3 h-3 text-slate-500" /> : <ChevronRight className="w-3 h-3 text-slate-500" />) : <span className="w-3 h-3" />}
         </div>
-        <Folder className={`w-4 h-4 mr-2 flex-shrink-0 ${isSelected ? 'text-yellow-600 fill-yellow-200' : 'text-yellow-500 fill-yellow-100'}`} />
+        <Folder className={`w-4 h-4 mr-2 flex-shrink-0 ${isSelected ? 'text-amber-600 fill-amber-200' : 'text-amber-500 fill-amber-100'}`} />
         <span className="truncate text-xs select-none">{folder.name}</span>
       </div>
       {expanded && children.map((child: any) => (
@@ -2353,13 +2353,13 @@ const SkeletonRow = () => (
     <td className="flux-cell">
       <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-20 animate-pulse" />
     </td>
-    <td className="flux-cell">
+    <td className="flux-cell hidden @[760px]:table-cell">
       <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-16 animate-pulse" />
     </td>
-    <td className="flux-cell">
+    <td className="flux-cell hidden @[880px]:table-cell">
       <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-24 animate-pulse" />
     </td>
-    <td className="flux-cell">
+    <td className="flux-cell hidden @[1000px]:table-cell">
       <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-16 animate-pulse" />
     </td>
   </tr>
@@ -2456,8 +2456,8 @@ const FileRowItem = React.memo(({
       <td className="flux-cell text-sm">{!item.isFolder ? <StatusChip code={item.statusCode} onClick={onChangeStatus ? (e) => { e.stopPropagation(); onChangeStatus(item.id); } : undefined} /> : <span className="text-slate-400 text-xs">Папка</span>}</td>
       {/* У папки нет размера, у файла может не быть тегов и отдела: ставим
           прочерк — пустая ячейка читается как «данные не загрузились». */}
-      <td className="flux-cell text-sm text-slate-500 dark:text-dark-text-muted text-right whitespace-nowrap">{!item.isFolder ? formatSize(item.size) : <span className="text-slate-300 dark:text-slate-700">—</span>}</td>
-      <td className="flux-cell">
+      <td className="flux-cell hidden @[760px]:table-cell text-sm text-slate-500 dark:text-dark-text-muted text-right whitespace-nowrap">{!item.isFolder ? formatSize(item.size) : <span className="text-slate-300 dark:text-slate-700">—</span>}</td>
+      <td className="flux-cell hidden @[880px]:table-cell">
          <div className="flex flex-wrap gap-1">
            {!item.isFolder && (item.mainTags || []).map((t: any) => (
              <span key={t.id} onClick={onOpenTag ? (e) => { e.stopPropagation(); onOpenTag(t.identifier); } : undefined}
@@ -2471,7 +2471,7 @@ const FileRowItem = React.memo(({
            )}
          </div>
       </td>
-      <td className="flux-cell text-xs text-slate-500 dark:text-dark-text-muted">{!item.isFolder && item.department !== 'Unassigned' ? item.department : ''}</td>
+      <td className="flux-cell hidden @[1000px]:table-cell text-xs text-slate-500 dark:text-dark-text-muted">{!item.isFolder && item.department !== 'Unassigned' ? item.department : ''}</td>
     </tr>
   );
 });
@@ -2521,7 +2521,7 @@ const FileCardItem = React.memo(({
     >
        <div className="w-16 h-16 flex items-center justify-center relative select-none">
          {item.isFolder ? (
-           <Folder className="w-16 h-16 text-yellow-500 fill-yellow-250 shrink-0" />
+           <Folder className="w-16 h-16 text-amber-500 fill-amber-200 shrink-0" />
          ) : isImage && item.content ? (
            <img src={item.content} alt={item.name} className="max-w-full max-h-full object-cover rounded shadow-xs border border-slate-200" referrerPolicy="no-referrer" />
          ) : (

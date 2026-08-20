@@ -331,7 +331,7 @@ export default function Dashboard() {
                 Проект не выбран
               </h1>
               <button type="button" onClick={() => open('/projects')}
-                className="mt-1 text-[13px] font-medium text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer">
+                className="mt-1 -mx-1 px-1 min-h-6 inline-flex items-center text-[13px] font-medium text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer">
                 Выбрать проект
               </button>
             </>
@@ -361,7 +361,7 @@ export default function Dashboard() {
               <X className="w-4 h-4" />
             </button>
           ) : (
-            <span className="hidden sm:inline text-2xs text-slate-400 shrink-0">просто начните печатать</span>
+            <span className="hidden @[700px]:inline text-2xs text-slate-400 shrink-0">просто начните печатать</span>
           )}
         </div>
 
@@ -485,7 +485,7 @@ export default function Dashboard() {
       {recent.length > 0 && (
         <section>
           <h2 className="text-[11px] font-bold uppercase tracking-[0.13em] text-slate-500 dark:text-slate-400 mb-2 select-none">Продолжить</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <div className="grid grid-cols-2 @[700px]:grid-cols-4 gap-2.5">
             {recent.map((s) => {
               const Icon = s.icon as any;
               return (
@@ -515,7 +515,7 @@ export default function Dashboard() {
         <h2 className="text-[11px] font-bold uppercase tracking-[0.13em] text-slate-500 dark:text-slate-400 mb-2 select-none">Разделы</h2>
         {/* Ровная сетка вместо переносящихся пилюль: раньше последний раздел
             уезжал на вторую строку в одиночестве и блок выглядел обрывком. */}
-        <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">
+        <div className="grid grid-cols-2 @[560px]:grid-cols-3 @[760px]:grid-cols-4 @[1000px]:grid-cols-6 gap-2">
           {sections.map((s) => {
             const Icon = s.icon as any;
             return (
@@ -539,7 +539,7 @@ export default function Dashboard() {
            Колонки одной высоты и по содержимому: раньше они кончались на
            разных уровнях и низ блока выглядел обрывком. Ниже — небо, и это
            лучше, чем растянутая до края пустая карточка. */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5 items-stretch pb-1">
+      <div className="grid grid-cols-1 @[900px]:grid-cols-3 gap-3.5 items-stretch pb-1">
         {/* Последние изменения */}
         <section className="rounded-lg flux-surface overflow-hidden flex flex-col min-h-[240px]">
           <CardHead icon={History} title="Последние изменения"

@@ -7,7 +7,7 @@ import { X, RefreshCw, Save, Check, ExternalLink } from 'lucide-react';
 import { motion } from 'motion/react';
 
 const COLORS = [
-  { name: 'Желтый', class: 'bg-yellow-50 dark:bg-yellow-950/40 border-yellow-200 text-yellow-900 dark:text-yellow-100', btn: 'bg-yellow-400' },
+  { name: 'Желтый', class: 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 text-amber-900 dark:text-amber-100', btn: 'bg-amber-400' },
   { name: 'Красный', class: 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 text-rose-905 dark:text-rose-100', btn: 'bg-rose-400' },
   { name: 'Зеленый', class: 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 text-emerald-900 dark:text-emerald-100', btn: 'bg-emerald-400' },
   { name: 'Серый', class: 'bg-slate-100 dark:bg-slate-800 border-slate-350 dark:border-slate-700 text-slate-800 dark:text-slate-100', btn: 'bg-slate-400' },
@@ -135,12 +135,12 @@ export default function StickerWindow() {
       >
         {/* Status icon / indication */}
         <div className="flex items-center gap-1.5" style={{ WebkitAppRegion: 'no-drag' } as any}>
-          <div className="w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse" />
+          <div className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
           <span className="text-xs font-mono tracking-wide max-w-[100px] truncate opacity-70 font-bold">
             {note.title || 'Стикер'}
           </span>
           {saveStatus === 'saving' && (
-            <RefreshCw className="w-2.5 h-2.5 animate-spin text-indigo-600 dark:text-indigo-400" />
+            <RefreshCw className="w-2.5 h-2.5 animate-spin text-emerald-600 dark:text-emerald-400" />
           )}
           {saveStatus === 'saved' && (
             <div className="text-xs font-mono text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">

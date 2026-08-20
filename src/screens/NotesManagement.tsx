@@ -18,7 +18,7 @@ import { useModalStore } from '../store/modalStore';
 const { openConfirm } = useModalStore.getState();
 
 const COLORS = [
-  { name: 'Желтый', class: 'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200', btn: 'bg-yellow-400' },
+  { name: 'Желтый', class: 'bg-amber-50 dark:bg-amber-950/20 border-amber-200', btn: 'bg-amber-400' },
   { name: 'Красный', class: 'bg-rose-50 dark:bg-rose-950/20 border-rose-200', btn: 'bg-rose-400' },
   { name: 'Зеленый', class: 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200', btn: 'bg-emerald-400' },
   { name: 'Серый', class: 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700', btn: 'bg-slate-400' },
@@ -203,7 +203,7 @@ export default function NotesManagement() {
         // Пустой контент — редактор сам покажет подсказку, не нужно стирать текст
         title: presetTitle && presetTitle.trim() ? presetTitle.trim() : 'Новая заметка',
         content: '',
-        color: 'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200'
+        color: 'bg-amber-50 dark:bg-amber-950/20 border-amber-200'
       });
       addToast('Заметка создана', 'success');
       await loadNotes(newNote.id);
@@ -459,16 +459,16 @@ export default function NotesManagement() {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -12 }}
       transition={{ duration: 0.25 }}
-      className="h-[calc(100vh-100px)] flex gap-4 font-sans select-none"
+      className="h-full flex gap-4 overflow-x-auto font-sans select-none"
     >
       {/* LEFT SIDEBAR: NOTES DIRECTORY */}
-      <div id="notes-sidebar" className="w-80 shrink-0 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-xs">
+      <div id="notes-sidebar" className="w-56 @[900px]:w-80 shrink-0 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-xs">
         {/* Search & Add block */}
         <div className="p-4 border-b border-slate-100 dark:border-slate-800 space-y-3 bg-slate-50/50 dark:bg-slate-900/40">
-          <div className="flex items-center justify-between">
-            <h2 className="text-md font-bold text-slate-850 dark:text-white flex items-center gap-2">
-              <BookOpen className="w-4 h-4 text-emerald-600" />
-              <span>Инженерный блокнот</span>
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <h2 className="min-w-0 text-md font-bold text-slate-850 dark:text-white flex items-center gap-2">
+              <BookOpen className="w-4 h-4 shrink-0 text-emerald-600" />
+              <span className="truncate">Инженерный блокнот</span>
             </h2>
             <button type="button"
               onClick={() => handleCreateNote()}
@@ -520,13 +520,14 @@ export default function NotesManagement() {
             )}
           </div>
           {/* Сортировка списка */}
-          <div className="flex items-center gap-1 text-xs">
+          <div className="flex flex-wrap items-center gap-1 text-xs min-w-0">
             <span className="text-slate-400 mr-0.5">Сортировка:</span>
             {([['updated','Изменённые'],['created','Новые'],['title','А–Я']] as const).map(([v, label]) => (
               <button type="button"
                 key={v}
                 onClick={() => changeSort(v)}
-                className={`px-2 py-0.5 rounded-md font-semibold cursor-pointer transition-colors ${sortBy === v ? 'bg-emerald-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                /* min-h-6: было 20 px — в такую кнопку целятся, а не нажимают */
+                className={`px-2 py-1 min-h-6 rounded-md font-semibold cursor-pointer transition-colors ${sortBy === v ? 'bg-emerald-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
               >
                 {label}
               </button>
@@ -577,7 +578,7 @@ export default function NotesManagement() {
                       )}
                       {!note.mine && !note.legacy && (
                         <span title={note.canEdit ? 'Вам открыли на правку' : 'Вам открыли только на чтение'}
-                          className="shrink-0 text-2xs font-semibold text-violet-600 dark:text-violet-400">
+                          className="shrink-0 text-2xs font-semibold text-sky-600 dark:text-sky-400">
                           {note.canEdit ? 'правка' : 'чтение'}
                         </span>
                       )}
@@ -628,14 +629,14 @@ export default function NotesManagement() {
                       </button>
                       <button type="button"
                         onClick={(e) => handleExportNote(e, note)}
-                        className="p-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded transition-colors"
+                        className="p-1 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded transition-colors"
                         title="Экспорт в TXT"
                       >
                         <Download className="w-3.5 h-3.5" />
                       </button>
                       <button type="button"
                         onClick={(e) => handleExportWord(e, note)}
-                        className="p-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded transition-colors"
+                        className="p-1 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded transition-colors"
                         title="Экспорт в Word (.doc)"
                       >
                         <FileType2 className="w-3.5 h-3.5" />
@@ -725,12 +726,12 @@ export default function NotesManagement() {
       </div>
 
       {/* RIGHT SIDEBAR: WORKSPACE EDITING AREA */}
-      <div id="notes-content" className="flex-1 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-xs relative">
+      <div id="notes-content" className="flex-1 min-w-[300px] flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-xs relative">
         {selectedNote ? (
           <div className="flex-grow flex flex-col h-full">
             {/* Header / Meta properties */}
             <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-50/20 dark:bg-slate-900/10">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3 min-w-0">
                 {/* Save status notification badge */}
                 <div className="flex items-center gap-1.5 text-xs">
                   {saveStatus === 'saving' && (
@@ -854,7 +855,7 @@ export default function NotesManagement() {
             </div>
 
             {/* WYSIWYG Editor wrapper */}
-            <div className="flex-1 px-6 pb-6 overflow-y-auto">
+            <div className="flex-1 min-w-0 px-6 pb-6 overflow-y-auto">
               <RichTextEditor
                 value={selectedNote.content}
                 onChange={(html) => handleNoteChange({ content: html })}

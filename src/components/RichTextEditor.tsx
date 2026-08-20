@@ -537,7 +537,7 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
         <select
           onChange={(e) => { if (e.target.value) { executeCommand('formatBlock', e.target.value); e.target.value = ''; } }}
           defaultValue=""
-          className="h-7 px-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 cursor-pointer outline-none"
+          className="h-7 px-1 max-w-28 min-w-0 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 cursor-pointer outline-none"
           title="Стиль абзаца"
         >
           <option value="" disabled>Стиль</option>
@@ -551,7 +551,7 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
         <select
           onChange={(e) => { if (e.target.value) { executeCommand('fontSize', e.target.value); e.target.value = ''; } }}
           defaultValue=""
-          className="h-7 px-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 cursor-pointer outline-none"
+          className="h-7 px-1 max-w-28 min-w-0 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 cursor-pointer outline-none"
           title="Размер текста"
         >
           <option value="" disabled>Размер</option>

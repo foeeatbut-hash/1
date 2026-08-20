@@ -1,7 +1,7 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "0.64.0",
+  "version": "0.70.0",
   "type": "commonjs",
   "main": "dist-electron/main.cjs",
   "scripts": {
@@ -90,7 +90,12 @@
     ],
     "win": {
       "target": [
-        "portable"
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "build/icon.png"
     }

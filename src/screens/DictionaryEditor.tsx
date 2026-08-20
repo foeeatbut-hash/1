@@ -1120,8 +1120,8 @@ export default function DictionaryEditor() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 flex flex-col md:flex-row gap-6 text-left w-full">
-        <div className="w-full md:w-64 shrink-0 space-y-5 h-full overflow-y-auto pr-1">
+      <div className="flex-1 min-h-0 flex flex-col @[820px]:flex-row gap-6 text-left w-full">
+        <div className="w-full @[820px]:w-56 @[1100px]:w-64 shrink-0 space-y-5 h-full overflow-y-auto pr-1">
           {/* SECTION: TAG CREATION */}
           <div className="space-y-2">
             <button type="button"
@@ -1211,10 +1211,10 @@ export default function DictionaryEditor() {
 
               return (
                 <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800  flex flex-col transition-colors overflow-hidden h-full w-full">
-                  <div className="p-5 border-b border-slate-200 dark:border-slate-850 bg-slate-50 dark:bg-slate-950 shrink-0">
-                    <div className="flex items-center gap-2">
-                       <Settings className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                       <h2 className="font-bold text-slate-800 dark:text-white text-lg font-mono">
+                  <div className="p-2.5 @[700px]:p-5 border-b border-slate-200 dark:border-slate-850 bg-slate-50 dark:bg-slate-950 shrink-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                       <Settings className="w-5 h-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                       <h2 className="min-w-0 font-bold text-slate-800 dark:text-white text-base @[700px]:text-lg font-mono text-pretty">
                          Создание тегов / Дополнительные параметры
                        </h2>
                     </div>
@@ -1223,11 +1223,11 @@ export default function DictionaryEditor() {
                     </p>
                   </div>
 
-                  <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-6 items-start flex-1 overflow-y-auto">
+                  <div className="p-2.5 @[700px]:p-5 grid grid-cols-1 @[900px]:grid-cols-2 gap-4 @[700px]:gap-6 items-start flex-1 overflow-y-auto min-w-0">
                     {/* Categories Column */}
                     <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+                        <h3 className="min-w-0 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
                           <Layers className="w-4 h-4 text-emerald-550" />
                           Категории параметров
                         </h3>
@@ -1236,15 +1236,15 @@ export default function DictionaryEditor() {
                         </span>
                       </div>
 
-                      <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-200/60 dark:border-slate-850 space-y-4">
+                      <div className="bg-slate-50 dark:bg-slate-950 p-2.5 @[700px]:p-4 rounded-xl border border-slate-200/60 dark:border-slate-850 space-y-4">
                         {/* New Category Form */}
-                        <form onSubmit={handleAddCategory} className="flex gap-2">
+                        <form onSubmit={handleAddCategory} className="flex flex-wrap gap-2 min-w-0">
                           <input
                             type="text"
                             placeholder="Новая категория (напр., Класс надежности)..."
                             value={newCategoryName}
                             onChange={(e) => setNewCategoryName(e.target.value)}
-                            className="flex-1 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-850 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                            className="flex-1 min-w-0 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-850 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                           />
                           <button
                             type="submit"
@@ -1281,7 +1281,7 @@ export default function DictionaryEditor() {
                                         type="text"
                                         value={editingCategoryName}
                                         onChange={(e) => setEditingCategoryName(e.target.value)}
-                                        className="flex-1 px-2.5 py-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded text-xs text-slate-900 dark:text-slate-100 focus:outline-none"
+                                        className="flex-1 min-w-0 px-2.5 py-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded text-xs text-slate-900 dark:text-slate-100 focus:outline-none"
                                         autoFocus
                                       />
                                       <button type="button"
@@ -1334,7 +1334,7 @@ export default function DictionaryEditor() {
                                       </button>
                                       <button type="button"
                                         onClick={() => handleDeleteCategory(cat.id)}
-                                        className="p-1 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 rounded cursor-pointer"
+                                        className="p-1 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded cursor-pointer"
                                         title="Удалить"
                                       >
                                         <Trash2 className="w-3.5 h-3.5" />
@@ -1374,15 +1374,15 @@ export default function DictionaryEditor() {
                                 </span>
                               </div>
 
-                              <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-200/60 dark:border-slate-850 space-y-4">
+                              <div className="bg-slate-50 dark:bg-slate-950 p-2.5 @[700px]:p-4 rounded-xl border border-slate-200/60 dark:border-slate-850 space-y-4">
                                 {/* New Option Form */}
-                                <form onSubmit={handleAddOption} className="flex gap-2">
+                                <form onSubmit={handleAddOption} className="flex flex-wrap gap-2 min-w-0">
                                   <input
                                     type="text"
                                     placeholder="Вариант (напр., КИП, Тепло)..."
                                     value={newOptionName}
                                     onChange={(e) => setNewOptionName(e.target.value)}
-                                    className="flex-1 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-850 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                    className="flex-1 min-w-0 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-850 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                                   />
                                   <button
                                     type="submit"
@@ -1409,7 +1409,7 @@ export default function DictionaryEditor() {
                                                 type="text"
                                                 value={editingOptionName}
                                                 onChange={(e) => setEditingOptionName(e.target.value)}
-                                                className="flex-1 px-2.5 py-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                                className="flex-1 min-w-0 px-2.5 py-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                                                 autoFocus
                                               />
                                               <button type="button"
@@ -1442,7 +1442,7 @@ export default function DictionaryEditor() {
                                               </button>
                                               <button type="button"
                                                 onClick={() => handleDeleteOption(opt.id)}
-                                                className="p-1 text-red-650 hover:bg-red-50 dark:hover:bg-red-950/20 rounded cursor-pointer"
+                                                className="p-1 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded cursor-pointer"
                                               >
                                                 <Trash2 className="w-3.5 h-3.5" />
                                               </button>
@@ -1494,11 +1494,11 @@ export default function DictionaryEditor() {
                     </p>
                   </div>
 
-                  <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-6 items-start flex-1 overflow-y-auto">
+                  <div className="p-2.5 @[700px]:p-5 grid grid-cols-1 @[900px]:grid-cols-2 gap-4 @[700px]:gap-6 items-start flex-1 overflow-y-auto min-w-0">
                     {/* Categories Column */}
                     <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+                        <h3 className="min-w-0 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
                           <Layers className="w-4 h-4 text-emerald-550" />
                           Категории маркировки
                         </h3>
@@ -1507,15 +1507,15 @@ export default function DictionaryEditor() {
                         </span>
                       </div>
 
-                      <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-200/60 dark:border-slate-850 space-y-4">
+                      <div className="bg-slate-50 dark:bg-slate-950 p-2.5 @[700px]:p-4 rounded-xl border border-slate-200/60 dark:border-slate-850 space-y-4">
                         {/* New Category Form */}
-                        <form onSubmit={handleAddMarkingCategory} className="flex gap-2">
+                        <form onSubmit={handleAddMarkingCategory} className="flex flex-wrap gap-2 min-w-0">
                           <input
                             type="text"
                             placeholder="Новая категория (напр., Тип оборудования)..."
                             value={newMarkingCategoryName}
                             onChange={(e) => setNewMarkingCategoryName(e.target.value)}
-                            className="flex-1 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-850 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                            className="flex-1 min-w-0 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-850 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                           />
                           <button
                             type="submit"
@@ -1544,7 +1544,7 @@ export default function DictionaryEditor() {
                                         type="text"
                                         value={editingMarkingCategoryName}
                                         onChange={(e) => setEditingMarkingCategoryName(e.target.value)}
-                                        className="flex-1 px-2.5 py-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                        className="flex-1 min-w-0 px-2.5 py-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                                         autoFocus
                                       />
                                       <button type="button"
@@ -1599,7 +1599,7 @@ export default function DictionaryEditor() {
                                       <button
                                         type="button"
                                         onClick={() => handleDeleteMarkingCategory(cat.id)}
-                                        className="p-1 text-red-650 hover:bg-red-50 dark:hover:bg-red-950/20 rounded cursor-pointer"
+                                        className="p-1 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded cursor-pointer"
                                       >
                                         <Trash2 className="w-3.5 h-3.5" />
                                       </button>
@@ -1638,15 +1638,15 @@ export default function DictionaryEditor() {
                                 </span>
                               </div>
 
-                              <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-200/60 dark:border-slate-850 space-y-4">
+                              <div className="bg-slate-50 dark:bg-slate-950 p-2.5 @[700px]:p-4 rounded-xl border border-slate-200/60 dark:border-slate-850 space-y-4">
                                 {/* New Option/Value Form */}
-                                <form onSubmit={handleAddMarkingOption} className="flex gap-2">
+                                <form onSubmit={handleAddMarkingOption} className="flex flex-wrap gap-2 min-w-0">
                                   <input
                                     type="text"
                                     placeholder="Новый вариант маркировки..."
                                     value={newMarkingOptionName}
                                     onChange={(e) => setNewMarkingOptionName(e.target.value)}
-                                    className="flex-1 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-850 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                    className="flex-1 min-w-0 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-850 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                                   />
                                   <button
                                     type="submit"
@@ -1673,7 +1673,7 @@ export default function DictionaryEditor() {
                                                 type="text"
                                                 value={editingMarkingOptionName}
                                                 onChange={(e) => setEditingMarkingOptionName(e.target.value)}
-                                                className="flex-1 px-2.5 py-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                                className="flex-1 min-w-0 px-2.5 py-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                                                 autoFocus
                                               />
                                               <button type="button"
@@ -1706,7 +1706,7 @@ export default function DictionaryEditor() {
                                               </button>
                                               <button type="button"
                                                 onClick={() => handleDeleteMarkingOption(opt.id)}
-                                                className="p-1 text-red-655 hover:bg-red-50 dark:hover:bg-red-950/20 rounded cursor-pointer"
+                                                className="p-1 text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded cursor-pointer"
                                               >
                                                 <Trash2 className="w-3.5 h-3.5" />
                                               </button>
@@ -1756,9 +1756,9 @@ export default function DictionaryEditor() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-12 divide-y md:divide-y-0 md:divide-x divide-slate-100 dark:divide-slate-800 min-h-[500px]">
+                  <div className="grid grid-cols-1 @[900px]:grid-cols-12 divide-y @[900px]:divide-y-0 @[900px]:divide-x divide-slate-100 dark:divide-slate-800 min-h-[500px]">
                     {/* LEFTSIDE: CATEGORIES LIST & ADD */}
-                    <div className="col-span-1 md:col-span-5 p-4 flex flex-col bg-slate-50/10 dark:bg-slate-950/10">
+                    <div className="col-span-1 @[900px]:col-span-5 p-4 flex flex-col bg-slate-50/10 dark:bg-slate-950/10">
                       <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-3">
                         Категории фильтров
                       </h3>
@@ -1857,7 +1857,7 @@ export default function DictionaryEditor() {
                                     </button>
                                     <button type="button"
                                       onClick={() => handleDeletePreset(preset.id)}
-                                      className="p-1 text-red-655 hover:bg-red-50 dark:hover:bg-red-950/20 rounded cursor-pointer"
+                                      className="p-1 text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded cursor-pointer"
                                     >
                                       <Trash2 className="w-3.5 h-3.5" />
                                     </button>
@@ -1875,7 +1875,7 @@ export default function DictionaryEditor() {
                     </div>
 
                     {/* RIGHTSIDE: CATEGORY DETAILS, SUBOPTIONS LIST & ADD */}
-                    <div className="col-span-1 md:col-span-7 p-4 bg-slate-50/50 dark:bg-slate-950/10">
+                    <div className="col-span-1 @[900px]:col-span-7 p-4 bg-slate-50/50 dark:bg-slate-950/10">
                       {activePresetId ? (
                         (() => {
                           const activeCategory = presets.find((p: any) => p.id === activePresetId);
@@ -1987,7 +1987,7 @@ export default function DictionaryEditor() {
                                             </button>
                                             <button type="button"
                                               onClick={() => handleDeleteSubOption(opt.id)}
-                                              className="p-1 text-red-655 hover:bg-red-50 dark:hover:bg-red-950/20 rounded cursor-pointer"
+                                              className="p-1 text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded cursor-pointer"
                                             >
                                               <Trash2 className="w-3.5 h-3.5" />
                                             </button>
@@ -2112,7 +2112,7 @@ export default function DictionaryEditor() {
                                   parentId: "",
                                 });
                               }}
-                              className="p-1.5 text-red-600 hover:bg-red-100 dark:hover:bg-red-950/20 rounded transition-colors"
+                              className="p-1.5 text-rose-600 hover:bg-rose-100 dark:hover:bg-rose-950/20 rounded transition-colors"
                             >
                               <X className="w-4 h-4" />
                             </button>
@@ -2245,7 +2245,7 @@ export default function DictionaryEditor() {
                               </button>
                               <button type="button"
                                 onClick={() => handleDeleteItem(item.id)}
-                                className="p-1.5 text-red-600 hover:bg-red-105 dark:hover:bg-red-950/20 rounded transition-colors"
+                                className="p-1.5 text-rose-600 hover:bg-rose-100 dark:hover:bg-rose-950/20 rounded transition-colors"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>

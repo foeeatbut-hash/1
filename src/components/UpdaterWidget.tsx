@@ -385,7 +385,7 @@ export default function UpdaterWidget() {
                 </div>
               </div>
 
-              <div className="text-xs leading-normal bg-blue-500/10 dark:bg-blue-500/5 p-2.5 rounded border border-blue-500/20 text-slate-700 dark:text-blue-300">
+              <div className="text-xs leading-normal bg-sky-500/10 dark:bg-sky-500/5 p-2.5 rounded border border-sky-500/20 text-slate-700 dark:text-sky-300">
                 Файл скачивается с вашего сервера Flux. После загрузки приложение закроется,
                 обновление подменит exe и программа запустится уже новой версии — данные не затрагиваются.
               </div>
@@ -427,7 +427,7 @@ export default function UpdaterWidget() {
             </div>
 
             <div className="p-5 flex-1 overflow-y-auto space-y-4">
-              <div className="text-xs leading-normal bg-amber-500/10 dark:bg-amber-500/5 p-2.5 rounded border border-amber-500/20 text-yellow-800 dark:text-yellow-300">
+              <div className="text-xs leading-normal bg-amber-500/10 dark:bg-amber-500/5 p-2.5 rounded border border-amber-500/20 text-amber-800 dark:text-amber-300">
                 Файл exe загружается на этот сервер и раздаётся сотрудникам с него же.
                 Все, кто сейчас онлайн, получат оповещение мгновенно; остальные — при следующей проверке.
               </div>

@@ -35,8 +35,12 @@ export default function NoProject({ what }: { what: string }) {
           <FolderKanban className="w-6 h-6 text-emerald-700 dark:text-emerald-400" />
         </div>
         <h3 className="text-base font-bold text-slate-800 dark:text-white">Сначала выберите проект</h3>
+        {/* Название раздела уводим в кавычки после слова «Раздел»: фраза была
+            написана в среднем роде и подставляла туда имя раздела, отчего
+            получалось «Закупки привязано» и «Реестр тегов привязано» — из трёх
+            мест верным было одно. Теперь род фразы не зависит от подстановки. */}
         <p className="text-sm text-slate-500 dark:text-dark-text-muted mt-1">
-          {what} привязано к проекту — выберите его здесь или в левом верхнем углу.
+          Раздел «{what}» ведётся по проекту. Выберите проект здесь или в левом верхнем углу.
         </p>
 
         {projects === null && (

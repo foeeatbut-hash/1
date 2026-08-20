@@ -19,8 +19,20 @@ const DOCK_W = 54;
 const DOCK_H = 78;
 const Y_KEY = 'flux_robot_dock_y';
 
-// Насколько робот высунут: 0 — спрятался за краем, 1 — выглядывает, 2 — вышел
-const SHIFT = [32, 20, 2];
+/**
+ * Ширина места, по которому робот ездит. Больше самого робота: раньше место
+ * было ровно по нему, и в состоянии покоя робот стоял сдвинутым на 20 px за
+ * правый край — то есть был обрезан ровной вертикальной линией по границе
+ * рельса. Задумывалось «выглядывает из-за края», читалось «сломалась
+ * отрисовка»: рельс белый на белом, стены, из-за которой можно выглядывать,
+ * там не видно.
+ */
+const DOCK_BOX = DOCK_W + 30;
+
+// Насколько робот сдвинут вправо, к рельсу: 0 — прячется, 1 — стоит у рельса,
+// 2 — шагнул к содержимому. В покое (1) он упирается в рельс ровно краем и
+// целиком помещается в месте — обрезать его больше нечем.
+const SHIFT = [44, 30, 12];
 
 export default function RobotDock() {
   const setOpen = useAssistantStore((s) => s.setOpen);
@@ -143,7 +155,7 @@ export default function RobotDock() {
     <div
       ref={boxRef}
       className="fixed z-40 right-14 overflow-hidden touch-none cursor-pointer select-none"
-      style={{ top: y, width: DOCK_W, height: DOCK_H }}
+      style={{ top: y, width: DOCK_BOX, height: DOCK_H }}
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
       onPointerDown={onPointerDown}
@@ -163,7 +175,9 @@ export default function RobotDock() {
         <Rig refs={refs.current} face={face} blink={blink} idPrefix="flxdock" />
       </svg>
       {unread > 0 && (
-        <span className="absolute top-0 left-0 min-w-4 h-4 px-1 rounded-full bg-rose-500 text-white text-2xs font-bold flex items-center justify-center pointer-events-none">
+        /* Счётчик у правого края — там, где сам робот. Слева он висел бы в
+           пустом месте: место шире робота на 30 px. */
+        <span className="absolute top-0 right-0 min-w-4 h-4 px-1 rounded-full bg-rose-500 text-white text-2xs font-bold flex items-center justify-center pointer-events-none">
           {unread > 99 ? '99+' : unread}
         </span>
       )}

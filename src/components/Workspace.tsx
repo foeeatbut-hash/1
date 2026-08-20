@@ -131,7 +131,9 @@ function PaneView({ paneId }: { paneId: string }) {
   const [menu, setMenu] = React.useState<{ x: number; y: number; path: string } | null>(null);
 
   if (!pane) return null;
-  const activePath = pane.stack[pane.stack.length - 1];
+  // Активный раздел панели — отдельное поле, а не «последний в списке»:
+  // порядок вкладок от переключения не меняется
+  const activePath = pane.stack.includes(pane.active) ? pane.active : pane.stack[pane.stack.length - 1];
   const isActivePane = paneId === activePaneId;
   // Вкладки внутри панели показываем, когда открыто больше одного раздела
   const showTabs = pane.stack.length > 1;
@@ -154,7 +156,12 @@ function PaneView({ paneId }: { paneId: string }) {
         <div
           role="tablist"
           aria-label="Открытые разделы"
-          className="shrink-0 flex items-stretch gap-px px-1.5 pt-1 overflow-x-auto scrollbar-none border-b border-slate-200 dark:border-dark-border bg-white/60 dark:bg-dark-surface/50"
+          /* Полоса прокрутки видимая, а не убранная. Раньше стояло scrollbar-none:
+             вкладки, не поместившиеся по ширине, просто отсутствовали на экране —
+             ни полосы, ни стрелок, и найти их было нельзя. Теперь до прокрутки
+             дело почти не доходит (вкладки сжимаются, см. ниже), а если дойдёт —
+             это видно. */
+          className="shrink-0 flex items-stretch gap-px px-1.5 pt-1 overflow-x-auto scrollbar-thin border-b border-slate-200 dark:border-dark-border bg-white/60 dark:bg-dark-surface/50"
         >
           {pane.stack.map((p) => {
             const def = iconFor(p);
@@ -173,21 +180,29 @@ function PaneView({ paneId }: { paneId: string }) {
                 }}
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, path: p }); }}
                 title={def?.title || p}
-                className={`group relative flex items-center gap-1.5 pl-2.5 pr-1 py-1.5 rounded-t-lg text-xs cursor-pointer select-none max-w-[190px] transition-colors duration-[120ms] ${
+                /* Вкладки делят ширину полосы и сжимаются до 76 px — столько
+                   нужно значку, обрывку названия и крестику. Раньше ширина
+                   считалась по содержимому: шесть вкладок требовали 1140 px и
+                   при окне 1280 последние уезжали за край. */
+                className={`group relative flex items-center gap-1.5 pl-2.5 pr-1 py-1.5 rounded-t-lg text-xs cursor-pointer select-none flex-1 min-w-[76px] max-w-[190px] transition-colors duration-[120ms] ${
                   active
-                    // Активная вкладка — поверхность содержимого плюс зелёная
-                    // метка сверху: раньше она отличалась только жирностью.
-                    ? 'bg-slate-100 dark:bg-dark-bg text-slate-900 dark:text-white font-semibold after:absolute after:left-1.5 after:right-1.5 after:top-0 after:h-0.5 after:rounded-b after:bg-emerald-600 dark:after:bg-emerald-400'
-                    : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100/70 dark:hover:bg-dark-bg/50 hover:text-slate-800 dark:hover:text-white'
+                    // Активная вкладка — язычок листа: та же поверхность, что у
+                    // раздела, боковые линии, полоса акцента во всю ширину и
+                    // тень, отрезающая её от полосы. Соседние — тише по цвету.
+                    ? 'bg-slate-100 dark:bg-dark-bg text-slate-900 dark:text-white font-semibold border-x border-t border-slate-200 dark:border-dark-border -mb-px shadow-[0_1px_0_0_var(--flux-bg)] after:absolute after:left-0 after:right-0 after:top-0 after:h-[3px] after:rounded-b-sm after:bg-emerald-600 dark:after:bg-emerald-400'
+                    : 'text-slate-500 dark:text-dark-text-muted border-x border-t border-transparent hover:bg-slate-100/70 dark:hover:bg-dark-bg/50 hover:text-slate-800 dark:hover:text-white'
                 }`}
               >
-                {Icon && <Icon className="w-3.5 h-3.5 shrink-0 opacity-70" />}
-                <span className="truncate">{def?.title || p}</span>
+                {Icon && <Icon className={`w-3.5 h-3.5 shrink-0 ${active ? 'text-emerald-700 dark:text-emerald-400' : 'opacity-60'}`} />}
+                <span className="flex-1 min-w-0 truncate">{def?.title || p}</span>
                 <button
                   type="button"
                   onMouseDown={(e) => { e.stopPropagation(); closeInPane(paneId, p); }}
                   aria-label={`Закрыть вкладку «${def?.title || p}»`}
-                  className={`w-4 h-4 shrink-0 rounded flex items-center justify-center hover:bg-slate-300 dark:hover:bg-dark-border cursor-pointer ${
+                  /* 20×20 вместо 16×16: в крестик надо попасть мышью, а не
+                     целиться. Место под него занято всегда, даже когда он
+                     невидим, — иначе название дёргается при наведении. */
+                  className={`w-5 h-5 shrink-0 rounded flex items-center justify-center hover:bg-slate-300 dark:hover:bg-dark-border cursor-pointer ${
                     active ? 'opacity-70 hover:opacity-100' : 'opacity-0 group-hover:opacity-100'
                   }`}
                   title="Закрыть вкладку"
@@ -199,7 +214,12 @@ function PaneView({ paneId }: { paneId: string }) {
           })}
         </div>
       )}
-      <div className="relative flex-1 min-h-0">
+      {/* Панель объявляет себя мерой ширины для всего, что внутри.
+          Раньше разделы спрашивали ширину окна (md:, lg:), а живут они в
+          панели: на мониторе 1920 в режиме четырёх панелей каждая панель —
+          940 px, и ни одна контрольная точка не срабатывала. Одна строка
+          здесь — и разделы получают, что спрашивать: @[900px]: и подобные. */}
+      <div className="@container relative flex-1 min-h-0">
         {pane.stack.map((p) => (
           <SectionFrame
             key={p}
@@ -228,7 +248,7 @@ export default function Workspace() {
   const activePaneId = useWorkspaceStore((s) => s.activePaneId);
   const activePath = useWorkspaceStore((s) => {
     const p = s.panes.find((x) => x.id === s.activePaneId);
-    return p ? p.stack[p.stack.length - 1] : '/';
+    return p ? (p.stack.includes(p.active) ? p.active : p.stack[p.stack.length - 1]) : '/';
   });
 
   // URL → активная панель: внешняя навигация (deep-link, «назад», ассистент)
@@ -269,7 +289,7 @@ export function WorkspaceRailControls() {
   const setLayout = useWorkspaceStore((s) => s.setLayout);
   const activePath = useWorkspaceStore((s) => {
     const p = s.panes.find((x) => x.id === s.activePaneId);
-    return p ? p.stack[p.stack.length - 1] : '/';
+    return p ? (p.stack.includes(p.active) ? p.active : p.stack[p.stack.length - 1]) : '/';
   });
 
   const popOut = () => {

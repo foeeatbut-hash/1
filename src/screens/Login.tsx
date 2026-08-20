@@ -342,7 +342,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
                 value={serverDraft}
                 onChange={(e) => { setServerDraft(e.target.value); setServerCheck('idle'); }}
                 placeholder="http://адрес:порт (пусто = встроенный)"
-                className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui"
+                className="flex-1 min-w-0 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui"
               />
               <button
                 type="button"

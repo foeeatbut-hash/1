@@ -41,7 +41,7 @@ const ACTUALITY_LABELS: Record<string, { label: string; cls: string }> = {
   actual: { label: 'Актуально', cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' },
   warning: { label: 'Проверить', cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' },
   critical: { label: 'Критично', cls: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20' },
-  info: { label: 'В работе', cls: 'bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20' },
+  info: { label: 'В работе', cls: 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20' },
   draft: { label: 'Устарело', cls: 'bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20' },
 };
 
@@ -113,8 +113,11 @@ export default function ProcurementManagement() {
       <div className="flex items-center gap-1.5">
         {([['procurement', 'Закупки'], ['vdr', 'ВДР']] as const).map(([id, label]) => (
           <button type="button" key={id} onClick={() => setTab(id)}
+            /* Выбранное во всей программе зелёное. Здесь стояла почти чёрная
+               заливка — единственная такая на все разделы: рядом с зелёными
+               кнопками она читалась как чужая, а не как «выбрано». */
             className={`px-4 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-ui ${tab === id
-              ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-800 dark:border-slate-100'
+              ? 'bg-emerald-600 text-white border-emerald-600 dark:bg-emerald-500 dark:border-emerald-500'
               : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:border-slate-400'}`}>
             {label}
           </button>
@@ -585,7 +588,7 @@ function ProcurementTab() {
         }}
         className={`border-b border-slate-100 dark:border-slate-900 transition-colors ${
           isSelected
-            ? 'bg-indigo-50 dark:bg-indigo-950/30'
+            ? 'bg-emerald-50 dark:bg-emerald-950/30'
             : row.isDup
               ? 'bg-rose-50/40 dark:bg-rose-950/10 hover:bg-rose-50/70 dark:hover:bg-rose-950/20'
               : 'hover:bg-slate-50/60 dark:hover:bg-slate-900/40'
@@ -598,7 +601,7 @@ function ProcurementTab() {
             checked={isSelected}
             onChange={() => toggleSelect(row.tag.id)}
             onClick={(e) => e.stopPropagation()}
-            className="accent-indigo-500 cursor-pointer"
+            className="accent-emerald-500 cursor-pointer"
             title="Выбрать для массовых действий (или Ctrl+клик по строке)"
           />
         </td>
@@ -631,7 +634,7 @@ function ProcurementTab() {
         </td>
 
         {/* Марка */}
-        <td className="flux-cell align-top">
+        <td className="flux-cell hidden @[740px]:table-cell align-top">
           {row.tag.brand ? (
             <span className="font-mono text-xs font-semibold px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 inline-block max-w-[150px] truncate" title={row.tag.brand}>
               {row.tag.brand}
@@ -640,7 +643,7 @@ function ProcurementTab() {
         </td>
 
         {/* Актуальность */}
-        <td className="flux-cell align-top">
+        <td className="flux-cell hidden @[860px]:table-cell align-top">
           <span className={`inline-flex items-center gap-1 text-2xs font-bold px-2 py-1 rounded-full border ${act.cls}`}>
             {(row.actuality === 'critical' || row.actuality === 'warning') && <AlertTriangle className="w-3 h-3" />}
             {act.label}
@@ -678,7 +681,7 @@ function ProcurementTab() {
                 разбора дат: именно это и есть настоящая проблема закупки. */}
             {isStuck(row) && (
               <span
-                className="ml-1.5 px-1.5 py-px rounded-full bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-900/50 font-bold normal-case"
+                className="ml-1.5 px-1.5 py-px rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/50 font-bold normal-case"
                 title={`Позиция стоит на этапе «${row.stages[row.stageIdx]?.label}» уже ${daysAtStage(row)} дн. — движения нет`}
               >
                 {daysAtStage(row)} дн.
@@ -686,7 +689,7 @@ function ProcurementTab() {
             )}
             {row.template && (
               <span
-                className="ml-1.5 px-1.5 py-px rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-500 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900/50 font-semibold normal-case"
+                className="ml-1.5 px-1.5 py-px rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-500 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/50 font-semibold normal-case"
                 title={row.proc.templateId ? 'Шаблон назначен вручную' : 'Шаблон применён по правилам'}
               >
                 {row.template.name}
@@ -696,7 +699,7 @@ function ProcurementTab() {
         </td>
 
         {/* Даты этапов */}
-        <td className="flux-cell align-top">
+        <td className="flux-cell hidden @[980px]:table-cell align-top">
           <div className="text-2xs font-mono text-slate-500 dark:text-slate-400 space-y-0.5 leading-tight">
             {row.stages.slice(1).map(s => {
               const rec = row.proc.stageLog?.[s.id];
@@ -718,7 +721,7 @@ function ProcurementTab() {
             placeholder="Поставщик…"
             onClick={(e) => e.stopPropagation()}
             onBlur={(e) => { if (e.target.value !== (row.proc.supplier || '')) saveField(row, 'supplier', e.target.value); }}
-            className="w-32 px-2 py-1 mb-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded text-xs focus:outline-none focus:border-indigo-400 text-slate-800 dark:text-slate-100 block"
+            className="w-32 px-2 py-1 mb-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded text-xs focus:outline-none focus:border-emerald-400 text-slate-800 dark:text-slate-100 block"
           />
           <input
             type="text"
@@ -726,12 +729,12 @@ function ProcurementTab() {
             placeholder="Кол-во…"
             onClick={(e) => e.stopPropagation()}
             onBlur={(e) => { if (e.target.value !== (row.proc.qty || '')) saveField(row, 'qty', e.target.value); }}
-            className="w-32 px-2 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded text-xs focus:outline-none focus:border-indigo-400 text-slate-800 dark:text-slate-100 block"
+            className="w-32 px-2 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded text-xs focus:outline-none focus:border-emerald-400 text-slate-800 dark:text-slate-100 block"
           />
         </td>
 
         {/* Примечание */}
-        <td className="flux-cell align-top min-w-[180px]">
+        <td className="flux-cell hidden @[1100px]:table-cell align-top min-w-[180px]">
           {editingNoteId === row.tag.id ? (
             <textarea
               autoFocus
@@ -742,7 +745,7 @@ function ProcurementTab() {
                 if (e.target.value !== (row.proc.note || '')) saveField(row, 'note', e.target.value);
                 setEditingNoteId(null);
               }}
-              className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 rounded text-xs focus:outline-none text-slate-800 dark:text-slate-100"
+              className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 rounded text-xs focus:outline-none text-slate-800 dark:text-slate-100"
             />
           ) : (
             <button type="button"
@@ -779,24 +782,24 @@ function ProcurementTab() {
   return (
     <div className="flex flex-col gap-3 text-slate-800 dark:text-slate-100">
       {/* Заголовок */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs">
+      <div className="flex flex-col @[820px]:flex-row @[820px]:items-center @[820px]:justify-between gap-3 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs">
         <div className="min-w-0">
           <div className="graf">Менеджмент</div>
           <h1 className="text-[15px] font-semibold tracking-tight text-slate-900 dark:text-white">Закупки</h1>
-          <p className="text-xs text-slate-400">Жизненный цикл позиций проекта. Этапы настраиваются в «Настройки → Менеджмент».</p>
+          <p className="text-xs text-slate-400 text-pretty">Жизненный цикл позиций проекта. Этапы настраиваются в «Настройки → Менеджмент».</p>
         </div>
-        <div className="flex items-center gap-2 self-start lg:self-auto">
-          <div className="flex bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200/60 dark:border-slate-800">
+        <div className="flex flex-wrap items-center gap-2 self-start @[820px]:self-auto">
+          <div className="flex flex-wrap bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200/60 dark:border-slate-800">
             <button type="button"
               onClick={() => setViewMode('list')}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer ${viewMode === 'list' ? 'bg-white dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 shadow-xs' : 'text-slate-500'}`}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer ${viewMode === 'list' ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' : 'text-slate-500'}`}
             >
               <List className="w-3.5 h-3.5" /> Список
             </button>
             <button type="button"
               onClick={() => setViewMode('tree')}
               title="Группировка: родительский тег → дочерние"
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer ${viewMode === 'tree' ? 'bg-white dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 shadow-xs' : 'text-slate-500'}`}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer ${viewMode === 'tree' ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' : 'text-slate-500'}`}
             >
               <FolderTree className="w-3.5 h-3.5" /> Дерево
             </button>
@@ -865,7 +868,7 @@ function ProcurementTab() {
             placeholder="Поиск: тег, наименование, марка, поставщик, примечание…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800 dark:text-slate-100"
+            className="w-full pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800 dark:text-slate-100"
           />
         </div>
         <div className="w-44">
@@ -886,13 +889,13 @@ function ProcurementTab() {
         </label>
         <label
           className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer select-none px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900 ${
-            stuckCount > 0 ? 'text-orange-700 dark:text-orange-400' : 'text-slate-600 dark:text-slate-300'}`}
+            stuckCount > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-slate-600 dark:text-slate-300'}`}
           title={`Позиции, которые стоят на одном этапе дольше ${stuckAfterDays} дней и ещё не закрыты`}
         >
-          <input type="checkbox" checked={onlyStuck} onChange={(e) => setOnlyStuck(e.target.checked)} className="accent-orange-500" />
+          <input type="checkbox" checked={onlyStuck} onChange={(e) => setOnlyStuck(e.target.checked)} className="accent-amber-500" />
           Зависшие
           {stuckCount > 0 && (
-            <span className="px-1.5 py-px rounded-full bg-orange-100 dark:bg-orange-950/50 text-orange-700 dark:text-orange-300 text-2xs font-bold">{stuckCount}</span>
+            <span className="px-1.5 py-px rounded-full bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 text-2xs font-bold">{stuckCount}</span>
           )}
         </label>
         <span className="text-xs text-slate-400 flex items-center gap-1"><Filter className="w-3.5 h-3.5" /> Показано: {filtered.length}</span>
@@ -900,8 +903,8 @@ function ProcurementTab() {
 
       {/* Панель массовых действий */}
       {selectedIds.size > 0 && (
-        <div className="flex flex-wrap items-center gap-2 p-3 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900 rounded-xl">
-          <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-2 p-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-xl">
+          <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
             <CheckSquare className="w-4 h-4" /> Выбрано: {selectedIds.size}
           </span>
           <span className="text-xs text-slate-500 dark:text-slate-400">Установить этап:</span>
@@ -950,7 +953,7 @@ function ProcurementTab() {
 
       {/* Таблица позиций */}
       <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl shadow-xs overflow-x-auto">
-        <table ref={tableRef} className="w-full text-left border-collapse min-w-[980px]">
+        <table ref={tableRef} className="w-full text-left border-collapse">
           <thead className="bg-slate-50 dark:bg-slate-900/60 text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-850">
             <tr>
               <th className="flux-cell w-8">
@@ -961,27 +964,27 @@ function ProcurementTab() {
                     if (allVisibleSelected) setSelectedIds(new Set());
                     else setSelectedIds(new Set(filtered.map(r => r.tag.id)));
                   }}
-                  className="accent-indigo-500 cursor-pointer"
+                  className="accent-emerald-500 cursor-pointer"
                   title="Выбрать все показанные"
                 />
               </th>
               <th className="flux-cell cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('identifier')}>
                 Позиция {sortKey === 'identifier' && (sortAsc ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />)}
               </th>
-              <th className="flux-cell cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('brand')}>
+              <th className="flux-cell hidden @[740px]:table-cell cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('brand')}>
                 Марка {sortKey === 'brand' && (sortAsc ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />)}
               </th>
-              <th className="flux-cell">Актуальность</th>
+              <th className="flux-cell hidden @[860px]:table-cell">Актуальность</th>
               <th className="flux-cell cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('stage')}>
                 Этап закупки {sortKey === 'stage' && (sortAsc ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />)}
               </th>
-              <th className="flux-cell cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('lastDate')}>
+              <th className="flux-cell hidden @[980px]:table-cell cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('lastDate')}>
                 Даты этапов {sortKey === 'lastDate' && (sortAsc ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />)}
               </th>
               <th className="flux-cell cursor-pointer hover:text-slate-800 dark:hover:text-white select-none" onClick={() => toggleSort('qty')}>
                 Поставщик / Кол-во {sortKey === 'qty' && (sortAsc ? <ChevronUp className="w-3 h-3 inline" /> : <ChevronDown className="w-3 h-3 inline" />)}
               </th>
-              <th className="flux-cell">Примечание</th>
+              <th className="flux-cell hidden @[1100px]:table-cell">Примечание</th>
             </tr>
           </thead>
           <tbody>

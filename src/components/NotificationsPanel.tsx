@@ -13,7 +13,7 @@ import { Bell, X, Globe, UserCircle, Clock } from 'lucide-react';
 const catColor: Record<string, string> = {
   СИСТЕМА: 'text-slate-500',
   ОБОРУДОВАНИЕ: 'text-emerald-600',
-  ЧАТ: 'text-indigo-500',
+  ЧАТ: 'text-emerald-500',
   ПРОЕКТЫ: 'text-amber-600',
   ДОСТУП: 'text-rose-600',
   ДОКУМЕНТЫ: 'text-sky-600',
@@ -89,7 +89,9 @@ export default function NotificationsPanel() {
   const unreadOf = (items: { isRead: boolean }[]) => items.filter(x => !x.isRead).length;
 
   return (
-    <aside className={`${panelOpen ? 'w-[360px] opacity-100' : 'w-0 opacity-0 pointer-events-none'} shrink-0 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col transition-ui duration-300 overflow-hidden`}>
+    /* Как и у помощника: широкое окно — раздвигает, узкое — ложится поверх,
+       не отбирая ширину у раздела. Отступ справа на ширину рельса. */
+    <aside className={`${panelOpen ? 'w-[360px] opacity-100' : 'w-0 opacity-0 pointer-events-none'} shrink-0 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col transition-ui duration-300 overflow-hidden absolute top-0 bottom-0 right-[var(--flux-rail-w)] z-50 shadow-2xl xl:static xl:right-auto xl:z-auto xl:shadow-none`}>
       <div className="w-[360px] h-full flex flex-col shrink-0">
         {/* Шапка */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-amber-500/10 to-transparent shrink-0">

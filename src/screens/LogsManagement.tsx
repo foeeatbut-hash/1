@@ -134,7 +134,7 @@ export default function LogsManagement() {
       className="max-w-6xl mx-auto space-y-6 text-slate-800 dark:text-slate-100 font-sans select-none"
     >
       {/* HEADER SECTION */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 shadow-xs relative overflow-hidden">
+      <div className="flex flex-col @[640px]:flex-row @[640px]:items-center @[640px]:justify-between gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 shadow-xs relative overflow-hidden">
         <div className="flex items-center gap-3">
           <button type="button"
             onClick={() => navigate('/')}
@@ -168,7 +168,7 @@ export default function LogsManagement() {
       </div>
 
       {/* QUICK STATUS METRICS */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 @[820px]:grid-cols-3 gap-4">
         <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center gap-4">
           <div className="w-10 h-10 rounded-lg bg-emerald-100/60 dark:bg-emerald-950/40 flex items-center justify-center shrink-0">
             <History className="w-5 h-5 text-emerald-650 dark:text-emerald-400" />
@@ -180,8 +180,8 @@ export default function LogsManagement() {
         </div>
 
         <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-indigo-100/60 dark:bg-indigo-950/40 flex items-center justify-center shrink-0">
-            <User className="w-5 h-5 text-indigo-650 dark:text-indigo-400" />
+          <div className="w-10 h-10 rounded-lg bg-emerald-100/60 dark:bg-emerald-950/40 flex items-center justify-center shrink-0">
+            <User className="w-5 h-5 text-emerald-650 dark:text-emerald-400" />
           </div>
           <div>
             <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Активных инженеров</h4>
@@ -220,7 +220,7 @@ export default function LogsManagement() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 @[640px]:grid-cols-3 gap-3">
           {/* SEARCH INPUT */}
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -310,7 +310,7 @@ export default function LogsManagement() {
                 <div
                   key={log.id}
                   onClick={() => handleRowClick(log.targetRoute)}
-                  className="flux-lazy-item p-4 hover:bg-slate-50/70 dark:hover:bg-slate-950/20 transition-ui cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 relative group pl-5 border-l-3 border-transparent hover:border-emerald-600"
+                  className="flux-lazy-item p-4 hover:bg-slate-50/70 dark:hover:bg-slate-950/20 transition-ui cursor-pointer flex flex-col @[640px]:flex-row @[640px]:items-center justify-between gap-3.5 relative group pl-5 border-l-3 border-transparent hover:border-emerald-600"
                 >
                   <div className="flex items-start gap-4">
                     {/* User identifier rounded bubble */}
@@ -340,13 +340,13 @@ export default function LogsManagement() {
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0 mt-2 sm:mt-0 pt-2 sm:pt-0 border-t border-slate-100 sm:border-0 dark:border-slate-800">
-                    <div className="text-left sm:text-right space-y-0.5">
-                      <div className="text-xs font-bold text-slate-700 dark:text-slate-300 font-mono tracking-tight flex items-center sm:justify-end gap-1.5">
+                  <div className="flex items-center justify-between @[640px]:justify-end gap-4 shrink-0 mt-2 sm:mt-0 pt-2 sm:pt-0 border-t border-slate-100 sm:border-0 dark:border-slate-800">
+                    <div className="text-left @[640px]:text-right space-y-0.5">
+                      <div className="text-xs font-bold text-slate-700 dark:text-slate-300 font-mono tracking-tight flex items-center @[640px]:justify-end gap-1.5">
                         <Calendar className="w-3.5 h-3.5 text-slate-400" />
                         <span>{formatAbsoluteDate(log.createdAt)}</span>
                       </div>
-                      <div className="text-xs text-slate-400 dark:text-slate-500 font-mono flex items-center sm:justify-end gap-1">
+                      <div className="text-xs text-slate-400 dark:text-slate-500 font-mono flex items-center @[640px]:justify-end gap-1">
                         <Clock className="w-3 w-3" />
                         <span>({formatRelativeTime(log.createdAt)})</span>
                       </div>

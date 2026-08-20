@@ -252,7 +252,7 @@ export default function UniversalGenerator() {
                     )}
                   </div>
 
-                  <button type="button" onClick={() => removeBlock(block.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded transition-colors shrink-0 cursor-pointer"><X className="w-4 h-4" /></button>
+                  <button type="button" onClick={() => removeBlock(block.id)} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded transition-colors shrink-0 cursor-pointer"><X className="w-4 h-4" /></button>
                 </Reorder.Item>
              ))}
              {template.length === 0 && (
@@ -273,7 +273,7 @@ export default function UniversalGenerator() {
       )}
 
       {/* Execution Mode */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 @[900px]:grid-cols-2 gap-6">
         
         <div className="space-y-4">
           <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800  p-6 transition-colors">
@@ -326,12 +326,12 @@ export default function UniversalGenerator() {
         
         <div className="space-y-4">
           <div className="bg-slate-900 rounded-xl shadow-lg p-8 pl-10 text-white relative overflow-hidden flex flex-col justify-center min-h-[220px]">
-            <div className="absolute top-0 left-0 w-2 h-full bg-gradient-to-b from-emerald-500 to-teal-400"></div>
+            <div className="absolute top-0 left-0 w-2 h-full bg-gradient-to-b from-emerald-500 to-emerald-400"></div>
             
             {/* Removed label as requested */}
             
-            <div className="text-4xl md:text-5xl font-mono tracking-tight font-bold break-all text-emerald-400 drop-shadow-md">
-              {generatePreview() || <span className="text-xl md:text-2xl font-sans font-normal text-slate-500">формула не задана</span>}
+            <div className="text-4xl @[820px]:text-5xl font-mono tracking-tight font-bold break-all text-emerald-400 drop-shadow-md">
+              {generatePreview() || <span className="text-xl @[820px]:text-2xl font-sans font-normal text-slate-500">формула не задана</span>}
             </div>
             
             <p className="text-slate-500 text-xs mt-6 max-w-sm leading-relaxed">
