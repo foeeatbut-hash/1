@@ -13,12 +13,16 @@ import { ENV_CONFIG } from '../config/env';
 
 export interface MailAccount {
   id: string;
+  /** PERSONAL — личный ящик сотрудника; SHARED — общая почта компании */
+  scope: 'PERSONAL' | 'SHARED';
+  label: string;
+  /** Можно ли править настройки: общий ящик правит не всякий, кто его видит */
+  canEdit: boolean;
   email: string;
   displayName: string;
   imapHost: string; imapPort: number; imapSecure: boolean;
   smtpHost: string; smtpPort: number; smtpSecure: boolean;
   login: string;
-  signature: string;
   syncDays: number;
   active: boolean;
   hasSecret: boolean;
@@ -38,6 +42,39 @@ export interface MailFolder {
   syncedAt: string | null;
 }
 
+/** Состояние переписки в общем ящике: кто взял в работу и кто ответил. */
+export interface MailThreadState {
+  status: 'NEW' | 'IN_PROGRESS' | 'ANSWERED' | 'CLOSED';
+  claimedById: string; claimedByName: string; claimedAt: string | null;
+  repliedById: string; repliedByName: string; repliedAt: string | null;
+}
+
+export interface MailActivity {
+  id: string;
+  threadKey: string;
+  userId: string; userName: string;
+  kind: 'CLAIMED' | 'RELEASED' | 'REPLIED' | 'FORWARDED' | 'STATUS' | 'NOTE';
+  note: string;
+  createdAt: string;
+}
+
+export interface MailSignature {
+  id: string;
+  accountId: string;
+  name: string;
+  html: string;
+  isDefault: boolean;
+}
+
+export interface MailSignatureImage {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  width: number;
+  url: string;
+}
+
 export interface MailThread {
   threadKey: string;
   count: number;
@@ -51,6 +88,8 @@ export interface MailThread {
   from: Array<{ name: string; addr: string }>;
   lastId: string;
   ids: string[];
+  keys?: string[];
+  state?: MailThreadState | null;
 }
 
 export interface MailMessage {
@@ -112,7 +151,7 @@ export const mailService = {
   preset: (email: string) =>
     call<{ preset: MailPreset | null; known?: boolean }>(`/mail/preset${qs({ email })}`),
 
-  accounts: () => call<{ accounts: MailAccount[]; keyIn: 'system' | 'file' }>('/mail/accounts'),
+  accounts: () => call<{ accounts: MailAccount[]; keyIn: 'system' | 'file'; mayShared: boolean }>('/mail/accounts'),
 
   addAccount: (data: Record<string, unknown>) =>
     call<{ account: MailAccount }>('/mail/accounts', { method: 'POST', body: JSON.stringify(data) }),
@@ -132,13 +171,16 @@ export const mailService = {
     ),
 
   folders: (accountId: string) =>
-    call<{ folders: MailFolder[] }>(`/mail/folders${qs({ accountId })}`),
+    call<{ folders: MailFolder[]; shared: boolean }>(`/mail/folders${qs({ accountId })}`),
 
   threads: (p: { accountId: string; folderId?: string; q?: string; unread?: boolean; flagged?: boolean; limit?: number; skip?: number }) =>
-    call<{ threads: MailThread[]; total: number }>(`/mail/threads${qs(p as any)}`),
+    call<{ threads: MailThread[]; total: number; shared: boolean }>(`/mail/threads${qs(p as any)}`),
 
   thread: (accountId: string, threadKey: string) =>
-    call<{ messages: MailMessage[]; attachments: MailAttachment[] }>(`/mail/thread${qs({ accountId, threadKey })}`),
+    call<{
+      messages: MailMessage[]; attachments: MailAttachment[];
+      shared: boolean; state: MailThreadState | null; activity: MailActivity[];
+    }>(`/mail/thread${qs({ accountId, threadKey })}`),
 
   body: (messageId: string) =>
     call<{ text: string; html: string; error: string; attachments: MailAttachment[] }>(`/mail/messages/${messageId}/body`),
@@ -151,4 +193,54 @@ export const mailService = {
 
   /** Ссылка на вложение — по ней же браузер его и скачивает. */
   attachmentUrl: (id: string) => `${ENV_CONFIG.apiUrl}/mail/attachments/${id}`,
+
+  // ── Общий ящик ────────────────────────────────────────────────────────────
+  claim: (accountId: string, threadKey: string, on: boolean) =>
+    call<{ state: MailThreadState }>('/mail/shared/claim', {
+      method: 'POST', body: JSON.stringify({ accountId, threadKey, on }),
+    }),
+
+  setStatus: (accountId: string, threadKey: string, status: MailThreadState['status']) =>
+    call<{ state: MailThreadState }>('/mail/shared/status', {
+      method: 'POST', body: JSON.stringify({ accountId, threadKey, status }),
+    }),
+
+  addNote: (accountId: string, threadKey: string, note: string) =>
+    call<{ activity: MailActivity[] }>('/mail/shared/note', {
+      method: 'POST', body: JSON.stringify({ accountId, threadKey, note }),
+    }),
+
+  sharedSummary: (accountId: string) =>
+    call<{ summary: { mine: number; busy: number; answered: number; total: number } | null }>(
+      `/mail/shared/summary${qs({ accountId })}`),
+
+  // ── Подписи ───────────────────────────────────────────────────────────────
+  signatures: () =>
+    call<{ signatures: MailSignature[]; images: MailSignatureImage[] }>('/mail/signatures'),
+
+  addSignature: (data: Record<string, unknown>) =>
+    call<{ signature: MailSignature }>('/mail/signatures', { method: 'POST', body: JSON.stringify(data) }),
+
+  updateSignature: (id: string, data: Record<string, unknown>) =>
+    call<{ signature: MailSignature }>(`/mail/signatures/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  removeSignature: (id: string) =>
+    call<{ ok: boolean }>(`/mail/signatures/${id}`, { method: 'DELETE' }),
+
+  addSignatureImage: (data: { fileName: string; mimeType: string; data: string; width?: number }) =>
+    call<{ image: MailSignatureImage }>('/mail/signatures/image', { method: 'POST', body: JSON.stringify(data) }),
+
+  removeSignatureImage: (id: string) =>
+    call<{ ok: boolean }>(`/mail/signatures/image/${id}`, { method: 'DELETE' }),
+
+  // ── Письмо ────────────────────────────────────────────────────────────────
+  prepare: (p: { accountId: string; mode: string; messageId?: string }) =>
+    call<{
+      draft: { to: string; cc: string; subject: string; quote: string; mode: string; inReplyToId?: string };
+      signature: MailSignature | null;
+    }>(`/mail/compose/prepare${qs(p as any)}`),
+
+  send: (data: Record<string, unknown>) =>
+    call<{ ok: boolean; messageId: string; appended: boolean; warning: string }>(
+      '/mail/send', { method: 'POST', body: JSON.stringify(data) }),
 };

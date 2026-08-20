@@ -5,13 +5,19 @@ import { getPrisma, sendError } from '../context.js';
 import { seal, unseal, publicAccount, keySource } from '../mail/secret.js';
 import * as imap from '../mail/imap.js';
 import { syncAccount, isSyncing, loadBody, credsOf, searchTextOf } from '../mail/sync.js';
+import {
+  readableAccount, readableAccounts, isShared, msgKeyOf,
+  seenKeys, setSeenLocal, unreadByFolder, threadStates,
+} from '../mail/access.js';
 
 /**
  * Маршруты раздела «Почта».
  *
- * Ящик личный: у каждой записи есть владелец, и каждый маршрут это проверяет.
- * Чужую переписку не должен видеть никто — включая администратора. Поэтому
- * доступ здесь строже, чем в остальных разделах, где администратор видит всё.
+ * Ящики двух родов. Личный видит только владелец — чужую переписку не должен
+ * видеть никто, включая администратора; это строже, чем в остальных разделах.
+ * Общий ящик компании видят все сотрудники, а настраивает тот, кому выдано
+ * право `mail.shared`. Правила собраны в ../mail/access.ts и проверяются на
+ * каждом маршруте.
  *
  * Пароль наружу не отдаётся ни при каких условиях: ответы собираются только
  * через publicAccount().
@@ -92,37 +98,39 @@ function presetFor(email: string): (Preset & { domain: string }) | null {
 
 // ── Вспомогательное ──────────────────────────────────────────────────────────
 
-/** Ящик с проверкой владельца. Чужой ящик — это «не найден», а не «нельзя». */
+/** Ящик, доступный на чтение: свой личный или общий. Чужой — «не найден». */
 async function ownedAccount(req: Request, id: string) {
-  const prisma = getPrisma();
-  const me = (req as any).authUser;
-  if (!me) return null;
-  const acc = await prisma.mailAccount.findUnique({ where: { id } });
-  if (!acc || acc.ownerId !== me.id) return null;
-  return acc;
+  const access = await readableAccount(req, id);
+  return access ? access.acc : null;
 }
 
-/** Письмо с проверкой владельца через ящик. */
+/** Письмо через доступный ящик. */
 async function ownedMessage(req: Request, id: string) {
   const prisma = getPrisma();
-  const me = (req as any).authUser;
-  if (!me) return null;
   const msg = await prisma.mailMessage.findUnique({ where: { id } });
   if (!msg) return null;
-  const acc = await prisma.mailAccount.findUnique({ where: { id: msg.accountId } });
-  if (!acc || acc.ownerId !== me.id) return null;
-  return { msg, acc };
+  const access = await readableAccount(req, msg.accountId);
+  if (!access) return null;
+  return { msg, acc: access.acc };
 }
 
 const str = (v: any, max = 300) => String(v ?? '').trim().slice(0, max);
 const num = (v: any, def: number) => (Number.isFinite(Number(v)) ? Number(v) : def);
+
+export interface MailDeps {
+  userDataPath: string;
+  /** Проверка выданного права; отвечает клиенту сама, если права нет */
+  enforce: (req: Request, res: Response, feature: string) => Promise<boolean>;
+  /** Тот же вопрос молча — когда право лишь меняет вид ответа */
+  mayFeature: (req: Request, feature: string) => Promise<boolean>;
+}
 
 /** Каталог для вложений — рядом с файлами Чата. */
 function mailDir(userDataPath: string, accountId: string, messageId: string): string {
   return path.join(userDataPath, 'mail_files', accountId, messageId);
 }
 
-export function registerMailRoutes(app: Express, deps: { userDataPath: string }): void {
+export function registerMailRoutes(app: Express, deps: MailDeps): void {
   // ── Подсказка по адресу ───────────────────────────────────────────────────
   app.get('/api/mail/preset', (req: Request, res: Response) => {
     const p = presetFor(str(req.query.email as string, 200));
@@ -136,12 +144,17 @@ export function registerMailRoutes(app: Express, deps: { userDataPath: string })
       const prisma = getPrisma();
       const me = (req as any).authUser;
       if (!me) return res.json({ accounts: [], keyIn: 'file' });
-      const list = await prisma.mailAccount.findMany({
-        where: { ownerId: me.id }, orderBy: { createdAt: 'asc' },
-      });
+      const list = await readableAccounts(req);
+      const maySetup = await deps.mayFeature(req, 'mail.shared');
       res.json({
-        accounts: list.map((a: any) => ({ ...publicAccount(a), syncing: isSyncing(a.id) })),
+        accounts: list.map((a: any) => ({
+          ...publicAccount(a),
+          syncing: isSyncing(a.id),
+          // Настройки общего ящика правит не всякий, кто его видит
+          canEdit: !isShared(a) || maySetup,
+        })),
         keyIn: keySource(),
+        mayShared: maySetup,
       });
     } catch (err) { sendError(res, err); }
   });
@@ -157,11 +170,24 @@ export function registerMailRoutes(app: Express, deps: { userDataPath: string })
       const password = String(req.body?.password ?? '');
       if (!password) return res.status(400).json({ error: 'Укажите пароль' });
 
+      // Общий ящик заводится один раз и виден всем — на это нужно право
+      const shared = String(req.body?.scope || 'PERSONAL') === 'SHARED';
+      if (shared && !(await deps.enforce(req, res, 'mail.shared'))) return;
+      if (shared) {
+        const already = await prisma.mailAccount.findFirst({ where: { scope: 'SHARED', email } });
+        if (already) return res.status(400).json({ error: 'Такой общий ящик уже подключён' });
+      }
+
       const p = presetFor(email);
       const sealed = seal(password);
       const acc = await prisma.mailAccount.create({
         data: {
-          ownerId: me.id,
+          scope: shared ? 'SHARED' : 'PERSONAL',
+          // У общего ящика владельца нет: он переживает увольнение того,
+          // кто его настроил
+          ownerId: shared ? '' : me.id,
+          label: str(req.body?.label, 80) || (shared ? 'Общая почта' : ''),
+          sortOrder: shared ? 0 : num(req.body?.sortOrder, 100),
           email,
           displayName: str(req.body?.displayName, 120) || me.name || '',
           imapHost: str(req.body?.imapHost, 200) || p?.imapHost || '',
@@ -173,7 +199,6 @@ export function registerMailRoutes(app: Express, deps: { userDataPath: string })
           login: str(req.body?.login, 200) || email,
           secret: sealed.secret,
           secretNonce: sealed.nonce,
-          signature: str(req.body?.signature, 2000),
           syncDays: Math.max(1, Math.min(3650, num(req.body?.syncDays, 90))),
         },
       });
@@ -186,9 +211,14 @@ export function registerMailRoutes(app: Express, deps: { userDataPath: string })
       const prisma = getPrisma();
       const acc = await ownedAccount(req, req.params.id);
       if (!acc) return res.status(404).json({ error: 'Ящик не найден' });
+      // Общий ящик видят все, но пароль и серверы правит только тот,
+      // кому выдано право: иначе любой сотрудник выбил бы ящик из строя
+      if (isShared(acc) && !(await deps.enforce(req, res, 'mail.shared'))) return;
 
       const data: any = {};
       const b = req.body || {};
+      if (b.label !== undefined) data.label = str(b.label, 80);
+      if (b.sortOrder !== undefined) data.sortOrder = num(b.sortOrder, acc.sortOrder);
       if (b.displayName !== undefined) data.displayName = str(b.displayName, 120);
       if (b.imapHost !== undefined) data.imapHost = str(b.imapHost, 200);
       if (b.imapPort !== undefined) data.imapPort = num(b.imapPort, acc.imapPort);
@@ -197,7 +227,6 @@ export function registerMailRoutes(app: Express, deps: { userDataPath: string })
       if (b.smtpPort !== undefined) data.smtpPort = num(b.smtpPort, acc.smtpPort);
       if (b.smtpSecure !== undefined) data.smtpSecure = b.smtpSecure !== false;
       if (b.login !== undefined) data.login = str(b.login, 200);
-      if (b.signature !== undefined) data.signature = str(b.signature, 2000);
       if (b.active !== undefined) data.active = b.active !== false;
       if (b.syncDays !== undefined) data.syncDays = Math.max(1, Math.min(3650, num(b.syncDays, acc.syncDays)));
       // Пустой пароль в запросе — «не менять», а не «стереть»: иначе правка
@@ -221,6 +250,7 @@ export function registerMailRoutes(app: Express, deps: { userDataPath: string })
       const prisma = getPrisma();
       const acc = await ownedAccount(req, req.params.id);
       if (!acc) return res.status(404).json({ error: 'Ящик не найден' });
+      if (isShared(acc) && !(await deps.enforce(req, res, 'mail.shared'))) return;
 
       await imap.closeConnection(acc.id);
       const msgs = await prisma.mailMessage.findMany({ where: { accountId: acc.id }, select: { id: true } });
@@ -229,6 +259,9 @@ export function registerMailRoutes(app: Express, deps: { userDataPath: string })
       await prisma.mailMessage.deleteMany({ where: { accountId: acc.id } });
       await prisma.mailFolder.deleteMany({ where: { accountId: acc.id } });
       await prisma.mailDraft.deleteMany({ where: { accountId: acc.id } });
+      await prisma.mailSeenLocal.deleteMany({ where: { accountId: acc.id } }).catch(() => {});
+      await prisma.mailThreadState.deleteMany({ where: { accountId: acc.id } }).catch(() => {});
+      await prisma.mailActivity.deleteMany({ where: { accountId: acc.id } }).catch(() => {});
       await prisma.mailAccount.delete({ where: { id: acc.id } });
 
       // Скачанные вложения тоже убираем: переписки больше нет
@@ -270,10 +303,17 @@ export function registerMailRoutes(app: Express, deps: { userDataPath: string })
       const prisma = getPrisma();
       const acc = await ownedAccount(req, str(req.query.accountId as string, 60));
       if (!acc) return res.json({ folders: [] });
+      const me = (req as any).authUser;
       const folders = await prisma.mailFolder.findMany({
         where: { accountId: acc.id }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       });
-      res.json({ folders });
+      // В общем ящике «непрочитано» у каждого своё, поэтому счётчик считается
+      // от лица спрашивающего, а не берётся из сохранённого поля папки
+      const unread = await unreadByFolder(acc, me?.id || '');
+      res.json({
+        folders: folders.map((f: any) => ({ ...f, unread: unread[f.id] ?? (isShared(acc) ? 0 : f.unread) })),
+        shared: isShared(acc),
+      });
     } catch (err) { sendError(res, err); }
   });
 
@@ -295,9 +335,16 @@ export function registerMailRoutes(app: Express, deps: { userDataPath: string })
       const take = Math.max(1, Math.min(100, num(req.query.limit, 40)));
       const skip = Math.max(0, num(req.query.skip, 0));
 
+      const me = (req as any).authUser;
+      const shared = isShared(acc);
+      // Личные отметки прочтения нужны только общему ящику
+      const mySeen = shared ? await seenKeys(acc.id, me?.id || '') : new Set<string>();
+
       const where: any = { accountId: acc.id };
       if (folderId) where.folderId = folderId;
-      if (onlyUnread) where.seen = false;
+      // Отбор «только непрочитанные» в общем ящике идёт по личным отметкам,
+      // а их в запросе к базе не выразить — отбираем уже собранные цепочки
+      if (onlyUnread && !shared) where.seen = false;
       if (onlyFlagged) where.flagged = true;
       if (q) where.searchText = { contains: q };
 
@@ -319,11 +366,14 @@ export function registerMailRoutes(app: Express, deps: { userDataPath: string })
         where: { ...where, threadKey: { in: keys } },
         orderBy: { sentAt: 'asc' },
         select: {
-          id: true, threadKey: true, folderId: true, uid: true, fromName: true, fromAddr: true,
-          toAddrs: true, subject: true, snippet: true, sentAt: true, seen: true, flagged: true,
-          answered: true, hasFiles: true, size: true,
+          id: true, threadKey: true, folderId: true, uid: true, messageId: true, fromName: true,
+          fromAddr: true, toAddrs: true, subject: true, snippet: true, sentAt: true, seen: true,
+          flagged: true, answered: true, hasFiles: true, size: true,
         },
       });
+      // Состояние работы с перепиской: кто взял, кто ответил
+      const states = shared ? await threadStates(acc.id, keys) : new Map();
+      const isSeen = (m: any) => (shared ? mySeen.has(msgKeyOf(m)) : m.seen);
 
       const byKey = new Map<string, any[]>();
       for (const m of msgs) {
@@ -332,14 +382,15 @@ export function registerMailRoutes(app: Express, deps: { userDataPath: string })
         byKey.set(m.threadKey, arr);
       }
 
-      const threads = groups.map((g: any) => {
+      let threads = groups.map((g: any) => {
         const list = byKey.get(g.threadKey) || [];
         const last = list[list.length - 1];
+        const st = states.get(g.threadKey) || null;
         return {
           threadKey: g.threadKey,
           count: list.length,
           // Непрочитанной считается вся переписка, если непрочитано хоть одно
-          unread: list.some((m: any) => !m.seen),
+          unread: list.some((m: any) => !isSeen(m)),
           flagged: list.some((m: any) => m.flagged),
           hasFiles: list.some((m: any) => m.hasFiles),
           answered: last?.answered || false,
@@ -350,11 +401,19 @@ export function registerMailRoutes(app: Express, deps: { userDataPath: string })
           from: list.map((m: any) => ({ name: m.fromName, addr: m.fromAddr })),
           lastId: last?.id || '',
           ids: list.map((m: any) => m.id),
+          keys: list.map((m: any) => msgKeyOf(m)),
+          // Общий ящик: кто взял переписку в работу и кто на неё ответил
+          state: st ? {
+            status: st.status,
+            claimedById: st.claimedById, claimedByName: st.claimedByName, claimedAt: st.claimedAt,
+            repliedById: st.repliedById, repliedByName: st.repliedByName, repliedAt: st.repliedAt,
+          } : null,
         };
       });
 
+      if (shared && onlyUnread) threads = threads.filter((t: any) => t.unread);
       const total = await prisma.mailMessage.groupBy({ by: ['threadKey'], where, _count: { _all: true } });
-      res.json({ threads, total: total.length });
+      res.json({ threads, total: total.length, shared });
     } catch (err) { sendError(res, err); }
   });
 
@@ -380,7 +439,28 @@ export function registerMailRoutes(app: Express, deps: { userDataPath: string })
       const files = ids.length
         ? await prisma.mailAttachment.findMany({ where: { messageId: { in: ids } } })
         : [];
-      res.json({ messages, attachments: files });
+
+      const me = (req as any).authUser;
+      const shared = isShared(acc);
+      const mySeen = shared ? await seenKeys(acc.id, me?.id || '') : new Set<string>();
+      const shown = messages.map((m: any) => ({
+        ...m,
+        msgKey: msgKeyOf(m),
+        seen: shared ? mySeen.has(msgKeyOf(m)) : m.seen,
+      }));
+
+      // Лента общего ящика: что коллеги уже сделали с этой перепиской
+      const [state, activity] = shared
+        ? await Promise.all([
+            prisma.mailThreadState.findFirst({ where: { accountId: acc.id, threadKey: key } }),
+            prisma.mailActivity.findMany({
+              where: { accountId: acc.id, threadKey: key },
+              orderBy: { createdAt: 'asc' }, take: 50,
+            }),
+          ])
+        : [null, []];
+
+      res.json({ messages: shown, attachments: files, shared, state, activity });
     } catch (err) { sendError(res, err); }
   });
 
@@ -416,8 +496,18 @@ export function registerMailRoutes(app: Express, deps: { userDataPath: string })
       const msgs = await prisma.mailMessage.findMany({ where: { id: { in: ids } } });
       if (!msgs.length) return res.json({ ok: true, changed: 0 });
 
-      const acc = await prisma.mailAccount.findUnique({ where: { id: msgs[0].accountId } });
-      if (!acc || acc.ownerId !== me.id) return res.status(404).json({ error: 'Письма не найдены' });
+      const access = await readableAccount(req, msgs[0].accountId);
+      if (!access) return res.status(404).json({ error: 'Письма не найдены' });
+      const acc = access.acc;
+      const shared = access.shared;
+      const folderIds = [...new Set(msgs.map((m: any) => m.folderId))] as string[];
+
+      if (shared && kind === 'seen') {
+        // В общем ящике «прочитано» личное: отметка ложится только этому
+        // сотруднику, у остальных девяти письмо остаётся непрочитанным
+        await setSeenLocal(acc.id, me.id, msgs.map((m: any) => msgKeyOf(m)), on);
+        return res.json({ ok: true, changed: msgs.length, local: true });
+      }
 
       await prisma.mailMessage.updateMany({
         where: { id: { in: msgs.map((m: any) => m.id) } },
@@ -425,7 +515,6 @@ export function registerMailRoutes(app: Express, deps: { userDataPath: string })
       });
 
       // Счётчики непрочитанного пересчитываем по затронутым папкам
-      const folderIds = [...new Set(msgs.map((m: any) => m.folderId))] as string[];
       for (const fid of folderIds) {
         const unread = await prisma.mailMessage.count({ where: { folderId: fid, seen: false } });
         await prisma.mailFolder.update({ where: { id: fid }, data: { unread } });
@@ -462,8 +551,9 @@ export function registerMailRoutes(app: Express, deps: { userDataPath: string })
       const msgs = await prisma.mailMessage.findMany({ where: { id: { in: ids } } });
       if (!msgs.length) return res.json({ ok: true });
 
-      const acc = await prisma.mailAccount.findUnique({ where: { id: msgs[0].accountId } });
-      if (!acc || acc.ownerId !== me.id) return res.status(404).json({ error: 'Письма не найдены' });
+      const access = await readableAccount(req, msgs[0].accountId);
+      if (!access) return res.status(404).json({ error: 'Письма не найдены' });
+      const acc = access.acc;
 
       const target = await prisma.mailFolder.findFirst({ where: { accountId: acc.id, kind: toKind } });
       if (!target) {

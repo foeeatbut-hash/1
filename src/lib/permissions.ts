@@ -49,6 +49,9 @@ export const FEATURES: FeatureDef[] = [
     desc: 'Вести строки реестра, ревизии, замечания и сроки' },
   { id: 'vdr.standards', group: 'Менеджмент', label: 'Стандарты документооборота', risky: true,
     desc: 'Менять коды рассмотрения, маски номеров и правила ревизий' },
+
+  { id: 'mail.shared', group: 'Почта', label: 'Настройка общей почты', risky: true,
+    desc: 'Подключать и менять общий ящик компании — он виден всем сотрудникам' },
 ];
 
 export const FEATURE_GROUPS = Array.from(new Set(FEATURES.map((f) => f.group)));

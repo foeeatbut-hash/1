@@ -35,6 +35,12 @@ interface MailState {
   error: string;
   /** Где лежит ключ шифрования — показываем в настройках ящика */
   keyIn: 'system' | 'file';
+  /** Открыт общий ящик компании — вокруг него другая механика */
+  shared: boolean;
+  /** Может ли этот сотрудник заводить общий ящик */
+  mayShared: boolean;
+  /** Непрочитанные по ящикам — для списка слева */
+  unreadByAccount: Record<string, number>;
 
   loadAccounts: () => Promise<void>;
   chooseAccount: (id: string) => Promise<void>;
@@ -50,6 +56,8 @@ interface MailState {
   pickAll: (on: boolean) => void;
   clearPicked: () => void;
 
+  /** Взять переписку в работу или отпустить — только в общем ящике */
+  claim: (threadKey: string, on: boolean) => Promise<void>;
   markSeen: (ids: string[], on: boolean) => Promise<void>;
   markFlagged: (ids: string[], on: boolean) => Promise<void>;
   moveTo: (ids: string[], to: 'TRASH' | 'ARCHIVE' | 'INBOX') => Promise<void>;
@@ -80,11 +88,14 @@ export const useMailStore = create<MailState>((set, get) => ({
   syncing: false,
   error: '',
   keyIn: 'file',
+  shared: false,
+  mayShared: false,
+  unreadByAccount: {},
 
   loadAccounts: async () => {
     try {
-      const { accounts, keyIn } = await mailService.accounts();
-      set({ accounts, keyIn, error: '' });
+      const { accounts, keyIn, mayShared } = await mailService.accounts();
+      set({ accounts, keyIn, mayShared: Boolean(mayShared), error: '' });
       if (!accounts.length) { set({ accountId: '', folders: [], threads: [] }); return; }
       // Возвращаемся к тому ящику, что был открыт в прошлый раз
       const saved = recall(LAST_ACCOUNT);
@@ -105,8 +116,17 @@ export const useMailStore = create<MailState>((set, get) => ({
     const { accountId } = get();
     if (!accountId) return;
     try {
-      const { folders } = await mailService.folders(accountId);
-      set({ folders });
+      const { folders, shared } = await mailService.folders(accountId);
+      // Счётчик у ящика — сумма по папкам, но без «Отправленных», «Корзины» и
+      // «Спама»: непрочитанное там человека не касается
+      const counted = folders
+        .filter((f) => !['SENT', 'TRASH', 'SPAM', 'DRAFTS'].includes(f.kind))
+        .reduce((sum, f) => sum + (f.unread || 0), 0);
+      set({
+        folders,
+        shared: Boolean(shared),
+        unreadByAccount: { ...get().unreadByAccount, [accountId]: counted },
+      });
       // «Входящие» — если не выбрано ничего другого
       const saved = recall(LAST_FOLDER);
       const current = get().folderId;
@@ -134,7 +154,7 @@ export const useMailStore = create<MailState>((set, get) => ({
     if (!accountId) return;
     set({ loading: true });
     try {
-      const { threads, total } = await mailService.threads({
+      const { threads, total, shared } = await mailService.threads({
         accountId,
         // Поиск идёт по всему ящику, а не по папке: так же ведёт себя Gmail,
         // и это то, чего человек ждёт от строки поиска
@@ -144,7 +164,7 @@ export const useMailStore = create<MailState>((set, get) => ({
         flagged: filter === 'flagged',
         limit: 60,
       });
-      set({ threads, total, loading: false, error: '' });
+      set({ threads, total, shared: Boolean(shared), loading: false, error: '' });
     } catch (err: any) {
       set({ loading: false, error: err?.message || 'Не удалось получить письма' });
     }
@@ -172,6 +192,21 @@ export const useMailStore = create<MailState>((set, get) => ({
   })),
   pickAll: (on) => set((s) => ({ picked: on ? s.threads.map((t) => t.threadKey) : [] })),
   clearPicked: () => set({ picked: [] }),
+
+  claim: async (threadKey, on) => {
+    const { accountId } = get();
+    if (!accountId || !threadKey) return;
+    try {
+      const { state } = await mailService.claim(accountId, threadKey, on);
+      set({
+        threads: get().threads.map((t) => (t.threadKey === threadKey ? { ...t, state } : t)),
+        error: '',
+      });
+    } catch (err: any) {
+      // Отказ «переписку уже ведёт другой» — не поломка, а нужное сообщение
+      set({ error: err?.message || 'Не удалось изменить состояние переписки' });
+    }
+  },
 
   markSeen: async (ids, on) => {
     if (!ids.length) return;

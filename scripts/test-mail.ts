@@ -13,6 +13,10 @@ import {
   normalizeSubject, parseRefs, threadKeyOf, assignThreadKeys, threadParticipants,
 } from '../src/lib/mailThread.js';
 import { isSafeUrl, isRemoteImage, cidOf, textToHtml, mailFrameDoc } from '../src/lib/mailHtml.js';
+import {
+  splitAddrs, inlineImages, htmlToText, replySubject, forwardSubject, explainSmtp,
+} from '../server/mail/send.js';
+import { msgKeyOf } from '../server/mail/access.js';
 
 let ok = 0;
 let fail = 0;
@@ -158,6 +162,69 @@ eq('скрипты не разрешены нигде', /script-src/.test(strict
 const loose = mailFrameDoc('<p>тело</p>', { allowRemoteImages: true, dark: true });
 eq('по кнопке картинки открываются', loose.includes('img-src * data: blob:;'), true);
 eq('и только картинки', loose.includes("default-src 'none'"), true);
+
+console.log('\n14. Отправка: разбор получателей');
+eq('простой список', splitAddrs('a@x.ru, b@y.ru'), ['a@x.ru', 'b@y.ru']);
+eq('точка с запятой тоже разделяет', splitAddrs('a@x.ru; b@y.ru'), ['a@x.ru', 'b@y.ru']);
+// Запятая внутри имени — то, на чём ломается наивное split(',')
+eq('запятая в имени не разрывает адрес',
+  splitAddrs('"Иванов, Иван" <i@x.ru>, b@y.ru'),
+  ['"Иванов, Иван" <i@x.ru>', 'b@y.ru']);
+eq('мусор без собаки отбрасывается', splitAddrs('иванов, b@y.ru'), ['b@y.ru']);
+eq('пустая строка — пустой список', splitAddrs(''), []);
+
+console.log('\n15. Тема ответа и пересылки');
+eq('Re: добавляется', replySubject('Замечания'), 'Re: Замечания');
+// Иначе выходит «Re: Re: Re: Re: Замечания» — так растёт тема в переписке
+eq('второе Re: не добавляется', replySubject('Re: Замечания'), 'Re: Замечания');
+eq('регистр не важен', replySubject('RE: Замечания'), 'RE: Замечания');
+eq('Fwd: добавляется', forwardSubject('Смета'), 'Fwd: Смета');
+eq('второе Fwd: не добавляется', forwardSubject('Fwd: Смета'), 'Fwd: Смета');
+eq('Fw: тоже считается пересылкой', forwardSubject('Fw: Смета'), 'Fw: Смета');
+
+console.log('\n16. Картинки подписи уходят частями письма');
+const found: string[] = [];
+const one = inlineImages(
+  '<p>С уважением</p><img src="/mail_sig/abc123/logo.png" width="180">',
+  (id) => { found.push(id); return { fileName: 'logo.png', filePath: '/tmp/logo.png', mimeType: 'image/png' }; },
+);
+eq('картинка нашлась по ссылке', found, ['abc123']);
+// Ссылка на наш сервер снаружи не откроется — в письме должен быть cid:
+eq('ссылка заменена на cid', one.html.includes('src="cid:sig-abc123@flux"'), true);
+eq('в письме не осталось нашего адреса', one.html.includes('/mail_sig/'), false);
+eq('часть письма собрана', one.parts.length, 1);
+eq('и у неё тот же Content-ID', one.parts[0].cid, 'sig-abc123@flux');
+
+const twice = inlineImages(
+  '<img src="/mail_sig/aabbccdd/l.png"><img src="/mail_sig/aabbccdd/l.png">',
+  () => ({ fileName: 'l.png', filePath: '/tmp/l.png', mimeType: 'image/png' }),
+);
+eq('одна картинка дважды — одна часть письма', twice.parts.length, 1);
+
+const foreign = inlineImages('<img src="https://чужой.ру/pixel.gif">', () => null);
+eq('чужие ссылки не трогаем', foreign.html.includes('https://чужой.ру/pixel.gif'), true);
+eq('и во вложения их не тянем', foreign.parts.length, 0);
+
+console.log('\n17. Текстовый вариант письма');
+eq('теги убраны', htmlToText('<p>Здравствуйте</p>'), 'Здравствуйте');
+eq('перенос строки из <br>', htmlToText('раз<br>два'), 'раз\nдва');
+eq('стили выкидываются целиком', htmlToText('<style>p{color:red}</style><p>текст</p>'), 'текст');
+eq('мнемоники разворачиваются', htmlToText('<p>&lt;тег&gt;</p>'), '<тег>');
+
+console.log('\n18. Отказ SMTP по-русски');
+eq('неверный пароль объясняется',
+  explainSmtp({ code: 'EAUTH', response: '535 Authentication failed' }).includes('пароль приложения'), true);
+eq('закрытый порт объясняется',
+  explainSmtp({ code: 'ETIMEDOUT' }).includes('не отвечает'), true);
+eq('чужой отказ не теряется',
+  explainSmtp({ message: 'Что-то своё' }), 'Что-то своё');
+
+console.log('\n19. Ключ письма переживает пересинхронизацию');
+// Наши id создаются заново при смене uidValidity — личные отметки прочтения
+// в общем ящике слетали бы вместе с ними
+eq('берётся Message-ID', msgKeyOf({ messageId: '<a@b>', id: 'uuid-1' }), '<a@b>');
+eq('без Message-ID — свой ключ', msgKeyOf({ messageId: '', id: 'uuid-1' }), 'local:uuid-1');
+eq('null тоже считается пустым', msgKeyOf({ messageId: null, id: 'uuid-2' }), 'local:uuid-2');
 
 console.log(`\n${ok} проверок пройдено, ${fail} провалено`);
 process.exit(fail ? 1 : 0);

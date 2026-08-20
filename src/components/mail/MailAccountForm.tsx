@@ -18,6 +18,8 @@ import { useEscapeClose } from '../../lib/useDismiss';
 interface Props {
   /** Ящик для правки; пусто — подключаем новый */
   account?: MailAccount | null;
+  /** Может ли этот сотрудник заводить общий ящик компании */
+  mayShared?: boolean;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -25,12 +27,13 @@ interface Props {
 const field = 'w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500';
 const label = 'block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1';
 
-export default function MailAccountForm({ account, onClose, onSaved }: Props) {
+export default function MailAccountForm({ account, mayShared = false, onClose, onSaved }: Props) {
   const editing = Boolean(account);
   const [email, setEmail] = useState(account?.email || '');
   const [password, setPassword] = useState('');
   const [displayNameValue, setDisplayName] = useState(account?.displayName || '');
-  const [signature, setSignature] = useState(account?.signature || '');
+  const [scope, setScope] = useState<'PERSONAL' | 'SHARED'>(account?.scope || 'PERSONAL');
+  const [boxLabel, setBoxLabel] = useState(account?.label || '');
   const [syncDays, setSyncDays] = useState(String(account?.syncDays ?? 90));
 
   const [imapHost, setImapHost] = useState(account?.imapHost || '');
@@ -78,7 +81,8 @@ export default function MailAccountForm({ account, onClose, onSaved }: Props) {
       const data: Record<string, unknown> = {
         email,
         displayName: displayNameValue,
-        signature,
+        scope,
+        label: boxLabel,
         syncDays: Number(syncDays) || 90,
         imapHost, imapPort: Number(imapPort) || 993,
         smtpHost, smtpPort: Number(smtpPort) || 465,
@@ -127,6 +131,35 @@ export default function MailAccountForm({ account, onClose, onSaved }: Props) {
           </div>
 
           <form onSubmit={save} className="flex flex-col gap-4">
+            {/* Род ящика выбирается один раз при подключении: перевести личный
+                ящик в общий значит открыть переписку всей конторе, и делать
+                это незаметной галочкой в правке нельзя */}
+            {!editing && mayShared && (
+              <div className="flex flex-col gap-1.5">
+                <span className={label}>Чей это ящик</span>
+                <div className="grid grid-cols-1 @[440px]:grid-cols-2 gap-2">
+                  {([
+                    { key: 'PERSONAL', title: 'Мой личный', text: 'Виден только вам. Таких можно завести несколько.' },
+                    { key: 'SHARED', title: 'Общая почта компании', text: 'Видна всем сотрудникам. Настраивается один раз.' },
+                  ] as const).map((o) => (
+                    <button
+                      key={o.key}
+                      type="button"
+                      onClick={() => setScope(o.key)}
+                      aria-pressed={scope === o.key}
+                      className={`flex flex-col gap-0.5 rounded-lg border p-2.5 text-left cursor-pointer transition-colors
+                        ${scope === o.key
+                          ? 'border-emerald-600 bg-emerald-50 dark:border-emerald-500 dark:bg-emerald-950/40'
+                          : 'border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-850'}`}
+                    >
+                      <span className="text-sm font-semibold text-slate-900 dark:text-white">{o.title}</span>
+                      <span className="text-2xs text-slate-500 dark:text-slate-400">{o.text}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 @[440px]:grid-cols-2 gap-3">
               <div>
                 <label className={label} htmlFor="mail-email">Адрес почты</label>
@@ -185,11 +218,11 @@ export default function MailAccountForm({ account, onClose, onSaved }: Props) {
             </div>
 
             <div>
-              <label className={label} htmlFor="mail-sign">Подпись</label>
-              <textarea
-                id="mail-sign" value={signature} disabled={busy} rows={2}
-                onChange={(e) => setSignature(e.target.value)}
-                placeholder="С уважением, Иванов И.И." className={`${field} resize-y`}
+              <label className={label} htmlFor="mail-label">Название в списке</label>
+              <input
+                id="mail-label" value={boxLabel} disabled={busy}
+                onChange={(e) => setBoxLabel(e.target.value)}
+                placeholder={scope === 'SHARED' ? 'Общая почта' : 'Рабочая почта'} className={field}
               />
             </div>
 

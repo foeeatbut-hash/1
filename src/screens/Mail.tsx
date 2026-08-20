@@ -5,7 +5,9 @@ import {
 } from 'lucide-react';
 import { useMailStore } from '../store/mailStore';
 import { useStore } from '../store/store';
-import MailFolders from '../components/mail/MailFolders';
+import MailSidebar from '../components/mail/MailSidebar';
+import MailCompose, { type ComposeMode } from '../components/mail/MailCompose';
+import MailSignatures from '../components/mail/MailSignatures';
 import MailList from '../components/mail/MailList';
 import MailThread from '../components/mail/MailThread';
 import MailAccountForm from '../components/mail/MailAccountForm';
@@ -44,10 +46,12 @@ export default function Mail() {
     query, filter, loading, syncing, error, keyIn,
     loadAccounts, chooseAccount, chooseFolder, loadThreads, sync,
     setQuery, setFilter, open, togglePick, pickAll, clearPicked,
-    markSeen, markFlagged, moveTo,
+    markSeen, markFlagged, moveTo, shared, claim, unreadByAccount, mayShared,
   } = useMailStore();
 
   const [form, setForm] = useState<{ open: boolean; account: MailAccount | null }>({ open: false, account: null });
+  const [compose, setCompose] = useState<{ mode: ComposeMode; messageId?: string } | null>(null);
+  const [signatures, setSignatures] = useState(false);
   const [draft, setDraft] = useState('');
   const [cursor, setCursor] = useState(0);
   const [showKeys, setShowKeys] = useState(false);
@@ -167,20 +171,23 @@ export default function Mail() {
     <div ref={rootRef} className="h-full flex flex-col min-h-0 bg-white dark:bg-slate-900">
       {/* ── Шапка ─────────────────────────────────────────────────────────── */}
       <header className="shrink-0 flex flex-wrap items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-slate-800">
+        {/* Ящик выбирается в левой колонке — списком, а не выпадающим полем.
+            Два места для одного и того же выбора сбивают: человек меняет ящик
+            слева и не понимает, почему в шапке написано другое. Здесь остаётся
+            только имя открытого ящика — как заголовок. */}
         <div className="flex items-center gap-2 min-w-0">
           <MailIcon className="w-5 h-5 shrink-0 text-emerald-700 dark:text-emerald-400" />
-          {accounts.length > 1 ? (
-            <select
-              value={accountId}
-              onChange={(e) => void chooseAccount(e.target.value)}
-              aria-label="Почтовый ящик"
-              className="max-w-[12rem] px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm text-slate-900 dark:text-white cursor-pointer"
-            >
-              {accounts.map((a) => <option key={a.id} value={a.id}>{a.email}</option>)}
-            </select>
-          ) : (
-            <span className="text-sm font-semibold text-slate-900 dark:text-white truncate max-w-[12rem]">
-              {account?.email}
+          <span className="flex flex-col min-w-0 max-w-[14rem] leading-tight">
+            <span className="truncate text-sm font-semibold text-slate-900 dark:text-white">
+              {account ? (account.label || (account.scope === 'SHARED' ? 'Общая почта' : account.email)) : 'Почта'}
+            </span>
+            {account?.label && (
+              <span className="truncate text-2xs text-slate-500 dark:text-slate-400">{account.email}</span>
+            )}
+          </span>
+          {account?.scope === 'SHARED' && (
+            <span className="shrink-0 rounded-full px-2 py-0.5 text-2xs font-semibold bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-300">
+              общая
             </span>
           )}
         </div>
@@ -296,14 +303,21 @@ export default function Mail() {
 
       {/* ── Три колонки ───────────────────────────────────────────────────── */}
       <div className="flex-1 min-h-0 flex">
-        <MailFolders
+        <MailSidebar
+          accounts={accounts}
+          accountId={accountId}
           folders={folders}
           folderId={folderId}
           filter={filter}
           syncing={syncing}
-          onChoose={(id) => void chooseFolder(id)}
+          unreadByAccount={unreadByAccount}
+          onChooseAccount={(id) => void chooseAccount(id)}
+          onChooseFolder={(id) => void chooseFolder(id)}
           onFilter={setFilter}
           onSync={() => void sync()}
+          onCompose={() => setCompose({ mode: 'NEW' })}
+          onAddAccount={() => setForm({ open: true, account: null })}
+          onSettings={() => setSignatures(true)}
         />
 
         {/* Список. В тесной панели чтение ложится поверх, и список прячем */}
@@ -334,6 +348,9 @@ export default function Mail() {
             openKey={openKey}
             myAddr={account?.email || ''}
             loading={loading}
+            shared={shared}
+            meId={user?.id || ''}
+            onClaim={(t, on) => void claim(t.threadKey, on)}
             onOpen={open}
             onPick={togglePick}
             onStar={(t, on) => void markFlagged(t.ids, on)}
@@ -357,6 +374,8 @@ export default function Mail() {
             onArchive={() => void moveTo(openThread.ids, 'ARCHIVE')}
             onTrash={() => void moveTo(openThread.ids, 'TRASH')}
             onSeen={(ids) => void markSeen(ids, true)}
+            onReply={(mode, messageId) => setCompose({ mode, messageId })}
+            meId={user?.id || ''}
           />
         )}
 
@@ -387,9 +406,24 @@ export default function Mail() {
       {form.open && (
         <MailAccountForm
           account={form.account}
+          mayShared={mayShared}
           onClose={() => setForm({ open: false, account: null })}
           onSaved={() => { void loadAccounts(); void loadThreads(); }}
         />
+      )}
+
+      {compose && account && (
+        <MailCompose
+          account={account}
+          mode={compose.mode}
+          messageId={compose.messageId}
+          onClose={() => setCompose(null)}
+          onSent={() => { void loadThreads(); }}
+        />
+      )}
+
+      {signatures && (
+        <MailSignatures accounts={accounts} onClose={() => setSignatures(false)} />
       )}
     </div>
   );

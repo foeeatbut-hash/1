@@ -24,6 +24,8 @@ import { registerLogRoutes } from './server/routes/logs.js';
 import { registerSettingsRoutes } from './server/routes/settings.js';
 import { registerExplorerRoutes } from './server/routes/explorer.js';
 import { registerMailRoutes } from './server/routes/mail.js';
+import { registerMailSharedRoutes } from './server/routes/mailShared.js';
+import { registerMailComposeRoutes } from './server/routes/mailCompose.js';
 import { registerUserRoutes, seedRoles, backfillNameParts } from './server/routes/users.js';
 import { initBackups } from './server/backup.js';
 
@@ -1050,6 +1052,9 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use('/chat_files', express.static(path.join(userDataPath, 'chat_files')));
+// Картинки подписей: показываются в разделе; в отправленном письме они
+// уходят вложением с Content-ID, потому что снаружи этот адрес недоступен
+app.use('/mail_sig', express.static(path.join(userDataPath, 'mail_sig')));
 
 // ── Проверка входа на каждом запросе к API ──────────────────────────────────
 // Открыты только вход, проверка готовности и конфиг БД для экрана входа.
@@ -2099,6 +2104,21 @@ async function loadActor(req: Request): Promise<any> {
 // Страж эндпоинта: при отсутствии прав сам отправляет 401/403 и возвращает false.
 // Права считаются так же, как в общей таблице маршрутов: роль + личные поверх,
 // иначе один и тот же сотрудник проходил бы одну проверку и не проходил другую.
+/**
+ * Есть ли у действующего право — без ответа клиенту.
+ * enforce() сам пишет 401/403 и годится только там, где отказ прекращает
+ * обработку. Когда право лишь меняет вид ответа («можно ли править общий
+ * ящик»), нужен молчаливый вопрос.
+ */
+async function mayFeature(req: Request, feature: string): Promise<boolean> {
+  const actor = await loadActor(req);
+  if (!actor) return false;
+  if (actor.role === 'ADMIN') return true;
+  if (actor.isActive === false) return false;
+  if (actor.validUntil && (timeTampered || new Date(actor.validUntil).getTime() < trustedNowSync())) return false;
+  return permAllows(await effectivePermsOf(actor), feature);
+}
+
 async function enforce(req: Request, res: Response, feature: string): Promise<boolean> {
   const actor = await loadActor(req);
   if (!actor) { res.status(401).json({ error: 'Требуется вход в систему.' }); return false; }
@@ -2937,7 +2957,9 @@ app.post('/api/tags/generate', async (req: Request, res: Response) => {
 registerNoteRoutes(app);
 registerLogRoutes(app);
 // Почта: ящики по IMAP/SMTP, синхронизация, чтение (server/routes/mail.ts)
-registerMailRoutes(app, { userDataPath });
+registerMailRoutes(app, { userDataPath, enforce, mayFeature });
+registerMailSharedRoutes(app);
+registerMailComposeRoutes(app, { userDataPath });
 registerConstructorRoutes(app);
 registerFormulaRoutes(app);
 registerVdrRoutes(app);

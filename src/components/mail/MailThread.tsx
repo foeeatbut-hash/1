@@ -1,8 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, Star, Archive, Trash2, Paperclip, Download, ImageOff, ChevronDown, AlertTriangle,
+  CornerUpLeft, ReplyAll, Forward, UserCheck, MessageSquarePlus, CheckCircle2, Loader2,
 } from 'lucide-react';
-import { mailService, type MailAttachment, type MailMessage } from '../../services/mailService';
+import {
+  mailService, type MailAttachment, type MailMessage,
+  type MailThreadState, type MailActivity,
+} from '../../services/mailService';
 import { parseAddrList, displayName, initialsOf, toneOf, type AvatarTone } from '../../lib/mailAddress';
 import { sanitizeMailHtml, mailFrameDoc, textToHtml } from '../../lib/mailHtml';
 
@@ -234,13 +238,22 @@ interface Props {
   onTrash: () => void;
   /** Прочитанное отмечаем при открытии — как в любом почтовом клиенте */
   onSeen: (ids: string[]) => void;
+  /** Написать ответ, ответить всем или переслать последнее письмо */
+  onReply: (mode: 'REPLY' | 'REPLY_ALL' | 'FORWARD', messageId: string) => void;
+  /** Мой id — чтобы отличить свои действия от чужих в ленте общего ящика */
+  meId: string;
 }
 
 export default function MailThread({
   accountId, threadKey, subject, flagged, myAddr, dark,
-  onBack, onStar, onArchive, onTrash, onSeen,
+  onBack, onStar, onArchive, onTrash, onSeen, onReply, meId,
 }: Props) {
   const [messages, setMessages] = useState<MailMessage[]>([]);
+  const [shared, setShared] = useState(false);
+  const [state, setState] = useState<MailThreadState | null>(null);
+  const [activity, setActivity] = useState<MailActivity[]>([]);
+  const [note, setNote] = useState('');
+  const [noteBusy, setNoteBusy] = useState(false);
   const [files, setFiles] = useState<MailAttachment[]>([]);
   const [openIds, setOpenIds] = useState<string[]>([]);
   const [error, setError] = useState('');
@@ -255,6 +268,9 @@ export default function MailThread({
         if (!alive) return;
         setMessages(r.messages);
         setFiles(r.attachments);
+        setShared(Boolean(r.shared));
+        setState(r.state);
+        setActivity(r.activity || []);
         // Раскрыто последнее письмо: именно его человек и хотел прочитать
         const last = r.messages[r.messages.length - 1];
         setOpenIds(last ? [last.id] : []);
@@ -325,7 +341,128 @@ export default function MailThread({
             ))}
           />
         ))}
+
+        {/* ── Общий ящик: что уже сделали коллеги ──────────────────────────
+            Без этого десять сотрудников отвечают на одно письмо вслепую:
+            двое напишут одно и то же, а третье письмо не возьмёт никто. */}
+        {shared && (
+          <section className="rounded-lg border border-sky-200 dark:border-sky-900 bg-sky-50/70 dark:bg-sky-950/25 overflow-hidden">
+            <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-sky-200 dark:border-sky-900">
+              <span className="text-2xs font-bold uppercase tracking-wider text-sky-800 dark:text-sky-300">
+                Общая почта
+              </span>
+              {state?.repliedByName && (
+                <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                  <CheckCircle2 className="w-3 h-3 shrink-0" />
+                  Ответил {state.repliedByName}
+                </span>
+              )}
+              {state?.claimedByName && !state?.repliedByName && (
+                <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+                  <UserCheck className="w-3 h-3 shrink-0" />
+                  В работе у {state.claimedById === meId ? 'вас' : state.claimedByName}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={async () => {
+                  const on = state?.claimedById !== meId;
+                  try {
+                    const r = await mailService.claim(accountId, threadKey, on);
+                    setState(r.state);
+                    const a = await mailService.thread(accountId, threadKey);
+                    setActivity(a.activity || []);
+                  } catch (err: any) { setError(err?.message || 'Не удалось изменить состояние'); }
+                }}
+                className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-sky-300 dark:border-sky-800 text-2xs font-semibold text-sky-800 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-950/50 cursor-pointer"
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+                {state?.claimedById === meId ? 'Отпустить' : 'Взять в работу'}
+              </button>
+            </div>
+
+            {activity.length > 0 && (
+              <ul className="flex flex-col gap-1 px-3 py-2">
+                {activity.map((a) => (
+                  <li key={a.id} className="flex items-baseline gap-2 text-2xs">
+                    <span className="shrink-0 font-mono tabular-nums text-slate-400 dark:text-slate-500">
+                      {new Date(a.createdAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <span className="flex-1 min-w-0 text-slate-600 dark:text-slate-400">
+                      <b className="font-semibold text-slate-800 dark:text-slate-300">{a.userName || 'Сотрудник'}</b>
+                      {' '}{actionText(a)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="flex items-center gap-2 px-3 py-2 border-t border-sky-200 dark:border-sky-900">
+              <MessageSquarePlus className="w-4 h-4 shrink-0 text-sky-700 dark:text-sky-400" />
+              <input
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                onKeyDown={async (e) => {
+                  if (e.key !== 'Enter' || !note.trim() || noteBusy) return;
+                  setNoteBusy(true);
+                  try {
+                    const r = await mailService.addNote(accountId, threadKey, note.trim());
+                    setActivity(r.activity);
+                    setNote('');
+                  } catch (err: any) { setError(err?.message || 'Пометка не сохранилась'); }
+                  finally { setNoteBusy(false); }
+                }}
+                placeholder="Пометка коллегам — её увидят все, кто работает с этим ящиком"
+                aria-label="Пометка коллегам"
+                className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-sky-200 dark:border-sky-900 bg-white dark:bg-slate-950 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
+              />
+              {noteBusy && <Loader2 className="w-4 h-4 shrink-0 animate-spin text-sky-600" />}
+            </div>
+          </section>
+        )}
       </div>
+
+      {/* Ответить — там, где заканчивается чтение, как в Gmail */}
+      {messages.length > 0 && (
+        <div className="shrink-0 flex flex-wrap items-center gap-2 px-3 py-2 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+          <button
+            type="button"
+            onClick={() => onReply('REPLY', messages[messages.length - 1].id)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold shadow-sm cursor-pointer"
+          >
+            <CornerUpLeft className="w-3.5 h-3.5" /> Ответить
+          </button>
+          <button
+            type="button"
+            onClick={() => onReply('REPLY_ALL', messages[messages.length - 1].id)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer"
+          >
+            <ReplyAll className="w-3.5 h-3.5" /> Всем
+          </button>
+          <button
+            type="button"
+            onClick={() => onReply('FORWARD', messages[messages.length - 1].id)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer"
+          >
+            <Forward className="w-3.5 h-3.5" /> Переслать
+          </button>
+        </div>
+      )}
     </div>
   );
+}
+
+/** Что человек сделал — по-русски и без служебных слов. */
+function actionText(a: MailActivity): string {
+  if (a.kind === 'CLAIMED') return 'взял переписку в работу';
+  if (a.kind === 'RELEASED') return 'отпустил переписку';
+  if (a.kind === 'REPLIED') return 'ответил на письмо';
+  if (a.kind === 'FORWARDED') return 'переслал письмо';
+  if (a.kind === 'STATUS') {
+    if (a.note === 'ANSWERED') return 'отметил переписку отвеченной';
+    if (a.note === 'CLOSED') return 'закрыл переписку';
+    if (a.note === 'IN_PROGRESS') return 'взял переписку в работу';
+    return 'вернул переписку в новые';
+  }
+  return `оставил пометку: ${a.note}`;
 }

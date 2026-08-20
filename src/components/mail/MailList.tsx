@@ -1,5 +1,5 @@
 import React from 'react';
-import { Paperclip, Star, Archive, Trash2, MailOpen, Mail as MailIcon, CornerUpLeft } from 'lucide-react';
+import { Paperclip, Star, Archive, Trash2, MailOpen, Mail as MailIcon, CornerUpLeft, UserCheck } from 'lucide-react';
 import type { MailThread } from '../../services/mailService';
 import { displayName, initialsOf, toneOf, type AvatarTone } from '../../lib/mailAddress';
 import { threadParticipants } from '../../lib/mailThread';
@@ -22,6 +22,11 @@ interface Props {
   openKey: string;
   myAddr: string;
   loading: boolean;
+  /** Общий ящик: показываем, кто взял переписку и кто на неё ответил */
+  shared: boolean;
+  /** Мой id — чтобы отличить «за мной» от «за коллегой» */
+  meId: string;
+  onClaim: (t: MailThread, on: boolean) => void;
   /** Показывать ли колонку отправителя — в узкой панели её убираем */
   onOpen: (key: string) => void;
   onPick: (key: string) => void;
@@ -29,6 +34,13 @@ interface Props {
   onSeen: (t: MailThread, on: boolean) => void;
   onArchive: (t: MailThread) => void;
   onTrash: (t: MailThread) => void;
+}
+
+/** Короткое имя для пометки: в строке списка на полное ФИО места нет. */
+function shortName(full: string): string {
+  const parts = String(full || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length < 2) return parts[0] || '';
+  return `${parts[0]} ${parts[1][0]}.`;
 }
 
 /** Круг с буквами: у каждого отправителя свой цвет, но всегда один и тот же. */
@@ -79,7 +91,7 @@ const RowAction = ({ title, onClick, children }: { title: string; onClick: (e: R
 );
 
 export default function MailList({
-  threads, picked, openKey, myAddr, loading,
+  threads, picked, openKey, myAddr, loading, shared, meId, onClaim,
   onOpen, onPick, onStar, onSeen, onArchive, onTrash,
 }: Props) {
   if (loading && !threads.length) {
@@ -181,6 +193,35 @@ export default function MailList({
                   {t.snippet ? `— ${t.snippet}` : ''}
                 </span>
               </div>
+
+              {/* Общий ящик: девять остальных должны видеть, что письмо уже
+                  взяли или на него ответили, — до того как ответят второй раз */}
+              {shared && t.state && (t.state.repliedByName || t.state.claimedByName) && (
+                <div className="shrink-0 flex items-center gap-1 mt-0.5 @[720px]:mt-0">
+                  {t.state.repliedByName ? (
+                    <span
+                      title={`Ответил ${t.state.repliedByName}${t.state.repliedAt ? `, ${shortDate(t.state.repliedAt)}` : ''}`}
+                      className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-2xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+                    >
+                      <CornerUpLeft className="w-3 h-3 shrink-0" />
+                      <span className="max-w-[7rem] truncate">{shortName(t.state.repliedByName)}</span>
+                    </span>
+                  ) : (
+                    <span
+                      title={`В работе у ${t.state.claimedByName}`}
+                      className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-2xs font-semibold
+                        ${t.state.claimedById === meId
+                          ? 'bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-300'
+                          : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'}`}
+                    >
+                      <UserCheck className="w-3 h-3 shrink-0" />
+                      <span className="max-w-[7rem] truncate">
+                        {t.state.claimedById === meId ? 'За мной' : shortName(t.state.claimedByName)}
+                      </span>
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
             {t.hasFiles && <Paperclip className="shrink-0 w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />}
@@ -206,6 +247,14 @@ export default function MailList({
               >
                 {t.unread ? <MailOpen className="w-4 h-4" /> : <MailIcon className="w-4 h-4" />}
               </RowAction>
+              {shared && (
+                <RowAction
+                  title={t.state?.claimedById === meId ? 'Отпустить переписку' : 'Взять переписку в работу'}
+                  onClick={(e) => { e.stopPropagation(); onClaim(t, t.state?.claimedById !== meId); }}
+                >
+                  <UserCheck className={`w-4 h-4 ${t.state?.claimedById === meId ? 'text-sky-600 dark:text-sky-400' : ''}`} />
+                </RowAction>
+              )}
             </div>
           </div>
         );
