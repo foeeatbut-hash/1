@@ -24,7 +24,8 @@ import {
   FileText,
   Clock,
   Briefcase,
-  PenLine
+  PenLine,
+  Search
 } from 'lucide-react';
 import { useModalStore } from '../store/modalStore';
 
@@ -36,6 +37,14 @@ export default function UsersManagement() {
   const { addToast } = useToastStore();
   
   const [usersList, setUsersList] = useState<User[]>([]);
+  /**
+   * Отбор в списке. Раньше его не было вовсе: тридцать сотрудников искали
+   * прокруткой, а вопросы «у кого истекает доступ» и «кто ещё без подписи»
+   * приходилось решать, открывая карточки по одной.
+   */
+  const [q, setQ] = useState('');
+  const [pick, setPick] = useState<'all' | 'active' | 'off' | 'soon' | 'nosign'>('all');
+  const [sortBy, setSortBy] = useState<'name' | 'role' | 'created'>('name');
   // Кому правим подпись; null — окно закрыто
   const [signFor, setSignFor] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -297,6 +306,64 @@ export default function UsersManagement() {
   };
 
   // 3. User-friendly role localization names with customized icon visual tags
+  /** Через сколько дней доступ считаем истекающим: неделя — успеть продлить */
+  const SOON_DAYS = 7;
+
+  /** Состояние доступа одной строкой — им же считаем счётчики и фильтруем */
+  const accessOf = (emp: User): 'off' | 'expired' | 'soon' | 'ok' => {
+    if (emp.isActive === false) return 'off';
+    if (!emp.validUntil) return 'ok';
+    const left = new Date(emp.validUntil).getTime() - Date.now();
+    if (isNaN(left)) return 'ok';
+    if (left < 0) return 'expired';
+    return left < SOON_DAYS * 864e5 ? 'soon' : 'ok';
+  };
+
+  const counts = React.useMemo(() => {
+    let active = 0, off = 0, soon = 0, nosign = 0;
+    for (const e of usersList) {
+      const a = accessOf(e);
+      if (a === 'off' || a === 'expired') off++; else active++;
+      if (a === 'soon' || a === 'expired') soon++;
+      if (!(e as any).hasSignature) nosign++;
+    }
+    return { total: usersList.length, active, off, soon, nosign };
+  }, [usersList]);
+
+  const shown = React.useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    const list = usersList.filter((e) => {
+      const a = accessOf(e);
+      if (pick === 'active' && (a === 'off' || a === 'expired')) return false;
+      if (pick === 'off' && a !== 'off' && a !== 'expired') return false;
+      if (pick === 'soon' && a !== 'soon' && a !== 'expired') return false;
+      if (pick === 'nosign' && (e as any).hasSignature) return false;
+      if (!needle) return true;
+      // Ищем и по роли: «покажи всех КИПиА» — обычный вопрос к этому списку
+      const role = roleByCode(e.role, roles).name || e.role || '';
+      return `${e.name} ${e.symbol} ${role}`.toLowerCase().includes(needle);
+    });
+    const byName = (a: User, b: User) => (a.name || '').localeCompare(b.name || '', 'ru');
+    if (sortBy === 'role') {
+      return [...list].sort((a, b) => {
+        const ra = roleByCode(a.role, roles), rb = roleByCode(b.role, roles);
+        // Внутри роли — по алфавиту: иначе порядок внутри группы случайный
+        return (ra.level - rb.level) || (ra.name || '').localeCompare(rb.name || '', 'ru') || byName(a, b);
+      });
+    }
+    if (sortBy === 'created') {
+      return [...list].sort((a, b) =>
+        new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    }
+    return [...list].sort(byName);
+  }, [usersList, q, pick, sortBy, roles]);
+
+  /** Инициалы для кружка в строке — «Раупов Хусрав» → «РХ» */
+  const initialsOf = (emp: User) => {
+    const parts = String(emp.name || emp.symbol || '').trim().split(/\s+/).filter(Boolean);
+    return (parts.slice(0, 2).map((x) => x[0]).join('') || '?').toUpperCase();
+  };
+
   const getRoleBadge = (userRole: string) => {
     const r = roleByCode(userRole, roles);
     return (
@@ -315,127 +382,197 @@ export default function UsersManagement() {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
       transition={{ duration: 0.2 }}
-      className="max-w-6xl mx-auto space-y-6 pb-12"
+      className="@container max-w-6xl mx-auto pb-6"
     >
-      {/* Шапка страницы */}
-      <div className="flex flex-col @[640px]:flex-row @[640px]:items-center @[640px]:justify-between gap-4 p-4 @[820px]:p-0">
-        <div>
-          <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-450 mb-1">
-            <Users className="w-6 h-6" />
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-              Панель управления персоналом
-            </h1>
-          </div>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Администрирование прав доступа, добавление новых сотрудников и назначение ролей инженеров.
-          </p>
-        </div>
-        <div>
+      {/* Штамп раздела — как у остальных разделов программы */}
+      <div className="stamp rounded-t-xl border border-slate-200 dark:border-dark-border border-b-0">
+        <Users className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+        <span className="stamp-title">Сотрудники</span>
+        <span className="stamp-sub hidden @[560px]:inline">права доступа, роли, подписи</span>
+        <div className="stamp-right">
           <button
             type="button"
             onClick={() => setIsModalOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-600 active:bg-emerald-800 text-white rounded-lg text-sm font-semibold shadow-md hover:shadow-lg transition-ui cursor-pointer"
+            title="Добавить сотрудника"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-lg text-xs font-bold transition-ui cursor-pointer"
           >
-            <Plus className="w-4 h-4" />
-            Добавить сотрудника
+            <Plus className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden @[520px]:inline">Добавить сотрудника</span>
           </button>
         </div>
       </div>
 
-      {/* Основная таблица / Содержимое списка пользователей */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800  overflow-hidden transition-colors">
-        <div className="px-3 @[700px]:px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 bg-slate-50/50 dark:bg-slate-950/20">
-          <h3 className="min-w-0 text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-widest flex items-center gap-2">
-            <UserCheck className="w-4 h-4 shrink-0 text-emerald-650 dark:text-emerald-400" />
-            <span className="text-pretty">Зарегистрированные сотрудники ({usersList.length})</span>
-          </h3>
-          <span className="shrink-0 text-xs bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded font-mono">
-            База: SQLite
-          </span>
-        </div>
+      {/* Полоса счётчиков. Она же быстрый отбор: вопросы «кто отключён» и
+          «у кого истекает» задают чаще, чем ищут человека по фамилии. */}
+      <div className="tally border-x border-slate-200 dark:border-dark-border">
+        {([
+          { id: 'all', n: counts.total, label: 'всего' },
+          { id: 'active', n: counts.active, label: 'работают' },
+          { id: 'off', n: counts.off, label: 'закрыт доступ' },
+          { id: 'soon', n: counts.soon, label: 'истекает' },
+          { id: 'nosign', n: counts.nosign, label: 'без подписи' },
+        ] as const).map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            aria-pressed={pick === c.id}
+            onClick={() => setPick(pick === c.id && c.id !== 'all' ? 'all' : c.id)}
+            title={c.id === 'all' ? 'Показать всех' : `Показать: ${c.label}`}
+            className="tally-item cursor-pointer"
+          >
+            <span className="tally-num">{c.n}</span>
+            <span className="tally-lab truncate">{c.label}</span>
+          </button>
+        ))}
+      </div>
 
+      {/* Поиск и порядок */}
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-x border-b border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface">
+        <div className="flex-1 min-w-[160px] flex items-center gap-2 h-8 px-2.5 rounded-lg border border-slate-200 dark:border-dark-border bg-slate-50 dark:bg-dark-panel">
+          <Search className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Фамилия, логин или роль"
+            aria-label="Поиск сотрудника"
+            className="flux-focus-outer flex-1 min-w-0 bg-transparent text-xs outline-none text-slate-800 dark:text-dark-text-main placeholder:text-slate-400"
+          />
+          {q && (
+            <button type="button" onClick={() => setQ('')} title="Очистить поиск"
+              className="w-5 h-5 shrink-0 rounded flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="graf hidden @[640px]:inline">Порядок</span>
+          {([
+            { id: 'name', label: 'По фамилии' },
+            { id: 'role', label: 'По роли' },
+            { id: 'created', label: 'Сначала новые' },
+          ] as const).map((o) => (
+            <button
+              key={o.id}
+              type="button"
+              onClick={() => setSortBy(o.id)}
+              aria-pressed={sortBy === o.id}
+              className={`px-2.5 py-1 min-h-6 rounded-md text-2xs font-semibold transition-ui cursor-pointer ${
+                sortBy === o.id
+                  ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300'
+                  : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100 dark:hover:bg-dark-panel'
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Список сотрудников */}
+      <div className="border-x border-b border-slate-200 dark:border-dark-border rounded-b-xl bg-white dark:bg-dark-surface overflow-hidden">
         {isLoading ? (
           <div className="py-16 text-center text-slate-500">
             <div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin mx-auto mb-3" />
-            <p className="text-sm">Загрузка данных персонала...</p>
+            <p className="text-sm">Загружаю список сотрудников…</p>
           </div>
         ) : usersList.length === 0 ? (
-          <div className="py-16 text-center text-slate-500">
-            <Users className="w-12 h-12 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
-            <p className="text-base font-semibold text-slate-700 dark:text-slate-350">Нет добавленных сотрудников</p>
-            <p className="text-xs text-slate-400 mt-1">Используйте кнопку выше для регистрации первого инженера.</p>
+          <div className="blank">
+            <div className="blank-title">Сотрудников пока нет</div>
+            <div className="blank-text">
+              Заведите первого — он получит логин, роль и права доступа. Пароль можно
+              задать сразу или выдать позже.
+            </div>
+            <button type="button" onClick={() => setIsModalOpen(true)}
+              className="mt-2 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer transition-ui">
+              Добавить сотрудника
+            </button>
+          </div>
+        ) : shown.length === 0 ? (
+          <div className="blank">
+            <div className="blank-title">Никто не подходит под отбор</div>
+            <div className="blank-text">Снимите фильтр в полосе счётчиков или очистите поиск.</div>
+            <button type="button" onClick={() => { setQ(''); setPick('all'); }}
+              className="mt-2 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer transition-ui">
+              Показать всех
+            </button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-405 dark:text-slate-500 text-xs font-bold uppercase font-mono tracking-wider bg-slate-50/30 dark:bg-slate-950/10">
-                  <th className="flux-cell text-left whitespace-nowrap">ФИО сотрудника</th>
-                  <th className="flux-cell text-left whitespace-nowrap">Табельный номер (Логин)</th>
-                  <th className="flux-cell text-left whitespace-nowrap">Роль в системе</th>
-                  <th className="flux-cell text-left whitespace-nowrap">Доступ</th>
-                  <th className="flux-cell text-left whitespace-nowrap">Дата регистрации</th>
-                  <th className="flux-cell text-right whitespace-nowrap">Управление</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-150 dark:divide-slate-850">
-                {usersList.map((emp) => (
-                  <tr 
-                    key={emp.id}
-                    className="hover:bg-slate-50/50 dark:hover:bg-slate-900/50 transition-colors text-slate-800 dark:text-slate-205"
-                  >
-                    <td className="flux-cell">
-                      <div className="font-semibold text-slate-900 dark:text-white">
-                        {emp.name}
-                      </div>
-                    </td>
-                    <td className="flux-cell font-mono text-sm font-semibold tracking-wider text-emerald-700 dark:text-emerald-400">
-                      {emp.symbol}
-                    </td>
-                    <td className="flux-cell">
-                      {getRoleBadge(emp.role)}
-                    </td>
-                    <td className="flux-cell">
-                      {getAccessBadge(emp)}
-                    </td>
-                    <td className="flux-cell text-xs text-slate-400 font-mono whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1.5">
-                        <Calendar className="w-3.5 h-3.5 shrink-0" />
-                        {new Date(emp.createdAt || Date.now()).toLocaleDateString('ru-RU', {
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric'
-                        })}
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-slate-200 dark:border-dark-border bg-slate-50/60 dark:bg-dark-panel/40">
+                <th className="flux-cell graf text-left">Сотрудник</th>
+                <th className="flux-cell graf text-left hidden @[720px]:table-cell">Роль</th>
+                <th className="flux-cell graf text-left">Доступ</th>
+                <th className="flux-cell graf text-left hidden @[560px]:table-cell">Подпись</th>
+                <th className="flux-cell graf text-left hidden @[980px]:table-cell">Заведён</th>
+                <th className="flux-cell graf text-right"> </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-150 dark:divide-slate-850">
+              {shown.map((emp) => (
+                <tr
+                  key={emp.id}
+                  onDoubleClick={() => openEdit(emp)}
+                  title="Двойное нажатие — открыть карточку сотрудника"
+                  className="hover:bg-slate-50 dark:hover:bg-dark-panel/50 transition-colors text-slate-800 dark:text-dark-text-main cursor-default"
+                >
+                  {/* Человек: кружок с инициалами, ФИО, под ним логин — логин
+                      нужен всегда, а отдельная колонка под него есть не на
+                      каждой ширине */}
+                  <td className="flux-cell w-full max-w-0">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-2xs font-extrabold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-900/50">
+                        {initialsOf(emp)}
                       </span>
-                    </td>
-                    <td className="flux-cell text-right">
-                      <div className="inline-flex items-center gap-2">
-                        {/* Подпись прямо в строке: сразу видно, у кого она есть,
-                            и не надо открывать карточку, чтобы это узнать */}
-                        <button
-                          type="button"
-                          onClick={() => setSignFor(emp)}
-                          title={(emp as any).hasSignature ? 'Подпись сотрудника' : 'Подписи нет — задать'}
-                          className="h-7 min-w-[54px] px-2 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                        >
-                          {(emp as any).hasSignature
-                            ? <PenLine className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                            : <span className="text-2xs text-slate-400">подпись</span>}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openEdit(emp)}
-                          className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                        >
-                          Изменить
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      <span className="min-w-0">
+                        <span className="block font-semibold text-slate-900 dark:text-white truncate" title={emp.name}>
+                          {emp.name}
+                        </span>
+                        <span className="block data text-2xs text-emerald-700 dark:text-emerald-400 truncate">
+                          {emp.symbol}
+                          <span className="@[720px]:hidden text-slate-400 dark:text-dark-text-muted">
+                            {' · '}{roleByCode(emp.role, roles).name}
+                          </span>
+                        </span>
+                      </span>
+                    </div>
+                  </td>
+                  <td className="flux-cell hidden @[720px]:table-cell whitespace-nowrap">{getRoleBadge(emp.role)}</td>
+                  <td className="flux-cell whitespace-nowrap">{getAccessBadge(emp)}</td>
+                  <td className="flux-cell hidden @[560px]:table-cell whitespace-nowrap">
+                    {/* Подпись видна прямо в строке: иначе, чтобы узнать, есть
+                        ли она, надо открывать карточку каждого по очереди */}
+                    <button
+                      type="button"
+                      onClick={() => setSignFor(emp)}
+                      title={(emp as any).hasSignature ? 'Подпись задана — открыть' : 'Подписи нет — задать'}
+                      className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg border text-2xs font-semibold cursor-pointer transition-ui ${
+                        (emp as any).hasSignature
+                          ? 'border-emerald-200 dark:border-emerald-900/50 text-emerald-700 dark:text-emerald-400 bg-emerald-50/60 dark:bg-emerald-950/30 hover:bg-emerald-50 dark:hover:bg-emerald-950/50'
+                          : 'border-slate-200 dark:border-dark-border text-slate-400 hover:bg-slate-100 dark:hover:bg-dark-panel'
+                      }`}
+                    >
+                      <PenLine className="w-3.5 h-3.5 shrink-0" />
+                      {(emp as any).hasSignature ? 'есть' : 'нет'}
+                    </button>
+                  </td>
+                  <td className="flux-cell hidden @[980px]:table-cell data text-2xs text-slate-400 whitespace-nowrap">
+                    {new Date(emp.createdAt || Date.now()).toLocaleDateString('ru-RU')}
+                  </td>
+                  <td className="flux-cell text-right whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => openEdit(emp)}
+                      title={`Карточка сотрудника: ${emp.name}`}
+                      className="px-3 py-1.5 text-2xs font-semibold rounded-lg border border-slate-200 dark:border-dark-border text-slate-600 dark:text-dark-text-main hover:bg-slate-100 dark:hover:bg-dark-panel transition-ui cursor-pointer whitespace-nowrap"
+                    >
+                      Изменить
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
 

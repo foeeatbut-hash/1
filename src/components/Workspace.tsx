@@ -131,7 +131,9 @@ function PaneView({ paneId }: { paneId: string }) {
   const [menu, setMenu] = React.useState<{ x: number; y: number; path: string } | null>(null);
 
   if (!pane) return null;
-  const activePath = pane.stack[pane.stack.length - 1];
+  // Активный раздел панели — отдельное поле, а не «последний в списке»:
+  // порядок вкладок от переключения не меняется
+  const activePath = pane.stack.includes(pane.active) ? pane.active : pane.stack[pane.stack.length - 1];
   const isActivePane = paneId === activePaneId;
   // Вкладки внутри панели показываем, когда открыто больше одного раздела
   const showTabs = pane.stack.length > 1;
@@ -184,14 +186,15 @@ function PaneView({ paneId }: { paneId: string }) {
                    при окне 1280 последние уезжали за край. */
                 className={`group relative flex items-center gap-1.5 pl-2.5 pr-1 py-1.5 rounded-t-lg text-xs cursor-pointer select-none flex-1 min-w-[76px] max-w-[190px] transition-colors duration-[120ms] ${
                   active
-                    // Активная вкладка — поверхность содержимого плюс зелёная
-                    // метка сверху: раньше она отличалась только жирностью.
-                    ? 'bg-slate-100 dark:bg-dark-bg text-slate-900 dark:text-white font-semibold after:absolute after:left-1.5 after:right-1.5 after:top-0 after:h-0.5 after:rounded-b after:bg-emerald-600 dark:after:bg-emerald-400'
-                    : 'text-slate-500 dark:text-dark-text-muted hover:bg-slate-100/70 dark:hover:bg-dark-bg/50 hover:text-slate-800 dark:hover:text-white'
+                    // Активная вкладка — язычок листа: та же поверхность, что у
+                    // раздела, боковые линии, полоса акцента во всю ширину и
+                    // тень, отрезающая её от полосы. Соседние — тише по цвету.
+                    ? 'bg-slate-100 dark:bg-dark-bg text-slate-900 dark:text-white font-semibold border-x border-t border-slate-200 dark:border-dark-border -mb-px shadow-[0_1px_0_0_var(--flux-bg)] after:absolute after:left-0 after:right-0 after:top-0 after:h-[3px] after:rounded-b-sm after:bg-emerald-600 dark:after:bg-emerald-400'
+                    : 'text-slate-500 dark:text-dark-text-muted border-x border-t border-transparent hover:bg-slate-100/70 dark:hover:bg-dark-bg/50 hover:text-slate-800 dark:hover:text-white'
                 }`}
               >
-                {Icon && <Icon className="w-3.5 h-3.5 shrink-0 opacity-70" />}
-                <span className="truncate">{def?.title || p}</span>
+                {Icon && <Icon className={`w-3.5 h-3.5 shrink-0 ${active ? 'text-emerald-700 dark:text-emerald-400' : 'opacity-60'}`} />}
+                <span className="flex-1 min-w-0 truncate">{def?.title || p}</span>
                 <button
                   type="button"
                   onMouseDown={(e) => { e.stopPropagation(); closeInPane(paneId, p); }}
@@ -245,7 +248,7 @@ export default function Workspace() {
   const activePaneId = useWorkspaceStore((s) => s.activePaneId);
   const activePath = useWorkspaceStore((s) => {
     const p = s.panes.find((x) => x.id === s.activePaneId);
-    return p ? p.stack[p.stack.length - 1] : '/';
+    return p ? (p.stack.includes(p.active) ? p.active : p.stack[p.stack.length - 1]) : '/';
   });
 
   // URL → активная панель: внешняя навигация (deep-link, «назад», ассистент)
@@ -286,7 +289,7 @@ export function WorkspaceRailControls() {
   const setLayout = useWorkspaceStore((s) => s.setLayout);
   const activePath = useWorkspaceStore((s) => {
     const p = s.panes.find((x) => x.id === s.activePaneId);
-    return p ? p.stack[p.stack.length - 1] : '/';
+    return p ? (p.stack.includes(p.active) ? p.active : p.stack[p.stack.length - 1]) : '/';
   });
 
   const popOut = () => {

@@ -4,6 +4,7 @@ import { useToastStore } from '../store/toastStore';
 import { useModalStore } from '../store/modalStore';
 import { dataService, Project } from '../services/dataService';
 import { can } from '../lib/permissions';
+import ProjectFields, { draftOf, emptyProject, trimmed, type ProjectDraft } from '../components/ProjectFields';
 import ProjectFormModal from '../components/ProjectFormModal';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -23,11 +24,10 @@ export default function ProjectsManagement() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
 
-  // Form states for Admin Edit Mode
-  const [editName, setEditName] = useState('');
-  const [editDesc, setEditDesc] = useState('');
-  const [editInfo, setEditInfo] = useState('');
-  const [editStatus, setEditStatus] = useState('ACTIVE');
+  // Черновик карточки проекта. Поля те же, что и при создании: набор один,
+  // и заведённые при создании код, заказчик и подрядчик теперь правятся тоже —
+  // раньше их спрашивали один раз и исправить было нельзя.
+  const [draft, setDraft] = useState<ProjectDraft>(() => emptyProject());
   const [isSaving, setIsSaving] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
 
@@ -69,12 +69,7 @@ export default function ProjectsManagement() {
     }
   };
 
-  const initForm = (proj: Project) => {
-    setEditName(proj.name || '');
-    setEditDesc(proj.description || '');
-    setEditInfo(proj.info || '');
-    setEditStatus(proj.status || 'ACTIVE');
-  };
+  const initForm = (proj: Project) => setDraft(draftOf(proj as any));
 
   useEffect(() => {
     loadProjects();
@@ -110,18 +105,15 @@ export default function ProjectsManagement() {
 
   const handleSaveProject = async () => {
     if (!selectedProject) return;
-    if (!editName.trim()) {
+    const next = trimmed(draft);
+    if (!next.name) {
       addToast('Название проекта не может быть пустым', 'error');
       return;
     }
 
     try {
       setIsSaving(true);
-      const updated = await dataService.updateProject(
-        selectedProject.id,
-        { name: editName.trim(), description: editDesc, info: editInfo, status: editStatus },
-        user?.id
-      );
+      const updated = await dataService.updateProject(selectedProject.id, next, user?.id);
       addToast('Данные проекта успешно сохранены', 'success');
       
       // Log change
@@ -354,56 +346,13 @@ export default function ProjectsManagement() {
             <div className="flex-grow overflow-y-auto p-6 space-y-6">
               {canManage ? (
                 // ADMIN EDIT MODE FORM
-                <div className="max-w-2xl min-w-0 bg-white dark:bg-slate-900 p-3 @[700px]:p-6 rounded-lg border border-slate-200 dark:border-slate-800 shadow-xs space-y-5">
+                <div className="@container max-w-2xl min-w-0 bg-white dark:bg-slate-900 p-3 @[700px]:p-6 rounded-lg border border-slate-200 dark:border-slate-800 shadow-xs space-y-5">
                   <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
                     <Edit3 className="w-4 h-4 text-emerald-600" />
                     <h2 className="graf">Карточка проекта</h2>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-350">Название проекта</label>
-                    <input
-                      type="text"
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      className="w-full text-xs px-3.5 py-2 border border-slate-250 dark:border-slate-800 focus:outline-none focus:border-emerald-500 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 rounded-lg transition-colors focus:ring-1 focus:ring-emerald-500/10"
-                      placeholder="Имя проекта..."
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-350">Краткое описание</label>
-                    <input
-                      type="text"
-                      value={editDesc}
-                      onChange={(e) => setEditDesc(e.target.value)}
-                      className="w-full text-xs px-3.5 py-2 border border-slate-250 dark:border-slate-800 focus:outline-none focus:border-emerald-500 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 rounded-lg transition-colors focus:ring-1 focus:ring-emerald-500/10"
-                      placeholder="Краткое описание..."
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-350">Подробное описание</label>
-                    <textarea
-                      value={editInfo}
-                      onChange={(e) => setEditInfo(e.target.value)}
-                      rows={6}
-                      className="w-full text-xs px-3.5 py-2 border border-slate-250 dark:border-slate-800 focus:outline-none focus:border-emerald-500 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 rounded-lg transition-colors font-sans focus:ring-1 focus:ring-emerald-500/10"
-                      placeholder="Подробная спецификация, адрес площадки производства или монтажа оборудования, список ведущих инженеров и т.д."
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-350">Статус проекта</label>
-                    <select
-                      value={editStatus}
-                      onChange={(e) => setEditStatus(e.target.value)}
-                      className="w-full text-xs px-3 px-3.5 py-2 border border-slate-250 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 rounded-lg transition-colors focus:outline-none"
-                    >
-                      <option value="ACTIVE">В работе</option>
-                      <option value="ARCHIVED">Архив</option>
-                    </select>
-                  </div>
+                  <ProjectFields value={draft} onChange={setDraft} disabled={isSaving} showStatus />
 
                   <div className="pt-2 flex items-center justify-end gap-3 border-t border-slate-100 dark:border-slate-800/80">
                     <button

@@ -19,7 +19,16 @@ export type LayoutMode = 'single' | 'dual' | 'dualh' | 'quad';
 
 export interface Pane {
   id: string;
-  stack: string[]; // посещённые пути; последний — активный раздел панели
+  /**
+   * Открытые в панели разделы в порядке появления. Порядок не меняется от
+   * того, что человек переключается между ними: раньше активный раздел
+   * выдёргивался из списка и добавлялся в конец, и вкладки перетасовывались
+   * под рукой — нажал на вторую, она уехала третьей. Место вкладки должно
+   * оставаться на месте, это единственный способ попадать в неё не глядя.
+   */
+  stack: string[];
+  /** Какой раздел показан сейчас. Пустая строка — берём последний из stack */
+  active: string;
 }
 
 export const paneCountFor = (mode: LayoutMode) => (mode === 'single' ? 1 : mode === 'quad' ? 4 : 2);
@@ -68,7 +77,7 @@ export function recentSections(): string[] {
 }
 
 const paneCounter = { n: 0 };
-const newPane = (path: string): Pane => ({ id: `pane-${Date.now().toString(36)}-${paneCounter.n++}`, stack: [path] });
+const newPane = (path: string): Pane => ({ id: `pane-${Date.now().toString(36)}-${paneCounter.n++}`, stack: [path], active: path });
 
 // ── Память раскладки per-пользователь ──
 const persistKey = (userId: string) => `flux_workspace_v1_${userId}`;
@@ -83,7 +92,14 @@ function loadPersisted(userId: string): Partial<Pick<WorkspaceState, 'layout' | 
     const panes: Pane[] = p.panes
       .filter((x: any) => x && typeof x.id === 'string' && Array.isArray(x.stack) && x.stack.length)
       .slice(0, 4)
-      .map((x: any) => ({ id: x.id, stack: x.stack.map(String) }));
+      .map((x: any) => {
+        const stack = x.stack.map(String);
+        // Раскладки, сохранённые до разделения порядка и активной вкладки,
+        // держали активный раздел последним — оттуда его и берём
+        const active = typeof x.active === 'string' && stack.includes(x.active)
+          ? x.active : stack[stack.length - 1];
+        return { id: x.id, stack, active };
+      });
     if (!panes.length) return null;
     return {
       layout: ['single', 'dual', 'dualh', 'quad'].includes(p.layout) ? p.layout : 'single',
@@ -99,7 +115,7 @@ function persist(st: WorkspaceState) {
   try {
     localStorage.setItem(persistKey(boundUserId), JSON.stringify({
       layout: st.layout,
-      panes: st.panes.map((p) => ({ id: p.id, stack: p.stack })),
+      panes: st.panes.map((p) => ({ id: p.id, stack: p.stack, active: p.active })),
       activePaneId: st.activePaneId,
       frozenHrefs: st.frozenHrefs,
     }));
@@ -124,7 +140,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     setLayout: (mode) => update((st) => {
       const target = paneCountFor(mode);
       // Панели не удаляем — докидываем недостающие, наследуя активный раздел
-      const seed = st.panes.find((p) => p.id === st.activePaneId)?.stack.slice(-1)[0] || '/';
+      const cur = st.panes.find((p) => p.id === st.activePaneId);
+      const seed = (cur && (cur.stack.includes(cur.active) ? cur.active : cur.stack.slice(-1)[0])) || '/';
       const panes = [...st.panes];
       while (panes.length < target) panes.push(newPane(seed));
       const visible = panes.slice(0, target);
@@ -140,9 +157,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       activePaneId: paneId,
       panes: st.panes.map((p) => {
         if (p.id !== paneId) return p;
-        const stack = p.stack.filter((x) => x !== path);
-        stack.push(path);
-        return { ...p, stack };
+        // Уже открытый раздел просто делаем активным, на своём месте.
+        // Новый добавляем в конец — туда, где его и ждут после открытия.
+        const stack = p.stack.includes(path) ? p.stack : [...p.stack, path];
+        return { ...p, stack, active: path };
       }),
     })),
 
@@ -153,8 +171,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         frozenHrefs,
         panes: st.panes.map((p) => {
           if (p.id !== paneId) return p;
+          const at = p.stack.indexOf(path);
           const stack = p.stack.filter((x) => x !== path);
-          return { ...p, stack: stack.length ? stack : ['/'] };
+          if (!stack.length) return { ...p, stack: ['/'], active: '/' };
+          // Закрыли активную — переходим на соседнюю слева, как в браузере:
+          // взгляд остаётся там же, где была рука
+          const active = p.active === path
+            ? stack[Math.max(0, Math.min(at - 1, stack.length - 1))]
+            : p.active;
+          return { ...p, stack, active };
         }),
       };
     }),
@@ -165,7 +190,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       for (const x of (pane?.stack || [])) if (x !== path) delete frozenHrefs[`${paneId}::${x}`];
       return {
         frozenHrefs,
-        panes: st.panes.map((p) => (p.id === paneId ? { ...p, stack: [path] } : p)),
+        panes: st.panes.map((p) => (p.id === paneId ? { ...p, stack: [path], active: path } : p)),
       };
     }),
 
@@ -178,7 +203,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     activePathOf: (paneId) => {
       const p = get().panes.find((x) => x.id === paneId);
-      return p ? p.stack[p.stack.length - 1] : '/';
+      if (!p) return '/';
+      return p.stack.includes(p.active) ? p.active : p.stack[p.stack.length - 1];
     },
 
     // Вход пользователя: поднимаем его сохранённую раскладку

@@ -48,7 +48,7 @@ export default function Layout() {
   const wsLayout = useWorkspaceStore((s) => s.layout);
   const wsActivePath = useWorkspaceStore((s) => {
     const p = s.panes.find((x) => x.id === s.activePaneId);
-    return p ? p.stack[p.stack.length - 1] : '/';
+    return p ? (p.stack.includes(p.active) ? p.active : p.stack[p.stack.length - 1]) : '/';
   });
   const openInActivePane = useWorkspaceStore((s) => s.openInActivePane);
   // ПКМ по разделу в меню: открыть в конкретной панели / в отдельном окне
