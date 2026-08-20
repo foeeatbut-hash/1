@@ -786,7 +786,6 @@ function ProcurementTab() {
         <div className="min-w-0">
           <div className="graf">Менеджмент</div>
           <h1 className="text-[15px] font-semibold tracking-tight text-slate-900 dark:text-white">Закупки</h1>
-          <p className="text-xs text-slate-400 text-pretty">Жизненный цикл позиций проекта. Этапы настраиваются в «Настройки → Менеджмент».</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 self-start @[820px]:self-auto">
           <div className="flex flex-wrap bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200/60 dark:border-slate-800">
@@ -998,7 +997,7 @@ function ProcurementTab() {
                   <div className="blank-title">{rows.length === 0 ? 'В проекте нет позиций' : 'Ничего не найдено'}</div>
                   <div className="blank-text">
                     {rows.length === 0
-                      ? 'Позиции берутся из тегов проекта: каждый тег с оборудованием попадает сюда и проходит этапы закупки.'
+                      ? 'Позиции появятся, когда в проекте будут теги с оборудованием.'
                       : 'Ни одна позиция не подходит под заданные фильтры. Снимите часть условий или очистите поиск.'}
                   </div>
                   {rows.length === 0 ? (

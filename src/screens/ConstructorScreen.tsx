@@ -1797,7 +1797,7 @@ export default function ConstructorScreen() {
           <p className="text-xs text-slate-500 dark:text-slate-400">
             {inTrash
               ? 'В корзине пусто.'
-              : 'Здесь появятся ваши таблицы и документы. Таблица собирается из данных проекта — теги, оборудование, закупки подтягиваются сами.'}
+              : 'Здесь появятся ваши таблицы и документы.'}
           </p>
           {!inTrash && (
             <div className="flex items-center justify-center gap-2 mt-3">

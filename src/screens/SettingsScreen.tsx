@@ -474,7 +474,7 @@ function ManagementSection({ isAdmin, addToast }: any) {
   if (loading) return <SectionShell title="Менеджмент" desc="Загрузка…"><Loader2 className="w-5 h-5 animate-spin text-emerald-600" /></SectionShell>;
 
   return (
-    <SectionShell title="Менеджмент" desc="Этапы закупки. Стандартный набор действует для всех позиций; шаблоны применяются автоматически по правилам (класс, тип оборудования, обозначение) или назначаются тегам вручную в разделе «Менеджмент».">
+    <SectionShell title="Менеджмент" desc="Этапы закупки: общий набор и шаблоны по правилам.">
       {!isAdmin && (
         <div className="mb-4 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-xs text-amber-700 dark:text-amber-300">
           Изменять этапы и шаблоны может администратор. Вы видите текущую настройку.
@@ -669,7 +669,7 @@ function BackupSection({ isAdmin, addToast }: any) {
   const backups = status?.backups || [];
 
   return (
-    <SectionShell title="Резервные копии" desc="Программа каждый день сохраняет полный архив: копию базы, все файлы Проводника в исходных форматах по папкам и данные каждого проекта в Excel. Архив читается обычным Проводником Windows — даже без программы.">
+    <SectionShell title="Резервные копии" desc="Ежедневный архив: база, файлы Проводника и данные проектов.">
       <div className="space-y-5">
         {/* Статус и ручной запуск */}
         <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30 space-y-3">
@@ -792,7 +792,7 @@ function EquipmentSection({ isAdmin, addToast }: any) {
   };
 
   return (
-    <SectionShell title="Оборудование" desc="Поведение при импорте новых ревизий и категории оборудования. Видимость параметров настраивается в самом разделе (значок шестерёнки).">
+    <SectionShell title="Оборудование" desc="Поведение при импорте новых ревизий и категории оборудования.">
       <div className="space-y-5">
         <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
           <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">При новой ревизии</div>
@@ -895,7 +895,7 @@ function TagsSection({ addToast }: any) {
       <div className="space-y-5">
         <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
           <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Холст · подключение связей</div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Как соединять теги на интерактивном графе (вкладка «Интерактивный граф»).</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Как соединять теги на холсте.</p>
           <LinkModeChooser
             value={canvasMode}
             onChange={(m) => save('registry_link_mode', m)}
@@ -1076,7 +1076,7 @@ function DatabaseSection({ addToast }: any) {
             <button type="button" disabled={isSyncing} onClick={handleSyncSchema} className="w-full py-2.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer disabled:opacity-50">
               {isSyncing ? 'Проверка…' : 'Проверить / обновить структуру базы'}
             </button>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Достраивает недостающие таблицы и колонки в общей базе после обновления программы. Обычно выполняется автоматически при запуске.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Достраивает недостающие таблицы и колонки после обновления программы.</p>
           </div>
         )}
       </div>
@@ -1126,7 +1126,7 @@ function CrashLogsSection({ addLog }: any) {
   };
 
   return (
-    <SectionShell title="Crash-логи" desc="Папка, куда программа записывает аварийные журналы при закрытии. В журнале видно каждый клик и запрос — по нему легко найти причину ошибки.">
+    <SectionShell title="Crash-логи" desc="Папка, куда пишутся аварийные журналы.">
       <div className="max-w-lg space-y-2">
         <p className="font-mono text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 p-2.5 border border-slate-200 dark:border-slate-800 rounded-lg select-all break-all">
           {crashLogDir || 'AppData/pdm-app/logs (по умолчанию)'}
@@ -1409,7 +1409,7 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
   };
 
   return (
-    <SectionShell title="Роли сотрудников" desc="Кем работают люди в программе. Роль видна в списке сотрудников, в подписях документов и в журнале действий.">
+    <SectionShell title="Роли сотрудников" desc="Кем работают люди в программе.">
       {!top && (
         <div className="mb-4 flex items-start gap-2 p-3 rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/20 text-amber-800 dark:text-amber-300 text-xs">
           <Lock className="w-4 h-4 shrink-0 mt-0.5" />

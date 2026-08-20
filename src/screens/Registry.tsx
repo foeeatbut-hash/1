@@ -4093,8 +4093,8 @@ export default function Registry() {
               <span className="flex items-center gap-1.5">
                 <Link2 className="w-3.5 h-3.5 text-sky-500" />
                 {treeLinkMode === 'click'
-                  ? <>Связи: <b>кликом</b> — кнопка <Link2 className="w-3 h-3 inline -mt-0.5" /> у строки, затем клик по дочерней. Способ меняется в «Настройки → Теги → Дерево».</>
-                  : <>Связи: <b>перетаскиванием</b> — тяните строку тега на другую (перетащенный станет дочерним). Способ меняется в «Настройки → Теги → Дерево».</>}
+                  ? <>Связи: <b>кликом</b> — кнопка <Link2 className="w-3 h-3 inline -mt-0.5" /> у строки, затем клик по дочерней.</>
+                  : <>Связи: <b>перетаскиванием</b> — тяните строку тега на другую (перетащенный станет дочерним).</>}
               </span>
               {treeLinkingFrom && (
                 <button type="button" onClick={() => setTreeLinkingFrom(null)} className="shrink-0 px-2 py-1 rounded-lg bg-sky-500 text-white font-semibold cursor-pointer">Отмена связи (Esc)</button>
@@ -4135,7 +4135,7 @@ export default function Registry() {
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 dark:text-white">Импорт тегов из таблицы</h3>
-                  <p className="text-xs text-slate-500 mt-0.5 max-w-lg">Загрузите Excel в Проводник или вставьте данные, отметьте колонки (код, марка, наименование, родитель…) — теги попадут в реестр, спецификацию и дерево связей с авто-раскладкой.</p>
+                  <p className="text-xs text-slate-500 mt-0.5 max-w-lg">Загрузите Excel в Проводник или вставьте данные и отметьте колонки.</p>
                 </div>
               </div>
               <button type="button"
@@ -4788,7 +4788,6 @@ export default function Registry() {
                   <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1">
                     2. Выберите колонки для Экспорта в Excel (.CSV)
                   </h3>
-                  <p className="text-xs text-slate-500">Управляйте структурой скачиваемого файла в зависимости от потребностей верификации состава всех систем.</p>
                 </div>
 
                 <button type="button"
@@ -4898,7 +4897,7 @@ export default function Registry() {
                         <span>Статус / Актуальность (Status)</span>
                         <button
                           type="button"
-                          onClick={() => void openAlert('Пока недоступно', 'Расширение колонок справочниками появится в одном из следующих обновлений.')}
+                          onClick={() => void openAlert('Пока недоступно', 'Эта возможность ещё не готова.')}
                           className="p-1 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-905 hover:scale-105 transition-ui cursor-pointer font-bold shrink-0 shadow-xs flex items-center justify-center w-5 h-5 ml-2"
                           title="Добавить колонку (Spreadsheet Extension)"
                         >
