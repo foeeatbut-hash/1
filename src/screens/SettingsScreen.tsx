@@ -229,7 +229,7 @@ function GeneralSection({ theme, toggleTheme, density, setDensity }: any) {
         <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
           <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Главный экран и помощник</div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-            Живой фон по времени года и робот-помощник поверх окна. Если они отвлекают — выключите.
+            Живой фон по времени года и картины в шапке помощника. Если отвлекают — выключите.
           </p>
           <div className="space-y-2">
             <ToggleRow
@@ -239,12 +239,11 @@ function GeneralSection({ theme, toggleTheme, density, setDensity }: any) {
               desc="Снег зимой, листья осенью, солнце и луна по времени суток. В день рождения — шарики."
             />
             <ToggleRow
-              storageKey="flux_robot"
-              event="flux:robot-changed"
-              title="Робот-помощник Флакси"
-              desc="Живёт в шапке чата: сидит, играет, читает, реагирует на уведомления. Пока чат закрыт — выглядывает у правого края."
+              storageKey="flux_art"
+              event="flux:art-changed"
+              title="Картины в шапке помощника"
+              desc="Ван Гог, Хокусай, да Винчи, Моне, Айвазовский — нарисованы кодом и оживают. Нажатие на полке меняет картину."
             />
-            <RobotLevelRow />
           </div>
         </div>
 
@@ -1628,43 +1627,3 @@ function ToggleRow({ storageKey, event, title, desc }: {
   );
 }
 
-/** Насколько часто Флакси занимается своими делами. */
-function RobotLevelRow() {
-  const OPTS: { key: string; label: string; hint: string }[] = [
-    { key: 'calm', label: 'Спокойный', hint: 'реже и только тихие занятия' },
-    { key: 'normal', label: 'Обычный', hint: 'занятие раз в полминуты' },
-    { key: 'lively', label: 'Живой', hint: 'почти всё время чем-то занят' },
-  ];
-  const [level, setLevel] = useState<string>(() => {
-    try { return localStorage.getItem('flux_robot_level') || 'normal'; } catch { return 'normal'; }
-  });
-  const pick = (key: string) => {
-    setLevel(key);
-    try { localStorage.setItem('flux_robot_level', key); } catch (_) {}
-    try { window.dispatchEvent(new CustomEvent('flux:robot-changed')); } catch (_) {}
-  };
-  return (
-    <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
-      <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">Активность робота</div>
-      <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 mb-2">
-        Пока вы печатаете или идёт запрос, он в любом случае не отвлекается на игры.
-      </div>
-      <div className="flex gap-1.5">
-        {OPTS.map((o) => (
-          <button key={o.key} type="button" onClick={() => pick(o.key)} aria-pressed={level === o.key}
-            title={o.hint}
-            /* min-w-0 обязателен: без него элемент ряда не сжимается уже своей
-               подписи — у flex-элементов минимальная ширина по содержимому.
-               Одного flex-1 не хватало, и ряд вылезал за карточку на 29 px. */
-            className={`flex-1 min-w-0 truncate py-1.5 px-2 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
-              level === o.key
-                ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300'
-                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
-            }`}>
-            {o.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}

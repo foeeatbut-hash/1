@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAssistantStore, AssistantMessage, AssistantAction } from '../store/assistantStore';
 import { getSection } from '../assistant/sections';
-import RobotStage from './RobotStage';
+import ArtShelf from './ArtShelf';
 import { Send, X, FileSpreadsheet, FileText, Play, HelpCircle, Loader2, GraduationCap, MessageCircleQuestion, Info, Pencil, MapPin, Tag as TagIcon } from 'lucide-react';
 
 function actionIcon(kind: AssistantAction['kind']) {
@@ -129,15 +129,15 @@ export default function AssistantPanel() {
 
   const [input, setInput] = useState('');
   // Робота можно выключить в настройках — тогда шапка сжимается в узкую полосу
-  const [robotOn, setRobotOn] = useState<boolean>(() => {
-    try { return localStorage.getItem('flux_robot') !== '0'; } catch { return true; }
+  const [artOn, setArtOn] = useState<boolean>(() => {
+    try { return localStorage.getItem('flux_art') !== '0'; } catch { return true; }
   });
   useEffect(() => {
     const onChange = () => {
-      try { setRobotOn(localStorage.getItem('flux_robot') !== '0'); } catch (_) {}
+      try { setArtOn(localStorage.getItem('flux_art') !== '0'); } catch (_) {}
     };
-    window.addEventListener('flux:robot-changed', onChange);
-    return () => window.removeEventListener('flux:robot-changed', onChange);
+    window.addEventListener('flux:art-changed', onChange);
+    return () => window.removeEventListener('flux:art-changed', onChange);
   }, []);
   const endRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -212,10 +212,10 @@ export default function AssistantPanel() {
       className={`${isOpen ? 'w-[380px] opacity-100' : 'w-0 opacity-0 pointer-events-none'} shrink-0 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col transition-ui duration-300 overflow-hidden absolute top-0 bottom-0 right-[var(--flux-rail-w)] z-50 shadow-2xl xl:static xl:right-auto xl:z-auto xl:shadow-none`}
     >
       <div className="w-[380px] h-full flex flex-col shrink-0">
-      {/* Шапка — она же полка робота: заголовок и подпись убраны, панель
-          узнаётся по самому Флакси, а место отдано ему. */}
-      {robotOn
-        ? <RobotStage onClose={() => setOpen(false)} />
+      {/* Шапка — она же полка картин: заголовок и подпись убраны, место
+          отдано картине. Размер полки прежний, 380 на 88. */}
+      {artOn
+        ? <ArtShelf onClose={() => setOpen(false)} />
         : (
           <div className="shrink-0 h-9 flex items-center justify-end px-2 border-b border-slate-200 dark:border-slate-800">
             <button type="button" onClick={() => setOpen(false)}

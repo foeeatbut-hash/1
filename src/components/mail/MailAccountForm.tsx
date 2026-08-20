@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Mail, X, Loader2, CheckCircle2, AlertTriangle, ExternalLink, KeyRound, ChevronDown } from 'lucide-react';
 import { mailService, type MailAccount, type MailPreset } from '../../services/mailService';
 import { useEscapeClose } from '../../lib/useDismiss';
@@ -50,20 +50,52 @@ export default function MailAccountForm({ account, mayShared = false, onClose, o
 
   useEscapeClose(true, () => { if (!busy) onClose(); });
 
-  // Подставляем настройки, как только адрес похож на адрес. Уже введённое
-  // руками не трогаем: человек мог поправить их осознанно.
+  /**
+   * Подставляем настройки, как только адрес похож на адрес.
+   *
+   * Тонкость в том, что «не трогать введённое руками» и «не трогать
+   * непустое» — разные правила, а раньше стояло второе. Человек набирал
+   * ivanov@yandex.ru, поля заполнялись Яндексом, он замечал опечатку в
+   * домене и правил на свой сервер — а imap.yandex.ru оставался стоять.
+   * Соединение потом падало с невнятным отказом, и понять, почему, было
+   * нельзя: адрес на экране один, сервер другой.
+   *
+   * Поэтому помним, что подставили сами. Совпадает с тем, что в поле, —
+   * значит человек это не трогал, и можно заменить. Отличается — правил
+   * руками, оставляем как есть.
+   */
+  const filledRef = useRef<Record<string, string>>({});
+  // Текущие значения полей — читаем их в эффекте, у которого в зависимостях
+  // только адрес. Без этого пришлось бы либо тащить поля в зависимости (и
+  // перезапрашивать подсказку на каждую букву в имени сервера), либо решать
+  // по устаревшему состоянию.
+  const nowRef = useRef({ imapHost, imapPort, smtpHost, smtpPort, login });
+  nowRef.current = { imapHost, imapPort, smtpHost, smtpPort, login };
+
   useEffect(() => {
     if (!email.includes('@') || email.endsWith('@')) return;
     let alive = true;
     const t = setTimeout(() => {
       mailService.preset(email).then((r) => {
         if (!alive || !r.preset) return;
-        setPreset(r.preset);
-        setImapHost((v) => v || r.preset!.imapHost);
-        setImapPort((v) => (v === '993' || !v ? String(r.preset!.imapPort) : v));
-        setSmtpHost((v) => v || r.preset!.smtpHost);
-        setSmtpPort((v) => (v === '465' || !v ? String(r.preset!.smtpPort) : v));
-        setLogin((v) => v || email);
+        const p = r.preset;
+        setPreset(p);
+        // Решаем и запоминаем здесь, а не внутри функции-обновителя состояния:
+        // React в разработке вызывает обновитель дважды, и побочное действие в
+        // нём отменяло само себя — поля так и оставались от прежней службы.
+        const pick = (key: keyof typeof nowRef.current, next: string) => {
+          const cur = nowRef.current[key];
+          const mine = filledRef.current[key];
+          const keep = Boolean(cur) && cur !== mine;  // правил руками — не трогаем
+          const val = keep ? cur : next;
+          filledRef.current[key] = val;
+          return val;
+        };
+        setImapHost(pick('imapHost', p.imapHost));
+        setImapPort(pick('imapPort', String(p.imapPort)));
+        setSmtpHost(pick('smtpHost', p.smtpHost));
+        setSmtpPort(pick('smtpPort', String(p.smtpPort)));
+        setLogin(pick('login', email));
       }).catch(() => { /* подсказка необязательна */ });
     }, 400);
     return () => { alive = false; clearTimeout(t); };
