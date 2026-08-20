@@ -1,5 +1,7 @@
-# Сборка портативного Windows-exe на раннере GitHub и выкладка частей в papку portable/.
-# Запуск: вручную (workflow_dispatch) на нужной ветке.
+# Сборка портативного Windows-exe (x64) на раннере GitHub и выкладка готового
+# файла в GitHub Releases. В репозиторий exe не попадает — он весит ~125 МБ,
+# и раньше каждая сборка добавляла эти мегабайты в историю ветки навсегда.
+# Запуск: вручную (workflow_dispatch) или по метке [build-exe] в коммите.
 name: Портативный EXE
 
 on:
@@ -17,7 +19,7 @@ permissions:
 jobs:
   build-portable:
     # По push собираем только когда в сообщении коммита есть [build-exe] —
-    # иначе каждый обычный коммит порождал бы новую сборку и коммит частей
+    # иначе каждый обычный коммит порождал бы новую сборку и новый выпуск
     if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[build-exe]') }}
     runs-on: windows-latest
     steps:
@@ -40,60 +42,45 @@ jobs:
 
       # На Windows-раннере better-sqlite3 пересобирается под ABI Electron самим
       # electron-builder (npmRebuild по умолчанию), поэтому prepare:win-native не нужен
-      - name: Портативный exe
-        run: npx electron-builder --win portable
+      - name: Портативный exe (x64)
+        run: npx electron-builder --win portable --x64
 
-      - name: Разбивка на части (<95 МБ) и обновление portable/
+      - name: Имя файла и версия
+        id: meta
         shell: bash
         run: |
           set -e
           VERSION=$(node -p "require('./package.json').version")
-          EXE=$(ls release/*.exe | head -1)
-          echo "Собран: $EXE ($(du -h "$EXE" | cut -f1))"
-          rm -f portable/*.part
-          split -b 95m -d -a 2 "$EXE" "portable/Flux-$VERSION.exe."
-          cd portable
-          for f in Flux-$VERSION.exe.??; do mv "$f" "$f.part"; done
-          PARTS=$(ls Flux-$VERSION.exe.*.part | sed 's/^/"/;s/$/"/' | paste -sd+ -)
-          printf '@echo off\r\nchcp 65001 >nul\r\ncopy /b %s "Flux %s.exe" >nul\r\necho Готово: Flux %s.exe — можно запускать.\r\npause\r\n' "$PARTS" "$VERSION" "$VERSION" > СОБРАТЬ-EXE.bat
-          ls -la
+          SRC=$(ls release/*.exe | head -1)
+          # Пробелы в имени мешают ссылке на файл выпуска — переименовываем
+          OUT="release/Flux-$VERSION-x64.exe"
+          mv "$SRC" "$OUT"
+          echo "Собран: $OUT ($(du -h "$OUT" | cut -f1))"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "file=$OUT" >> "$GITHUB_OUTPUT"
 
-      - name: Целый exe как артефакт
+      - name: Целый exe как артефакт сборки
         uses: actions/upload-artifact@v4
         with:
           name: Flux-portable
-          path: release/*.exe
+          path: ${{ steps.meta.outputs.file }}
           retention-days: 30
 
-      - name: Коммит частей в ветку
-        shell: bash
-        run: |
-          set -e
-          VERSION=$(node -p "require('./package.json').version")
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add portable
-          if git diff --cached --quiet; then
-            echo "Нет изменений в portable/"
-          else
-            git commit -m "build: портативный exe v$VERSION (собрано в GitHub Actions)" -m "Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
-            # Две сборки подряд наступают друг другу на пятки: пока идёт одна,
-            # вторая уже успевает запушить свои части, и наш push отлетает.
-            # Пробуем несколько раз, каждый раз перечитывая ветку. Части exe
-            # берём свои — они и есть результат этой сборки.
-            pushed=0
-            for attempt in 1 2 3 4 5; do
-              # --autostash: сборка меняет генерируемые файлы (prisma-клиенты) в рабочем дереве
-              if ! git pull --rebase --autostash -X ours origin "${GITHUB_REF_NAME}"; then
-                git rebase --abort || true
-                git fetch origin "${GITHUB_REF_NAME}"
-                git rebase -X ours "origin/${GITHUB_REF_NAME}" || { git rebase --abort || true; sleep 10; continue; }
-              fi
-              if git push origin "HEAD:${GITHUB_REF_NAME}"; then pushed=1; break; fi
-              echo "Ветку обновили раньше нас — пробую ещё раз (попытка $attempt)"
-              sleep 10
-            done
-            if [ "$pushed" != "1" ]; then
-              echo "::warning::Не удалось закоммитить части в ветку. Готовый exe остаётся артефактом сборки."
-            fi
-          fi
+      # Выпуск обновляется на месте: пересборка той же версии заменит файл,
+      # а не создаст второй выпуск с тем же тегом
+      - name: Выпуск в GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.meta.outputs.version }}
+          name: Flux ${{ steps.meta.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            Портативная сборка Flux ${{ steps.meta.outputs.version }} для Windows x64.
+
+            Скачайте `Flux-${{ steps.meta.outputs.version }}-x64.exe` и запустите —
+            установка не требуется.
+
+            Собрано из коммита ${{ github.sha }} ветки `${{ github.ref_name }}`.
+          files: ${{ steps.meta.outputs.file }}
+          fail_on_unmatched_files: true
+          make_latest: true
