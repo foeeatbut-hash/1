@@ -13,7 +13,7 @@ import fs from 'fs';
 import { exec, execSync } from 'child_process';
 import os from 'os';
 import crypto from 'crypto';
-import { setPrisma, setNotifier, upsertSetting } from './server/context.js';
+import { setPrisma, setNotifier, setBroadcaster, upsertSetting } from './server/context.js';
 import { ensureRemoteSchema } from './server/schema-sync.js';
 import { computeMachineId, licenseStatus, activateLicense } from './electron/license.js';
 import { registerNoteRoutes } from './server/routes/notes.js';
@@ -26,6 +26,8 @@ import { registerExplorerRoutes } from './server/routes/explorer.js';
 import { registerMailRoutes } from './server/routes/mail.js';
 import { registerMailSharedRoutes } from './server/routes/mailShared.js';
 import { registerMailComposeRoutes } from './server/routes/mailCompose.js';
+import { registerMailLinkRoutes } from './server/routes/mailLink.js';
+import { watchAll as watchAllMail, stopAll as stopMailWatch } from './server/mail/idle.js';
 import { registerUserRoutes, seedRoles, backfillNameParts } from './server/routes/users.js';
 import { initBackups } from './server/backup.js';
 
@@ -1367,6 +1369,9 @@ app.post('/api/db/switch', async (req: Request, res: Response) => {
     process.env.DATABASE_URL = targetDbUrl;
     prisma = createPrismaClient(current_db_type, targetDbUrl);
     setPrisma(prisma);
+    // База другая — ящики в ней тоже другие: старые наблюдения гасим, новые
+    // поднимем после того, как схема встанет
+    stopMailWatch();
 
     if (current_db_type === 'LOCAL') {
       try {
@@ -1419,6 +1424,9 @@ app.post('/api/db/switch', async (req: Request, res: Response) => {
       });
       seedMessage = ' База данных успешно инициализирована начальными учетными записями.';
     }
+
+    // Схема на месте — поднимаем слежение за ящиками новой базы
+    void watchAllMail();
 
     return res.json({
       success: true,
@@ -2214,6 +2222,7 @@ async function notify(userId: string, category: string, title: string, body = ''
   }
 }
 setNotifier(notify); // вынесенные роуты (ВДР и др.) шлют уведомления через контекст
+setBroadcaster((event, payload) => { io.emit(event, payload); });
 
 /**
  * Оповестить всех сотрудников, кроме инициатора: события уровня компании —
@@ -2960,6 +2969,7 @@ registerLogRoutes(app);
 registerMailRoutes(app, { userDataPath, enforce, mayFeature });
 registerMailSharedRoutes(app);
 registerMailComposeRoutes(app, { userDataPath });
+registerMailLinkRoutes(app, { userDataPath });
 registerConstructorRoutes(app);
 registerFormulaRoutes(app);
 registerVdrRoutes(app);
@@ -4290,6 +4300,9 @@ async function startServer() {
 
   httpServer.listen(PORT, "0.0.0.0", () => {
     logInit(`[Server listener started] Express backend server successfully running on port ${PORT}`);
+    // Подключённые ящики начинают ждать письма: раздел показывает новое сам,
+    // без нажатия «Проверить»
+    void watchAllMail().then((n) => { if (n) logInit(`[Почта] слежение за ящиками: ${n}`); });
   });
 }
 

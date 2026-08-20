@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useMailStore } from '../store/mailStore';
 import { useStore } from '../store/store';
+import { useRealTimeSync } from '../components/SocketProvider';
 import MailSidebar from '../components/mail/MailSidebar';
 import MailCompose, { type ComposeMode } from '../components/mail/MailCompose';
 import MailSignatures from '../components/mail/MailSignatures';
@@ -44,7 +45,7 @@ export default function Mail() {
   const {
     accounts, accountId, folders, folderId, threads, openKey, picked,
     query, filter, loading, syncing, error, keyIn,
-    loadAccounts, chooseAccount, chooseFolder, loadThreads, sync,
+    loadAccounts, chooseAccount, loadFolders, chooseFolder, loadThreads, sync,
     setQuery, setFilter, open, togglePick, pickAll, clearPicked,
     markSeen, markFlagged, moveTo, shared, claim, unreadByAccount, mayShared,
   } = useMailStore();
@@ -62,6 +63,23 @@ export default function Mail() {
   const dark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
 
   useEffect(() => { void loadAccounts(); }, [loadAccounts]);
+
+  // ── Письмо приходит само ───────────────────────────────────────────────────
+  //
+  // Сервер держит соединение с почтой открытым (IMAP IDLE) и сообщает о новом
+  // письме сюда. Список обновляем только для открытого ящика: дёргать чужую
+  // папку на каждое письмо в соседнем ящике незачем — счётчик там и так
+  // пересчитается при переключении.
+  const { socket } = useRealTimeSync();
+  useEffect(() => {
+    if (!socket) return;
+    const onNew = (p: { accountId?: string }) => {
+      if (!p?.accountId || p.accountId !== accountId) return;
+      void loadFolders();
+    };
+    socket.on('mail:new', onNew);
+    return () => { socket.off('mail:new', onNew); };
+  }, [socket, accountId, loadFolders]);
 
   // Поиск не дёргает сервер на каждую букву
   useEffect(() => {

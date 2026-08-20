@@ -9,6 +9,7 @@ import {
   readableAccount, readableAccounts, isShared, msgKeyOf,
   seenKeys, setSeenLocal, unreadByFolder, threadStates,
 } from '../mail/access.js';
+import { watchAccount, stopWatch, restartWatch } from '../mail/idle.js';
 
 /**
  * Маршруты раздела «Почта».
@@ -202,6 +203,8 @@ export function registerMailRoutes(app: Express, deps: MailDeps): void {
           syncDays: Math.max(1, Math.min(3650, num(req.body?.syncDays, 90))),
         },
       });
+      // Ящик подключён — начинаем ждать письма, не дожидаясь «Проверить»
+      watchAccount(acc.id);
       res.json({ account: publicAccount(acc) });
     } catch (err) { sendError(res, err); }
   });
@@ -241,6 +244,7 @@ export function registerMailRoutes(app: Express, deps: MailDeps): void {
       const next = await prisma.mailAccount.update({ where: { id: acc.id }, data });
       // Настройки соединения изменились — старое держать нельзя
       await imap.closeConnection(acc.id);
+      if (next.active) restartWatch(acc.id); else stopWatch(acc.id);
       res.json({ account: publicAccount(next) });
     } catch (err) { sendError(res, err); }
   });
@@ -252,6 +256,7 @@ export function registerMailRoutes(app: Express, deps: MailDeps): void {
       if (!acc) return res.status(404).json({ error: 'Ящик не найден' });
       if (isShared(acc) && !(await deps.enforce(req, res, 'mail.shared'))) return;
 
+      stopWatch(acc.id);
       await imap.closeConnection(acc.id);
       const msgs = await prisma.mailMessage.findMany({ where: { accountId: acc.id }, select: { id: true } });
       const ids = msgs.map((m: any) => m.id);

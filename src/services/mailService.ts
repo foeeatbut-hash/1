@@ -233,6 +233,19 @@ export const mailService = {
   removeSignatureImage: (id: string) =>
     call<{ ok: boolean }>(`/mail/signatures/image/${id}`, { method: 'DELETE' }),
 
+  // ── Сцепка с программой ───────────────────────────────────────────────────
+  linkFolders: (projectId: string) =>
+    call<{ folders: Array<{ id: string; name: string; scope: string; parentId: string | null }> }>(
+      `/mail/link/folders${qs({ projectId })}`),
+
+  toExplorer: (attachmentId: string, folderId: string) =>
+    call<{ file: { id: string; name: string; folderId: string | null } }>(
+      `/mail/attachments/${attachmentId}/to-explorer`, { method: 'POST', body: JSON.stringify({ folderId }) }),
+
+  toNote: (messageId: string, data: { groupName?: string; equipmentId?: string } = {}) =>
+    call<{ note: { id: string; title: string } }>(
+      `/mail/messages/${messageId}/to-note`, { method: 'POST', body: JSON.stringify(data) }),
+
   // ── Письмо ────────────────────────────────────────────────────────────────
   prepare: (p: { accountId: string; mode: string; messageId?: string }) =>
     call<{

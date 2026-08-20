@@ -7,7 +7,16 @@
  *    отдельного хранения открытое одним письмо пропадало бы из непрочитанных
  *    у остальных девяти;
  *  - переписку нельзя молча перехватить у того, кто её ведёт;
- *  - чужой личный ящик не виден никому, включая администратора.
+ *  - чужой личный ящик не виден никому, включая администратора;
+ *  - сцепка с программой: вложение ложится в Проводник, письмо — в Блокнот.
+ *
+ * Что набору нужно, он заводит сам: второго сотрудника и личный ящик. Ждать,
+ * что они окажутся в базе, нельзя — прогон стал бы зависеть от того, что там
+ * лежало, и падал бы на чистой установке. Письма завести нечем: они приходят
+ * только с почтового сервера, поэтому проверки, которым нужны письма,
+ * честно пропускаются с пометкой, а не выдаются за пройденные.
+ *
+ * За собой набор прибирает: заведённое им — удаляет.
  *
  * Нужен поднятый сервер: `npx tsx server.ts`.
  */
@@ -43,33 +52,78 @@ async function login(symbol: string, password: string): Promise<string> {
   return r.json?.token || '';
 }
 
+const SHARED_MAIL = 'проверка-общая@flux.invalid';
+const PERSONAL_MAIL = 'проверка-личная@flux.invalid';
+const MATE_SYMBOL = 'FluxTestMate';
+
+/** Убрать за собой всё, что набор завёл сам. Чужого не трогаем. */
+async function cleanup(admin: string, made: {
+  shared: any; personal: any; mate: any;
+  sharedMine: boolean; personalMine: boolean; mateMine: boolean;
+}) {
+  if (made.sharedMine && made.shared?.id) await call('DELETE', `/api/mail/accounts/${made.shared.id}`, admin);
+  if (made.personalMine && made.personal?.id) await call('DELETE', `/api/mail/accounts/${made.personal.id}`, admin);
+  if (made.mateMine && made.mate?.id) await call('DELETE', `/api/users/${made.mate.id}`, admin);
+}
+
 const run = async () => {
   console.log('1. Вход');
   const admin = await login(ADMIN.symbol, ADMIN.password);
   eq('администратор вошёл', Boolean(admin), true);
   if (!admin) { console.log('\nСервер не отвечает или пароль не тот'); process.exit(1); }
 
-  console.log('\n2. Список ящиков');
-  const accounts = await call('GET', '/api/mail/accounts', admin);
-  const list: any[] = accounts.json?.accounts || [];
-  const shared = list.find((a) => a.scope === 'SHARED');
-  const personal = list.find((a) => a.scope === 'PERSONAL');
-  eq('общий ящик виден', Boolean(shared), true);
-  eq('личный ящик виден', Boolean(personal), true);
-  eq('пароль наружу не отдаётся', list.every((a) => a.secret === undefined && a.secretNonce === undefined), true);
-  if (!shared) { console.log('\nОбщий ящик не подключён — остальные проверки пропущены'); process.exit(fail ? 1 : 0); }
+  console.log('\n2. Ящики, которых набору не хватает, он заводит сам');
+  const before = await call('GET', '/api/mail/accounts', admin);
+  const had: any[] = before.json?.accounts || [];
+  eq('пароль наружу не отдаётся', had.every((a) => a.secret === undefined && a.secretNonce === undefined), true);
+
+  let shared = had.find((a) => a.scope === 'SHARED');
+  let sharedMine = false;
+  if (!shared) {
+    // active: false — ящик выдуманный, ждать по нему письма незачем
+    const made = await call('POST', '/api/mail/accounts', admin, {
+      scope: 'SHARED', label: 'Проверочная общая', email: SHARED_MAIL,
+      password: 'проверка', imapHost: 'imap.invalid', smtpHost: 'smtp.invalid', active: false,
+    });
+    shared = made.json?.account;
+    sharedMine = Boolean(shared);
+    eq('общий ящик заведён', Boolean(shared), true);
+  } else {
+    console.log('  · общий ящик уже подключён — берём его');
+  }
+  if (!shared) { console.log('\nБез общего ящика проверять нечего'); process.exit(1); }
+
+  let personal = had.find((a) => a.scope === 'PERSONAL');
+  let personalMine = false;
+  if (!personal) {
+    const made = await call('POST', '/api/mail/accounts', admin, {
+      email: PERSONAL_MAIL, password: 'проверка',
+      imapHost: 'imap.invalid', smtpHost: 'smtp.invalid', active: false,
+    });
+    personal = made.json?.account;
+    personalMine = Boolean(personal);
+    eq('личный ящик заведён', Boolean(personal), true);
+  }
 
   console.log('\n3. Второй сотрудник');
-  // Нужен кто-то ещё: смысл общего ящика виден только вдвоём
+  // Смысл общего ящика виден только вдвоём — одного сеанса не хватит
   const users = await call('GET', '/api/users', admin);
-  const others: any[] = (users.json?.users || users.json || []).filter?.((u: any) => u.symbol !== ADMIN.symbol) || [];
-  const mate = others[0];
-  eq('в конторе есть второй сотрудник', Boolean(mate), true);
-  if (!mate) { console.log('\nНекому проверять общий доступ'); process.exit(fail ? 1 : 0); }
-
-  // Задаём ему известный пароль, чтобы войти от его имени
+  const all: any[] = users.json?.users || users.json || [];
+  let mate = all.find?.((u: any) => u.symbol !== ADMIN.symbol);
+  let mateMine = false;
   const pass = 'проверка-общего-ящика';
-  await call('PUT', `/api/users/${mate.id}`, admin, { password: pass, isActive: true });
+  if (!mate) {
+    const made = await call('POST', '/api/users', admin, {
+      name: 'Проверочный Сотрудник', symbol: MATE_SYMBOL, password: pass, role: 'ENGINEER_VENT',
+    });
+    mate = made.json?.user || made.json;
+    mateMine = Boolean(mate?.id);
+    eq('второй сотрудник заведён', Boolean(mate?.id), true);
+  } else {
+    await call('PUT', `/api/users/${mate.id}`, admin, { password: pass, isActive: true });
+  }
+  if (!mate?.id) { console.log('\nНекому проверять общий доступ'); process.exit(1); }
+
   const mateToken = await login(mate.symbol, pass);
   eq('второй сотрудник вошёл', Boolean(mateToken), true);
   if (!mateToken) process.exit(1);
@@ -83,8 +137,12 @@ const run = async () => {
   console.log('\n5. Прочитано — у каждого своё');
   const t1 = await call('GET', `/api/mail/threads?accountId=${shared.id}`, admin);
   const threads: any[] = t1.json?.threads || [];
-  eq('в общем ящике есть переписки', threads.length > 0, true);
-  if (!threads.length) process.exit(fail ? 1 : 0);
+  if (!threads.length) {
+    console.log('  · в общем ящике нет писем — проверки 5–7 и 10 пропущены');
+    await cleanup(admin, { shared, personal, mate, sharedMine, personalMine, mateMine });
+    console.log(`\n${ok} проверок пройдено, ${fail} провалено`);
+    process.exit(fail ? 1 : 0);
+  }
 
   const target = threads.find((t) => t.unread) || threads[0];
   await call('POST', '/api/mail/flag', admin, { ids: target.ids, flag: 'seen', on: true });
@@ -140,6 +198,49 @@ const run = async () => {
   await call('POST', '/api/mail/shared/claim', admin, {
     accountId: shared.id, threadKey: target.threadKey, on: false,
   });
+
+  console.log('\n10. Сцепка с программой');
+  // Проверяется на любом письме с вложением — своём или из общего ящика.
+  // Если таких писем в базе нет, раздел просто не с чем сцеплять.
+  const allAccounts = [shared, personal].filter(Boolean);
+  let withFile: { accountId: string; threadKey: string } | null = null;
+  for (const a of allAccounts) {
+    const r = await call('GET', `/api/mail/threads?accountId=${a.id}`, admin);
+    const t = (r.json?.threads || []).find((x: any) => x.hasFiles);
+    if (t) { withFile = { accountId: a.id, threadKey: t.threadKey }; break; }
+  }
+
+  if (!withFile) {
+    console.log('  · писем с вложениями нет — сцепка не проверена');
+  } else {
+    const one = await call('GET', `/api/mail/thread?accountId=${withFile.accountId}&threadKey=${encodeURIComponent(withFile.threadKey)}`, admin);
+    const att = (one.json?.attachments || [])[0];
+    const letter = (one.json?.messages || [])[0];
+    eq('вложение нашлось', Boolean(att), true);
+
+    const folders = await call('GET', '/api/mail/link/folders', admin);
+    const folderId = (folders.json?.folders || [])[0]?.id || '';
+    eq('есть куда сохранить', Boolean(folderId), true);
+
+    const saved = await call('POST', `/api/mail/attachments/${att?.id}/to-explorer`, admin, { folderId });
+    eq('вложение легло в Проводник', Boolean(saved.json?.file?.id), true);
+
+    // Второй раз тот же файл не должен затирать первый
+    const again = await call('POST', `/api/mail/attachments/${att?.id}/to-explorer`, admin, { folderId });
+    eq('повтор не затирает — имя разведено',
+      again.json?.file?.name !== saved.json?.file?.name, true);
+
+    const note = await call('POST', `/api/mail/messages/${letter?.id}/to-note`, admin, {});
+    eq('письмо стало заметкой', Boolean(note.json?.note?.id), true);
+
+    // Чужому письму сцепка недоступна так же, как и само письмо
+    const foreign = await call('POST', `/api/mail/messages/${letter?.id}/to-note`, mateToken, {});
+    const mineOnly = personal && withFile.accountId === personal.id;
+    if (mineOnly) eq('к чужому письму не прицепиться', foreign.status, 404);
+    else eq('к письму общего ящика прицепиться можно', foreign.status, 200);
+  }
+
+  await cleanup(admin, { shared, personal, mate, sharedMine, personalMine, mateMine });
 
   console.log(`\n${ok} проверок пройдено, ${fail} провалено`);
   process.exit(fail ? 1 : 0);

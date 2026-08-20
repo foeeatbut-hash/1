@@ -1,0 +1,208 @@
+import type { Express, Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
+import { getPrisma, sendError, resolveProjectId } from '../context.js';
+import { readableAccount } from '../mail/access.js';
+import * as imap from '../mail/imap.js';
+import { credsOf } from '../mail/sync.js';
+
+/**
+ * Письмо становится частью проекта.
+ *
+ * Ради этого почта и живёт внутри Flux, а не в соседнем окне браузера. Смета
+ * приходит вложением — и должна лечь в Проводник проекта, а не остаться в
+ * почте, откуда её потом никто не найдёт. Договорённость из переписки должна
+ * оказаться в Блокноте рядом с остальными записями по проекту.
+ *
+ * Оба действия делают копию и ничего не удаляют: письмо остаётся письмом.
+ */
+
+const str = (v: any, max = 300) => String(v ?? '').trim().slice(0, max);
+
+export interface MailLinkDeps { userDataPath: string }
+
+/**
+ * Проводник хранит содержимое файла строкой data: — так же, как при загрузке
+ * файла человеком. Больше этого в строку класть нельзя: база раздувается, а
+ * чертёж всё равно удобнее держать в почте и скачивать по требованию.
+ */
+const TO_EXPLORER_LIMIT = 25 * 1024 * 1024;
+
+const mailDir = (base: string, accountId: string, messageId: string) =>
+  path.join(base, 'mail_files', accountId, messageId);
+
+/** Вложение с диска, а если его там ещё нет — с почтового сервера. */
+async function attachmentBytes(deps: MailLinkDeps, att: any, msg: any, acc: any): Promise<Buffer | null> {
+  if (att.filePath && fs.existsSync(att.filePath)) return fs.readFileSync(att.filePath);
+
+  const prisma = getPrisma();
+  const folder = await prisma.mailFolder.findUnique({ where: { id: msg.folderId } });
+  if (!folder) return null;
+  const buf = await imap.fetchAttachment(credsOf(acc), folder.path, msg.uid, att.partId);
+  if (!buf) return null;
+
+  const safeName = String(att.fileName || 'файл').replace(/[\\/:*?"<>|]/g, '_');
+  const dir = mailDir(deps.userDataPath, acc.id, msg.id);
+  fs.mkdirSync(dir, { recursive: true });
+  const full = path.join(dir, safeName);
+  fs.writeFileSync(full, buf);
+  await prisma.mailAttachment.update({ where: { id: att.id }, data: { filePath: full, size: buf.length } });
+  return buf;
+}
+
+/** Письмо и его ящик с проверкой доступа. */
+async function letterOf(req: Request, messageId: string) {
+  const prisma = getPrisma();
+  const msg = await prisma.mailMessage.findUnique({ where: { id: messageId } });
+  if (!msg) return null;
+  const access = await readableAccount(req, msg.accountId);
+  if (!access) return null;
+  return { msg, acc: access.acc };
+}
+
+/** Имя, которого ещё нет в этой папке: «смета.pdf» → «смета (2).pdf». */
+async function freeName(name: string, folderId: string | null): Promise<string> {
+  const prisma = getPrisma();
+  const siblings = await prisma.fileNode.findMany({
+    where: { folderId: folderId || null, deletedAt: null }, select: { name: true },
+  });
+  const taken = new Set(siblings.map((f: any) => f.name));
+  if (!taken.has(name)) return name;
+
+  const dot = name.lastIndexOf('.');
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : '';
+  for (let i = 2; i < 500; i++) {
+    const next = `${base} (${i})${ext}`;
+    if (!taken.has(next)) return next;
+  }
+  return `${base} (${Date.now()})${ext}`;
+}
+
+export function registerMailLinkRoutes(app: Express, deps: MailLinkDeps): void {
+  /** Вложение → в Проводник. */
+  app.post('/api/mail/attachments/:id/to-explorer', async (req: Request, res: Response) => {
+    try {
+      const prisma = getPrisma();
+      const me = (req as any).authUser;
+      if (!me) return res.status(401).json({ error: 'Требуется вход' });
+
+      const att = await prisma.mailAttachment.findUnique({ where: { id: req.params.id } });
+      if (!att) return res.status(404).json({ error: 'Вложение не найдено' });
+      const letter = await letterOf(req, att.messageId);
+      if (!letter) return res.status(404).json({ error: 'Вложение не найдено' });
+
+      if (att.size > TO_EXPLORER_LIMIT) {
+        return res.status(400).json({
+          error: `Вложение больше ${Math.round(TO_EXPLORER_LIMIT / 1024 / 1024)} МБ. Такие лучше скачивать из письма, а не хранить в Проводнике.`,
+        });
+      }
+
+      const buf = await attachmentBytes(deps, att, letter.msg, letter.acc);
+      if (!buf) return res.status(502).json({ error: 'Не удалось получить вложение с почтового сервера' });
+
+      const folderId = str(req.body?.folderId, 60) || null;
+      // Папка задаёт раздел: личная папка — личный файл, общая — общий
+      let scope = 'SHARED';
+      let ownerId: string | null = null;
+      if (folderId) {
+        const parent = await prisma.folder.findUnique({ where: { id: folderId } });
+        if (!parent) return res.status(404).json({ error: 'Папка не найдена' });
+        scope = (parent as any).scope || 'SHARED';
+        ownerId = (parent as any).ownerId || null;
+      }
+
+      const name = await freeName(String(att.fileName || 'файл').replace(/[\\/:*?"<>|]/g, '_'), folderId);
+      const file = await prisma.fileNode.create({
+        data: {
+          name,
+          folderId,
+          filePath: `/${scope === 'PERSONAL' ? 'personal' : 'shared'}/${name}`,
+          size: buf.length,
+          type: 'FILE',
+          department: 'Из почты',
+          scope,
+          ownerId,
+          content: `data:${att.mimeType || 'application/octet-stream'};base64,${buf.toString('base64')}`,
+          createdById: me.id,
+          updatedById: me.id,
+        },
+      });
+
+      // Кто и откуда положил файл — видно в Журнале
+      await prisma.systemChangeLog.create({
+        data: {
+          userName: me.name || '', userSymbol: me.symbol || '',
+          description: `Вложение «${name}» из письма «${letter.msg.subject || 'без темы'}» сохранено в Проводник`,
+          targetRoute: '/explorer',
+        },
+      }).catch(() => null);
+
+      res.json({ file: { id: file.id, name: file.name, folderId: file.folderId } });
+    } catch (err) { sendError(res, err); }
+  });
+
+  /** Письмо → в Блокнот. */
+  app.post('/api/mail/messages/:id/to-note', async (req: Request, res: Response) => {
+    try {
+      const prisma = getPrisma();
+      const me = (req as any).authUser;
+      if (!me) return res.status(401).json({ error: 'Требуется вход' });
+
+      const letter = await letterOf(req, req.params.id);
+      if (!letter) return res.status(404).json({ error: 'Письмо не найдено' });
+      const { msg, acc } = letter;
+
+      // Тело могло ещё не скачаться — тогда берём то, что есть в списке
+      const body = msg.bodyHtml || (msg.bodyText ? `<p>${escapeHtml(msg.bodyText).replace(/\n/g, '<br>')}</p>` : '')
+        || `<p>${escapeHtml(msg.snippet || '')}</p>`;
+
+      const when = new Date(msg.sentAt).toLocaleString('ru-RU', { dateStyle: 'long', timeStyle: 'short' });
+      const from = msg.fromName ? `${escapeHtml(msg.fromName)} &lt;${escapeHtml(msg.fromAddr)}&gt;` : escapeHtml(msg.fromAddr);
+      // Шапка нужна, чтобы через полгода было понятно, откуда взялась запись
+      const head =
+        `<p><b>Из письма</b><br>От: ${from}<br>Дата: ${when}<br>Ящик: ${escapeHtml(acc.email)}</p><hr>`;
+
+      const note = await prisma.userNote.create({
+        data: {
+          ownerId: me.id,
+          title: (msg.subject || 'Письмо без темы').slice(0, 120),
+          content: head + body,
+          groupName: str(req.body?.groupName, 80) || 'Из почты',
+          ...(str(req.body?.equipmentId, 60) ? { equipmentId: str(req.body?.equipmentId, 60) } : {}),
+        },
+      });
+
+      res.json({ note: { id: note.id, title: note.title } });
+    } catch (err) { sendError(res, err); }
+  });
+
+  /** Папки Проводника, куда можно положить вложение. */
+  app.get('/api/mail/link/folders', async (req: Request, res: Response) => {
+    try {
+      const prisma = getPrisma();
+      const me = (req as any).authUser;
+      if (!me) return res.json({ folders: [] });
+      const projectId = await resolveProjectId(str(req.query.projectId as string, 60));
+      const folders = await prisma.folder.findMany({
+        where: {
+          projectId,
+          deletedAt: null,
+          // Личные папки видит только их владелец — здесь то же правило,
+          // что и в самом Проводнике
+          OR: [{ scope: 'SHARED' }, { scope: 'PERSONAL', ownerId: me.id }],
+        },
+        select: { id: true, name: true, scope: true, parentId: true },
+        orderBy: { name: 'asc' },
+        take: 300,
+      });
+      res.json({ folders });
+    } catch (err) { sendError(res, err); }
+  });
+}
+
+function escapeHtml(s: string): string {
+  return String(s || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}

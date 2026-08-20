@@ -2,12 +2,16 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, Star, Archive, Trash2, Paperclip, Download, ImageOff, ChevronDown, AlertTriangle,
   CornerUpLeft, ReplyAll, Forward, UserCheck, MessageSquarePlus, CheckCircle2, Loader2,
+  FolderInput, NotebookPen,
 } from 'lucide-react';
 import {
   mailService, type MailAttachment, type MailMessage,
   type MailThreadState, type MailActivity,
 } from '../../services/mailService';
 import { parseAddrList, displayName, initialsOf, toneOf, type AvatarTone } from '../../lib/mailAddress';
+import { useToastStore } from '../../store/toastStore';
+import { useStore } from '../../store/store';
+import { useEscapeClose } from '../../lib/useDismiss';
 import { sanitizeMailHtml, mailFrameDoc, textToHtml } from '../../lib/mailHtml';
 
 /**
@@ -45,7 +49,7 @@ interface BodyState { text: string; html: string; error: string; loading: boolea
 
 /** Одно письмо в переписке. */
 function Letter({
-  msg, files, dark, expanded, onToggle, myAddr,
+  msg, files, dark, expanded, onToggle, myAddr, onToExplorer,
 }: {
   msg: MailMessage;
   files: MailAttachment[];
@@ -53,6 +57,7 @@ function Letter({
   expanded: boolean;
   onToggle: () => void;
   myAddr: string;
+  onToExplorer: (f: MailAttachment) => void;
 }) {
   const [body, setBody] = useState<BodyState>({ text: '', html: '', error: '', loading: false });
   const [showRemote, setShowRemote] = useState(false);
@@ -205,16 +210,32 @@ function Letter({
               </p>
               <div className="flex flex-wrap gap-2">
                 {visible.map((f) => (
-                  <a
+                  <div
                     key={f.id}
-                    href={mailService.attachmentUrl(f.id)}
-                    download={f.fileName}
-                    className="flex items-center gap-2 min-w-0 max-w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 px-2.5 py-1.5 hover:border-emerald-400 dark:hover:border-emerald-600 cursor-pointer"
+                    className="flex items-center gap-1 min-w-0 max-w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 pl-2.5 pr-1 py-1"
                   >
-                    <Download className="w-3.5 h-3.5 shrink-0 text-emerald-700 dark:text-emerald-400" />
-                    <span className="flex-1 min-w-0 truncate text-xs text-slate-700 dark:text-slate-300">{f.fileName}</span>
-                    <span className="shrink-0 text-2xs font-mono text-slate-400 dark:text-slate-500">{humanSize(f.size)}</span>
-                  </a>
+                    <a
+                      href={mailService.attachmentUrl(f.id)}
+                      download={f.fileName}
+                      title={`Скачать ${f.fileName}`}
+                      className="flex items-center gap-2 min-w-0 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5 shrink-0 text-emerald-700 dark:text-emerald-400" />
+                      <span className="flex-1 min-w-0 truncate text-xs text-slate-700 dark:text-slate-300">{f.fileName}</span>
+                      <span className="shrink-0 text-2xs font-mono text-slate-400 dark:text-slate-500">{humanSize(f.size)}</span>
+                    </a>
+                    {/* Смета из письма должна лечь в проект, а не остаться в
+                        почте, откуда её потом не найдут */}
+                    <button
+                      type="button"
+                      title="Сохранить в Проводник проекта"
+                      aria-label={`Сохранить ${f.fileName} в Проводник`}
+                      onClick={() => onToExplorer(f)}
+                      className="shrink-0 p-1 rounded text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
+                    >
+                      <FolderInput className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
@@ -254,6 +275,9 @@ export default function MailThread({
   const [activity, setActivity] = useState<MailActivity[]>([]);
   const [note, setNote] = useState('');
   const [noteBusy, setNoteBusy] = useState(false);
+  /** Вложение, которое кладём в Проводник; окно выбора папки открыто, пока оно задано */
+  const [toExplorer, setToExplorer] = useState<MailAttachment | null>(null);
+  const { addToast } = useToastStore();
   const [files, setFiles] = useState<MailAttachment[]>([]);
   const [openIds, setOpenIds] = useState<string[]>([]);
   const [error, setError] = useState('');
@@ -286,6 +310,16 @@ export default function MailThread({
   }, [accountId, threadKey]);
 
   const filesOf = (id: string) => files.filter((f) => f.messageId === id);
+
+  /** Письмо → запись в Блокноте, с шапкой «от кого и когда». */
+  const onToNote = async (messageId: string) => {
+    try {
+      const r = await mailService.toNote(messageId);
+      addToast(`Заметка «${r.note.title}» создана в Блокноте`, 'success');
+    } catch (err: any) {
+      addToast(err?.message || 'Не удалось создать заметку', 'error');
+    }
+  };
 
   return (
     <div className="flex-1 min-w-0 flex flex-col bg-slate-50 dark:bg-slate-950">
@@ -336,6 +370,7 @@ export default function MailThread({
             dark={dark}
             myAddr={myAddr}
             expanded={openIds.includes(m.id)}
+            onToExplorer={setToExplorer}
             onToggle={() => setOpenIds((prev) => (
               prev.includes(m.id) ? prev.filter((x) => x !== m.id) : [...prev, m.id]
             ))}
@@ -446,8 +481,109 @@ export default function MailThread({
           >
             <Forward className="w-3.5 h-3.5" /> Переслать
           </button>
+
+          {/* Договорённость из переписки должна оказаться в Блокноте рядом с
+              остальными записями по проекту, а не теряться в почте */}
+          <button
+            type="button"
+            onClick={() => void onToNote(messages[messages.length - 1].id)}
+            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer"
+          >
+            <NotebookPen className="w-3.5 h-3.5" /> В Блокнот
+          </button>
         </div>
       )}
+
+      {toExplorer && (
+        <FolderPicker
+          attachment={toExplorer}
+          onClose={() => setToExplorer(null)}
+          onDone={() => setToExplorer(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Куда положить вложение.
+ *
+ * Папку спрашиваем, а не кладём в корень: в Проводнике у проекта своя
+ * раскладка, и файл, упавший в общую кучу, теряется так же надёжно, как в
+ * почте. Список — плоский, с пометкой личных папок: дерево на два уровня
+ * здесь только мешало бы выбирать.
+ */
+function FolderPicker({ attachment, onClose, onDone }: {
+  attachment: MailAttachment;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { addToast } = useToastStore();
+  const activeProject = useStore((s) => s.activeProject);
+  const [folders, setFolders] = useState<Array<{ id: string; name: string; scope: string }>>([]);
+  const [picked, setPicked] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  useEscapeClose(true, () => { if (!busy) onClose(); });
+
+  useEffect(() => {
+    let alive = true;
+    mailService.linkFolders(activeProject?.id || '')
+      .then((r) => { if (alive) { setFolders(r.folders); setLoading(false); } })
+      .catch(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [activeProject?.id]);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const r = await mailService.toExplorer(attachment.id, picked);
+      addToast(`«${r.file.name}» сохранён в Проводник`, 'success');
+      onDone();
+    } catch (err: any) {
+      addToast(err?.message || 'Не удалось сохранить вложение', 'error');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[85] overflow-y-auto" role="dialog" aria-modal="true" aria-label="Куда сохранить вложение">
+      <div className="fixed inset-0 bg-slate-950/55 backdrop-blur-md" onClick={() => !busy && onClose()} />
+      <div className="flex min-h-full items-center justify-center p-4">
+        <div className="relative w-full max-w-md rounded-lg bg-white dark:bg-slate-900 shadow-xl border border-slate-200 dark:border-slate-800 p-5 flex flex-col gap-3">
+          <h3 className="text-base font-bold text-slate-900 dark:text-white">Сохранить в Проводник</h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 break-words">
+            {attachment.fileName} · {humanSize(attachment.size)}
+          </p>
+          {loading ? (
+            <p className="text-sm text-slate-500 dark:text-slate-400 py-4">Загружаем папки…</p>
+          ) : (
+            <select
+              value={picked}
+              onChange={(e) => setPicked(e.target.value)}
+              aria-label="Папка"
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm text-slate-900 dark:text-white cursor-pointer"
+            >
+              <option value="">Общий раздел, без папки</option>
+              {folders.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}{f.scope === 'PERSONAL' ? ' (личная)' : ''}
+                </option>
+              ))}
+            </select>
+          )}
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button type="button" onClick={onClose} disabled={busy}
+              className="px-3 py-2 rounded-lg text-sm font-semibold text-slate-650 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-850 cursor-pointer">
+              Отмена
+            </button>
+            <button type="button" onClick={save} disabled={busy || loading}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-semibold cursor-pointer disabled:opacity-60">
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FolderInput className="w-4 h-4" />}
+              Сохранить
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

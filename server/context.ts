@@ -38,6 +38,15 @@ export async function notifyUser(userId: string, category: string, title: string
   try { if (_notifier && userId) await _notifier(userId, category, title, body, targetRoute); } catch (_) {}
 }
 
+// Широковещательное событие всем открытым окнам программы. Реализация живёт
+// в server.ts вместе с socket.io; вынесенные модули зовут broadcast() лениво.
+type Broadcaster = (event: string, payload: any) => void;
+let _broadcast: Broadcaster | null = null;
+export function setBroadcaster(fn: Broadcaster): void { _broadcast = fn; }
+export function broadcast(event: string, payload: any): void {
+  try { if (_broadcast) _broadcast(event, payload); } catch (_) { /* сокет мог отвалиться */ }
+}
+
 // Настройка приложения: глобальная (userId=null) или персональная.
 // Используется и в server.ts, и в вынесенных роутах — живёт здесь, чтобы не
 // дублироваться.
