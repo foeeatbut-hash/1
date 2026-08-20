@@ -9,7 +9,7 @@
  *  - pad: нужен ли внешний отступ p-6 (у таблиц/чатов свой лэйаут)
  */
 import React, { lazy } from 'react';
-import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, Table2, NotebookPen, MessagesSquare, Wand2, Settings, ClipboardList, Users, Mail } from 'lucide-react';
+import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, Table2, NotebookPen, MessagesSquare, Wand2, Settings, ClipboardList, Users, LifeBuoy, Mail } from 'lucide-react';
 
 const Dashboard = lazy(() => import('../screens/Dashboard'));
 const Explorer = lazy(() => import('../screens/Explorer'));
@@ -26,6 +26,7 @@ const LogsManagement = lazy(() => import('../screens/LogsManagement'));
 const ProcurementManagement = lazy(() => import('../screens/ProcurementManagement'));
 const SettingsScreen = lazy(() => import('../screens/SettingsScreen'));
 const ConstructorScreen = lazy(() => import('../screens/ConstructorScreen'));
+const Handbook = lazy(() => import('../screens/Handbook'));
 
 export interface SectionDef {
   path: string;
@@ -53,6 +54,7 @@ export const SECTIONS: SectionDef[] = [
   { path: '/mail', title: 'Почта', icon: Mail, scroll: 'fixed', pad: true, Component: MailScreen },
   { path: '/generator', title: 'Генератор', icon: Wand2, scroll: 'auto', pad: true, Component: UniversalGenerator },
   { path: '/settings', title: 'Настройки', icon: Settings, scroll: 'auto', pad: true, Component: SettingsScreen },
+  { path: '/handbook', title: 'Руководство', icon: LifeBuoy, scroll: 'fixed', pad: true, Component: Handbook },
   { path: '/logs', title: 'Журнал', icon: ClipboardList, scroll: 'auto', pad: true, Component: LogsManagement },
   { path: '/users', title: 'Сотрудники', icon: Users, scroll: 'auto', pad: true, adminOnly: true, Component: UsersManagement },
 ];

@@ -43,9 +43,18 @@ export default function RobotDock() {
   const [face, setFace] = useState<FaceName>('happy');
   const [blink, setBlink] = useState(false);
   const [out, setOut] = useState(0);        // 0 прячется · 1 выглядывает · 2 вышел
+  // Ниже кнопок правого рельса: «Уведомления», «Помощник», «Справка» занимают
+  // сверху около 170 точек, и робот на 96 садился прямо на третью кнопку —
+  // подпись читалась наполовину, а нажатие попадало в робота. Сохранённое
+  // положение тоже подтягиваем: иначе у того, кто уже двигал робота, кнопка
+  // так и осталась бы закрытой.
+  const RAIL_BOTTOM = 176;
   const [y, setY] = useState<number>(() => {
-    try { const v = parseInt(localStorage.getItem(Y_KEY) || '', 10); if (Number.isFinite(v)) return v; } catch (_) {}
-    return 96;
+    try {
+      const v = parseInt(localStorage.getItem(Y_KEY) || '', 10);
+      if (Number.isFinite(v)) return Math.max(RAIL_BOTTOM, v);
+    } catch (_) {}
+    return RAIL_BOTTOM + 24;
   });
   const [rubber, setRubber] = useState(0);  // «резинка» при попытке утащить в сторону
   const drag = useRef<{ y0: number; x0: number; top: number; moved: boolean } | null>(null);

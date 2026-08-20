@@ -4,7 +4,7 @@ import { formatName } from '../lib/docFormula';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 const SignatureEditor = React.lazy(() => import('./SignatureEditor'));
-import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen, PenLine } from 'lucide-react';
+import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen, PenLine, Mail, LifeBuoy } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ToastProvider from './ToastProvider';
 import ModalProvider from './ModalProvider';
@@ -51,6 +51,33 @@ export default function Layout() {
     return p ? (p.stack.includes(p.active) ? p.active : p.stack[p.stack.length - 1]) : '/';
   });
   const openInActivePane = useWorkspaceStore((s) => s.openInActivePane);
+
+  /**
+   * F1 — руководство по разделу, в котором человек сейчас находится.
+   *
+   * Открывать общее оглавление и предлагать искать себя в нём — значит
+   * заставлять человека объяснять программе то, что она и так знает: он
+   * стоит в Тегах, спрашивает про Теги. Путь уходит в адрес, раздел
+   * «Руководство» разбирает его сам.
+   */
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'F1') return;
+      e.preventDefault();
+      const path = wsActivePath || '/';
+      if (path === '/handbook') return; // уже здесь — не мешаем читать
+      // Панель хранит адрес раздела отдельно от пути: сначала кладём адрес с
+      // вопросом, потом открываем вкладку, иначе руководство откроется на
+      // статье, которую читали до этого
+      const ws = useWorkspaceStore.getState();
+      const href = `/handbook?for=${encodeURIComponent(path)}`;
+      ws.setFrozenHref(ws.activePaneId, '/handbook', href);
+      openInActivePane('/handbook');
+      navigate(href);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [wsActivePath, openInActivePane]);
   // ПКМ по разделу в меню: открыть в конкретной панели / в отдельном окне
   const [navMenu, setNavMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   // Вход пользователя: восстанавливаем его сохранённую раскладку рабочего стола
@@ -389,7 +416,11 @@ export default function Layout() {
     { items: [
       { name: 'Блокнот', path: '/notes', icon: NotebookPen },
       { name: 'Чат', path: '/chat', icon: MessagesSquare },
+      { name: 'Почта', path: '/mail', icon: Mail },
       ...(user && user.role === 'ADMIN' ? [{ name: 'Сотрудники', path: '/users', icon: Users }] : []),
+    ] },
+    { items: [
+      { name: 'Руководство', path: '/handbook', icon: LifeBuoy },
     ] },
   ];
 

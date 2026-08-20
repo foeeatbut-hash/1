@@ -40,9 +40,31 @@ const SECTIONS: [string, string][] = [
   ['Блокнот', '/notes'],
   ['Чат', '/chat'],
   ['Почта', '/mail'],
+  ['Руководство', '/handbook'],
   ['Сотрудники', '/users'],
   ['Настройки', '/settings'],
 ];
+
+/**
+ * Список выше — руками, и он уже отставал: раздел «Руководство» появился, а
+ * обход о нём не знал и всё равно рапортовал «все тесты пройдены». Сверяем с
+ * настоящим реестром разделов, чтобы такое молчание не повторилось. Осознанно
+ * не обходим только «Генератор» и «Журнал» — они пусты без данных проекта.
+ */
+const SKIP = new Set(['/generator', '/logs']);
+{
+  // Файл исполняется через tsx как CommonJS: import.meta здесь нет
+  const { readFileSync } = require('fs') as typeof import('fs');
+  const { resolve } = require('path') as typeof import('path');
+  const src = readFileSync(resolve(__dirname, '../src/workspace/sections.tsx'), 'utf-8');
+  const real = [...src.matchAll(/path: '([^']+)', title: '([^']+)'/g)].map((m) => m[1]);
+  const covered = new Set(SECTIONS.map(([, p]) => p));
+  const missed = real.filter((p) => !covered.has(p) && !SKIP.has(p));
+  if (missed.length) {
+    console.log(`✗ разделы вне обхода: ${missed.join(', ')}`);
+    process.exit(1);
+  }
+}
 
 /**
  * Ширины окна. 1920 и 1440 — мониторы, 1280 и 1100 — ноутбуки, 960 и 820 —
