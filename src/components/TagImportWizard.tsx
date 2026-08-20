@@ -10,6 +10,7 @@ import { dataService } from '../services/dataService';
 import { useToastStore } from '../store/toastStore';
 import { countOf } from '../lib/plural';
 import { FIELDS, FIELD_LABEL, detectField, FieldKey as SharedFieldKey } from '../capture/fields';
+import { useEscapeClose } from '../lib/useDismiss';
 
 // Поля и угадывание колонок — общий модуль: тем же словарём разбирает
 // таблицу захват с экрана (src/capture)
@@ -24,6 +25,9 @@ interface Props {
 }
 
 export default function TagImportWizard({ projectId, existingCodes, onClose, onImported }: Props) {
+  // Во время загрузки окно не закрываем: импорт уже идёт
+  useEscapeClose(true, () => { if (!importing) onClose(); });
+
   const { addToast } = useToastStore();
   const [step, setStep] = useState<'source' | 'map'>('source');
   const [excelFiles, setExcelFiles] = useState<{ id: string; name: string; folder?: string }[]>([]);
@@ -243,7 +247,7 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
                           <FileSpreadsheet className="w-5 h-5 text-emerald-600 shrink-0" />
                           <div className="min-w-0">
                             <div className="text-sm font-semibold text-slate-800 dark:text-white truncate">{f.name}</div>
-                            {f.folder && <div className="text-xs text-slate-400 flex items-center gap-1 truncate"><FolderIcon className="w-3 h-3" /> {f.folder}</div>}
+                            {f.folder && <div className="text-xs text-slate-400 flex items-center gap-1 min-w-0"><FolderIcon className="w-3 h-3 shrink-0" /> <span className="flex-1 min-w-0 truncate">{f.folder}</span></div>}
                           </div>
                         </button>
                       ))}
@@ -389,7 +393,7 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
                 <AlertTriangle className="w-5 h-5" />
                 <h4 className="text-sm font-bold text-slate-900 dark:text-white">Такие теги уже есть</h4>
               </div>
-              <p className="text-xs text-slate-500 mb-2">Найдено совпадений по коду: <strong className="text-slate-700 dark:text-slate-200">{dupDialog.codes.length}</strong>. Что сделать с уже существующими тегами?</p>
+              <p className="text-xs text-slate-500 mb-2">Найдено совпадений по коду: <strong className="text-slate-700 dark:text-slate-300">{dupDialog.codes.length}</strong>. Что сделать с уже существующими тегами?</p>
               <div className="max-h-24 overflow-y-auto text-xs font-mono text-slate-500 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-lg p-2 mb-4">
                 {dupDialog.codes.slice(0, 30).join(', ')}{dupDialog.codes.length > 30 ? ' …' : ''}
               </div>

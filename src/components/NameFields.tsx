@@ -117,7 +117,7 @@ export default function NameFields({
               не даёт проверить, правильно ли программа его склонила. */}
           <dl className="space-y-0.5 text-xs">
             <div className="flex gap-1.5"><dt className="text-slate-400 shrink-0 w-[5.5rem]">в подписи:</dt>
-              <dd className="font-semibold text-slate-700 dark:text-slate-200">{initials(parts)}</dd></div>
+              <dd className="font-semibold text-slate-700 dark:text-slate-300">{initials(parts)}</dd></div>
             <div className="flex gap-1.5"><dt className="text-slate-400 shrink-0 w-[5.5rem]">полностью:</dt>
               <dd className="text-slate-600 dark:text-slate-300">{fullNameOf(parts)}</dd></div>
             <div className="flex gap-1.5"><dt className="text-slate-400 shrink-0 w-[5.5rem]">от кого:</dt>

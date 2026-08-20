@@ -2833,8 +2833,8 @@ export default function Registry() {
           <div className="grid grid-cols-1 @[560px]:grid-cols-2 @[760px]:grid-cols-3 @[1080px]:grid-cols-12 gap-2.5 items-end">
             {/* Tag identifier code */}
             <div className="relative flex flex-col gap-1 @[1080px]:col-span-3">
-              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase flex justify-between leading-none truncate">
-                <span>Код тега (EN) *</span>
+              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase flex justify-between leading-none min-w-0 gap-2">
+                <span className="truncate">Код тега (EN) *</span>
                 {newTagIdentifier && !isIdentifierUnique && (
                   <span className="text-xs text-rose-550 lowercase font-semibold">Занят</span>
                 )}
@@ -2901,7 +2901,7 @@ export default function Registry() {
 
             {/* Required Mark input field */}
             <div className="flex flex-col gap-1 animate-fadeIn @[1080px]:col-span-2">
-              <label className="text-xs font-bold text-slate-400 dark:text-slate-555 uppercase leading-none truncate">
+              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase leading-none truncate">
                 Марка оборудования *
               </label>
               <input
@@ -2916,7 +2916,7 @@ export default function Registry() {
 
             {/* Main Name string input */}
             <div className="flex flex-col gap-1 @[1080px]:col-span-3">
-              <label className="text-xs font-bold text-slate-400 dark:text-slate-555 uppercase leading-none truncate">
+              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase leading-none truncate">
                 Главное наименование
               </label>
               <input
@@ -2930,7 +2930,7 @@ export default function Registry() {
 
             {/* Actuality Selector */}
             <div className="flex flex-col gap-1 @[1080px]:col-span-2">
-              <label className="text-xs font-bold text-slate-400 dark:text-slate-555 uppercase leading-none truncate">
+              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase leading-none truncate">
                 Актуальность
               </label>
               <CustomSelect
@@ -3140,7 +3140,7 @@ export default function Registry() {
                   <button type="button"
                     onClick={(e) => { e.stopPropagation(); handleCenterClick(); }}
                     title="1 клик — выбрать главного родителя и центрировать его дерево; 2 клика — вписать весь холст"
-                    className="px-2.5 py-1.5 bg-slate-200/70 dark:bg-slate-850 hover:bg-slate-300 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
+                    className="px-2.5 py-1.5 bg-slate-200/70 dark:bg-slate-850 hover:bg-slate-300 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-300 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
                   >
                     <RefreshCw className="w-3 h-3 text-emerald-600" />
                     Центрировать
@@ -3452,7 +3452,7 @@ export default function Registry() {
                           onMouseLeave={() => setHoveredPort(null)}
                           title="Родительский ввод (Left Port)"
                         >
-                          <div className="w-1.5 h-1.5 rounded-full bg-slate-700 dark:bg-slate-200 m-auto mt-[4px]" />
+                          <div className="w-1.5 h-1.5 rounded-full bg-slate-700 dark:bg-slate-300 m-auto mt-[4px]" />
                         </div>
 
                         <div
@@ -3466,7 +3466,7 @@ export default function Registry() {
                           onMouseLeave={() => setHoveredPort(null)}
                           title="Дочерний выход (Right Port)"
                         >
-                          <div className="w-1.5 h-1.5 rounded-full bg-slate-700 dark:bg-slate-200 m-auto mt-[4px]" />
+                          <div className="w-1.5 h-1.5 rounded-full bg-slate-700 dark:bg-slate-300 m-auto mt-[4px]" />
                         </div>
                         </>)}
 
@@ -3548,15 +3548,15 @@ export default function Registry() {
 
                         {/* EXPANDED SECTION */}
                         {isExpanded && (
-                          <div className="border-t border-slate-105 dark:border-slate-850 animate-fadeIn text-slate-800 dark:text-slate-200">
+                          <div className="border-t border-slate-105 dark:border-slate-850 animate-fadeIn text-slate-800 dark:text-slate-300">
                             
                             {/* INFO TAG FLUID/DEPT */}
                             <div className="px-4 py-2 bg-slate-50/40 dark:bg-slate-950/20 text-xs text-slate-400 flex justify-between border-b border-slate-100 dark:border-slate-900 font-medium">
                               <span className="truncate max-w-[130px]" title={tag.department}>
-                                Отд: <strong className="text-slate-700 dark:text-slate-200">{tag.department || 'Комплекс'}</strong>
+                                Отд: <strong className="text-slate-700 dark:text-slate-300">{tag.department || 'Комплекс'}</strong>
                               </span>
                               <span className="truncate max-w-[120px]" title={tag.fluid}>
-                                Среда: <strong className="text-slate-700 dark:text-slate-200">{tag.fluid || 'Воздух'}</strong>
+                                Среда: <strong className="text-slate-700 dark:text-slate-300">{tag.fluid || 'Воздух'}</strong>
                               </span>
                             </div>
 
@@ -3611,7 +3611,7 @@ export default function Registry() {
                                       .map(t => (
                                         <button type="button" key={t.id}
                                           onClick={async (e) => { e.stopPropagation(); await handleAddConnection(tag.id, t.id); setLinkPicker(null); }}
-                                          className="w-full flex items-center gap-1.5 px-2 py-1 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-left text-xs font-mono font-bold text-slate-700 dark:text-slate-200 cursor-pointer">
+                                          className="w-full flex items-center gap-1.5 px-2 py-1 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-left text-xs font-mono font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
                                           {t.identifier}
                                         </button>
                                       ))}
@@ -3695,7 +3695,7 @@ export default function Registry() {
                                           <div className="flex items-center gap-1.5 min-w-0">
                                             <div className={`w-1.5 h-1.5 rounded-full ${config.text} bg-current shrink-0`} />
                                             <span
-                                              className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate"
+                                              className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate"
                                               title={`${desc.text}${desc.createdBy ? `\nСоздал: ${desc.createdBy}${desc.createdAt ? ` (${formatDateStr(desc.createdAt)})` : ''}` : ''}${desc.updatedBy ? `\nИзменил: ${desc.updatedBy}${desc.updatedAt ? ` (${formatDateStr(desc.updatedAt)})` : ''}` : ''}`}
                                             >{desc.text}</span>
                                           </div>
@@ -3743,7 +3743,7 @@ export default function Registry() {
                               })}
 
                               {meta.descriptions.length === 0 && (
-                                <div className="text-center py-6 text-slate-400 dark:text-slate-600 text-xs italic">
+                                <div className="text-center py-6 text-slate-400 dark:text-slate-500 text-xs italic">
                                   Описания отсутствуют.
                                 </div>
                               )}
@@ -3821,7 +3821,7 @@ export default function Registry() {
                   <span className="font-bold text-emerald-700 dark:text-emerald-300">Выбрано: {selectedTagIds.size}</span>
                   <button type="button"
                     onClick={() => fitToTags(tags.filter(t => selectedTagIds.has(t.id)))}
-                    className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold cursor-pointer"
+                    className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold cursor-pointer"
                   >
                     Показать
                   </button>
@@ -3863,7 +3863,7 @@ export default function Registry() {
                 setSelectedTagIds(collectAncestors(cardMenu.tagId));
                 setCardMenu(null);
               }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-200 cursor-pointer"
+              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-300 cursor-pointer"
             >
               <ChevronUp className="w-3.5 h-3.5 text-emerald-500" /> Выделить вверх по ступеньке (родители)
             </button>
@@ -3872,7 +3872,7 @@ export default function Registry() {
                 setSelectedTagIds(collectDescendants(cardMenu.tagId));
                 setCardMenu(null);
               }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-200 cursor-pointer"
+              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-300 cursor-pointer"
             >
               <ChevronDown className="w-3.5 h-3.5 text-emerald-500" /> Выделить вниз по лестнице (дочерние)
             </button>
@@ -3883,7 +3883,7 @@ export default function Registry() {
                   openDuplicates(cardMenu.tagId);
                   setCardMenu(null);
                 }}
-                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-slate-800 dark:text-slate-200 cursor-pointer"
+                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-slate-800 dark:text-slate-300 cursor-pointer"
               >
                 <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
                 Найти дубли ({dupCountOf(cardMenu.tagId)})
@@ -3895,7 +3895,7 @@ export default function Registry() {
                 shareTagsInChat(ids);
                 setCardMenu(null);
               }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-200 cursor-pointer"
+              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-300 cursor-pointer"
             >
               <Link2 className="w-3.5 h-3.5 text-emerald-600" />
               Поделиться в рабочем чате{selectedTagIds.size > 1 ? ` (${selectedTagIds.size})` : ''}
@@ -3906,7 +3906,7 @@ export default function Registry() {
                 setTimeout(() => centerOnTag(cardMenu.tagId), 150);
                 setCardMenu(null);
               }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-800 dark:text-slate-200 cursor-pointer"
+              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-800 dark:text-slate-300 cursor-pointer"
             >
               <RefreshCw className="w-3.5 h-3.5 text-slate-400" /> Показать на холсте
             </button>
@@ -4343,7 +4343,7 @@ export default function Registry() {
                                         );
                                       })}
                                       {categoryOptions.length === 0 && (
-                                        <span className="text-xs text-slate-400 dark:text-slate-600 italic">Варианты отсутствуют</span>
+                                        <span className="text-xs text-slate-400 dark:text-slate-500 italic">Варианты отсутствуют</span>
                                       )}
                                     </div>
                                   </div>
@@ -4624,7 +4624,7 @@ export default function Registry() {
                                         );
                                       })}
                                       {categoryOptions.length === 0 && (
-                                        <span className="text-xs text-slate-400 dark:text-slate-600 italic">Варианты отсутствуют</span>
+                                        <span className="text-xs text-slate-400 dark:text-slate-500 italic">Варианты отсутствуют</span>
                                       )}
                                     </div>
                                   </div>
@@ -4986,7 +4986,7 @@ export default function Registry() {
                           </td>
 
                           {/* COLUMN 3: NAME */}
-                          <td className="flux-cell font-semibold text-slate-800 dark:text-slate-200 text-xs">
+                          <td className="flux-cell font-semibold text-slate-800 dark:text-slate-300 text-xs">
                             <p className="font-bold text-slate-900 dark:text-white select-all">
                               {tMeta.mainName || <span className="italic opacity-50">Без наименования</span>}
                             </p>
@@ -5149,8 +5149,8 @@ export default function Registry() {
                           </td>
                           <td className="flux-cell">
                             {t.brand ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 shadow-xs max-w-[150px] truncate" title={t.brand}>
-                                {t.brand}
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 shadow-xs max-w-[150px] min-w-0" title={t.brand}>
+                                <span className="flex-1 min-w-0 truncate">{t.brand}</span>
                               </span>
                             ) : (
                               <span className="text-slate-400 dark:text-slate-500 italic text-xs">—</span>
@@ -5494,7 +5494,7 @@ export default function Registry() {
 
                 {/* Добавить подписание */}
                 <div className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl space-y-3">
-                  <h4 className="text-xs font-bold text-slate-750 dark:text-slate-200 uppercase tracking-widest flex items-center gap-1">
+                  <h4 className="text-xs font-bold text-slate-750 dark:text-slate-300 uppercase tracking-widest flex items-center gap-1">
                     <Plus className="w-4 h-4 text-emerald-600" />
                     Новое подписание
                   </h4>
@@ -5656,7 +5656,7 @@ export default function Registry() {
                                 <span>Ср: <strong>{desc.createdBy || 'Система'}</strong> {desc.createdAt && `(${formatDateStr(desc.createdAt)})`}</span>
                                 {desc.updatedBy && (
                                   <>
-                                    <span className="text-slate-300 dark:text-slate-755">|</span>
+                                    <span className="text-slate-300 dark:text-slate-455">|</span>
                                     <span>Из: <strong>{desc.updatedBy}</strong> {desc.updatedAt && `(${formatDateStr(desc.updatedAt)})`}</span>
                                   </>
                                 )}
@@ -6064,7 +6064,7 @@ function TagVdrDocs({ identifier, projectId }: { identifier: string; projectId: 
           <button type="button" key={d.id}
             onClick={() => navigate(`/management?vdr=${d.registerId}&item=${d.id}`)}
             className="w-full text-left px-3 py-1.5 flex items-center gap-2 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-950/30 cursor-pointer">
-            <span className="font-semibold text-slate-700 dark:text-slate-200 truncate flex-1" title={`${d.contractorNo}\n${d.titleRu || d.titleEn}`}>
+            <span className="font-semibold text-slate-700 dark:text-slate-300 truncate flex-1" title={`${d.contractorNo}\n${d.titleRu || d.titleEn}`}>
               {d.contractorNo || d.titleRu || d.titleEn}
             </span>
             <span className="text-emerald-500 font-bold shrink-0">{d.vdrCode}</span>

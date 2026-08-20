@@ -218,7 +218,7 @@ export default function TitlePanel({ projectId, settings, onChange, onClose, doc
               placeholder="напр. {project.code} · {date}"
               className="w-full mt-0.5 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500" />
           </div>
-          <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer">
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
             <input
               type="checkbox"
               checked={!!settings.pageSetup?.pageNumbers}

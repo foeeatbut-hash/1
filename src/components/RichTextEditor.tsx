@@ -112,7 +112,7 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
 
   // ── Таблицы ────────────────────────────────────────────────────────────────
 
-  const TD_CLASS = 'border border-slate-300 dark:border-slate-700 p-2 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200';
+  const TD_CLASS = 'border border-slate-300 dark:border-slate-700 p-2 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-300';
   const TH_CLASS = 'border border-slate-300 dark:border-slate-700 p-2 text-left bg-slate-100 dark:bg-slate-800 font-semibold';
 
   const insertTableGrid = (rows: number, cols: number) => {
@@ -709,7 +709,7 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
             onChange={(e) => setFindText(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runFind(); } }}
             placeholder="Найти… (Enter — далее)"
-            className="h-7 px-2 text-xs rounded-lg border border-emerald-300 dark:border-emerald-800 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 outline-none w-40"
+            className="h-7 px-2 text-xs rounded-lg border border-emerald-300 dark:border-emerald-800 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 outline-none w-40"
           />
         )}
       </div>
@@ -725,12 +725,12 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
         onKeyDown={handleEditorKeyDown}
         onKeyUp={updateActiveFormats}
         onPaste={handlePaste}
-        className={`flex-1 min-h-[220px] p-4 text-sm text-slate-800 dark:text-slate-200 outline-none overflow-y-auto prose dark:prose-invert max-w-none focus:bg-slate-50/20 dark:focus:bg-slate-950/20 transition-ui`}
+        className={`flex-1 min-h-[220px] p-4 text-sm text-slate-800 dark:text-slate-300 outline-none overflow-y-auto prose dark:prose-invert max-w-none focus:bg-slate-50/20 dark:focus:bg-slate-950/20 transition-ui`}
         style={{ direction: 'ltr' }}
       />
 
       {/* Счётчик слов и символов */}
-      <div className="shrink-0 px-4 py-1 text-2xs text-slate-400 dark:text-slate-600 border-t border-slate-100 dark:border-slate-800 select-none">
+      <div className="shrink-0 px-4 py-1 text-2xs text-slate-400 dark:text-slate-500 border-t border-slate-100 dark:border-slate-800 select-none">
         {countInfo.words} слов · {countInfo.chars} символов
       </div>
 
@@ -748,7 +748,7 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
             onChange={e => setLinkUrl(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyLink(); } }}
             placeholder="Адрес: https://…"
-            className="w-full h-7 px-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 outline-none focus:border-sky-400"
+            className="w-full h-7 px-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-300 outline-none focus:border-sky-400"
           />
           <input
             type="text"
@@ -756,7 +756,7 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
             onChange={e => setLinkText(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyLink(); } }}
             placeholder="Текст ссылки (необязательно)"
-            className="w-full h-7 px-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 outline-none focus:border-sky-400"
+            className="w-full h-7 px-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-300 outline-none focus:border-sky-400"
           />
           <div className="flex items-center gap-1.5 pt-0.5">
             <button type="button" onClick={applyLink} className="flex-1 h-7 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold cursor-pointer flex items-center justify-center gap-1">
@@ -796,7 +796,7 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
               }
             }}
             placeholder="Поиск тега…"
-            className="w-full h-7 px-2 mb-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 outline-none focus:border-emerald-400"
+            className="w-full h-7 px-2 mb-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-300 outline-none focus:border-emerald-400"
           />
           <div className="max-h-56 overflow-y-auto space-y-0.5">
             {(projectTags || [])
@@ -804,7 +804,7 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
               .slice(0, 50)
               .map(t => (
                 <button key={t.id} type="button" onMouseDown={(e) => { e.preventDefault(); insertTagLink(t); }}
-                  className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-left text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer">
+                  className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-left text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
                   <TagIcon className="w-3 h-3 text-emerald-500 shrink-0" />
                   <span className="truncate">{t.identifier}</span>
                 </button>
@@ -854,7 +854,7 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
             ['colLeft', 'Вставить столбец слева', Columns3],
             ['colRight', 'Вставить столбец справа', Columns3],
           ] as const).map(([op, label, Icon]) => (
-            <button key={op} type="button" onClick={() => runTableOp(op)} className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer">
+            <button key={op} type="button" onClick={() => runTableOp(op)} className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer">
               <Icon className="w-3.5 h-3.5 text-emerald-600" /> {label}
             </button>
           ))}

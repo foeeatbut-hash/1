@@ -1365,9 +1365,9 @@ export default function DictionaryEditor() {
                           return (
                             <>
                               <div className="flex items-center justify-between">
-                                <h3 className="text-xs font-bold text-slate-550 dark:text-slate-400 uppercase tracking-widest flex items-center gap-1.5 truncate max-w-[240px]">
-                                  <Sliders className="w-4 h-4 text-emerald-500" />
-                                  Варианты: <span className="text-emerald-600 dark:text-emerald-400 font-bold truncate">«{activeCategory?.nameRu}»</span>
+                                <h3 className="text-xs font-bold text-slate-550 dark:text-slate-400 uppercase tracking-widest flex items-center gap-1.5 min-w-0 max-w-[240px]">
+                                  <Sliders className="w-4 h-4 text-emerald-500 shrink-0" />
+                                  Варианты: <span className="text-emerald-600 dark:text-emerald-400 font-bold flex-1 min-w-0 truncate">«{activeCategory?.nameRu}»</span>
                                 </h3>
                                 <span className="text-xs font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded leading-none shrink-0">
                                   Всего: {options.length}
@@ -1562,7 +1562,7 @@ export default function DictionaryEditor() {
                                     </div>
                                   ) : (
                                     <div className="flex-1 min-w-0 pr-2">
-                                      <p className="text-xs font-bold text-slate-800 dark:text-slate-205 truncate">
+                                      <p className="text-xs font-bold text-slate-800 dark:text-slate-300 truncate">
                                         {cat.nameRu}
                                       </p>
                                     </div>
@@ -1838,7 +1838,7 @@ export default function DictionaryEditor() {
                                   </div>
                                 ) : (
                                   <div className="flex flex-col">
-                                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{preset.nameRu}</span>
+                                    <span className="text-xs font-bold text-slate-800 dark:text-slate-300">{preset.nameRu}</span>
                                     <span className="text-xs font-mono text-emerald-600 dark:text-emerald-400">Код: {preset.code}</span>
                                   </div>
                                 )}
@@ -1884,7 +1884,7 @@ export default function DictionaryEditor() {
                           return (
                             <div className="flex flex-col h-full space-y-4">
                               <div className="border-b border-slate-100 dark:border-slate-800 pb-2">
-                                <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                <h3 className="text-xs font-bold text-slate-800 dark:text-slate-300">
                                   Варианты для категории: <span className="text-emerald-600">{activeCategory?.nameRu} ({activeCategory?.code})</span>
                                 </h3>
                                 <p className="text-xs text-slate-500 mt-0.5">
@@ -1966,7 +1966,7 @@ export default function DictionaryEditor() {
                                           </div>
                                         ) : (
                                           <div className="flex items-center gap-3">
-                                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{opt.nameRu}</span>
+                                            <span className="text-xs font-bold text-slate-800 dark:text-slate-300">{opt.nameRu}</span>
                                             {opt.code && opt.code !== opt.nameRu && (
                                               <span className="text-xs font-mono bg-slate-100 dark:bg-slate-800 text-slate-500 px-1 py-0.5 rounded leading-none">Код: {opt.code}</span>
                                             )}
@@ -2204,7 +2204,7 @@ export default function DictionaryEditor() {
                           className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors group"
                         >
                           <td
-                            className="flux-cell font-semibold text-slate-800 dark:text-slate-200 font-mono text-xs flex items-center shadow-none border-none outline-none"
+                            className="flux-cell font-semibold text-slate-800 dark:text-slate-300 font-mono text-xs flex items-center shadow-none border-none outline-none"
                             style={{ paddingLeft: `${depth * 24 + 16}px` }}
                           >
                             {depth > 0 && (

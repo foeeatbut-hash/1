@@ -636,7 +636,7 @@ function ProcurementTab() {
         {/* Марка */}
         <td className="flux-cell hidden @[740px]:table-cell align-top">
           {row.tag.brand ? (
-            <span className="font-mono text-xs font-semibold px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 inline-block max-w-[150px] truncate" title={row.tag.brand}>
+            <span className="font-mono text-xs font-semibold px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 inline-block max-w-[150px] truncate" title={row.tag.brand}>
               {row.tag.brand}
             </span>
           ) : <span className="text-xs text-slate-400 italic">—</span>}
@@ -666,7 +666,7 @@ function ProcurementTab() {
                     className={`w-7 h-7 rounded-full border flex items-center justify-center transition-ui cursor-pointer ${
                       reached
                         ? `${c.bg} ${c.border} ${c.color} ${idx === row.stageIdx ? 'ring-2 ring-offset-1 dark:ring-offset-slate-950 ring-current scale-110' : ''}`
-                        : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-300 dark:text-slate-700 hover:border-slate-400'
+                        : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-455 hover:border-slate-400'
                     }`}
                   >
                     <Icon className="w-3.5 h-3.5" />
@@ -814,7 +814,7 @@ function ProcurementTab() {
           <button type="button"
             onClick={exportToExcel}
             title="Выгрузить то, что сейчас на экране: с учётом фильтров, поиска и порядка"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" /> В Excel
           </button>

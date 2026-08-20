@@ -402,7 +402,7 @@ export default function ProjectsManagement() {
 
                   {/* Short Description */}
                   <div className="p-4 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200/40 dark:border-slate-800/50">
-                    <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 mb-1 flex items-center gap-1.5">
+                    <h3 className="text-xs font-bold text-slate-800 dark:text-slate-300 mb-1 flex items-center gap-1.5">
                       <Info className="w-3.5 h-3.5 text-emerald-600" />
                       <span>Краткое резюме проекта:</span>
                     </h3>
@@ -413,7 +413,7 @@ export default function ProjectsManagement() {
 
                   {/* Detail Info text */}
                   <div className="space-y-2">
-                    <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 production-heading">
+                    <h3 className="text-xs font-bold text-slate-800 dark:text-slate-300 flex items-center gap-1.5 production-heading">
                       <FileText className="w-4 h-4 text-emerald-600" />
                       <span>Подробная техническая информация:</span>
                     </h3>

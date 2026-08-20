@@ -1445,7 +1445,7 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
                 <button type="button" disabled={busy || r.isSystem}
                   onClick={() => remove(r)}
                   className={`p-1.5 rounded-lg cursor-pointer ${r.isSystem
-                    ? 'text-slate-300 dark:text-slate-700 cursor-not-allowed'
+                    ? 'text-slate-400 dark:text-slate-455 cursor-not-allowed'
                     : 'hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-500'}`}
                   title={r.isSystem ? 'Встроенную роль удалить нельзя' : 'Удалить роль'}>
                   <Trash2 className="w-3.5 h-3.5" />

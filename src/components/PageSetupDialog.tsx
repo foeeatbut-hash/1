@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, LayoutTemplate, Check } from 'lucide-react';
 import { PAGE_SIZES, MARGIN_PRESETS, ptToMm, type PageSetup } from '../lib/docExport';
+import { useEscapeClose } from '../lib/useDismiss';
 
 /**
  * Окно «Разметка страницы» — то же, что вкладка Ворда: формат листа,
@@ -16,6 +17,8 @@ export default function PageSetupDialog({ value, onApply, onClose }: {
   onApply: (setup: PageSetup) => void;
   onClose: () => void;
 }) {
+  useEscapeClose(true, onClose);
+
   const [setup, setSetup] = useState<PageSetup>(value);
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4" onClick={() => onClose()}>
@@ -79,7 +82,7 @@ export default function PageSetupDialog({ value, onApply, onClose }: {
                         const mm = Math.max(0, Math.min(100, Number(e.target.value) || 0));
                         setSetup(p => p && { ...p, margins: { ...p.margins, [k]: Math.round(mm / (25.4 / 72) * 10) / 10 } });
                       }}
-                      className="w-full mt-0.5 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs font-bold text-slate-700 dark:text-slate-200" />
+                      className="w-full mt-0.5 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs font-bold text-slate-700 dark:text-slate-300" />
                   </label>
                 ))}
               </div>

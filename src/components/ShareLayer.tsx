@@ -133,8 +133,8 @@ export default function ShareLayer() {
               <button type="button" title="Закрыть" onClick={closePicker} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-dark-surface text-slate-400 cursor-pointer"><X className="w-4 h-4" /></button>
             </div>
             <div className="p-2.5 flex items-center gap-2 border-b border-slate-100 dark:border-dark-border">
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 text-xs font-semibold max-w-full truncate">
-                <Link2 className="w-3.5 h-3.5 shrink-0" /> <span className="truncate">{pickerCandidate.label}</span>
+              <div className="flex items-center gap-1.5 min-w-0 px-2 py-1 rounded-md bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 text-xs font-semibold max-w-full overflow-hidden">
+                <Link2 className="w-3.5 h-3.5 shrink-0" /> <span className="flex-1 min-w-0 truncate">{pickerCandidate.label}</span>
               </div>
             </div>
             <div className="p-2.5 border-b border-slate-100 dark:border-dark-border relative">

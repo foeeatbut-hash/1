@@ -282,7 +282,7 @@ function getFallbackData<T>(endpoint: string, method: string, body?: any): T {
   // 4. NOTES Fallback
   if (cleanEndpoint === '/notes' || cleanEndpoint.startsWith('/notes/')) {
     const defaultNotes = [
-      { id: 'note-1', title: 'Ревизия лопаток вентилятора', content: 'Выполнить плановый контроль аэродинамически нагруженных узлов до конца текущей смены.', color: 'bg-yellow-50 dark:bg-yellow-950/20 dark:border-yellow-900/40', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: 'note-1', title: 'Ревизия лопаток вентилятора', content: 'Выполнить плановый контроль аэродинамически нагруженных узлов до конца текущей смены.', color: 'bg-amber-50 dark:bg-amber-950/20 border-amber-200', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { id: 'note-2', title: 'Таблица ККС кодов', content: 'Сверить KKS шифры распределителей воздуха согласно актуальному чертежу ПДМ.', color: 'bg-emerald-50 dark:bg-emerald-950/20 dark:border-emerald-900/40', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
     ];
     let notes = getStorageItem('max_fallback_notes', defaultNotes);

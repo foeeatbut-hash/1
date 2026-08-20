@@ -1218,7 +1218,7 @@ export default function Explorer() {
         {/* Современный компактный тулбар */}
         <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-slate-850">
            <button type="button" onClick={createFolder} title="Новая папка"
-             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 shadow-xs cursor-pointer">
+             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 shadow-xs cursor-pointer">
               <FolderPlus className="w-4 h-4 text-amber-500" /> Новая папка
            </button>
            <button type="button" onClick={() => fileInputRef.current?.click()} title="Загрузить файлы"
@@ -1277,13 +1277,13 @@ export default function Explorer() {
             <span className="min-w-0 truncate cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-surface text-slate-700 dark:text-dark-text-main px-1.5 py-0.5 rounded hover:underline" title={activeProject?.name || 'Общий проводник'} onClick={() => navigateTo(null)}>{activeProject?.name || 'Общий проводник'}</span>
             {currentSectionId && (
               <>
-                <ChevronRight className="w-3 h-3 text-slate-400 dark:text-slate-655 mx-0.5" />
+                <ChevronRight className="w-3 h-3 text-slate-400 dark:text-slate-455 mx-0.5" />
                 <span className="cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-surface text-slate-700 dark:text-dark-text-main px-1.5 py-0.5 rounded hover:underline font-medium" onClick={() => navigateTo(currentSectionId)}>{sectionName(currentSectionId)}</span>
               </>
             )}
             {breadcrumbs.map((crumb, idx) => (
               <React.Fragment key={crumb.id}>
-                <ChevronRight className="w-3 h-3 text-slate-400 dark:text-slate-655 mx-0.5" />
+                <ChevronRight className="w-3 h-3 text-slate-400 dark:text-slate-455 mx-0.5" />
                 <span className="cursor-pointer hover:bg-slate-100 dark:hover:bg-dark-surface text-slate-700 dark:text-dark-text-main px-1.5 py-0.5 rounded hover:underline" onClick={() => navigateTo(crumb.id)}>{crumb.name}</span>
               </React.Fragment>
             ))}
@@ -1349,7 +1349,7 @@ export default function Explorer() {
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
             <div
-              className={`flex items-center py-1.5 px-3 mx-2 rounded-lg cursor-pointer transition-colors text-slate-700 dark:text-slate-250 ${currentFolderId === null ? 'bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-200 font-medium' : 'hover:bg-slate-200/50 dark:hover:bg-slate-900'}`}
+              className={`flex items-center py-1.5 px-3 mx-2 rounded-lg cursor-pointer transition-colors text-slate-700 dark:text-slate-300 ${currentFolderId === null ? 'bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-200 font-medium' : 'hover:bg-slate-200/50 dark:hover:bg-slate-900'}`}
               onClick={() => navigateTo(null)}
             >
               <FileIcon className="w-4 h-4 mr-2 text-slate-500 shrink-0" />
@@ -1358,7 +1358,7 @@ export default function Explorer() {
             {sections.map(sec => (
               <div key={sec.id}>
                 <div
-                  className={`flex items-center py-1.5 px-3 mx-2 mt-1 rounded-lg cursor-pointer transition-colors text-slate-700 dark:text-slate-250 ${currentFolderId === sec.id ? 'bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-200 font-medium' : 'hover:bg-slate-200/50 dark:hover:bg-slate-900'}`}
+                  className={`flex items-center py-1.5 px-3 mx-2 mt-1 rounded-lg cursor-pointer transition-colors text-slate-700 dark:text-slate-300 ${currentFolderId === sec.id ? 'bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-200 font-medium' : 'hover:bg-slate-200/50 dark:hover:bg-slate-900'}`}
                   onClick={() => navigateTo(sec.id)}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => {
@@ -1618,7 +1618,7 @@ export default function Explorer() {
                                      <FolderPlus className="w-3.5 h-3.5 text-amber-500" /> Новая папка
                                    </button>
                                  </div>
-                                 <p className="text-2xs pt-2 text-slate-400 dark:text-slate-600">Файлы можно просто перетащить сюда из проводника Windows.</p>
+                                 <p className="text-2xs pt-2 text-slate-400 dark:text-slate-500">Файлы можно просто перетащить сюда из проводника Windows.</p>
                                </>
                              )}
                            </div>
@@ -2452,11 +2452,11 @@ const FileRowItem = React.memo(({
           </span>
         )}
       </td>
-      <td className="flux-cell text-sm text-slate-500 dark:text-dark-text-muted whitespace-nowrap">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : <span className="text-slate-300 dark:text-slate-700">—</span>}</td>
+      <td className="flux-cell text-sm text-slate-500 dark:text-dark-text-muted whitespace-nowrap">{item.updatedAt ? format(new Date(item.updatedAt), 'dd.MM.yyyy HH:mm') : <span className="text-slate-400 dark:text-slate-455">—</span>}</td>
       <td className="flux-cell text-sm">{!item.isFolder ? <StatusChip code={item.statusCode} onClick={onChangeStatus ? (e) => { e.stopPropagation(); onChangeStatus(item.id); } : undefined} /> : <span className="text-slate-400 text-xs">Папка</span>}</td>
       {/* У папки нет размера, у файла может не быть тегов и отдела: ставим
           прочерк — пустая ячейка читается как «данные не загрузились». */}
-      <td className="flux-cell hidden @[760px]:table-cell text-sm text-slate-500 dark:text-dark-text-muted text-right whitespace-nowrap">{!item.isFolder ? formatSize(item.size) : <span className="text-slate-300 dark:text-slate-700">—</span>}</td>
+      <td className="flux-cell hidden @[760px]:table-cell text-sm text-slate-500 dark:text-dark-text-muted text-right whitespace-nowrap">{!item.isFolder ? formatSize(item.size) : <span className="text-slate-400 dark:text-slate-455">—</span>}</td>
       <td className="flux-cell hidden @[880px]:table-cell">
          <div className="flex flex-wrap gap-1">
            {!item.isFolder && (item.mainTags || []).map((t: any) => (
@@ -2467,7 +2467,7 @@ const FileRowItem = React.memo(({
              <span key={t.id} className="text-2xs font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400" title={`Доп. тег ${t.identifier}`}>{t.identifier}</span>
            ))}
            {(item.isFolder || (!(item.mainTags || []).length && !(item.additionalTags || []).length)) && (
-             <span className="text-slate-300 dark:text-slate-700">—</span>
+             <span className="text-slate-400 dark:text-slate-455">—</span>
            )}
          </div>
       </td>
@@ -2555,7 +2555,7 @@ const FileCardItem = React.memo(({
            className="border border-emerald-405 px-1 py-0 text-sm outline-none w-full text-center mt-1 bg-white dark:bg-slate-900 text-slate-900 dark:text-white select-text"
          />
        ) : (
-         <span className="text-sm font-medium text-slate-700 dark:text-slate-200 text-center line-clamp-2 break-all">{item.name}</span>
+         <span className="text-sm font-medium text-slate-700 dark:text-slate-300 text-center line-clamp-2 break-all">{item.name}</span>
        )}
     </div>
   );

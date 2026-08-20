@@ -2124,7 +2124,9 @@ app.post('/api/projects', async (req: Request, res: Response) => {
   const { name, code, customer, contractor, description, info } = req.body;
   const project = await prisma.project.create({
     data: {
-      name: name || 'Без названия',
+      // Имя из одних пробелов ничем не лучше пустого: в переключателе проектов
+      // такая строка выглядела пустой и выбрать её вслепую было нельзя
+      name: String(name ?? '').trim() || 'Без названия',
       code: code || '',
       customer: customer || '',
       contractor: contractor || '',
@@ -2147,7 +2149,8 @@ app.put('/api/projects/:id', async (req: Request, res: Response) => {
     const { id } = req.params;
     const { name, code, customer, contractor, description, info, status } = req.body;
     const data: any = {};
-    if (name !== undefined) data.name = name;
+    // Переименовать проект в пробелы — то же, что стереть имя: не даём
+    if (name !== undefined) data.name = String(name).trim() || 'Без названия';
     if (code !== undefined) data.code = code;
     if (customer !== undefined) data.customer = customer;
     if (contractor !== undefined) data.contractor = contractor;

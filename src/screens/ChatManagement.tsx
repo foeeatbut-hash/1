@@ -997,11 +997,11 @@ export default function ChatManagement() {
                       <div className="fixed inset-0 z-40" onClick={() => setShowChatMenu(false)} />
                       <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl py-1">
                         {activeGroup && activeGroup.type !== 'PROJECT' && (
-                          <button type="button" onClick={() => { setShowChatMenu(false); setShowGroupSettings(true); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+                          <button type="button" onClick={() => { setShowChatMenu(false); setShowGroupSettings(true); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
                             <Settings className="w-3.5 h-3.5" /> Настройки {activeGroup.type === 'CHANNEL' ? 'канала' : 'группы'}
                           </button>
                         )}
-                        <button type="button" onClick={handleClearHistory} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+                        <button type="button" onClick={handleClearHistory} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
                           <Trash2 className="w-3.5 h-3.5" /> Очистить историю
                         </button>
                         {activeGroup && activeGroup.type !== 'PROJECT' && (activeGroup.ownerId === user?.id || user?.role === 'ADMIN') && (
@@ -1224,7 +1224,7 @@ export default function ChatManagement() {
                               <div className="text-xs font-bold text-emerald-800 dark:text-emerald-400 uppercase tracking-wider mb-0.5 flex items-center gap-1 font-sans">
                                 ⚙️ Сквозная ссылка MAX
                               </div>
-                              <div className="text-xs font-black text-slate-800 dark:text-slate-200">
+                              <div className="text-xs font-black text-slate-800 dark:text-slate-300">
                                 {msg.linkedElement.name}
                               </div>
                               <div className="text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5">
@@ -1246,7 +1246,7 @@ export default function ChatManagement() {
                                   <div className="flex items-center gap-2 min-w-0">
                                     <File className="w-3.5 h-3.5 text-emerald-650 dark:text-emerald-400 shrink-0" />
                                     <div className="min-w-0">
-                                      <p className="text-xs font-bold text-slate-850 dark:text-slate-250 truncate group-hover:text-emerald-700 dark:group-hover:text-emerald-400">
+                                      <p className="text-xs font-bold text-slate-850 dark:text-slate-300 truncate group-hover:text-emerald-700 dark:group-hover:text-emerald-400">
                                         {file.fileName}
                                       </p>
                                       <p className="text-xs text-slate-400 font-mono">
@@ -1565,7 +1565,7 @@ export default function ChatManagement() {
                 <div className="bg-white dark:bg-slate-950 p-3 rounded-lg border border-slate-200 dark:border-slate-800/80 space-y-2.5 shadow-3xs text-xs">
                   <div>
                     <span className="text-xs text-slate-400 uppercase block font-extrabold">Тип оборудования</span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-200 block mt-0.5">
+                    <span className="font-semibold text-slate-800 dark:text-slate-300 block mt-0.5">
                       {selectedTagElement.type || 'Спецификация MAX'}
                     </span>
                   </div>
@@ -1573,7 +1573,7 @@ export default function ChatManagement() {
                   {selectedTagElement.monoblock && (
                     <div>
                       <span className="text-xs text-slate-400 uppercase block font-extrabold">Моноблок</span>
-                      <span className="font-semibold text-slate-800 dark:text-slate-200 block mt-0.5">
+                      <span className="font-semibold text-slate-800 dark:text-slate-300 block mt-0.5">
                         📦 {selectedTagElement.monoblock.name}
                       </span>
                     </div>
@@ -1582,7 +1582,7 @@ export default function ChatManagement() {
                   {selectedTagElement.monoblock?.system && (
                     <div>
                       <span className="text-xs text-slate-400 uppercase block font-extrabold">Система</span>
-                      <span className="font-semibold text-slate-800 dark:text-slate-200 block mt-0.5">
+                      <span className="font-semibold text-slate-800 dark:text-slate-300 block mt-0.5">
                         🌐 {selectedTagElement.monoblock.system.name}
                       </span>
                     </div>
@@ -1787,7 +1787,7 @@ export default function ChatManagement() {
                       className="w-full text-left p-2 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/10 border border-slate-100 dark:border-transparent rounded-lg cursor-pointer transition-ui flex items-center justify-between"
                     >
                       <div>
-                        <p className="text-xs font-bold text-slate-805 dark:text-slate-200">
+                        <p className="text-xs font-bold text-slate-805 dark:text-slate-300">
                           ⚙️ {c.name}
                         </p>
                         <p className="text-xs text-slate-400 mt-0.5">
@@ -1806,7 +1806,7 @@ export default function ChatManagement() {
                 <button
                   type="button"
                   onClick={() => setIsEquipmentModalOpen(false)}
-                  className="px-4 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-bold hover:bg-slate-300 dark:hover:bg-slate-700 cursor-pointer"
+                  className="px-4 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold hover:bg-slate-300 dark:hover:bg-slate-700 cursor-pointer"
                 >
                   Закрыть
                 </button>
@@ -1922,7 +1922,7 @@ export default function ChatManagement() {
                 const sel = ngMembers.includes(u.id);
                 return (
                   <button key={u.id} type="button" onClick={() => setNgMembers(sel ? ngMembers.filter(id => id !== u.id) : [...ngMembers, u.id])} className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer">
-                    <span className="text-xs text-slate-700 dark:text-slate-200">{u.name} <span className="text-slate-400 font-mono">({u.symbol})</span></span>
+                    <span className="text-xs text-slate-700 dark:text-slate-300">{u.name} <span className="text-slate-400 font-mono">({u.symbol})</span></span>
                     <span className={`w-4 h-4 rounded border flex items-center justify-center ${sel ? 'bg-emerald-600 border-emerald-600' : 'border-slate-300 dark:border-slate-600'}`}>{sel && <Check className="w-3 h-3 text-white" />}</span>
                   </button>
                 );
@@ -1962,13 +1962,13 @@ export default function ChatManagement() {
             <div className="max-h-72 overflow-y-auto space-y-1">
               <div className="text-2xs font-bold uppercase tracking-wider text-slate-400 px-1 py-1">Группы и каналы</div>
               {groups.map(g => (
-                <button key={g.id} type="button" onClick={() => handleForwardTo({ groupId: g.id })} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs text-slate-700 dark:text-slate-200">
+                <button key={g.id} type="button" onClick={() => handleForwardTo({ groupId: g.id })} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
                   {g.type === 'CHANNEL' ? <Radio className="w-4 h-4 text-emerald-500" /> : <Users className="w-4 h-4 text-emerald-500" />} {g.name}
                 </button>
               ))}
               <div className="text-2xs font-bold uppercase tracking-wider text-slate-400 px-1 py-1 mt-2">Личные диалоги</div>
               {users.filter(u => u.id !== user?.id).map(u => (
-                <button key={u.id} type="button" onClick={() => handleForwardTo({ receiverId: u.id })} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs text-slate-700 dark:text-slate-200">
+                <button key={u.id} type="button" onClick={() => handleForwardTo({ receiverId: u.id })} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
                   <User className="w-4 h-4 text-emerald-500" /> {u.name}
                 </button>
               ))}
@@ -1996,7 +1996,7 @@ export default function ChatManagement() {
                 const isOwner = activeGroup.ownerId === u.id;
                 return (
                   <button key={u.id} type="button" disabled={isOwner} onClick={() => { const base = gsMembers.length ? gsMembers : (activeGroup.members || []).map(m => m.id); setGsMembers(sel ? base.filter(id => id !== u.id) : [...base, u.id]); }} className={`w-full flex items-center justify-between px-3 py-2 text-left ${isOwner ? 'opacity-60' : 'hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer'}`}>
-                    <span className="text-xs text-slate-700 dark:text-slate-200">{u.name} {isOwner && <span className="text-amber-500 font-semibold">· владелец</span>}</span>
+                    <span className="text-xs text-slate-700 dark:text-slate-300">{u.name} {isOwner && <span className="text-amber-500 font-semibold">· владелец</span>}</span>
                     <span className={`w-4 h-4 rounded border flex items-center justify-center ${sel ? 'bg-emerald-600 border-emerald-600' : 'border-slate-300 dark:border-slate-600'}`}>{sel && <Check className="w-3 h-3 text-white" />}</span>
                   </button>
                 );

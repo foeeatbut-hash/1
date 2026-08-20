@@ -144,7 +144,7 @@ export default function CapturePult() {
               корзина {basket} <X className="w-2.5 h-2.5" />
             </button>
           ) : (
-            <span className="ml-auto text-2xs font-mono text-slate-300 dark:text-slate-600">Ctrl+Shift+X</span>
+            <span className="ml-auto text-2xs font-mono text-slate-300 dark:text-slate-500">Ctrl+Shift+X</span>
           )}
         </div>
 

@@ -28,6 +28,7 @@ import {
   Search
 } from 'lucide-react';
 import { useModalStore } from '../store/modalStore';
+import { useEscapeClose } from '../lib/useDismiss';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm } = useModalStore.getState();
@@ -63,6 +64,10 @@ export default function UsersManagement() {
 
   // Редактирование существующего сотрудника
   const [editUser, setEditUser] = useState<User | null>(null);
+
+  // Escape закрывает открытое окно; пока идёт запись — не закрываем
+  useEscapeClose(isModalOpen, () => { if (!isSubmitting) setIsModalOpen(false); });
+  useEscapeClose(!!editUser, () => { if (!isSubmitting) setEditUser(null); });
   const [editNameValue, setEditNameValue] = useState<NameValue>(EMPTY_NAME);
   const [editName, setEditName] = useState('');
   const [editSymbol, setEditSymbol] = useState('');
