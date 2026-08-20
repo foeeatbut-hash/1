@@ -9,7 +9,7 @@
  *  - pad: нужен ли внешний отступ p-6 (у таблиц/чатов свой лэйаут)
  */
 import React, { lazy } from 'react';
-import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, Table2, NotebookPen, MessagesSquare, Wand2, Settings, ClipboardList, Users } from 'lucide-react';
+import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, Table2, NotebookPen, MessagesSquare, Wand2, Settings, ClipboardList, Users, Mail } from 'lucide-react';
 
 const Dashboard = lazy(() => import('../screens/Dashboard'));
 const Explorer = lazy(() => import('../screens/Explorer'));
@@ -21,6 +21,7 @@ const UsersManagement = lazy(() => import('../screens/UsersManagement'));
 const NotesManagement = lazy(() => import('../screens/NotesManagement'));
 const ProjectsManagement = lazy(() => import('../screens/ProjectsManagement'));
 const ChatManagement = lazy(() => import('../screens/ChatManagement'));
+const MailScreen = lazy(() => import('../screens/Mail'));
 const LogsManagement = lazy(() => import('../screens/LogsManagement'));
 const ProcurementManagement = lazy(() => import('../screens/ProcurementManagement'));
 const SettingsScreen = lazy(() => import('../screens/SettingsScreen'));
@@ -48,6 +49,8 @@ export const SECTIONS: SectionDef[] = [
   { path: '/constructor', title: 'Конструктор', icon: Table2, scroll: 'auto', pad: true, Component: ConstructorScreen },
   { path: '/notes', title: 'Блокнот', icon: NotebookPen, scroll: 'auto', pad: true, Component: NotesManagement },
   { path: '/chat', title: 'Чат', icon: MessagesSquare, scroll: 'fixed', pad: true, Component: ChatManagement },
+  // Почта занимает всю высоту и прокручивает списки внутри — как Чат и Теги
+  { path: '/mail', title: 'Почта', icon: Mail, scroll: 'fixed', pad: true, Component: MailScreen },
   { path: '/generator', title: 'Генератор', icon: Wand2, scroll: 'auto', pad: true, Component: UniversalGenerator },
   { path: '/settings', title: 'Настройки', icon: Settings, scroll: 'auto', pad: true, Component: SettingsScreen },
   { path: '/logs', title: 'Журнал', icon: ClipboardList, scroll: 'auto', pad: true, Component: LogsManagement },

@@ -489,3 +489,124 @@ model DocFormula {
 
   @@index([projectId])
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Почта. Ящик подключается по IMAP/SMTP и принадлежит одному сотруднику:
+// переписка личная, её не видит и администратор.
+//
+// Письма синхронизируются в базу заголовками — отправитель, тема, фрагмент,
+// флаги. Тело и вложения тянутся при открытии: тысяча писем это несколько
+// мегабайт, а не гигабайты, и список открывается мгновенно.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model MailAccount {
+  id           String    @id @default(uuid())
+  ownerId      String                          // Ящик личный (User.id)
+  email        String                          // Обратный адрес
+  displayName  String    @default("")          // Имя в поле «От кого»
+  imapHost     String
+  imapPort     Int       @default(993)
+  imapSecure   Boolean   @default(true)
+  smtpHost     String
+  smtpPort     Int       @default(465)
+  smtpSecure   Boolean   @default(true)
+  login        String                          // Обычно совпадает с email, но не всегда
+  secret       String  @db.Text                    // Пароль под AES-256-GCM; наружу не отдаётся
+  secretNonce  String    @default("")
+  signature    String  @db.Text  @default("")      // Подпись, подставляется в новое письмо
+  syncDays     Int       @default(90)          // На сколько дней вглубь тянуть при первом входе
+  active       Boolean   @default(true)
+  lastSyncAt   DateTime?
+  lastError    String  @db.Text  @default("")      // Последняя ошибка связи — видна в разделе
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([ownerId])
+}
+
+model MailFolder {
+  id           String    @id @default(uuid())
+  accountId    String
+  path         String                          // Путь IMAP как есть: "INBOX", "[Gmail]/Drafts"
+  name         String                          // Как показываем человеку
+  kind         String    @default("CUSTOM")    // INBOX SENT DRAFTS TRASH SPAM ARCHIVE CUSTOM
+  // Метка поколения папки. Сервер сменил её — все сохранённые uid указывают
+  // на другие письма, и папку надо перечитать целиком.
+  uidValidity  String    @default("")
+  lastUid      Int       @default(0)
+  unread       Int       @default(0)
+  total        Int       @default(0)
+  sortOrder    Int       @default(100)
+  syncedAt     DateTime?
+
+  @@unique([accountId, path])
+  @@index([accountId])
+}
+
+model MailMessage {
+  id           String    @id @default(uuid())
+  accountId    String
+  folderId     String
+  uid          Int                             // Номер письма в папке
+  messageId    String    @default("")          // Message-ID из заголовка
+  inReplyTo    String    @default("")          // In-Reply-To
+  refs         String  @db.Text  @default("")      // References, через пробел
+  threadKey    String    @default("")          // Корень цепочки — считаем сами
+  fromName     String  @db.Text  @default("")
+  fromAddr     String    @default("")
+  toAddrs      String  @db.Text  @default("")      // «Имя <адрес>» через запятую
+  ccAddrs      String  @db.Text  @default("")
+  subject      String  @db.Text  @default("")
+  snippet      String  @db.Text  @default("")      // Первые ~200 знаков для списка
+  sentAt       DateTime
+  size         Int       @default(0)
+  seen         Boolean   @default(false)
+  flagged      Boolean   @default(false)
+  answered     Boolean   @default(false)
+  draft        Boolean   @default(false)
+  hasFiles     Boolean   @default(false)
+  // Тема, отправитель и фрагмент одной строкой в нижнем регистре.
+  // LIKE в SQLite приводит к нижнему регистру только латиницу, поэтому
+  // искать по-русски без заранее приведённого поля нельзя.
+  searchText   String  @db.Text  @default("")
+  bodyText     String?  @db.LongText                   // Тянется при открытии
+  bodyHtml     String?  @db.LongText
+  bodyAt       DateTime?
+
+  @@unique([folderId, uid])
+  @@index([accountId, threadKey])
+  @@index([folderId, sentAt])
+  @@index([accountId, seen])
+}
+
+model MailAttachment {
+  id           String    @id @default(uuid())
+  messageId    String                          // MailMessage.id
+  partId       String    @default("")          // Часть письма в терминах IMAP
+  fileName     String  @db.Text  @default("")
+  filePath     String  @db.Text  @default("")      // Файл на диске, как вложения Чата
+  size         Int       @default(0)
+  mimeType     String    @default("")
+  contentId    String    @default("")          // Для картинок внутри письма
+  inline       Boolean   @default(false)
+
+  @@index([messageId])
+}
+
+model MailDraft {
+  id           String    @id @default(uuid())
+  accountId    String
+  ownerId      String
+  toAddrs      String  @db.Text  @default("")
+  ccAddrs      String  @db.Text  @default("")
+  bccAddrs     String  @db.Text  @default("")
+  subject      String  @db.Text  @default("")
+  bodyHtml     String  @db.LongText  @default("")
+  inReplyToId  String    @default("")          // MailMessage.id, если это ответ
+  mode         String    @default("NEW")       // NEW | REPLY | REPLY_ALL | FORWARD
+  files        String  @db.Text  @default("[]")    // JSON: приложенные файлы
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([ownerId])
+}

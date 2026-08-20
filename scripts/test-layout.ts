@@ -39,6 +39,7 @@ const SECTIONS: [string, string][] = [
   ['Конструктор', '/constructor'],
   ['Блокнот', '/notes'],
   ['Чат', '/chat'],
+  ['Почта', '/mail'],
   ['Сотрудники', '/users'],
   ['Настройки', '/settings'],
 ];

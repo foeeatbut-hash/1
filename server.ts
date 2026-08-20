@@ -23,6 +23,7 @@ import { registerVdrRoutes } from './server/routes/vdr.js';
 import { registerLogRoutes } from './server/routes/logs.js';
 import { registerSettingsRoutes } from './server/routes/settings.js';
 import { registerExplorerRoutes } from './server/routes/explorer.js';
+import { registerMailRoutes } from './server/routes/mail.js';
 import { registerUserRoutes, seedRoles, backfillNameParts } from './server/routes/users.js';
 import { initBackups } from './server/backup.js';
 
@@ -2935,6 +2936,8 @@ app.post('/api/tags/generate', async (req: Request, res: Response) => {
 // Заметки (/api/notes) и журнал (/api/logs) — вынесены в модули-роуты
 registerNoteRoutes(app);
 registerLogRoutes(app);
+// Почта: ящики по IMAP/SMTP, синхронизация, чтение (server/routes/mail.ts)
+registerMailRoutes(app, { userDataPath });
 registerConstructorRoutes(app);
 registerFormulaRoutes(app);
 registerVdrRoutes(app);
