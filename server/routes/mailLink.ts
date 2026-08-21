@@ -2,7 +2,7 @@ import type { Express, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { getPrisma, sendError, resolveProjectId } from '../context.js';
-import { readableAccount } from '../mail/access.js';
+import { readableAccount, readableAccounts } from '../mail/access.js';
 import * as imap from '../mail/imap.js';
 import { credsOf, loadBody } from '../mail/sync.js';
 import { codeCandidates, fileCandidates, caseVariants, namesInText } from '../mail/mentions.js';
@@ -201,6 +201,8 @@ export function registerMailLinkRoutes(app: Express, deps: MailLinkDeps): void {
     } catch (err) { sendError(res, err); }
   });
 
+  registerMailFind(app);
+
   /**
    * Что из письма уже есть в программе: теги, документы Проводника, книги
    * Конструктора.
@@ -284,6 +286,89 @@ export function registerMailLinkRoutes(app: Express, deps: MailLinkDeps): void {
           id: f.id, name: f.name, folderId: f.folderId, ...withProject(f.folder?.projectId),
         })),
         docs: (docs as any[]).map((d) => ({ id: d.id, name: d.name, ...withProject(d.projectId) })),
+      });
+    } catch (err) { sendError(res, err); }
+  });
+}
+
+/**
+ * Поиск писем по всем ящикам сразу.
+ *
+ * Отличается от поиска в самом разделе тем, что не привязан к открытому ящику:
+ * человек спрашивает у помощника «все письма про 20-PT-001», а в каком из
+ * четырёх ящиков они лежат — вопрос не к нему. Поэтому смотрим во всех,
+ * до которых у него есть доступ.
+ *
+ * Ищем по заранее сложенной строке (тема, отправитель, начало письма) — в
+ * SQLite сравнение без учёта регистра работает только для латиницы, поэтому
+ * строка складывается заранее в нижнем регистре.
+ */
+export function registerMailFind(app: Express): void {
+  app.get('/api/mail/find', async (req: Request, res: Response) => {
+    try {
+      const prisma = getPrisma();
+      const me = (req as any).authUser;
+      if (!me) return res.status(401).json({ error: 'Требуется вход' });
+
+      const q = str(req.query.q as string, 120).toLowerCase();
+      const from = str(req.query.from as string, 120).toLowerCase();
+      const take = Math.max(1, Math.min(50, Number(req.query.limit) || 12));
+      if (!q && !from) return res.json({ messages: [], total: 0 });
+
+      const accounts = await readableAccounts(req);
+      if (!accounts.length) return res.json({ messages: [], total: 0 });
+      const byId = new Map(accounts.map((a: any) => [a.id, a]));
+
+      const where: any = { accountId: { in: accounts.map((a: any) => a.id) } };
+      const and: any[] = [];
+      if (q) {
+        // Ищем и по сложенной строке (тема, отправитель, начало письма), и по
+        // самому тексту письма. Только по первой было мало: тег из середины
+        // длинного согласования в неё не попадает, а спрашивают как раз о нём.
+        //
+        // Текст письма хранится как есть, поэтому регистр перебираем руками:
+        // сравнение без учёта регистра в SQLite работает только для латиницы,
+        // а обозначения в письмах пишут и «20-PT-001», и «20-pt-001».
+        const forms = [...new Set([q, q.toUpperCase(), str(req.query.q as string, 120)])];
+        and.push({
+          OR: [
+            { searchText: { contains: q } },
+            ...forms.map((f) => ({ bodyText: { contains: f } })),
+          ],
+        });
+      }
+      // Отправителя ищем отдельно: «письма от Иванова» не должны находить
+      // письма, где Иванов лишь упомянут в теме.
+      //
+      // Имя хранится как пришло — «Пётр Петров», — а ищем мы по основе в
+      // нижнем регистре. Для кириллицы сравнение без учёта регистра в SQLite
+      // не работает, поэтому большую букву подставляем сами.
+      if (from) {
+        const cap = from.charAt(0).toUpperCase() + from.slice(1);
+        const forms = [...new Set([from, cap, from.toUpperCase()])];
+        and.push({
+          OR: forms.flatMap((f) => [{ fromName: { contains: f } }, { fromAddr: { contains: f } }]),
+        });
+      }
+      if (and.length) where.AND = and;
+
+      const total = await prisma.mailMessage.count({ where });
+      const rows = await prisma.mailMessage.findMany({
+        where,
+        orderBy: { sentAt: 'desc' },
+        take,
+        select: {
+          id: true, accountId: true, threadKey: true, subject: true,
+          fromName: true, fromAddr: true, snippet: true, sentAt: true, seen: true,
+        },
+      });
+
+      res.json({
+        total,
+        messages: rows.map((m: any) => ({
+          ...m,
+          accountLabel: (byId.get(m.accountId) as any)?.label || (byId.get(m.accountId) as any)?.email || '',
+        })),
       });
     } catch (err) { sendError(res, err); }
   });

@@ -1150,3 +1150,14 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
 @media (prefers-reduced-motion: reduce) {
   [class*='flux-sky-'] { animation: none !important; }
 }
+
+/* Место в руководстве, на которое привёл помощник. Подсветка гаснет сама:
+   постоянная выделяла бы кусок статьи навсегда, а нужна она ровно на то
+   мгновение, пока глаз ищет, куда его перенесло. */
+@keyframes flux-hb-flash {
+  0%   { background: oklch(84% 0.09 163 / 0.55); }
+  70%  { background: oklch(84% 0.09 163 / 0.35); }
+  100% { background: transparent; }
+}
+.flux-hb-flash { animation: flux-hb-flash 2s ease-out both; border-radius: 6px; }
+@media (prefers-reduced-motion: reduce) { .flux-hb-flash { animation: none !important; } }

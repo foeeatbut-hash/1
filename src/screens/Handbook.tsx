@@ -83,6 +83,34 @@ export default function Handbook() {
     el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
+  /**
+   * /handbook?article=<статья>&at=<место> — открыть статью на нужном месте.
+   *
+   * По такой ссылке сюда приводит помощник: на вопрос «где в руководстве про
+   * подписи» он отвечает и даёт переход не просто в статью, а в тот её кусок,
+   * о котором речь. Место на секунду подсвечивается — иначе после прокрутки
+   * непонятно, куда смотреть, особенно если статья длинная.
+   *
+   * Параметр гасим сразу: при следующем открытии той же статьи из оглавления
+   * прыгать в середину уже незачем.
+   */
+  useEffect(() => {
+    const at = params.get('at');
+    if (!at) return;
+    const t = window.setTimeout(() => {
+      goAnchor(at);
+      const el = bodyRef.current?.querySelector(`#hb-${at}`) as HTMLElement | null;
+      if (el) {
+        el.classList.add('flux-hb-flash');
+        window.setTimeout(() => el.classList.remove('flux-hb-flash'), 2000);
+      }
+      const next = new URLSearchParams(params);
+      next.delete('at');
+      setParams(next, { replace: true });
+    }, 240);
+    return () => window.clearTimeout(t);
+  }, [params, openId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const titleOf = (id: string) => articleById(id)?.title || id;
 
   return (

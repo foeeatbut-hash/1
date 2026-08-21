@@ -126,7 +126,8 @@ const LEGACY: Record<string, number> = {
   'src/screens/ChatManagement.tsx': 2029,
   'src/screens/ConstructorScreen.tsx': 1909,
   'src/screens/SettingsScreen.tsx': 1620,
-  'src/store/assistantStore.ts': 1238,
+  // Типы ответа и два новых ответа уехали в src/assistant/ — планка ниже
+  'src/store/assistantStore.ts': 1225,
 };
 const SLACK = 50; // мелкие правки в старых файлах не должны ронять проверку
 const all = [...SRC, ...ELECTRON, ...walk('server'), ...walk('scripts'), 'server.ts'];

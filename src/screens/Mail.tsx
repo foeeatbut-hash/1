@@ -3,6 +3,7 @@ import {
   Mail as MailIcon, Search, X, Settings2, Plus, AlertTriangle, RefreshCw,
   Archive, Trash2, MailOpen, Star, CheckSquare, Square, KeyRound,
 } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useMailStore } from '../store/mailStore';
 import { useStore } from '../store/store';
 import { useRealTimeSync } from '../components/SocketProvider';
@@ -57,6 +58,8 @@ export default function Mail() {
   const [cursor, setCursor] = useState(0);
   const [showKeys, setShowKeys] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
+  const routeLoc = useLocation();
   const rootRef = useRef<HTMLDivElement>(null);
 
   const account = accounts.find((a) => a.id === accountId) || null;
@@ -80,6 +83,24 @@ export default function Mail() {
     socket.on('mail:new', onNew);
     return () => { socket.off('mail:new', onNew); };
   }, [socket, accountId, loadFolders]);
+
+  /**
+   * /mail?q=<запрос> — открыть почту сразу с поиском.
+   *
+   * По такой ссылке сюда приводит помощник: «покажи письма про 20-PT-001» он
+   * отвечает списком и кнопкой, которая открывает тот же поиск в самом
+   * разделе. Параметр гасим сразу после подстановки, иначе возврат в раздел
+   * стирал бы то, что человек успел набрать руками.
+   */
+  const askedRef = useRef('');
+  useEffect(() => {
+    const want = new URLSearchParams(routeLoc.search).get('q');
+    if (!want || askedRef.current === want) return;
+    askedRef.current = want;
+    setDraft(want);
+    setQuery(want);
+    navigate('/mail', { replace: true });
+  }, [routeLoc.search]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Поиск не дёргает сервер на каждую букву
   useEffect(() => {
