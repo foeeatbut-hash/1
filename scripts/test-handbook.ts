@@ -3,6 +3,7 @@ import path from 'path';
 import { ARTICLES, search, forRoute } from '../src/handbook/registry';
 import { anchorsOf, foldRu } from '../src/handbook/model';
 import { FEATURES } from '../src/lib/permissions';
+import { thingRu, linkRu, missingNames } from '../src/handbook/names';
 
 /**
  * Руководство не должно врать.
@@ -13,6 +14,12 @@ import { FEATURES } from '../src/lib/permissions';
  * модель, которую она называет хранилищем, есть в схеме; поле связи есть в
  * модели; право есть в каталоге. Переименовали что-нибудь — набор падает, и
  * статью правят вместе с кодом, а не «когда-нибудь потом».
+ *
+ * Отдельная забота — язык. Руководство читает инженер, а не тот, кто писал
+ * программу: английских имён таблиц и полей он видеть не должен. Имена в
+ * статьях остаются английскими — по ним и идёт сверка со схемой, — но у
+ * каждого обязан быть русский перевод, иначе английское слово доедет до
+ * экрана.
  *
  * Прозу проверить нельзя, и мы не делаем вид, что можно.
  */
@@ -176,6 +183,29 @@ console.log('\n10. Списки синонимов опрятны');
   eq('нет пустых синонимов', empty, []);
   eq('синонимы не повторяются', dupes, []);
   eq('синонимы в нижнем регистре', cased, []);
+}
+
+console.log('\n11. Читателю показывают русские слова, а не имена из базы');
+{
+  const usedThings = new Set<string>();
+  const usedLinks = new Set<string>();
+  for (const a of ARTICLES) {
+    (a.stores || []).forEach((x) => usedThings.add(x));
+    (a.links || []).forEach(([from, to, via]) => { usedThings.add(from); usedThings.add(to); usedLinks.add(via); });
+  }
+  eq('у каждого хранилища есть русское имя', missingNames([...usedThings]), []);
+
+  // Латиница в том, что увидит человек, — верный признак непереведённого имени
+  const latin = /[A-Za-z]{3,}/;
+  const rawThings = [...usedThings].filter((x) => latin.test(thingRu(x)));
+  eq('в русских именах не осталось латиницы', rawThings, []);
+
+  const rawLinks = [...usedLinks].filter((v) => latin.test(linkRu(v)));
+  eq('в описаниях связей не осталось латиницы', rawLinks, []);
+
+  // Сам показ: экран статьи обязан звать перевод, а не печатать поле как есть
+  const view = fs.readFileSync(path.join(root, 'src/components/handbook/HandbookArticleView.tsx'), 'utf-8');
+  eq('статья печатает переводы', /thingRu\(/.test(view) && /linkRu\(/.test(view), true);
 }
 
 console.log(`\n${ok} проверок пройдено, ${fail} провалено`);

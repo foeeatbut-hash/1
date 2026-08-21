@@ -2,6 +2,7 @@ import React from 'react';
 import { ArrowRight, Database, KeyRound, Keyboard, AlertTriangle, ListChecks, Lightbulb } from 'lucide-react';
 import type { HandbookArticle } from '../../handbook/model';
 import { featureById } from '../../lib/permissions';
+import { thingRu, linkRu } from '../../handbook/names';
 
 interface Props {
   article: HandbookArticle;
@@ -80,11 +81,15 @@ export default function HandbookArticleView({ article: a, onGoToSection, onOpen,
       {(a.stores?.length || a.links?.length) && (
         <section className="flex flex-col gap-3">
           <Head id="data" icon={Database}>Что хранится</Head>
+          {/* Названия по-русски. Внутри программы это Tag, Folder и FileNode,
+              но руководство читает инженер, а не тот, кто её писал: ему нужно
+              знать, что удаление проекта уносит теги и папки, а не как эти
+              таблицы называются (перевод — в src/handbook/names.ts). */}
           {a.stores?.length ? (
             <div className="flex flex-wrap gap-1.5">
               {a.stores.map((s) => (
-                <span key={s} className="px-2 py-0.5 rounded-md text-2xs font-mono font-semibold bg-slate-100 dark:bg-slate-850 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800">
-                  {s}
+                <span key={s} className="px-2 py-0.5 rounded-md text-2xs font-semibold bg-slate-100 dark:bg-slate-850 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800">
+                  {thingRu(s)}
                 </span>
               ))}
             </div>
@@ -95,16 +100,16 @@ export default function HandbookArticleView({ article: a, onGoToSection, onOpen,
                 <thead>
                   <tr className="text-2xs uppercase tracking-wider text-slate-400 dark:text-slate-500">
                     <th className="text-left font-semibold px-3 py-2">Что</th>
-                    <th className="text-left font-semibold px-3 py-2">Ссылается на</th>
-                    <th className="text-left font-semibold px-3 py-2">Чем связаны</th>
+                    <th className="text-left font-semibold px-3 py-2">Опирается на</th>
+                    <th className="text-left font-semibold px-3 py-2">Как связаны</th>
                   </tr>
                 </thead>
                 <tbody>
                   {a.links.map(([from, to, via], i) => (
                     <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
-                      <td className="px-3 py-1.5 font-mono text-xs text-slate-900 dark:text-white whitespace-nowrap">{from}</td>
-                      <td className="px-3 py-1.5 font-mono text-xs text-emerald-700 dark:text-emerald-400 whitespace-nowrap">{to}</td>
-                      <td className="px-3 py-1.5 text-xs text-slate-650 dark:text-slate-400">{via}</td>
+                      <td className="px-3 py-1.5 text-xs font-semibold text-slate-900 dark:text-white">{thingRu(from)}</td>
+                      <td className="px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">{thingRu(to)}</td>
+                      <td className="px-3 py-1.5 text-xs text-slate-650 dark:text-slate-400">{linkRu(via)}</td>
                     </tr>
                   ))}
                 </tbody>
