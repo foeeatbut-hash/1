@@ -41,10 +41,15 @@ ITEMS = [
     dict(name="wave", search="Great Wave off Kanagawa Hokusai",
          titles=["Tsunami by hokusai 19th century.jpg",
                  "The Great Wave off Kanagawa.jpg"]),
-    # Лондонская версия «Подсолнухов» (National Gallery), 15 цветков на жёлтом фоне
-    dict(name="sunflowers", search="Van Gogh Sunflowers National Gallery London F454",
-         titles=["Vincent Willem van Gogh 127.jpg",
-                 "Vincent van Gogh - Sunflowers - VGM F458.jpg"]),
+    # Лондонская версия «Подсолнухов» (National Gallery), 15 цветков на жёлтом фоне.
+    # Прежний запасной вариант — VGM F458 — это амстердамская версия из музея Ван
+    # Гога, то есть не та работа; убран. Первым идёт файл, у которого музей и год
+    # прямо в названии: по опознанному имени видно, что взято, а «Vincent Willem
+    # van Gogh 127.jpg» об этом молчит и оставлен вторым.
+    dict(name="sunflowers", search="Van Gogh Sunflowers National Gallery London 1888",
+         titles=["Vincent van Gogh - Sunflowers (1888, National Gallery London).jpg",
+                 "Van Gogh Vase with Fifteen Sunflowers.jpg",
+                 "Vincent Willem van Gogh 127.jpg"]),
     dict(name="adam", search="Michelangelo Creation of Adam Sistine Chapel",
          titles=["Michelangelo - Creation of Adam (cropped).jpg",
                  "Michelangelo, Creation of Adam 04.jpg"],
@@ -85,9 +90,13 @@ ITEMS = [
     dict(name="rooks", search="Savrasov The Rooks Have Come Back",
          titles=["Alexei Savrasov - Грачи прилетели - Google Art Project.jpg",
                  "Savrasov roocks.jpg"]),
-    dict(name="stranger", search="Kramskoi Portrait of an Unknown Woman Tretyakov",
-         titles=["Ivan Kramskoi - Portrait of a Woman - Google Art Project.jpg",
-                 "Kramskoy Portrait of a Woman.jpg"]),
+    # «Неизвестная» Крамского. Оба названия говорят просто «портрет женщины», а
+    # таких у Крамского несколько — при первом же удачном прогоне этот файл надо
+    # открыть глазами и убедиться, что это она, а не «Читающая» или автопортрет
+    # чьей-то жены. Первым поставлен тот, чьё существование подтверждено поиском.
+    dict(name="stranger", search="Kramskoi Unknown Woman 1883 Tretyakov Неизвестная",
+         titles=["Kramskoy Portrait of a Woman.jpg",
+                 "Ivan Kramskoi - Portrait of a Woman - Google Art Project.jpg"]),
     dict(name="courtyard", search="Polenov Moscow Courtyard Tretyakov",
          titles=["Vasily Polenov - Московский дворик - Google Art Project.jpg",
                  "Polenov Moskovsky dvorik.jpg"]),
