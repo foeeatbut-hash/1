@@ -22,6 +22,30 @@ import {
 /** Мутация правки текста: тот же путь, что у штатных команд движка */
 const RICH_TEXT_EDITING = 'doc.mutation.rich-text-editing';
 
+/**
+ * Отправить мутацию синхронно — как это делают сами команды движка
+ * (doc.command.align-action и соседние).
+ *
+ * Асинхронный executeCommand возвращает обещание, и Boolean(обещание) — всегда
+ * true: любая неудача превращалась в «получилось», а сама ошибка вылетала
+ * необработанным отклонением в журнал. Синхронный вызов возвращает настоящий
+ * ответ и бросает исключение сюда, в наш try, — вызывающий показывает честное
+ * «не удалось». Плюс операция строится и применяется без промежутка: при
+ * перетаскивании бегунка мышь успевала выдать следующую правку по уже
+ * устаревшему снимку.
+ */
+function runMutation(ctx: EngineCtx, params: any): boolean {
+  const api = ctx.univerAPI;
+  if (typeof api?.syncExecuteCommand === 'function') {
+    return Boolean(api.syncExecuteCommand(RICH_TEXT_EDITING, params));
+  }
+  // Движок без синхронного вызова — старая версия. Отклонение гасим сами,
+  // иначе оно уйдёт в журнал как критическая ошибка программы.
+  const p = api?.executeCommand?.(RICH_TEXT_EDITING, params);
+  if (p && typeof p.catch === 'function') p.catch(() => {});
+  return Boolean(p);
+}
+
 export interface EngineCtx {
   /** Экземпляр Univer — из него берём внедрение зависимостей */
   univer: any;
@@ -106,12 +130,12 @@ export function patchParagraphs(ctx: EngineCtx, patch: ParagraphPatch): boolean 
       cursor.moveCursorTo(startIndex + 1);
     }
 
-    return Boolean(ctx.univerAPI?.executeCommand?.(RICH_TEXT_EDITING, {
+    return runMutation(ctx, {
       unitId,
       actions: jsonX.editOp(textX.serialize(), ['body']),
       // Выделение сохраняем: иначе после каждой правки курсор прыгает в начало
       textRanges: found.ranges,
-    }));
+    });
   } catch (_) { return false; }
 }
 
@@ -139,9 +163,7 @@ export function patchDocumentStyle(ctx: EngineCtx, patch: Record<string, any>): 
     }
     if (!actions.length) return false;
     const composed = actions.length === 1 ? actions[0] : actions.reduce((a, b) => JSONX.compose(a, b));
-    return Boolean(ctx.univerAPI?.executeCommand?.(RICH_TEXT_EDITING, {
-      unitId, actions: composed, textRanges: selectionRanges(ctx),
-    }));
+    return runMutation(ctx, { unitId, actions: composed, textRanges: selectionRanges(ctx) });
   } catch (_) { return false; }
 }
 

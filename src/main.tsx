@@ -4,6 +4,7 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 import { useLogStore } from './store/logStore';
+import { isBenignUniverDisposeError, isResizeObserverNoise } from './lib/logNoise';
 
 // === GLOBAL INTERCEPTORS ===
 const originalError = console.error;
@@ -68,31 +69,45 @@ console.warn = (...args: any[]) => {
   }
 };
 
-// Известный безвредный выброс движка Univer: при переключении Excel→Word
-// «протёкшая» подписка уже уничтоженного редактора таблиц пытается достать
-// сервис из закрытого инжектора (HoverManagerService). На работу редакторов
-// не влияет (проверено E2E) — глушим, чтобы не засорять crash-логи.
-// Существовал и до расширения пресетов (воспроизводится на core+core).
-const isBenignUniverDisposeError = (msg: string) =>
-  msg.includes('HoverManagerService') && msg.includes('[redi]');
+// Что из выбросов движка и браузера не считать поломкой программы — правила и
+// причины в src/lib/logNoise.ts, там же их проверка
+const isNoise = (msg: string) => isBenignUniverDisposeError(msg) || isResizeObserverNoise(msg);
+
+// Гасим здесь, а не в window.onerror: этот слушатель стоит раньше и обрывает
+// цепочку, до onerror такой выброс уже не доходит. Поэтому и запись делается
+// тут — иначе она была бы недостижимой.
+const hush = (msg: string, stack: string, stop: () => void) => {
+  if (!isNoise(msg)) return false;
+  stop();
+  // Совсем не прятать: если служба потеряется не при закрытии редактора, а
+  // где-то ещё, по этой записи это будет видно. Но человеку показывать разбор
+  // полётов незачем — предупреждение, а не критическая ошибка.
+  if (isBenignUniverDisposeError(msg)) {
+    useLogStore.getState().addLog('WARN', 'Univer', `Служба недоступна после закрытия редактора: ${msg}`, stack);
+  }
+  return true;
+};
+
 window.addEventListener('error', (e) => {
-  if (isBenignUniverDisposeError(String(e.message || ''))) {
+  hush(String(e.message || ''), e.error?.stack || '', () => {
     e.preventDefault();
     e.stopImmediatePropagation();
-  }
+  });
 });
 window.addEventListener('unhandledrejection', (e) => {
-  if (isBenignUniverDisposeError(String((e.reason && e.reason.message) || e.reason || ''))) {
+  hush(String((e.reason && e.reason.message) || e.reason || ''), e.reason?.stack || '', () => {
     e.preventDefault();
     e.stopImmediatePropagation();
-  }
+  });
 });
 
 // Window runtime errors
 window.onerror = (message, source, lineno, colno, error) => {
   const errorMsg = String(message);
   const stack = error?.stack || `at ${source}:${lineno}:${colno}`;
-  if (isBenignUniverDisposeError(errorMsg)) return true;
+  // Обычно сюда шум не доходит — его обрывает слушатель выше; проверка на
+  // случай, если порядок слушателей когда-нибудь изменится
+  if (isNoise(errorMsg)) return true;
   useLogStore.getState().addLog('ERROR', 'Runtime', `Критическая ошибка: ${errorMsg}`, stack);
   return false;
 };
@@ -101,6 +116,7 @@ window.onerror = (message, source, lineno, colno, error) => {
 window.onunhandledrejection = (event) => {
   const errorMsg = event.reason?.message || String(event.reason);
   const stack = event.reason?.stack || '';
+  if (isNoise(errorMsg)) return;
   useLogStore.getState().addLog('ERROR', 'Promise Rejection', `Unhandled Rejection: ${errorMsg}`, stack);
 };
 
