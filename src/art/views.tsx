@@ -1,5 +1,7 @@
 import React from 'react';
-import { PAINTINGS, PaintingScene } from './paintings';
+import { PAINTINGS, drawnById, StagedScene } from './paintings';
+import { WORKS } from './works';
+import { photoOf, usePhotoAspect, PhotoCanvas } from './photos';
 import {
   Scenery, seasonOf, partOf, weathersFor, sceneryLabel, sceneryIsDark,
   SEASON_RU, PART_RU,
@@ -29,14 +31,52 @@ export interface ShelfView {
   render: () => React.ReactElement;
 }
 
+/**
+ * Снимок в раме. Отдельный компонент, а не кусок разметки: соотношение сторон
+ * у снимка узнаётся при загрузке файла, а узнавать что-либо посреди сборки
+ * списка нельзя — там нет ни состояния, ни жизненного цикла.
+ *
+ * Пока размер не известен, показываем нарисованный запас, если он есть. Файл
+ * лежит внутри программы и читается за считаные миллисекунды, но пустая рама
+ * даже на это время выглядит поломкой.
+ */
+function PhotoScene({ workId, stage, url }: { workId: string; stage: 'gallery' | 'studio' | 'desk'; url: string }) {
+  const aspect = usePhotoAspect(url);
+  const drawn = drawnById(workId);
+
+  if (!aspect) return drawn ? <StagedScene stage={stage} canvas={drawn.canvas} /> : null;
+  return (
+    <StagedScene
+      stage={stage}
+      canvas={{ aspect, Draw: () => <PhotoCanvas url={url} aspect={aspect} /> }}
+    />
+  );
+}
+
+/**
+ * Картины: сперва настоящие снимки, а чего нет — то нарисованное.
+ *
+ * Работа, у которой нет ни файла, ни рисунка, на полку не попадает и никак
+ * себя не проявляет. Так список работ можно вести с запасом, пополняя папку
+ * по мере того, как снимки находятся, — и ничего не ломается по дороге.
+ */
 function paintingViews(): ShelfView[] {
-  return PAINTINGS.map((p) => ({
-    id: `art:${p.id}`,
-    title: p.title,
-    sub: `${p.artist}, ${p.year}`,
-    dark: p.dark,
-    render: () => <PaintingScene painting={p} />,
-  }));
+  const out: ShelfView[] = [];
+  for (const w of WORKS) {
+    const url = photoOf(w.id);
+    const drawn = drawnById(w.id);
+    if (!url && !drawn) continue;
+    out.push({
+      id: `art:${w.id}`,
+      title: w.title,
+      sub: `${w.artist}, ${w.year}`,
+      dark: w.dark,
+      render: () => (url
+        ? <PhotoScene workId={w.id} stage={w.stage} url={url} />
+        : <StagedScene stage={drawn!.stage} canvas={drawn!.canvas} />),
+    });
+  }
+  return out;
 }
 
 function sceneryViews(now: Date): ShelfView[] {

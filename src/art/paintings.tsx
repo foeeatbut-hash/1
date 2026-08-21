@@ -1,5 +1,5 @@
 import React from 'react';
-import { CANVASES } from './canvases';
+import { CANVASES, type Canvas } from './canvases';
 import { STAGES, type StageId } from './stages';
 
 /**
@@ -64,6 +64,30 @@ export const paintingAt = (i: number): Painting =>
 
 /** Сцена целиком: обстановка со вставленным в неё холстом. */
 export function PaintingScene({ painting }: { painting: Painting }) {
-  const Stage = STAGES[painting.stage];
-  return <Stage canvas={CANVASES[painting.canvas]} />;
+  return <StagedScene stage={painting.stage} canvas={CANVASES[painting.canvas]} />;
+}
+
+/**
+ * Обстановка с любым холстом — нарисованным или снимком.
+ *
+ * Обстановке всё равно, что вставлено в раму: она знает только отношение
+ * сторон и функцию рисования. Благодаря этому зал галереи, мастерская и
+ * чертёжный стол работают одинаково и с векторным рисунком, и с
+ * репродукцией из файла.
+ */
+export function StagedScene({ stage, canvas }: { stage: StageId; canvas: Canvas }) {
+  const Stage = STAGES[stage];
+  return <Stage canvas={canvas} />;
+}
+
+/**
+ * Нарисованный запас для работы: он есть не у всех.
+ *
+ * Список работ длиннее списка рисунков — остальные ждут своих файлов. Работа
+ * без рисунка и без файла на полку просто не попадает.
+ */
+export function drawnById(workId: string): { canvas: Canvas; stage: StageId } | null {
+  const p = PAINTINGS.find((x) => x.id === workId);
+  if (!p) return null;
+  return { canvas: CANVASES[p.canvas], stage: p.stage };
 }

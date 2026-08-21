@@ -1173,3 +1173,19 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   color: #fff !important;
 }
 .flux-own-msg button:hover { background: rgb(255 255 255 / 0.3) !important; }
+
+/* Репродукция в раме: очень медленное приближение. У снимка нет отдельных
+   звёзд и мазков, которые можно оживить по одному, а совсем неподвижная
+   картина посреди живой сцены — с посетителями, светом и кистью художника —
+   выглядит подставленной. Полминуты на цикл и полтора процента размаха:
+   заметить можно, только специально приглядываясь. */
+@keyframes flux-art-drift {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.015); }
+}
+.flux-art-drift {
+  animation: flux-art-drift 34s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@media (prefers-reduced-motion: reduce) { .flux-art-drift { animation: none !important; } }
