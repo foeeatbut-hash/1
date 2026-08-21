@@ -6,13 +6,14 @@ import {
 } from 'lucide-react';
 import {
   mailService, type MailAttachment, type MailMessage,
-  type MailThreadState, type MailActivity,
+  type MailThreadState, type MailActivity, type MailMentions as Found,
 } from '../../services/mailService';
 import { parseAddrList, displayName, initialsOf, toneOf, type AvatarTone } from '../../lib/mailAddress';
 import { useToastStore } from '../../store/toastStore';
 import { useStore } from '../../store/store';
 import { useEscapeClose } from '../../lib/useDismiss';
-import { sanitizeMailHtml, mailFrameDoc, textToHtml } from '../../lib/mailHtml';
+import { sanitizeMailHtml, mailFrameDoc, textToHtml, highlightMentions } from '../../lib/mailHtml';
+import MailMentions from './MailMentions';
 
 /**
  * Открытая переписка: письма по порядку, последнее раскрыто.
@@ -93,6 +94,32 @@ function Letter({
     return map;
   }, [files]);
 
+  // Что из письма уже есть в программе. Спрашиваем вместе с телом, отдельным
+  // запросом: разбор идёт по базе, и ждать его ради показа письма незачем —
+  // письмо появляется сразу, полоса находок подъезжает следом.
+  const [found, setFound] = useState<Found | null>(null);
+  const [findLoading, setFindLoading] = useState(false);
+  useEffect(() => {
+    if (!expanded) return;
+    let alive = true;
+    setFindLoading(true);
+    mailService.mentions(msg.id)
+      .then((r) => { if (alive) setFound(r); })
+      .catch(() => { if (alive) setFound(null); })
+      .finally(() => { if (alive) setFindLoading(false); });
+    return () => { alive = false; };
+  }, [expanded, msg.id]);
+
+  /** Слова, которые надо подсветить в самом письме. */
+  const phrases = useMemo(() => {
+    if (!found) return [];
+    return [
+      ...found.tags.map((t) => t.identifier),
+      ...found.files.map((f) => f.name),
+      ...found.docs.map((d) => d.name),
+    ];
+  }, [found]);
+
   const prepared = useMemo(() => {
     if (body.html) return sanitizeMailHtml(body.html, { allowRemoteImages: showRemote, inlineImages: inlineMap, dark });
     if (body.text) return { html: textToHtml(body.text), blockedImages: 0 };
@@ -100,8 +127,10 @@ function Letter({
   }, [body.html, body.text, showRemote, inlineMap, dark]);
 
   const srcDoc = useMemo(
-    () => (prepared.html ? mailFrameDoc(prepared.html, { allowRemoteImages: showRemote, dark }) : ''),
-    [prepared.html, showRemote, dark],
+    () => (prepared.html
+      ? mailFrameDoc(highlightMentions(prepared.html, phrases), { allowRemoteImages: showRemote, dark })
+      : ''),
+    [prepared.html, phrases, showRemote, dark],
   );
 
   // Высоту письма узнаём у самого документа: iframe своей высоты не имеет,
@@ -202,6 +231,8 @@ function Letter({
           {!body.loading && !body.error && !srcDoc && (
             <p className="p-4 text-sm text-slate-400 dark:text-slate-500">Письмо пустое.</p>
           )}
+
+          <MailMentions found={found} loading={findLoading && !found} />
 
           {visible.length > 0 && (
             <div className="border-t border-slate-100 dark:border-slate-850 p-3">

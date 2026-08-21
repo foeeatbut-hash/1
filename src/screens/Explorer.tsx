@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import VdrItemPicker from '../components/VdrItemPicker';
@@ -59,6 +59,7 @@ export default function Explorer() {
   const { addToast } = useToastStore();
   const { openPrompt, openConfirm, openSelect } = useModalStore();
   const navigate = useNavigate();
+  const routeLoc = useLocation();
   const currentFolderId = explorerHistory[explorerHistory.length - 1];
 
   const [folders, setFolders] = useState<any[]>([]);
@@ -300,6 +301,34 @@ export default function Explorer() {
   useEffect(() => {
     fetchData();
   }, [activeProject?.id]); // по идентификатору, а не по объекту: иначе перезапрос при каждой смене ссылки
+
+  /**
+   * /explorer?file=<идентификатор> — открыть папку с этим файлом, выделить его
+   * и показать предпросмотр. Так сюда ведут упоминания из письма: в письме
+   * есть имя документа, а куда он положен — знает только программа.
+   *
+   * Ждём загрузки списка: до неё файл искать негде.
+   */
+  const deepFileRef = useRef('');
+  useEffect(() => {
+    // Именно useLocation, а не window.location: адрес живёт в решётке, и у
+    // window.location строка запроса всегда пустая.
+    const want = new URLSearchParams(routeLoc.search).get('file');
+    if (!want || deepFileRef.current === want) return;
+    if (isLoading || (!folders.length && !rootFiles.length)) return;
+    deepFileRef.current = want;
+
+    const inFolder = folders.find((f: any) => (f.files || []).some((x: any) => x.id === want));
+    const root = rootFiles.find((f: any) => f.id === want);
+    const file = inFolder ? (inFolder.files || []).find((x: any) => x.id === want) : root;
+    navigate('/explorer', { replace: true });
+
+    if (!file) { addToast('Документ не найден — возможно, его удалили.', 'error'); return; }
+    pushHistory(inFolder ? inFolder.id : itemSection(file));
+    setSelectedIds(new Set([want]));
+    setLastSelectedId(want);
+    setShowPreviewPane(true);
+  }, [isLoading, folders, rootFiles, routeLoc.search]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     // Меню закрывается кликом мимо и клавишей Esc — иначе оно оставалось

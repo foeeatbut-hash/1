@@ -4,7 +4,8 @@ import path from 'path';
 import { getPrisma, sendError, resolveProjectId } from '../context.js';
 import { readableAccount } from '../mail/access.js';
 import * as imap from '../mail/imap.js';
-import { credsOf } from '../mail/sync.js';
+import { credsOf, loadBody } from '../mail/sync.js';
+import { codeCandidates, fileCandidates, caseVariants, namesInText } from '../mail/mentions.js';
 
 /**
  * Письмо становится частью проекта.
@@ -199,6 +200,109 @@ export function registerMailLinkRoutes(app: Express, deps: MailLinkDeps): void {
       res.json({ folders });
     } catch (err) { sendError(res, err); }
   });
+
+  /**
+   * Что из письма уже есть в программе: теги, документы Проводника, книги
+   * Конструктора.
+   *
+   * Ищем по всем проектам сразу, а не только по открытому. Почта — общий
+   * раздел: подрядчик пишет про объект, на котором вы сейчас не работаете, и
+   * ответ «ничего не нашли» был бы неправдой. Чужой проект помечается в
+   * ответе — открывать такое Flux предложит вместе с переключением
+   * (см. src/lib/projectScope.ts).
+   */
+  app.get('/api/mail/messages/:id/mentions', async (req: Request, res: Response) => {
+    try {
+      const prisma = getPrisma();
+      const me = (req as any).authUser;
+      if (!me) return res.status(401).json({ error: 'Требуется вход' });
+
+      const letter = await letterOf(req, req.params.id);
+      if (!letter) return res.status(404).json({ error: 'Письмо не найдено' });
+      const { msg } = letter;
+
+      // Разбираем текст, а не разметку: в HTML между буквами обозначения
+      // легко попадает <span>, и «20-PT-001» перестаёт быть одним словом.
+      let text = String(msg.bodyText || '');
+      if (!text) {
+        const body = await loadBody(msg.id).catch(() => null);
+        text = body?.text || stripTags(body?.html || msg.bodyHtml || '');
+      }
+      text = `${msg.subject || ''}\n${text}`.slice(0, 200_000);
+      if (!text.trim()) return res.json({ tags: [], files: [], docs: [] });
+
+      const projects = await prisma.project.findMany({ select: { id: true, name: true } });
+      const projectName = new Map(projects.map((p: any) => [p.id, p.name]));
+
+      // ── Теги ──
+      const codes = caseVariants(codeCandidates(text));
+      const tags = codes.length
+        ? await prisma.tag.findMany({
+            where: { identifier: { in: codes } },
+            select: { id: true, identifier: true, projectId: true },
+            take: 80,
+          })
+        : [];
+
+      // ── Файлы Проводника ──
+      // Личные файлы чужого сотрудника из письма не показываем: правило то же,
+      // что и в самом Проводнике.
+      const names = caseVariants(fileCandidates(text));
+      const rawFiles = names.length
+        ? await prisma.fileNode.findMany({
+            where: {
+              name: { in: names },
+              deletedAt: null,
+              type: { not: 'CHAT_FILE' },
+              OR: [{ scope: { not: 'PERSONAL' } }, { ownerId: me.id }],
+            },
+            select: { id: true, name: true, folderId: true, folder: { select: { projectId: true } } },
+            take: 60,
+          })
+        : [];
+
+      // ── Книги Конструктора ──
+      // У них нет ни расширения, ни дефисов, поэтому ищем наоборот: берём
+      // список имён и смотрим, встречается ли имя в письме целиком.
+      const allDocs = await prisma.constructorDoc.findMany({
+        where: { deletedAt: null, OR: [{ scope: { not: 'PERSONAL' } }, { ownerId: me.id }] },
+        select: { id: true, name: true, projectId: true },
+        take: 800,
+      }).catch(() => [] as any[]);
+      const docs = namesInText(text, allDocs as any).slice(0, 30);
+
+      const withProject = (projectId: string | null | undefined) => ({
+        projectId: projectId || null,
+        projectName: projectId ? (projectName.get(projectId) || '') : '',
+      });
+
+      res.json({
+        tags: dedupeBy(tags, (t: any) => `${t.identifier}|${t.projectId}`).map((t: any) => ({
+          id: t.id, identifier: t.identifier, ...withProject(t.projectId),
+        })),
+        files: rawFiles.map((f: any) => ({
+          id: f.id, name: f.name, folderId: f.folderId, ...withProject(f.folder?.projectId),
+        })),
+        docs: (docs as any[]).map((d) => ({ id: d.id, name: d.name, ...withProject(d.projectId) })),
+      });
+    } catch (err) { sendError(res, err); }
+  });
+}
+
+/** Разметка → текст. Без DOM: на сервере он не нужен ради одного письма. */
+function stripTags(html: string): string {
+  return String(html || '')
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|tr|li|h[1-6])>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&quot;/gi, '"');
+}
+
+function dedupeBy<T>(list: T[], key: (x: T) => string): T[] {
+  const seen = new Set<string>();
+  return list.filter((x) => { const k = key(x); if (seen.has(k)) return false; seen.add(k); return true; });
 }
 
 function escapeHtml(s: string): string {

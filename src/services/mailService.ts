@@ -58,6 +58,22 @@ export interface MailActivity {
   createdAt: string;
 }
 
+/**
+ * Найденное в письме. У каждой находки указан проект-владелец: почта общая,
+ * и в письме подрядчика вполне может стоять тег того объекта, на котором вы
+ * сейчас не работаете.
+ */
+export interface MailMention {
+  id: string;
+  projectId: string | null;
+  projectName: string;
+}
+export interface MailMentions {
+  tags: Array<MailMention & { identifier: string }>;
+  files: Array<MailMention & { name: string; folderId: string | null }>;
+  docs: Array<MailMention & { name: string }>;
+}
+
 export interface MailSignature {
   id: string;
   accountId: string;
@@ -184,6 +200,10 @@ export const mailService = {
 
   body: (messageId: string) =>
     call<{ text: string; html: string; error: string; attachments: MailAttachment[] }>(`/mail/messages/${messageId}/body`),
+
+  /** Что из письма уже есть в программе: теги, файлы, книги Конструктора. */
+  mentions: (messageId: string) =>
+    call<MailMentions>(`/mail/messages/${messageId}/mentions`),
 
   flag: (ids: string[], flag: 'seen' | 'flagged', on: boolean) =>
     call<{ ok: boolean; changed: number }>('/mail/flag', { method: 'POST', body: JSON.stringify({ ids, flag, on }) }),

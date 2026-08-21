@@ -1887,14 +1887,23 @@ export default function Registry() {
   useEffect(() => {
     if (tags.length === 0) return;
     const params = new URLSearchParams(location.search);
-    const focus = params.get('focus');
+    // ?tag=<обозначение> — то же, что ?focus=, но по тому, что человек видит
+    // глазами. По обозначению сюда ведут теги из Проводника и из письма: в
+    // письме внутреннего номера карточки нет и быть не может.
+    const byCode = params.get('tag');
+    const focus = params.get('focus')
+      || (byCode ? (tags.find((x) => (x.identifier || '').trim() === byCode.trim())?.id || '') : '');
     const dup = params.get('dup');
-    const sig = `${focus || ''}|${dup || ''}`;
-    if (!sig.trim() || deepLinkHandledRef.current === sig) return;
+    const sig = `${params.get('focus') || ''}|${byCode || ''}|${dup || ''}`;
+    if (!sig.replace(/\|/g, '').trim() || deepLinkHandledRef.current === sig) return;
     deepLinkHandledRef.current = sig;
     if (focus && tagsById[focus]) {
       setActiveTab('board');
       setTimeout(() => centerOnTag(focus), 200);
+    } else if (byCode) {
+      // Тег есть в письме, но не в этом проекте — молчать нельзя, иначе
+      // нажатие выглядит как сломанное
+      addToast(`Тег ${byCode} в этом проекте не найден.`, 'error');
     } else if (dup) {
       const t = tags.find(x => (x.identifier || '').trim() === dup.trim());
       if (t) { setActiveTab('board'); setTimeout(() => openDuplicates(t.id), 200); }
