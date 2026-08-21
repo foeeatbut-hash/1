@@ -4,9 +4,15 @@ import { buildViews, todayWords } from '../art/views';
 
 const KEY = 'flux_art_index';
 
-/** Сцена и подпись. Вместе — ровно 120: 96 на вид и 24 на строку под ним. */
+/**
+ * Сцена и подпись.
+ *
+ * Вокруг сцены — поля из фона самой панели: 8 по бокам и сверху. Полка от
+ * этого стала выше на 12 точек, и они окупаются тем, ради чего затевалось, —
+ * см. рассуждение о границах ниже.
+ */
 const SCENE_H = 96;
-const LABEL_H = 24;
+const LABEL_H = 22;
 
 interface Props {
   onClose: () => void;
@@ -39,6 +45,18 @@ interface Props {
  * и то же дважды подряд, и это читается как поломка. Не само собой по таймеру:
  * полка стоит вплотную к переписке, и вид, меняющийся сам во время чтения,
  * дёргает взгляд. Хочется другой — нажатие переключает.
+ *
+ * Границы. Сцена была во всю ширину панели, встык: тёплая стена галереи
+ * упиралась в белую панель программы, и полка читалась как чужой прямоугольник,
+ * вклеенный в интерфейс. Хуже того, снизу шли три жёстких линии подряд — край
+ * сцены, рамка над подписью и рамка под всей полкой, — и получалась лесенка из
+ * полос поперёк панели.
+ *
+ * Теперь сцена — карточка со скруглёнными углами, вокруг неё поля из фона
+ * панели, а вместо рамки волосяное кольцо в шесть процентов чёрного и мягкая
+ * тень. Кольцо не читается линией: оно только не даёт светлой сцене слиться с
+ * белой панелью. Подпись стоит на фоне панели, без своей подложки и без рамки
+ * сверху — так она читается подписью под картиной, а не второй плашкой.
  */
 export default function ArtShelf({ onClose }: Props) {
   // Список собирается при открытии: он зависит от сегодняшних даты и часа
@@ -60,14 +78,12 @@ export default function ArtShelf({ onClose }: Props) {
   const v = views[at];
 
   return (
-    <div
-      className="relative shrink-0 select-none border-b border-black/[0.06] dark:border-white/[0.07]"
-      style={{ height: SCENE_H + LABEL_H }}
-    >
-      {/* Сцена. key — чтобы при смене вида анимации начинались заново,
-          а не подхватывались на середине от предыдущего */}
+    <div className="shrink-0 select-none px-2 pt-2 pb-1">
+      {/* Сцена карточкой. key — чтобы при смене вида анимации начинались
+          заново, а не подхватывались на середине от предыдущего */}
       <div
-        className="relative overflow-hidden"
+        className="relative overflow-hidden rounded-xl shadow-sm
+                   ring-1 ring-black/[0.06] dark:ring-white/[0.07]"
         style={{ height: SCENE_H }}
         role="img"
         aria-label={`${v.title}. ${v.sub}`}
@@ -82,8 +98,8 @@ export default function ArtShelf({ onClose }: Props) {
           onClick={() => setI((x) => x + 1)}
           title={`Следующий вид (${at + 1} из ${n}) · сейчас ${todayWords()}`}
           aria-label="Следующий вид"
-          className="absolute right-9 top-1.5 p-1 rounded-lg cursor-pointer transition-ui
-                     bg-black/25 hover:bg-black/40 text-white/90 backdrop-blur-sm"
+          className="absolute right-8 top-1.5 p-1 rounded-lg cursor-pointer transition-ui
+                     bg-black/20 hover:bg-black/35 ring-1 ring-white/20 text-white/90 backdrop-blur-sm"
         >
           <ChevronRight className="w-4 h-4" />
         </button>
@@ -95,18 +111,17 @@ export default function ArtShelf({ onClose }: Props) {
           title="Закрыть"
           aria-label="Закрыть помощника"
           className="absolute right-1.5 top-1.5 p-1 rounded-lg cursor-pointer transition-ui
-                     bg-black/25 hover:bg-black/40 text-white/90 backdrop-blur-sm"
+                     bg-black/20 hover:bg-black/35 ring-1 ring-white/20 text-white/90 backdrop-blur-sm"
         >
           <X className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Подпись отдельной строкой: ничего не закрывает и не спорит с видом.
+      {/* Подпись под картиной: на фоне панели, без подложки и без рамки.
           Название и уточнение в одной строке — на 380 точках две строки
           съели бы вдвое больше места ради того же смысла. */}
       <div
-        className="flex items-baseline gap-1.5 px-2.5 bg-slate-50 dark:bg-slate-950
-                   border-t border-slate-200 dark:border-slate-850"
+        className="flex items-baseline gap-1.5 px-1 pt-1"
         style={{ height: LABEL_H }}
       >
         <span className="text-2xs font-bold text-slate-800 dark:text-slate-100 shrink-0 max-w-[58%] truncate">

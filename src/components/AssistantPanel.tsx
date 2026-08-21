@@ -213,8 +213,8 @@ export default function AssistantPanel() {
     >
       <div className="w-[380px] h-full flex flex-col shrink-0">
       {/* Шапка — она же полка: заголовок и подпись раздела убраны, место
-          отдано виду. Полка 380 на 120 — 96 на картину или пейзаж и 24 на
-          строку подписи под ними (см. ArtShelf). */}
+          отдано виду. Сцена — карточка 96 точек высотой в полях из фона
+          панели, под ней строка подписи (см. ArtShelf). */}
       {artOn
         ? <ArtShelf onClose={() => setOpen(false)} />
         : (
