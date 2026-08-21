@@ -1,30 +1,49 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { X, ChevronRight } from 'lucide-react';
-import { PAINTINGS, paintingAt, PaintingScene } from '../art/paintings';
+import { buildViews, todayWords } from '../art/views';
 
 const KEY = 'flux_art_index';
+
+/** Сцена и подпись. Вместе — ровно 120: 96 на вид и 24 на строку под ним. */
+const SCENE_H = 96;
+const LABEL_H = 24;
 
 interface Props {
   onClose: () => void;
 }
 
 /**
- * Полка картин в шапке помощника — на месте, где раньше жил робот.
+ * Полка видов в шапке помощника — на месте, где раньше жил робот.
  *
- * Высота и ширина оставлены прежними, 88 на 380: место в панели не менялось,
- * менялось наполнение.
+ * Что изменилось после первой версии и почему.
  *
- * Как выбирается картина. При каждом открытии панели — следующая по кругу, и
- * номер запоминается. Не случайно: случайный выбор время от времени показывает
- * одно и то же дважды подряд, и это читается как поломка. Не само собой по
- * таймеру: полка стоит вплотную к переписке, и картина, меняющаяся сама во
- * время чтения, дёргает взгляд. Хочется другую — нажатие переключает.
+ * Было мелко. Полоса 380×88 отдавала холсту 56 точек по высоте, а подпись
+ * лежала поверх сцены табличкой в левом нижнем углу и закрывала собой то
+ * самое место, где у половины сцен стоял человек или лежала тень. Получалось
+ * вдвойне плохо: и картина маленькая, и часть её не видно.
  *
- * Подпись — как в музее: название, автор, год. Всегда на месте, приглушённая;
- * цвет берётся от того, светлая сцена или тёмная, иначе на «Звёздной ночи»
- * тёмная подпись пропадает, а на «Витрувианском человеке» — светлая.
+ * Стало так. Подпись съехала из сцены в собственную строку под ней — теперь
+ * она ничего не закрывает и читается на любом виде без подложек и подгонки
+ * цвета. Освободившийся низ отдан сцене, и холст вырос с 56 до 74 точек. Полка
+ * подросла с 88 до 120: 96 на вид, 24 на подпись. Тридцать две точки — это
+ * примерно одна строка переписки, и они окупаются тем, что на картину стало
+ * можно смотреть.
+ *
+ * Кроме картин на полке живут пейзажи: время года и время суток настоящие,
+ * сегодняшние, погода перебирается по кругу (см. src/art/scenery.tsx). Ленте
+ * 4:1 пейзаж подходит идеально — там нет холста, который надо куда-то
+ * вставлять, вид занимает всё поле целиком.
+ *
+ * Какой вид показать. При каждом открытии панели — следующий по кругу, и номер
+ * запоминается. Не случайно: случайный выбор время от времени показывает одно
+ * и то же дважды подряд, и это читается как поломка. Не само собой по таймеру:
+ * полка стоит вплотную к переписке, и вид, меняющийся сам во время чтения,
+ * дёргает взгляд. Хочется другой — нажатие переключает.
  */
 export default function ArtShelf({ onClose }: Props) {
+  // Список собирается при открытии: он зависит от сегодняшних даты и часа
+  const views = useMemo(() => buildViews(), []);
+
   const [i, setI] = useState<number>(() => {
     try {
       const v = parseInt(localStorage.getItem(KEY) || '', 10);
@@ -36,61 +55,67 @@ export default function ArtShelf({ onClose }: Props) {
     try { localStorage.setItem(KEY, String(i)); } catch (_) { /* приватный режим — просто не помним */ }
   }, [i]);
 
-  const p = paintingAt(i);
-  const label = `«${p.title}», ${p.artist}, ${p.year}`;
+  const n = views.length;
+  const at = ((i % n) + n) % n;
+  const v = views[at];
 
   return (
     <div
-      className="relative shrink-0 overflow-hidden border-b border-black/[0.06] dark:border-white/[0.07] select-none"
-      style={{ height: 88 }}
-      role="img"
-      aria-label={label}
+      className="relative shrink-0 select-none border-b border-black/[0.06] dark:border-white/[0.07]"
+      style={{ height: SCENE_H + LABEL_H }}
     >
-      {/* Сцена. key — чтобы при смене картины анимации начинались заново,
-          а не подхватывались на середине от предыдущей */}
-      <div key={p.id} className="absolute inset-0 flux-art-enter">
-        <PaintingScene painting={p} />
+      {/* Сцена. key — чтобы при смене вида анимации начинались заново,
+          а не подхватывались на середине от предыдущего */}
+      <div
+        className="relative overflow-hidden"
+        style={{ height: SCENE_H }}
+        role="img"
+        aria-label={`${v.title}. ${v.sub}`}
+      >
+        <div key={v.id} className="absolute inset-0 flux-art-enter">
+          {v.render()}
+        </div>
+
+        {/* Следующий вид */}
+        <button
+          type="button"
+          onClick={() => setI((x) => x + 1)}
+          title={`Следующий вид (${at + 1} из ${n}) · сейчас ${todayWords()}`}
+          aria-label="Следующий вид"
+          className="absolute right-9 top-1.5 p-1 rounded-lg cursor-pointer transition-ui
+                     bg-black/25 hover:bg-black/40 text-white/90 backdrop-blur-sm"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+
+        {/* Закрыть помощника — кнопка та же, что была у робота */}
+        <button
+          type="button"
+          onClick={onClose}
+          title="Закрыть"
+          aria-label="Закрыть помощника"
+          className="absolute right-1.5 top-1.5 p-1 rounded-lg cursor-pointer transition-ui
+                     bg-black/25 hover:bg-black/40 text-white/90 backdrop-blur-sm"
+        >
+          <X className="w-4 h-4" />
+        </button>
       </div>
 
-      {/* Подпись музейной табличкой.
-          Своя подложка обязательна: сцены разные, и без неё текст то ложился
-          на светлую стену, то попадал ровно на тёмный силуэт посетителя и
-          пропадал наполовину. Табличка читается на любой из восьми. */}
-      <div className="absolute left-2 bottom-2 max-w-[58%] rounded-md px-2 py-1
-                      bg-white/82 dark:bg-slate-950/72 backdrop-blur-[2px]
-                      border border-black/[0.06] dark:border-white/[0.10] shadow-sm
-                      pointer-events-none">
-        <div className="text-2xs font-bold leading-tight truncate text-slate-900 dark:text-white">
-          {p.title}
-        </div>
-        <div className="text-2xs leading-tight truncate text-slate-650 dark:text-slate-400">
-          {p.artist}, {p.year}
-        </div>
+      {/* Подпись отдельной строкой: ничего не закрывает и не спорит с видом.
+          Название и уточнение в одной строке — на 380 точках две строки
+          съели бы вдвое больше места ради того же смысла. */}
+      <div
+        className="flex items-baseline gap-1.5 px-2.5 bg-slate-50 dark:bg-slate-950
+                   border-t border-slate-200 dark:border-slate-850"
+        style={{ height: LABEL_H }}
+      >
+        <span className="text-2xs font-bold text-slate-800 dark:text-slate-100 shrink-0 max-w-[58%] truncate">
+          {v.title}
+        </span>
+        <span className="text-2xs text-slate-500 dark:text-slate-400 min-w-0 truncate">
+          {v.sub}
+        </span>
       </div>
-
-      {/* Следующая картина */}
-      <button
-        type="button"
-        onClick={() => setI((v) => v + 1)}
-        title={`Следующая картина (${((i % PAINTINGS.length) + PAINTINGS.length) % PAINTINGS.length + 1} из ${PAINTINGS.length})`}
-        aria-label="Следующая картина"
-        className="absolute right-9 top-1.5 p-1 rounded-lg cursor-pointer transition-ui
-                   bg-black/25 hover:bg-black/40 text-white/90 backdrop-blur-sm"
-      >
-        <ChevronRight className="w-4 h-4" />
-      </button>
-
-      {/* Закрыть помощника — кнопка та же, что была у робота */}
-      <button
-        type="button"
-        onClick={onClose}
-        title="Закрыть"
-        aria-label="Закрыть помощника"
-        className="absolute right-1.5 top-1.5 p-1 rounded-lg cursor-pointer transition-ui
-                   bg-black/25 hover:bg-black/40 text-white/90 backdrop-blur-sm"
-      >
-        <X className="w-4 h-4" />
-      </button>
     </div>
   );
 }

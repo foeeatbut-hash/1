@@ -212,8 +212,9 @@ export default function AssistantPanel() {
       className={`${isOpen ? 'w-[380px] opacity-100' : 'w-0 opacity-0 pointer-events-none'} shrink-0 h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col transition-ui duration-300 overflow-hidden absolute top-0 bottom-0 right-[var(--flux-rail-w)] z-50 shadow-2xl xl:static xl:right-auto xl:z-auto xl:shadow-none`}
     >
       <div className="w-[380px] h-full flex flex-col shrink-0">
-      {/* Шапка — она же полка картин: заголовок и подпись убраны, место
-          отдано картине. Размер полки прежний, 380 на 88. */}
+      {/* Шапка — она же полка: заголовок и подпись раздела убраны, место
+          отдано виду. Полка 380 на 120 — 96 на картину или пейзаж и 24 на
+          строку подписи под ними (см. ArtShelf). */}
       {artOn
         ? <ArtShelf onClose={() => setOpen(false)} />
         : (
