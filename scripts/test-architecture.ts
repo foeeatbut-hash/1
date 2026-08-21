@@ -123,7 +123,8 @@ const LEGACY: Record<string, number> = {
   // Строки и значки уехали в components/explorer/FileItems.tsx — планка ниже
   'src/screens/Explorer.tsx': 2371,
   'src/screens/DictionaryEditor.tsx': 2279,
-  'src/screens/ChatManagement.tsx': 2029,
+  // Пузырь сообщения уехал в components/chat/MessageBubble.tsx — планка ниже
+  'src/screens/ChatManagement.tsx': 1864,
   'src/screens/ConstructorScreen.tsx': 1909,
   'src/screens/SettingsScreen.tsx': 1620,
   // Типы ответа и два новых ответа уехали в src/assistant/ — планка ниже
