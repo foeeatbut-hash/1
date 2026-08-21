@@ -6,6 +6,7 @@ import { useChatStore, ChatMessage } from '../store/chatStore';
 import { useShareStore } from '../store/shareStore';
 import { useNotificationStore } from '../store/notificationStore';
 import { decodeShare } from '../lib/shareLink';
+import { openInProject } from '../lib/projectScope';
 import RichChatInput, { RichChatInputHandle } from '../components/RichChatInput';
 import { Link2 } from 'lucide-react';
 import {
@@ -152,20 +153,20 @@ export default function ChatManagement() {
   } = useChatStore();
   const setFocusTarget = useShareStore(s => s.setFocusTarget);
 
-  // Переход по «поделиться-ссылке» в сообщении (с учётом проекта)
+  // Переход по «поделиться-ссылке» в сообщении.
+  //
+  // Чат — общий раздел: в нём лежат ссылки на данные всех проектов. Ссылка на
+  // чужой проект не ломается и не открывается молча — спрашивает, как и всё
+  // остальное в программе (см. src/lib/projectScope.ts). Раньше здесь был свой
+  // текст вопроса, отличавшийся от всех прочих.
   const handleShareClick = (token: string) => {
     const t = decodeShare(token);
     if (!t) return;
-    const goNow = () => { setFocusTarget(t); navigate(t.r); };
-    if (t.p && activeProject?.id && t.p !== activeProject.id) {
-      // Цель из другого проекта — предлагаем переключиться
-      addToast(`Эта ссылка из проекта «${t.pn || 'другой'}». Нажмите, чтобы перейти в него и открыть.`, 'info', () => {
-        setActiveProject({ id: t.p!, name: t.pn || 'Проект' } as any);
-        setTimeout(goNow, 100);
-      });
-      return;
-    }
-    goNow();
+    openInProject({
+      what: t.l ? `«${t.l}»` : 'Ссылка из чата',
+      projectId: t.p || null,
+      open: () => { setFocusTarget(t); navigate(t.r); },
+    });
   };
 
   const [messageText, setMessageText] = useState('');

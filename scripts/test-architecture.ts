@@ -120,7 +120,8 @@ const BUDGET = 1200;
 const LEGACY: Record<string, number> = {
   'src/screens/Registry.tsx': 6071,
   'server.ts': 4296,
-  'src/screens/Explorer.tsx': 2560,
+  // Строки и значки уехали в components/explorer/FileItems.tsx — планка ниже
+  'src/screens/Explorer.tsx': 2371,
   'src/screens/DictionaryEditor.tsx': 2279,
   'src/screens/ChatManagement.tsx': 2029,
   'src/screens/ConstructorScreen.tsx': 1909,
@@ -267,6 +268,54 @@ const REACHABLE_ELSEWHERE: Record<string, string> = {
     return !new RegExp(`path: '${p.replace('/', '\\/')}'`).test(layoutSrc);
   });
   ok(`каждый раздел открывается из меню (недоступных: ${unreachable.length})`, unreachable.length === 0, unreachable);
+}
+
+// ── Чьи данные в разделе: проектные или общие ──
+//
+// Разделение объявлено данными в реестре разделов, а показано подписями групп
+// в левом меню. Это два разных списка, и разойтись они могут молча: раздел
+// переедет в меню из одной группы в другую, а реестр останется прежним — и
+// подпись над кнопкой начнёт врать. Сверяем.
+console.log('\n8. Область данных раздела');
+{
+  const sectionsSrc = read('src/workspace/sections.tsx');
+  const layoutSrc = read('src/components/Layout.tsx');
+
+  const entries = [...sectionsSrc.matchAll(/path: '([^']+)', title: '([^']+)'[^\n]*?scope: '([a-z]+)'/g)]
+    .map((m) => ({ path: m[1], title: m[2], scope: m[3] }));
+  const paths = [...sectionsSrc.matchAll(/\{ path: '([^']+)'/g)].map((m) => m[1]);
+
+  ok(`область объявлена у всех разделов (${entries.length} из ${paths.length})`,
+    entries.length === paths.length,
+    paths.filter((p) => !entries.some((e) => e.path === p)));
+
+  const allowed = ['project', 'global', 'mixed'];
+  const strange = entries.filter((e) => !allowed.includes(e.scope));
+  ok('областей всего три: проектная, общая, смешанная', strange.length === 0, strange);
+
+  // Группы левого меню: от подписи группы до следующей подписи или до конца.
+  const groupPaths = (label: string): string[] => {
+    const start = layoutSrc.indexOf(`label: '${label}'`);
+    if (start < 0) return [];
+    const rest = layoutSrc.slice(start + label.length);
+    const end = rest.search(/\{ label: '|\n  \];/);
+    return [...(end > 0 ? rest.slice(0, end) : rest).matchAll(/path: '([^']+)'/g)].map((m) => m[1]);
+  };
+
+  for (const [label, want] of [['Проект', 'project'], ['Общее', 'global']] as const) {
+    const inMenu = groupPaths(label);
+    ok(`группа меню «${label}» непуста`, inMenu.length > 0, inMenu);
+    const wrong = inMenu.filter((p) => {
+      const e = entries.find((x) => x.path === p);
+      return !e || e.scope !== want;
+    });
+    ok(`в группе «${label}» только разделы с областью «${want}»`, wrong.length === 0, wrong);
+  }
+
+  // Разделы, до которых из меню не дотянуться, области тоже обязаны объявить —
+  // на них смотрит руководство и помощник.
+  const orphan = entries.filter((e) => e.scope === 'mixed').map((e) => e.path);
+  ok('смешанных разделов немного (Главная и Настройки)', orphan.length <= 2, orphan);
 }
 
 console.log(f === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${f}`);

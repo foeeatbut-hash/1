@@ -28,9 +28,23 @@ const SettingsScreen = lazy(() => import('../screens/SettingsScreen'));
 const ConstructorScreen = lazy(() => import('../screens/ConstructorScreen'));
 const Handbook = lazy(() => import('../screens/Handbook'));
 
+/**
+ * Область данных раздела — см. src/lib/projectScope.ts.
+ *
+ *  'project' — раздел показывает данные одного проекта; смена проекта меняет
+ *              в нём всё;
+ *  'global'  — раздел живёт поверх проектов и от переключения не меняется;
+ *  'mixed'   — в разделе есть и то и другое (Главная, Настройки).
+ *
+ * Поле обязательное. Раздел, не сказавший, к чему он относится, — это ровно та
+ * неясность, из-за которой у людей и возникал вопрос «а эти данные чьи?».
+ */
+export type SectionScope = 'project' | 'global' | 'mixed';
+
 export interface SectionDef {
   path: string;
   title: string;
+  scope: SectionScope;
   scroll: 'auto' | 'fixed';
   pad: boolean;
   adminOnly?: boolean;
@@ -40,23 +54,23 @@ export interface SectionDef {
 }
 
 export const SECTIONS: SectionDef[] = [
-  { path: '/', title: 'Главная', icon: Home, scroll: 'auto', pad: true, Component: Dashboard },
-  { path: '/projects', title: 'Проекты', icon: FolderKanban, scroll: 'auto', pad: true, Component: ProjectsManagement },
-  { path: '/registry', title: 'Теги', icon: Tag, scroll: 'fixed', pad: true, Component: Registry },
-  { path: '/equipment', title: 'Оборудование', icon: Fan, scroll: 'auto', pad: true, Component: Equipment },
-  { path: '/directory', title: 'Справочник', icon: BookOpen, scroll: 'fixed', pad: true, Component: DictionaryEditor },
-  { path: '/management', title: 'Менеджмент', icon: Briefcase, scroll: 'auto', pad: true, Component: ProcurementManagement },
-  { path: '/explorer', title: 'Проводник', icon: FolderOpen, scroll: 'auto', pad: true, Component: Explorer },
-  { path: '/constructor', title: 'Конструктор', icon: Table2, scroll: 'auto', pad: true, Component: ConstructorScreen },
-  { path: '/notes', title: 'Блокнот', icon: NotebookPen, scroll: 'auto', pad: true, Component: NotesManagement },
-  { path: '/chat', title: 'Чат', icon: MessagesSquare, scroll: 'fixed', pad: true, Component: ChatManagement },
+  { path: '/', title: 'Главная', icon: Home, scope: 'mixed', scroll: 'auto', pad: true, Component: Dashboard },
+  { path: '/projects', title: 'Проекты', icon: FolderKanban, scope: 'global', scroll: 'auto', pad: true, Component: ProjectsManagement },
+  { path: '/registry', title: 'Теги', icon: Tag, scope: 'project', scroll: 'fixed', pad: true, Component: Registry },
+  { path: '/equipment', title: 'Оборудование', icon: Fan, scope: 'project', scroll: 'auto', pad: true, Component: Equipment },
+  { path: '/directory', title: 'Справочник', icon: BookOpen, scope: 'project', scroll: 'fixed', pad: true, Component: DictionaryEditor },
+  { path: '/management', title: 'Менеджмент', icon: Briefcase, scope: 'project', scroll: 'auto', pad: true, Component: ProcurementManagement },
+  { path: '/explorer', title: 'Проводник', icon: FolderOpen, scope: 'global', scroll: 'auto', pad: true, Component: Explorer },
+  { path: '/constructor', title: 'Конструктор', icon: Table2, scope: 'project', scroll: 'auto', pad: true, Component: ConstructorScreen },
+  { path: '/notes', title: 'Блокнот', icon: NotebookPen, scope: 'global', scroll: 'auto', pad: true, Component: NotesManagement },
+  { path: '/chat', title: 'Чат', icon: MessagesSquare, scope: 'global', scroll: 'fixed', pad: true, Component: ChatManagement },
   // Почта занимает всю высоту и прокручивает списки внутри — как Чат и Теги
-  { path: '/mail', title: 'Почта', icon: Mail, scroll: 'fixed', pad: true, Component: MailScreen },
-  { path: '/generator', title: 'Генератор', icon: Wand2, scroll: 'auto', pad: true, Component: UniversalGenerator },
-  { path: '/settings', title: 'Настройки', icon: Settings, scroll: 'auto', pad: true, Component: SettingsScreen },
-  { path: '/handbook', title: 'Руководство', icon: LifeBuoy, scroll: 'fixed', pad: true, Component: Handbook },
-  { path: '/logs', title: 'Журнал', icon: ClipboardList, scroll: 'auto', pad: true, Component: LogsManagement },
-  { path: '/users', title: 'Сотрудники', icon: Users, scroll: 'auto', pad: true, adminOnly: true, Component: UsersManagement },
+  { path: '/mail', title: 'Почта', icon: Mail, scope: 'global', scroll: 'fixed', pad: true, Component: MailScreen },
+  { path: '/generator', title: 'Генератор', icon: Wand2, scope: 'project', scroll: 'auto', pad: true, Component: UniversalGenerator },
+  { path: '/settings', title: 'Настройки', icon: Settings, scope: 'mixed', scroll: 'auto', pad: true, Component: SettingsScreen },
+  { path: '/handbook', title: 'Руководство', icon: LifeBuoy, scope: 'global', scroll: 'fixed', pad: true, Component: Handbook },
+  { path: '/logs', title: 'Журнал', icon: ClipboardList, scope: 'global', scroll: 'auto', pad: true, Component: LogsManagement },
+  { path: '/users', title: 'Сотрудники', icon: Users, scope: 'global', scroll: 'auto', pad: true, adminOnly: true, Component: UsersManagement },
 ];
 
 const BY_PATH = new Map(SECTIONS.map((s) => [s.path, s]));
@@ -68,4 +82,9 @@ export function sectionForPath(pathname: string): SectionDef {
 
 export function isKnownSection(pathname: string): boolean {
   return BY_PATH.has(pathname);
+}
+
+/** Область данных раздела; неизвестный путь считаем общим. */
+export function scopeForPath(pathname: string): SectionScope {
+  return BY_PATH.get(pathname)?.scope || 'global';
 }

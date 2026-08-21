@@ -386,29 +386,30 @@ export default function Layout() {
     );
   };
 
-  // Разделы, сгруппированные по смыслу: контекст → инженерные данные →
-  // документы и закупки → личное. Группы разделены тонкой линией: список
-  // из двенадцати одинаковых пунктов подряд не читается.
-  const navGroups: { items: { name: string; path: string; icon: any }[] }[] = [
-    { items: [{ name: 'Главная', path: '/', icon: Home }] },
+  // Разделы сгруппированы по тому, чьи в них данные (см. src/lib/projectScope.ts).
+  //
+  // Раньше группировка была «по смыслу», и по ней нельзя было понять главного:
+  // почему Теги при переключении проекта меняются целиком, а Почта — нет.
+  // Теперь это написано прямо над группой. Проводник переехал из первой группы
+  // во вторую: файлы видны все, независимо от открытого проекта.
+  const navGroups: { label?: string; items: { name: string; path: string; icon: any }[] }[] = [
     { items: [
+      { name: 'Главная', path: '/', icon: Home },
       { name: 'Проекты', path: '/projects', icon: FolderKanban },
+    ] },
+    { label: 'Проект', items: [
       { name: 'Теги', path: '/registry', icon: Tag },
       { name: 'Оборудование', path: '/equipment', icon: Fan },
       { name: 'Справочник', path: '/directory', icon: BookOpen },
-    ] },
-    { items: [
       { name: 'Менеджмент', path: '/management', icon: Briefcase },
-      { name: 'Проводник', path: '/explorer', icon: FolderOpen },
       { name: 'Конструктор', path: '/constructor', icon: Table2 },
     ] },
-    { items: [
+    { label: 'Общее', items: [
+      { name: 'Проводник', path: '/explorer', icon: FolderOpen },
       { name: 'Блокнот', path: '/notes', icon: NotebookPen },
       { name: 'Чат', path: '/chat', icon: MessagesSquare },
       { name: 'Почта', path: '/mail', icon: Mail },
       ...(user && user.role === 'ADMIN' ? [{ name: 'Сотрудники', path: '/users', icon: Users }] : []),
-    ] },
-    { items: [
       { name: 'Руководство', path: '/handbook', icon: LifeBuoy },
     ] },
   ];
@@ -475,6 +476,19 @@ export default function Layout() {
             {navGroups.map((g, gi) => (
               <React.Fragment key={gi}>
                 {gi > 0 && <hr className="my-1 border-slate-200 dark:border-dark-border" />}
+                {/* Подпись группы. В узком меню значки идут без названий, и
+                    подпись там осталась бы единственным текстом — она сжата до
+                    точки-разделителя, а смысл переехал в подсказку. */}
+                {g.label && (
+                  <div
+                    title={g.label === 'Проект' ? 'Данные открытого проекта: сменили проект — сменилось всё' : 'Общее для всей программы: от проекта не зависит'}
+                    className={`text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 select-none ${
+                      sidebarCompact ? 'text-center leading-none pb-0.5' : 'px-1 pb-0.5'
+                    }`}
+                  >
+                    {sidebarCompact ? g.label.slice(0, 3) : g.label}
+                  </div>
+                )}
                 {g.items.map(navButton)}
               </React.Fragment>
             ))}

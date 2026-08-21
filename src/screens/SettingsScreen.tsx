@@ -40,19 +40,33 @@ const { openConfirm, openAlert, openPrompt } = useModalStore.getState();
 
 type SectionId = 'general' | 'roles' | 'management' | 'docflow' | 'formulas' | 'equipment' | 'tags' | 'notifications' | 'database' | 'backup' | 'logs' | 'updates';
 
-const SECTIONS: Array<{ id: SectionId; label: string; icon: any; desc: string }> = [
-  { id: 'general', label: 'Общие', icon: Settings, desc: 'Тема и плотность' },
-  { id: 'roles', label: 'Роли сотрудников', icon: ShieldCheck, desc: 'Кто кем работает' },
-  { id: 'management', label: 'Менеджмент', icon: Briefcase, desc: 'Этапы закупки' },
-  { id: 'docflow', label: 'Документооборот', icon: FileSpreadsheet, desc: 'Стандарты ВДР' },
-  { id: 'formulas', label: 'Формулы документа', icon: Sigma, desc: 'Дата, подпись, шифр' },
-  { id: 'equipment', label: 'Оборудование', icon: Fan, desc: 'Категории оборудования' },
-  { id: 'tags', label: 'Теги', icon: Tag, desc: 'Холст связей' },
-  { id: 'notifications', label: 'Уведомления', icon: Bell, desc: 'Какие события показывать' },
-  { id: 'database', label: 'База данных', icon: Database, desc: 'На этом компьютере или на сервере' },
-  { id: 'backup', label: 'Резервные копии', icon: Archive, desc: 'Ежедневный архив данных' },
-  { id: 'logs', label: 'Crash-логи', icon: Terminal, desc: 'Журналы сбоев' },
-  { id: 'updates', label: 'Обновления', icon: DownloadCloud, desc: 'Версия и обновления' },
+// Настройки делятся ровно так же, как остальные данные программы (см.
+// src/lib/projectScope.ts): часть общая для всей программы, часть — своя у
+// каждого проекта. Раньше они шли одним списком, и было непонятно, почему
+// «Формулы документа», настроенные вчера, сегодня в другом проекте пустые.
+type SettingScope = 'global' | 'project';
+
+const SECTIONS: Array<{ id: SectionId; label: string; icon: any; desc: string; scope: SettingScope }> = [
+  { id: 'general', label: 'Общие', icon: Settings, desc: 'Тема и плотность', scope: 'global' },
+  { id: 'roles', label: 'Роли сотрудников', icon: ShieldCheck, desc: 'Кто кем работает', scope: 'global' },
+  { id: 'management', label: 'Менеджмент', icon: Briefcase, desc: 'Этапы закупки', scope: 'global' },
+  { id: 'docflow', label: 'Документооборот', icon: FileSpreadsheet, desc: 'Стандарты ВДР', scope: 'global' },
+  { id: 'equipment', label: 'Оборудование', icon: Fan, desc: 'Категории оборудования', scope: 'global' },
+  // «Теги» здесь — про способ соединять теги на холсте, а не про сами теги:
+  // настройка одна на программу. Сами теги живут в проекте.
+  { id: 'tags', label: 'Теги', icon: Tag, desc: 'Холст связей', scope: 'global' },
+  { id: 'notifications', label: 'Уведомления', icon: Bell, desc: 'Какие события показывать', scope: 'global' },
+  { id: 'database', label: 'База данных', icon: Database, desc: 'На этом компьютере или на сервере', scope: 'global' },
+  { id: 'backup', label: 'Резервные копии', icon: Archive, desc: 'Ежедневный архив данных', scope: 'global' },
+  { id: 'logs', label: 'Crash-логи', icon: Terminal, desc: 'Журналы сбоев', scope: 'global' },
+  { id: 'updates', label: 'Обновления', icon: DownloadCloud, desc: 'Версия и обновления', scope: 'global' },
+  // Своё в каждом проекте
+  { id: 'formulas', label: 'Формулы документа', icon: Sigma, desc: 'Дата, подпись, шифр', scope: 'project' },
+];
+
+const SETTING_GROUPS: Array<{ scope: SettingScope; label: string; hint: string }> = [
+  { scope: 'global', label: 'Общее', hint: 'Одинаково во всей программе, для всех проектов' },
+  { scope: 'project', label: 'Проект', hint: 'Своё в каждом проекте: сменили проект — здесь другие значения' },
 ];
 
 export default function SettingsScreen() {
@@ -96,7 +110,16 @@ export default function SettingsScreen() {
           <h1 className="hidden @[700px]:block text-base font-bold text-slate-900 dark:text-white">Настройки</h1>
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {SECTIONS.map(s => {
+          {SETTING_GROUPS.map(g => (
+          <React.Fragment key={g.scope}>
+          {/* Заголовок области. В узкой колонке (только значки) вместо слова
+              остаётся черта: подпись там всё равно не поместилась бы, а разрыв
+              между группами нужен. */}
+          <div className="pt-1.5 first:pt-0" title={g.hint}>
+            <div className="hidden @[700px]:block px-3 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 select-none">{g.label}</div>
+            <div className="@[700px]:hidden mx-2 mb-1 border-t border-slate-200 dark:border-slate-800" />
+          </div>
+          {SECTIONS.filter(s => s.scope === g.scope).map(s => {
             const Icon = s.icon;
             const active = section === s.id;
             return (
@@ -122,6 +145,8 @@ export default function SettingsScreen() {
               </button>
             );
           })}
+          </React.Fragment>
+          ))}
         </div>
       </div>
 
@@ -1161,7 +1186,17 @@ function FormulasSection() {
   }
   return (
     <div className="h-full flex flex-col min-h-0">
-      <h2 className="text-xl font-bold text-slate-900 dark:text-white">Формулы документа</h2>
+      <div className="flex items-center gap-2 flex-wrap">
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white">Формулы документа</h2>
+        {/* Чей это набор. Без подписи люди правили формулы, будучи уверены,
+            что правят их для всей программы, а правили для одного проекта. */}
+        <span className="text-2xs font-semibold px-2 py-0.5 rounded-full max-w-[220px] truncate
+                         bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300
+                         border border-emerald-200 dark:border-emerald-900"
+              title="Формулы свои у каждого проекта">
+          проект «{activeProject.name}»
+        </span>
+      </div>
       <p className="text-xs text-slate-400 mt-1 mb-4">
         Что видно в титуле вместо выражения: «Дата», «Инициалы сотрудника», «Подпись»,
         «Шифр с ревизией». Настройка живёт здесь, документ показывает только название.

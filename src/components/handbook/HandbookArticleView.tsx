@@ -47,7 +47,12 @@ export default function HandbookArticleView({ article: a, onGoToSection, onOpen,
       {a.why && (
         <section className="flex flex-col gap-2">
           <Head id="why" icon={Lightbulb}>Почему так</Head>
-          <p className="text-sm text-slate-650 dark:text-slate-400 leading-relaxed max-w-[70ch]">{a.why}</p>
+          {/* Пустая строка в тексте разбивает его на абзацы. Раньше весь
+              «почему» шёл одним куском: длинные объяснения в три мысли
+              слипались в стену текста, которую никто не дочитывал. */}
+          {a.why.split(/\n{2,}/).map((para, i) => (
+            <p key={i} className="text-sm text-slate-650 dark:text-slate-400 leading-relaxed max-w-[70ch]">{para}</p>
+          ))}
         </section>
       )}
 
