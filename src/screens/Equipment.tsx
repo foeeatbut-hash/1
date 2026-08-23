@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import {
@@ -225,6 +226,39 @@ export default function Equipment() {
       return () => clearTimeout(t);
     }
   }, [allBlocks]);
+
+  // ── Переход по ссылке: /equipment?element=… и ?system=… ──
+  // Так сюда ведут проверка проекта, панель связей и общий поиск. Без этого
+  // их ссылки открывали бы раздел «вообще», и элемент приходилось бы искать
+  // руками — то есть ровно то, от чего связи и избавляют.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const elementId = searchParams.get('element');
+    const systemId = searchParams.get('system');
+    if (!elementId && !systemId) return;
+    if (!Object.keys(allBlocks).length && !systems.length) return;  // данные ещё грузятся
+
+    if (elementId) {
+      const entry = allBlocks[elementId];
+      if (!entry) return;   // ждём загрузки; если элемента нет вовсе — параметр снимется ниже
+      setActiveCat(entry.unit.category);
+      setExpanded(e => ({ ...e, [entry.unit.id]: true, [entry.mono.id]: true }));
+      setSelectedUnitId(null);
+      setSelectedBlockId(entry.block.id);
+      setShowAllParams(false);
+    } else if (systemId) {
+      const unit = systems.find(x => x.id === systemId);
+      if (!unit) return;
+      setActiveCat(unit.category);
+      setExpanded(e => ({ ...e, [unit.id]: true }));
+      setSelectedBlockId(null);
+      setSelectedUnitId(unit.id);
+    }
+    // Параметр гасим: иначе он сработает снова при любом возврате в раздел
+    const next = new URLSearchParams(searchParams);
+    next.delete('element'); next.delete('system');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, allBlocks, systems]);
 
   const totalConflicts = useMemo(() =>
     catSystems.reduce((n, s) => n + s.monoblocks.reduce((m, mb) => m + mb.components.filter(c => c.hasConflict).length, 0), 0),

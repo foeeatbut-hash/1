@@ -1189,3 +1189,10 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   transform-origin: center;
 }
 @media (prefers-reduced-motion: reduce) { .flux-art-drift { animation: none !important; } }
+/* Панель связей выезжает справа. Движение короткое (180 мс): панель зовут
+   десятки раз за день, и длинная анимация начинает раздражать раньше, чем
+   успевает понравиться. */
+@keyframes insight-in {
+  from { transform: translateX(16px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}

@@ -28,6 +28,7 @@ import { registerMailSharedRoutes } from './server/routes/mailShared.js';
 import { registerMailComposeRoutes } from './server/routes/mailCompose.js';
 import { registerMailLinkRoutes } from './server/routes/mailLink.js';
 import { watchAll as watchAllMail, stopAll as stopMailWatch } from './server/mail/idle.js';
+import { registerInsightRoutes } from './server/routes/insight.js';
 import { registerUserRoutes, seedRoles, backfillNameParts } from './server/routes/users.js';
 import { initBackups } from './server/backup.js';
 
@@ -2273,6 +2274,7 @@ app.post('/api/notifications/read', async (req: Request, res: Response) => {
 
 // Проводник (папки, файлы, корзина) вынесен в server/routes/explorer.ts
 registerExplorerRoutes(app);
+registerInsightRoutes(app);
 
 
 // Registry (Equipment & Tags)

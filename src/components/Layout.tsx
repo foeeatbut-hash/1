@@ -16,6 +16,8 @@ import AssistantPanel from './AssistantPanel';
 import NotificationsPanel from './NotificationsPanel';
 import RightRail from './RightRail';
 import ShareLayer from './ShareLayer';
+import CommandPalette from './CommandPalette';
+import InsightDrawer from './insight/InsightDrawer';
 import FluxLogo from './FluxLogo';
 import { useNotificationStore } from '../store/notificationStore';
 import Workspace from './Workspace';
@@ -676,6 +678,10 @@ export default function Layout() {
       <AssistantPanel />
       <RightRail />
 
+
+      {/* Связи проекта и общий поиск — поверх всего: их зовут из любого места */}
+      <InsightDrawer />
+      <CommandPalette />
 
       <ToastProvider />
       <ModalProvider />

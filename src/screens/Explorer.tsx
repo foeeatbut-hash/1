@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import VdrItemPicker from '../components/VdrItemPicker';
@@ -60,6 +60,7 @@ export default function Explorer() {
   const { openPrompt, openConfirm, openSelect } = useModalStore();
   const navigate = useNavigate();
   const routeLoc = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const currentFolderId = explorerHistory[explorerHistory.length - 1];
 
   const [folders, setFolders] = useState<any[]>([]);
@@ -364,6 +365,23 @@ export default function Explorer() {
     setSearchQuery('');
     setSelectedIds(new Set());
   };
+
+  // ── Переход по ссылке: /explorer?file=…&folder=… ──
+  // Так сюда ведут панель связей и общий поиск. Папка в ссылке обязательна:
+  // Проводник держит только текущую папку и по одному имени файла не знал бы,
+  // куда идти.
+  useEffect(() => {
+    const fileId = searchParams.get('file');
+    const folderId = searchParams.get('folder');
+    if (!fileId) return;
+    if (folderId && folderId !== currentFolderIdRef.current) navigateTo(folderId);
+    // Выделение ставим после перехода: список папки перерисовывается, и
+    // выделение, поставленное раньше, тут же затирается
+    setTimeout(() => setSelectedIds(new Set([fileId])), 250);
+    const next = new URLSearchParams(searchParams);
+    next.delete('file'); next.delete('folder');
+    setSearchParams(next, { replace: true });
+  }, [searchParams]);
 
   // Раздел (общий/личный), которому принадлежит папка или файл
   const itemSection = useCallback((item: any): string => {

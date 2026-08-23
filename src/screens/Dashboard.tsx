@@ -15,6 +15,8 @@ import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import ProjectFormModal from '../components/ProjectFormModal';
 import { dataService, UserNote, SystemChangeLog, Project, ProjectInput } from '../services/dataService';
+import { useInsightStore } from '../store/insightStore';
+import { fetchCheck, fetchSearch, type SearchHit } from '../lib/insight';
 import { useWorkspaceStore, sectionUses, recentSections } from '../store/workspaceStore';
 import { useShareStore } from '../store/shareStore';
 import { useNotificationStore } from '../store/notificationStore';
@@ -26,7 +28,7 @@ import { splitFullName } from '../lib/declension';
 import {
   Search, History, ExternalLink, ArrowRight, Plus, Check,
   FolderKanban, NotebookPen, CornerDownLeft, X, Clock,
-  AlertTriangle, CalendarClock, MessageSquareWarning, Bell, Cake,
+  AlertTriangle, CalendarClock, MessageSquareWarning, Bell, Cake, ShieldCheck,
 } from 'lucide-react';
 
 type Attention = {
@@ -37,7 +39,7 @@ type Attention = {
 };
 
 type Hit = {
-  kind: 'section' | 'project' | 'note' | 'tag';
+  kind: 'section' | 'project' | 'note' | 'tag' | 'element' | 'doc' | 'file' | 'vdr';
   id: string;
   title: string;
   hint?: string;
@@ -49,6 +51,10 @@ const KIND_LABEL: Record<Hit['kind'], string> = {
   project: 'Проект',
   note: 'Заметка',
   tag: 'Тег',
+  element: 'Элемент',
+  doc: 'Документ',
+  file: 'Файл',
+  vdr: 'ВДР',
 };
 
 export default function Dashboard() {
@@ -72,6 +78,9 @@ export default function Dashboard() {
   const [attention, setAttention] = useState<Attention | null>(null);
   const chatUnread = useNotificationStore((s) => s.chatUnread);
   const unreadNotifications = useNotificationStore((s) => s.unread);
+  const { openCheck, openChanges, setCheckCounts } = useInsightStore();
+  const checkTotal = useInsightStore((s) => s.checkTotal);
+  const checkCritical = useInsightStore((s) => s.checkCritical);
 
   // ── Данные экрана ──────────────────────────────────────────────────────────
   const load = async () => {
@@ -99,6 +108,15 @@ export default function Dashboard() {
       .catch(() => {});
     return () => { alive = false; };
   }, [activeProject?.id, user?.id]);
+
+  // Замечания по проекту считаем при входе: цифра в «Требует внимания» —
+  // единственное место, где о них узнают, не открывая проверку специально
+  useEffect(() => {
+    let alive = true;
+    if (!activeProject?.id) { setCheckCounts(0, 0); return; }
+    fetchCheck(activeProject.id).then((r) => { if (alive) setCheckCounts(r.total, r.critical); });
+    return () => { alive = false; };
+  }, [activeProject?.id]);
 
   // Состав открытых разделов: меняется при любой навигации. Главный экран
   // остаётся смонтированным, поэтому списки пересобираем по нему — иначе
@@ -139,6 +157,19 @@ export default function Dashboard() {
     }
   };
 
+  // Оборудование, документы, файлы и ВДР ищет сервер: их списки на главном
+  // экране не лежат, и искать по ним локально не из чего. Запрос уходит с
+  // задержкой — иначе он уходил бы на каждое нажатие клавиши.
+  const [remote, setRemote] = useState<SearchHit[]>([]);
+  useEffect(() => {
+    const text = query.trim();
+    if (text.length < 2) { setRemote([]); return; }
+    const t = setTimeout(() => {
+      fetchSearch(text, activeProject?.id).then(setRemote).catch(() => setRemote([]));
+    }, 220);
+    return () => clearTimeout(t);
+  }, [query, activeProject?.id]);
+
   const hits = useMemo<Hit[]>(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
@@ -170,8 +201,14 @@ export default function Dashboard() {
         out.push({ kind: 'tag', id: t.id, title: t.identifier, hint: t.brand || undefined, open: () => openTag(t.id, t.identifier) });
       }
     }
-    return out.slice(0, 8);
-  }, [query, sections, projects, notes, tags, activeProject?.id]);
+    // Виды, которых на главном экране нет: их приносит сервер. Теги, заметки,
+    // проекты и разделы уже найдены выше — второй раз не показываем.
+    for (const h of remote) {
+      if (!['element', 'doc', 'file', 'vdr'].includes(h.kind)) continue;
+      out.push({ kind: h.kind as any, id: h.id, title: h.title, hint: h.subtitle, open: () => open(h.route) });
+    }
+    return out.slice(0, 10);
+  }, [query, sections, projects, notes, tags, remote, activeProject?.id]);
 
   useEffect(() => { setCursor(0); }, [query]);
 
@@ -361,7 +398,9 @@ export default function Dashboard() {
               <X className="w-4 h-4" />
             </button>
           ) : (
-            <span className="hidden @[700px]:inline text-2xs text-slate-400 shrink-0">просто начните печатать</span>
+            <span className="hidden @[700px]:inline text-2xs text-slate-400 shrink-0">
+              просто начните печатать · <span className="font-mono">Ctrl+Shift+F</span> — искать везде
+            </span>
           )}
         </div>
 
@@ -399,6 +438,15 @@ export default function Dashboard() {
       {/* ── Требует внимания: показывается, только если есть о чём сказать ── */}
       {(() => {
         const rows: { key: string; tone: 'crit' | 'warn' | 'info'; icon: any; text: string; action: string; go: () => void }[] = [];
+        // Проверка проекта — первой строкой: это единственное место, где
+        // замечания попадаются на глаза сами, без похода в панель
+        if (checkTotal) rows.push({
+          key: 'check', tone: checkCritical ? 'crit' : 'warn', icon: ShieldCheck,
+          text: checkCritical
+            ? `Проверка проекта: ${countOf(checkCritical, 'важное замечание')} из ${checkTotal}`
+            : `Проверка проекта: ${countOf(checkTotal, 'замечание')}`,
+          action: 'Разобрать', go: openCheck,
+        });
         if (attention?.overdue) rows.push({
           key: 'overdue', tone: 'crit', icon: AlertTriangle,
           text: `Просрочен срок: ${countOf(attention.overdue, 'документ')}`,
@@ -543,7 +591,12 @@ export default function Dashboard() {
         {/* Последние изменения */}
         <section className="rounded-lg flux-surface overflow-hidden flex flex-col min-h-[240px]">
           <CardHead icon={History} title="Последние изменения"
-            action={<CardLink onClick={() => open('/logs')}>Все</CardLink>} />
+            action={<>
+              {/* Журнал говорит «кто-то что-то менял», лист изменений — что
+                  именно стало другим. Второе нужнее перед выпуском ревизии. */}
+              <CardLink onClick={openChanges}>Что изменилось</CardLink>
+              <CardLink onClick={() => open('/logs')}>Все</CardLink>
+            </>} />
           <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin divide-y divide-black/[0.05] dark:divide-white/[0.06]">
             {loading && <p className="px-4 py-5 text-[13px] text-slate-400">Загружаю…</p>}
             {!loading && logs.length === 0 && <CardEmpty>Пока ничего не менялось.</CardEmpty>}
