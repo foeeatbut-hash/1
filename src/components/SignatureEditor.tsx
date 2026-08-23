@@ -21,6 +21,7 @@ import {
 import { formatName } from '../lib/docFormula';
 import { useToastStore } from '../store/toastStore';
 import { useModalStore } from '../store/modalStore';
+import { useEscapeClose } from '../lib/useDismiss';
 
 interface Props {
   /** Чью подпись правим */
@@ -44,6 +45,8 @@ type Source = 'none' | 'image' | 'draw';
 const MM = 3.7795;
 
 export default function SignatureEditor({ userId, userName, nameParts, value, heightMm = 8, canEdit, onSaved, onClose }: Props) {
+  useEscapeClose(true, onClose);
+
   // «Раупов Х.Х.» — так строка и попадёт в штамп
   const initials = formatName(nameParts || { name: userName }, 'initialsAfter') || userName;
   const { addToast } = useToastStore();

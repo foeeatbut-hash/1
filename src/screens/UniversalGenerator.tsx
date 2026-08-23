@@ -192,7 +192,7 @@ export default function UniversalGenerator() {
         </div>
         <button type="button" 
           onClick={() => setIsSetupMode(!isSetupMode)}
-          className={`flex items-center gap-2 px-4 py-2 rounded font-semibold text-sm transition-colors border cursor-pointer ${isSetupMode ? 'border-amber-205 bg-amber-50 dark:bg-amber-955/20 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-955/40' : 'border-slate-205 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 '}`}
+          className={`flex items-center gap-2 px-4 py-2 rounded font-semibold text-sm transition-colors border cursor-pointer ${isSetupMode ? 'border-amber-205 bg-amber-50 dark:bg-amber-955/20 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-955/40' : 'border-slate-205 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 '}`}
         >
           <Settings className="w-4 h-4" />
           {isSetupMode ? 'Закрыть настройку' : 'Настроить формулу тега'}

@@ -129,7 +129,7 @@ export default function NotificationsPanel() {
                 <div className="px-2 pt-2 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400 sticky top-0 bg-white dark:bg-slate-900">{day.title}</div>
                 {day.items.map(l => (
                   <button type="button" key={l.id} onClick={() => go(l.targetRoute)} className="w-full text-left p-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-850 transition-colors border border-transparent hover:border-slate-200 dark:hover:border-slate-800 cursor-pointer">
-                    <div className="text-xs text-slate-800 dark:text-slate-200 leading-snug">{l.description}</div>
+                    <div className="text-xs text-slate-800 dark:text-slate-300 leading-snug">{l.description}</div>
                     <div className="flex items-center gap-2 mt-1 text-2xs text-slate-400">
                       <span className="font-semibold text-slate-500 dark:text-slate-400">{l.userName}</span>
                       <span className="flex items-center gap-0.5"><Clock className="w-2.5 h-2.5" />{fmt(l.createdAt)}</span>
@@ -146,12 +146,12 @@ export default function NotificationsPanel() {
                 <div className="px-2 pt-2 pb-1 flex items-center gap-1.5 sticky top-0 bg-white dark:bg-slate-900">
                   <span className={`text-2xs font-bold uppercase tracking-wider ${catColor[g.key] || 'text-slate-400'}`}>{g.title}</span>
                   {unreadOf(g.items) > 0 && <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />}
-                  <span className="text-2xs text-slate-300 dark:text-slate-600">{g.items.length}</span>
+                  <span className="text-2xs text-slate-300 dark:text-slate-500">{g.items.length}</span>
                 </div>
                 {g.items.map(n => (
                   <button type="button" key={n.id} onClick={() => go(n.targetRoute)} className={`w-full text-left p-2.5 rounded-lg transition-colors border cursor-pointer ${n.isRead ? 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-850' : 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40'}`}>
                     <div className="flex items-center gap-1.5">
-                      <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 leading-snug flex-1">{n.title}</div>
+                      <div className="text-xs font-semibold text-slate-800 dark:text-slate-300 leading-snug flex-1">{n.title}</div>
                       {!n.isRead && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />}
                     </div>
                     {n.body && <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">{n.body}</div>}
@@ -169,7 +169,7 @@ export default function NotificationsPanel() {
 
 function Empty({ text }: { text: string }) {
   return (
-    <div className="flex flex-col items-center justify-center text-slate-400 dark:text-slate-600 py-16 text-xs">
+    <div className="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 py-16 text-xs">
       <Bell className="w-8 h-8 mb-2 opacity-40" />
       {text}
     </div>

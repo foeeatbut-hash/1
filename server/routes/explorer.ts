@@ -87,11 +87,17 @@ app.post('/api/folders', async (req: Request, res: Response) => {
         ownerId = (parent as any).ownerId || null;
       }
     }
+    // Владелец личной папки — только тот, кто вошёл. Раньше идентификатор
+    // приходил из запроса, и любой вошедший мог завести папку «личную для
+    // Иванова», а потом читать её как свою. Наследование от родителя выше
+    // остаётся: подпапка личной папки принадлежит тому же человеку.
+    const actorId = (req as any).authUser?.id || null;
+    const isPersonal = scope === 'PERSONAL';
     const folder = await prisma.folder.create({
       data: {
         name, projectId, parentId,
-        scope: scope === 'PERSONAL' ? 'PERSONAL' : 'SHARED',
-        ownerId: scope === 'PERSONAL' ? (ownerId || null) : null
+        scope: isPersonal ? 'PERSONAL' : 'SHARED',
+        ownerId: isPersonal ? (parentId ? (ownerId || null) : actorId) : null
       }
     });
     res.json({ folder });
@@ -204,7 +210,6 @@ app.post('/api/files', async (req: Request, res: Response) => {
     ...(typeof b.revision === 'string' ? { revision: b.revision } : {}),
     ...(typeof b.statusCode === 'string' ? { statusCode: b.statusCode } : {}),
     ...(b.scope === 'PERSONAL' || b.scope === 'SHARED' ? { scope: b.scope } : {}),
-    ...(typeof b.ownerId === 'string' ? { ownerId: b.ownerId } : {}),
   };
   // Файл внутри папки наследует её раздел (общий/личный)
   if (data.folderId) {
@@ -216,8 +221,10 @@ app.post('/api/files', async (req: Request, res: Response) => {
       }
     } catch {}
   } else {
+    // Личный файл в корне раздела принадлежит тому, кто вошёл, а не тому, чей
+    // идентификатор прислали: иначе «личный» ничего не значит
     data.scope = data.scope === 'PERSONAL' ? 'PERSONAL' : 'SHARED';
-    data.ownerId = data.scope === 'PERSONAL' ? (data.ownerId || null) : null;
+    data.ownerId = data.scope === 'PERSONAL' ? ((req as any).authUser?.id || null) : null;
   }
   const file = await prisma.fileNode.create({
     data,

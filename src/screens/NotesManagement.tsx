@@ -24,6 +24,14 @@ const COLORS = [
   { name: 'Серый', class: 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700', btn: 'bg-slate-400' },
 ];
 
+/**
+ * Цвет заметки — какой из набора. Заметки, заведённые до перехода палитры на
+ * amber, хранят в базе жёлтый: у них не загорался кружок в списке и ни один
+ * образец не отмечался выбранным. Незнакомый цвет считаем первым из набора.
+ */
+export const presetOf = (color: string) =>
+  COLORS.find(c => color.includes(c.class.split(' ')[0])) || COLORS[0];
+
 export default function NotesManagement() {
   const { user, activeProject } = useStore();
   const { addToast } = useToastStore();
@@ -564,10 +572,16 @@ export default function NotesManagement() {
                       : 'bg-white dark:bg-slate-900 border-slate-150 dark:border-slate-800/60 hover:bg-slate-50/70 dark:hover:bg-slate-850'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-2.5">
-                    <h3 className="text-xs font-bold text-slate-800 dark:text-white truncate flex-1 flex items-center gap-1">
+                  <div className="flex items-start justify-between gap-2.5 min-w-0">
+                    {/* truncate на самом заголовке ничего не давало: он ещё и
+                        flex-контейнер, а в нём многоточие не работает — режет
+                        только собственный текст, которого у него нет. Название
+                        вылезало за карточку на 34 px, карточка за колонку — на
+                        22 px. Обрезает теперь вложенная строка, и она же берёт
+                        на себя свободное место. */}
+                    <h3 className="text-xs font-bold text-slate-800 dark:text-white flex-1 min-w-0 flex items-center gap-1">
                       {pinnedIds.includes(note.id) && <Pin className="w-3 h-3 text-amber-500 shrink-0" />}
-                      <span className="truncate">{note.title || 'Новая заметка'}</span>
+                      <span className="flex-1 min-w-0 truncate">{note.title || 'Новая заметка'}</span>
                       {/* Кому ещё видна заметка — сразу в списке, чтобы личное
                           не оказалось открытым по забывчивости */}
                       {note.mine && (note.sharedWith?.length || 0) > 0 && (
@@ -588,8 +602,16 @@ export default function NotesManagement() {
                       )}
                     </h3>
                     
-                    {/* Action buttons appear on hover */}
-                    <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity shrink-0">
+                    {/* Кнопки по наведению. Раньше они стояли в строке рядом с
+                        названием и не сжимались: восемь кнопок занимают 204 px,
+                        а в узкой колонке списка на строку приходится 180 —
+                        название выдавливалось наружу, а с min-w-0 исчезало
+                        совсем. Теперь они лежат поверх карточки, как и было
+                        задумано её `relative group`, и на ширину названия не
+                        влияют. Переносятся по строкам, чтобы поместиться в
+                        карточку любой ширины. focus-within — чтобы до них
+                        можно было добраться с клавиатуры, а не только мышью. */}
+                    <div className="absolute top-2 right-2 z-10 max-w-[calc(100%-1rem)] opacity-0 group-hover:opacity-100 focus-within:opacity-100 flex flex-wrap items-center justify-end gap-1 transition-opacity rounded-lg border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 px-1 py-0.5 shadow-xs">
                       <button type="button"
                         onClick={(e) => togglePin(e, note.id)}
                         className="p-1 text-slate-400 hover:text-amber-500 rounded transition-colors"
@@ -675,14 +697,9 @@ export default function NotesManagement() {
                       {relDate(note.updatedAt)}
                     </span>
                     
-                    {/* Tiny Color indicator dot */}
+                    {/* Кружок цвета заметки */}
                     <div className="flex items-center gap-1.5">
-                      {COLORS.map(c => {
-                        if (note.color.includes(c.class.split(' ')[0])) {
-                          return <div key={c.name} className={`w-2 h-2 rounded-full ${c.btn}`} />;
-                        }
-                        return null;
-                      })}
+                      <div className={`w-2 h-2 rounded-full ${presetOf(note.color).btn}`} />
                     </div>
                   </div>
                 </div>
@@ -712,7 +729,7 @@ export default function NotesManagement() {
                       >
                         {open ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
                         <Folder className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        <span className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate flex-1">{g}</span>
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate flex-1">{g}</span>
                         <span className="text-2xs px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{grouped[g].length}</span>
                       </button>
                       {open && <div className="pl-2 space-y-1.5">{grouped[g].map(renderNote)}</div>}
@@ -777,7 +794,7 @@ export default function NotesManagement() {
                     {[...new Set(notes.map(n => n.groupName).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'ru')).map(g => (
                       <button type="button" key={g}
                         onClick={() => { handleNoteChange({ groupName: g }); setGroupMenuOpen(false); }}
-                        className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left text-xs cursor-pointer ${selectedNote.groupName === g ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 font-bold' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'}`}>
+                        className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left text-xs cursor-pointer ${selectedNote.groupName === g ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 font-bold' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'}`}>
                         <Folder className="w-3 h-3 text-emerald-500 shrink-0" />
                         <span className="truncate">{g}</span>
                       </button>
@@ -802,7 +819,7 @@ export default function NotesManagement() {
                           if (e.key === 'Escape') setGroupMenuOpen(false);
                         }}
                         placeholder="Новая группа…"
-                        className="flex-1 h-7 px-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 outline-none focus:border-emerald-400"
+                        className="flex-1 h-7 px-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-300 outline-none focus:border-emerald-400"
                       />
                       <button type="button"
                         onClick={() => { if (newGroupName.trim()) { handleNoteChange({ groupName: newGroupName.trim() }); setGroupMenuOpen(false); } }}
@@ -818,7 +835,7 @@ export default function NotesManagement() {
               <div className="flex items-center gap-1.5">
                 <span className="text-xs font-semibold text-slate-450 dark:text-slate-400 uppercase tracking-wider mr-1">Палитра:</span>
                 {COLORS.map(colorPreset => {
-                  const isCurrent = selectedNote.color === colorPreset.class;
+                  const isCurrent = presetOf(selectedNote.color).name === colorPreset.name;
                   return (
                     <button type="button"
                       key={colorPreset.name}

@@ -86,9 +86,15 @@ export function registerNoteRoutes(app: Express): void {
       const { title, content, color, equipmentId, groupName } = req.body;
       const note = await getPrisma().userNote.create({
         data: {
-          title: title || 'Новая заметка',
+          // Заголовок из одних пробелов ничем не лучше пустого: в списке
+          // заметка выглядела безымянной строкой, найти её было нечем
+          title: String(title ?? '').trim() || 'Новая заметка',
           content: content || '',
-          color: color || 'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200',
+          // Цвет по умолчанию — первый из набора в разделе «Блокнот». Раньше
+          // здесь стоял yellow, которого в наборе нет: у такой заметки не
+          // загорался кружок цвета в списке и ни один образец в выборе не
+          // отмечался выбранным.
+          color: color || 'bg-amber-50 dark:bg-amber-950/20 border-amber-200',
           equipmentId,
           groupName: groupName || null,
           ownerId: me?.id || null,

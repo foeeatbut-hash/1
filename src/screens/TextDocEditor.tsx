@@ -11,8 +11,9 @@ import TitlePanel, { fetchTitlePageHtml, buildPageTemplates, fetchRevisionsSheet
 import { useModalStore } from '../store/modalStore';
 import {
   buildDocHtml, safeFileName, DOC_FONTS,
-  readPageSetup, applyPageSetup, FLAVOR_WORD, MARGIN_HEADER_PT, PageSetup, pageOf,
+  readPageSetup, applyPageSetup, PageSetup, pageOf,
 } from '../lib/docExport';
+import { emptyDocSnapshot, normalizeDocSnapshot } from '../lib/docSnapshot';
 import DocRuler from '../components/DocRuler';
 import ParagraphSpacingMenu from '../components/ParagraphSpacingMenu';
 import PageSetupDialog from '../components/PageSetupDialog';
@@ -33,36 +34,6 @@ const { openConfirm } = useModalStore.getState();
 function fmtDate(s: string) {
   try { return new Date(s).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
   catch (_) { return s; }
-}
-
-// Валидный пустой документ (форма тела — как в getEmptyHeaderFooterBody самого
-// Univer): без корректных body/paragraphs/sectionBreaks движок рисует пустую
-// страницу и сыплет ошибками getDataModel/dirty$
-function emptyDocSnapshot(id: string, title: string) {
-  return {
-    id,
-    title,
-    body: {
-      dataStream: '\r\n',
-      textRuns: [],
-      customBlocks: [],
-      paragraphs: [{ startIndex: 0 }],
-      sectionBreaks: [{ startIndex: 1 }],
-    },
-    documentStyle: {
-      // Разбивка на страницы как в Ворде, а не бесконечная лента
-      documentFlavor: FLAVOR_WORD,
-      pageSize: { width: 595.3, height: 841.9 },  // А4 в pt
-      pageOrient: 0,
-      // Поля как у Ворда по умолчанию — 2,54 см. Прежние 45/50 pt (1,6/1,8 см)
-      // делали лист непохожим на вордовский и расходились с печатью.
-      marginTop: 72, marginBottom: 72, marginLeft: 72, marginRight: 72,
-      marginHeader: MARGIN_HEADER_PT, marginFooter: MARGIN_HEADER_PT,
-      // Шрифт документа по умолчанию: в КБ пишут Times New Roman 12,
-      // а движок без этого ставит свой Arial 11
-      textStyle: { ff: 'Times New Roman', fs: 12 },
-    },
-  };
 }
 
 /**
@@ -161,7 +132,7 @@ function DataFieldsPanel({ projectId, projectName, userName, onInsert, onClose }
             <p className="text-xs text-slate-400">Проект: <b>{projectName || '—'}</b></p>
             {[['name', 'Название'], ['code', 'Код проекта'], ['customer', 'Заказчик'], ['contractor', 'Подрядчик'], ['description', 'Описание']].map(([f, label]) => (
               <button type="button" key={f} disabled={busy} onClick={() => insertProject(f)}
-                className="w-full text-left px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/20 text-sm text-slate-700 dark:text-slate-200 cursor-pointer disabled:opacity-50">
+                className="w-full text-left px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/20 text-sm text-slate-700 dark:text-slate-300 cursor-pointer disabled:opacity-50">
                 {label}
               </button>
             ))}
@@ -200,15 +171,15 @@ function DataFieldsPanel({ projectId, projectName, userName, onInsert, onClose }
         {tab === 'now' && (
           <>
             <button type="button" onClick={() => onInsert(new Date().toLocaleDateString('ru-RU'))}
-              className="w-full text-left px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/20 text-sm text-slate-700 dark:text-slate-200 cursor-pointer">
+              className="w-full text-left px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/20 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
               Сегодняшняя дата ({new Date().toLocaleDateString('ru-RU')})
             </button>
             <button type="button" onClick={() => onInsert(new Date().toLocaleString('ru-RU'))}
-              className="w-full text-left px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/20 text-sm text-slate-700 dark:text-slate-200 cursor-pointer">
+              className="w-full text-left px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/20 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
               Дата и время
             </button>
             <button type="button" onClick={() => onInsert(userName)}
-              className="w-full text-left px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/20 text-sm text-slate-700 dark:text-slate-200 cursor-pointer">
+              className="w-full text-left px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/20 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
               Автор ({userName})
             </button>
           </>
@@ -405,7 +376,10 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         try { snapshot = loaded.workbook ? JSON.parse(loaded.workbook) : null; } catch (_) {}
         // Пустого снапшота движку недостаточно — даём валидный чистый лист
         const isNew = !snapshot || !snapshot.body;
-        if (isNew) snapshot = emptyDocSnapshot(loaded.id, loaded.name);
+        // Сохранённые до этой правки документы лежат без headers/footers/
+        // tableSource — в них не вставить ни колонтитул, ни таблицу. Чиним при
+        // открытии, а не миграцией базы: снапшот и так разбирается здесь.
+        snapshot = isNew ? emptyDocSnapshot(loaded.id, loaded.name) : normalizeDocSnapshot(snapshot);
         const fdoc = univerAPI.createUniverDoc(snapshot);
         fdocRef.current = fdoc;
         lastSavedRef.current = loaded.workbook || '';
@@ -874,7 +848,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
                     className="w-full flex items-start gap-2.5 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">
                     <it.icon className="w-3.5 h-3.5 mt-0.5 text-slate-400 shrink-0" />
                     <span>
-                      <span className="block text-xs font-bold text-slate-700 dark:text-slate-200">{it.label}</span>
+                      <span className="block text-xs font-bold text-slate-700 dark:text-slate-300">{it.label}</span>
                       <span className="block text-2xs text-slate-400 leading-snug">{it.hint}</span>
                     </span>
                   </button>
@@ -962,7 +936,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
               <div key={v.id} className="px-4 py-2.5 flex items-center gap-3">
                 <div className="w-9 h-6 shrink-0 rounded bg-slate-100 dark:bg-slate-850 flex items-center justify-center text-xs font-bold text-slate-500">в{v.version}</div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{v.comment || 'без комментария'}</div>
+                  <div className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate">{v.comment || 'без комментария'}</div>
                   <div className="text-2xs text-slate-400">{fmtDate(v.createdAt)}</div>
                 </div>
                 <button type="button" onClick={() => restoreVersion(v)}

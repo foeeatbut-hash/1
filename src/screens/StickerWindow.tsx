@@ -13,6 +13,10 @@ const COLORS = [
   { name: 'Серый', class: 'bg-slate-100 dark:bg-slate-800 border-slate-350 dark:border-slate-700 text-slate-800 dark:text-slate-100', btn: 'bg-slate-400' },
 ];
 
+/** Какой цвет из набора у заметки; незнакомый считаем первым. */
+const presetOf = (color: string) =>
+  COLORS.find(c => color.includes(c.class.split(' ')[0])) || COLORS[0];
+
 export default function StickerWindow() {
   const location = useLocation();
   const { addToast } = useToastStore();
@@ -121,8 +125,10 @@ export default function StickerWindow() {
     );
   }
 
-  // Find matcher background style
-  const stylePreset = COLORS.find(c => note.color.includes(c.class.split(' ')[0])) || COLORS[0];
+  // Какой цвет из набора у заметки. Сравниваем по первому классу, а не по всей
+  // строке: в «Блокноте» тот же цвет описан короче — без цвета текста, — и
+  // строгое равенство не совпадало ни для одной заметки.
+  const stylePreset = presetOf(note.color);
 
   return (
     <div className={`w-screen h-screen flex flex-col border border-slate-350 dark:border-slate-800 p-0 overflow-hidden box-border select-none relative ${stylePreset.class}`}>
@@ -155,7 +161,7 @@ export default function StickerWindow() {
           {/* Color Selects */}
           <div className="flex items-center gap-1">
             {COLORS.map(c => {
-              const isCurrent = note.color === c.class;
+              const isCurrent = presetOf(note.color).name === c.name;
               return (
                 <button type="button"
                   key={c.name}

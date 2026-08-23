@@ -355,7 +355,7 @@ export default function UpdaterWidget() {
         {isAdmin && (
           <button type="button"
             onClick={() => setShowPublishModal(true)}
-            className="w-full mt-1.5 py-1 px-3 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-205 rounded text-xs font-bold font-sans transition-ui flex items-center justify-center gap-1 cursor-pointer border border-slate-300 dark:border-slate-800"
+            className="w-full mt-1.5 py-1 px-3 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-300 rounded text-xs font-bold font-sans transition-ui flex items-center justify-center gap-1 cursor-pointer border border-slate-300 dark:border-slate-800"
           >
             <PlusCircle className="w-3.5 h-3.5 text-emerald-500" />
             <span>Опубликовать релиз</span>
@@ -394,7 +394,7 @@ export default function UpdaterWidget() {
             <div className="p-4 bg-slate-50 dark:bg-slate-990 border-t border-slate-200 dark:border-slate-850 flex items-center justify-end gap-2 shrink-0">
               <button type="button"
                 onClick={() => setShowModal(false)}
-                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-900 dark:hover:bg-slate-850 text-slate-700 dark:text-slate-200 rounded text-xs font-bold transition-ui cursor-pointer"
+                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-900 dark:hover:bg-slate-850 text-slate-700 dark:text-slate-300 rounded text-xs font-bold transition-ui cursor-pointer"
               >
                 Закрыть
               </button>
@@ -490,7 +490,7 @@ export default function UpdaterWidget() {
               <button type="button"
                 onClick={() => setShowPublishModal(false)}
                 disabled={isPublishing}
-                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-900 dark:hover:bg-slate-850 text-slate-700 dark:text-slate-200 rounded text-xs font-bold transition-ui cursor-pointer disabled:opacity-50"
+                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-900 dark:hover:bg-slate-850 text-slate-700 dark:text-slate-300 rounded text-xs font-bold transition-ui cursor-pointer disabled:opacity-50"
               >
                 Отмена
               </button>

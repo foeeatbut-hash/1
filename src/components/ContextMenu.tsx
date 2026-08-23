@@ -50,7 +50,7 @@ export default function ContextMenu({ x, y, items, onClose }: {
           className={`w-full flex items-center gap-2.5 px-3.5 py-1.5 text-left text-xs font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-default ${
             it.danger
               ? 'text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30'
-              : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+              : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
           {it.icon && <span className="w-4 h-4 flex items-center justify-center shrink-0">{it.icon}</span>}

@@ -158,7 +158,7 @@ export default function LogsManagement() {
           <button type="button"
             onClick={() => fetchAllLogs(true)}
             disabled={loading}
-            className="px-3.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-755 transition-ui flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            className="px-3.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-755 transition-ui flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             title="Обновить журнал изменений"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -320,7 +320,7 @@ export default function LogsManagement() {
 
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200 font-sans">
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-300 font-sans">
                           {log.userName}
                         </span>
                         <span className="text-xs font-mono font-bold bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded-md text-slate-503">

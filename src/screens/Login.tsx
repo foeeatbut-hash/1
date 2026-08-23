@@ -239,7 +239,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
                 Логин
               </label>
               <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 dark:text-slate-600 group-focus-within:text-emerald-650 dark:group-focus-within:text-emerald-400 transition-colors">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 dark:text-slate-500 group-focus-within:text-emerald-650 dark:group-focus-within:text-emerald-400 transition-colors">
                   <User className="w-4 h-4" />
                 </div>
                 <input
@@ -261,7 +261,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
                 Пароль
               </label>
               <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 dark:text-slate-600 group-focus-within:text-emerald-650 dark:group-focus-within:text-emerald-400 transition-colors">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 dark:text-slate-500 group-focus-within:text-emerald-650 dark:group-focus-within:text-emerald-400 transition-colors">
                   <Lock className="w-4 h-4" />
                 </div>
                 <input
@@ -390,10 +390,10 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
 
       {/* Footer: авторство слева, версия справа */}
       <div className="w-full flex items-center justify-between gap-3 px-4 py-4 mt-auto">
-        <div className="text-xs text-slate-400 dark:text-slate-600">
+        <div className="text-xs text-slate-400 dark:text-slate-500">
           Разработка <span className="font-semibold text-slate-500 dark:text-slate-400">Раупова Хусрава</span>
         </div>
-        <div className="data text-2xs text-slate-400 dark:text-slate-600">
+        <div className="data text-2xs text-slate-400 dark:text-slate-500">
           {new Date().getFullYear()}
         </div>
       </div>

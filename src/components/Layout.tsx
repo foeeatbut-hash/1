@@ -4,7 +4,7 @@ import { formatName } from '../lib/docFormula';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 const SignatureEditor = React.lazy(() => import('./SignatureEditor'));
-import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen, PenLine } from 'lucide-react';
+import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen, PenLine, Mail, LifeBuoy } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ToastProvider from './ToastProvider';
 import ModalProvider from './ModalProvider';
@@ -13,10 +13,11 @@ import { dataService } from '../services/dataService';
 import { useLogStore } from '../store/logStore';
 import { useAssistantStore } from '../store/assistantStore';
 import AssistantPanel from './AssistantPanel';
-import RobotDock from './RobotDock';
 import NotificationsPanel from './NotificationsPanel';
 import RightRail from './RightRail';
 import ShareLayer from './ShareLayer';
+import CommandPalette from './CommandPalette';
+import InsightDrawer from './insight/InsightDrawer';
 import FluxLogo from './FluxLogo';
 import { useNotificationStore } from '../store/notificationStore';
 import Workspace from './Workspace';
@@ -34,16 +35,6 @@ export default function Layout() {
   const [eqOpen, setEqOpen] = useState(true);
   // Робот-помощник: его можно выключить в настройках — тогда он не создаётся
   // вовсе, а не прячется, чтобы не тратить ни таймеров, ни отрисовки.
-  const [robotOn, setRobotOn] = useState<boolean>(() => {
-    try { return localStorage.getItem('flux_robot') !== '0'; } catch { return true; }
-  });
-  useEffect(() => {
-    const onChange = () => {
-      try { setRobotOn(localStorage.getItem('flux_robot') !== '0'); } catch (_) {}
-    };
-    window.addEventListener('flux:robot-changed', onChange);
-    return () => window.removeEventListener('flux:robot-changed', onChange);
-  }, []);
   // Активный раздел активной панели рабочего стола (для подсветки меню)
   const wsLayout = useWorkspaceStore((s) => s.layout);
   const wsActivePath = useWorkspaceStore((s) => {
@@ -51,6 +42,33 @@ export default function Layout() {
     return p ? (p.stack.includes(p.active) ? p.active : p.stack[p.stack.length - 1]) : '/';
   });
   const openInActivePane = useWorkspaceStore((s) => s.openInActivePane);
+
+  /**
+   * F1 — руководство по разделу, в котором человек сейчас находится.
+   *
+   * Открывать общее оглавление и предлагать искать себя в нём — значит
+   * заставлять человека объяснять программе то, что она и так знает: он
+   * стоит в Тегах, спрашивает про Теги. Путь уходит в адрес, раздел
+   * «Руководство» разбирает его сам.
+   */
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'F1') return;
+      e.preventDefault();
+      const path = wsActivePath || '/';
+      if (path === '/handbook') return; // уже здесь — не мешаем читать
+      // Панель хранит адрес раздела отдельно от пути: сначала кладём адрес с
+      // вопросом, потом открываем вкладку, иначе руководство откроется на
+      // статье, которую читали до этого
+      const ws = useWorkspaceStore.getState();
+      const href = `/handbook?for=${encodeURIComponent(path)}`;
+      ws.setFrozenHref(ws.activePaneId, '/handbook', href);
+      openInActivePane('/handbook');
+      navigate(href);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [wsActivePath, openInActivePane]);
   // ПКМ по разделу в меню: открыть в конкретной панели / в отдельном окне
   const [navMenu, setNavMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   // Вход пользователя: восстанавливаем его сохранённую раскладку рабочего стола
@@ -370,26 +388,31 @@ export default function Layout() {
     );
   };
 
-  // Разделы, сгруппированные по смыслу: контекст → инженерные данные →
-  // документы и закупки → личное. Группы разделены тонкой линией: список
-  // из двенадцати одинаковых пунктов подряд не читается.
-  const navGroups: { items: { name: string; path: string; icon: any }[] }[] = [
-    { items: [{ name: 'Главная', path: '/', icon: Home }] },
+  // Разделы сгруппированы по тому, чьи в них данные (см. src/lib/projectScope.ts).
+  //
+  // Раньше группировка была «по смыслу», и по ней нельзя было понять главного:
+  // почему Теги при переключении проекта меняются целиком, а Почта — нет.
+  // Теперь это написано прямо над группой. Проводник переехал из первой группы
+  // во вторую: файлы видны все, независимо от открытого проекта.
+  const navGroups: { label?: string; items: { name: string; path: string; icon: any }[] }[] = [
     { items: [
+      { name: 'Главная', path: '/', icon: Home },
       { name: 'Проекты', path: '/projects', icon: FolderKanban },
+    ] },
+    { label: 'Проект', items: [
       { name: 'Теги', path: '/registry', icon: Tag },
       { name: 'Оборудование', path: '/equipment', icon: Fan },
       { name: 'Справочник', path: '/directory', icon: BookOpen },
-    ] },
-    { items: [
       { name: 'Менеджмент', path: '/management', icon: Briefcase },
-      { name: 'Проводник', path: '/explorer', icon: FolderOpen },
       { name: 'Конструктор', path: '/constructor', icon: Table2 },
     ] },
-    { items: [
+    { label: 'Общее', items: [
+      { name: 'Проводник', path: '/explorer', icon: FolderOpen },
       { name: 'Блокнот', path: '/notes', icon: NotebookPen },
       { name: 'Чат', path: '/chat', icon: MessagesSquare },
+      { name: 'Почта', path: '/mail', icon: Mail },
       ...(user && user.role === 'ADMIN' ? [{ name: 'Сотрудники', path: '/users', icon: Users }] : []),
+      { name: 'Руководство', path: '/handbook', icon: LifeBuoy },
     ] },
   ];
 
@@ -455,6 +478,19 @@ export default function Layout() {
             {navGroups.map((g, gi) => (
               <React.Fragment key={gi}>
                 {gi > 0 && <hr className="my-1 border-slate-200 dark:border-dark-border" />}
+                {/* Подпись группы. В узком меню значки идут без названий, и
+                    подпись там осталась бы единственным текстом — она сжата до
+                    точки-разделителя, а смысл переехал в подсказку. */}
+                {g.label && (
+                  <div
+                    title={g.label === 'Проект' ? 'Данные открытого проекта: сменили проект — сменилось всё' : 'Общее для всей программы: от проекта не зависит'}
+                    className={`text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 select-none ${
+                      sidebarCompact ? 'text-center leading-none pb-0.5' : 'px-1 pb-0.5'
+                    }`}
+                  >
+                    {sidebarCompact ? g.label.slice(0, 3) : g.label}
+                  </div>
+                )}
                 {g.items.map(navButton)}
               </React.Fragment>
             ))}
@@ -642,9 +678,10 @@ export default function Layout() {
       <AssistantPanel />
       <RightRail />
 
-      {/* Пока чат закрыт, Флакси выглядывает из-за правого края; когда чат
-          открыт, он живёт в шапке панели помощника и здесь не нужен. */}
-      {robotOn && !assistantOpen && <RobotDock />}
+
+      {/* Связи проекта и общий поиск — поверх всего: их зовут из любого места */}
+      <InsightDrawer />
+      <CommandPalette />
 
       <ToastProvider />
       <ModalProvider />

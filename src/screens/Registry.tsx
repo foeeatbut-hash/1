@@ -3,9 +3,12 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
+import { useInsightStore } from '../store/insightStore';
+import { copyAsTable } from '../lib/copyTable';
 import { dataService } from '../services/dataService';
 import {
   Network,
+  Copy,
   List,
   Table,
   Scissors,
@@ -356,6 +359,8 @@ export default function Registry() {
   const location = useLocation();
   const navigate = useNavigate();
   const { addToast } = useToastStore();
+  // Панель связей: «где ещё встречается этот тег» — из меню карточки и с её панели
+  const openWhereUsed = useInsightStore((st) => st.openWhere);
   const [tags, setTags] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'board' | 'tree' | 'segments' | 'table' | 'equipment'>('board');
   const [showImportWizard, setShowImportWizard] = useState(false);
@@ -1887,14 +1892,23 @@ export default function Registry() {
   useEffect(() => {
     if (tags.length === 0) return;
     const params = new URLSearchParams(location.search);
-    const focus = params.get('focus');
+    // ?tag=<обозначение> — то же, что ?focus=, но по тому, что человек видит
+    // глазами. По обозначению сюда ведут теги из Проводника и из письма: в
+    // письме внутреннего номера карточки нет и быть не может.
+    const byCode = params.get('tag');
+    const focus = params.get('focus')
+      || (byCode ? (tags.find((x) => (x.identifier || '').trim() === byCode.trim())?.id || '') : '');
     const dup = params.get('dup');
-    const sig = `${focus || ''}|${dup || ''}`;
-    if (!sig.trim() || deepLinkHandledRef.current === sig) return;
+    const sig = `${params.get('focus') || ''}|${byCode || ''}|${dup || ''}`;
+    if (!sig.replace(/\|/g, '').trim() || deepLinkHandledRef.current === sig) return;
     deepLinkHandledRef.current = sig;
     if (focus && tagsById[focus]) {
       setActiveTab('board');
       setTimeout(() => centerOnTag(focus), 200);
+    } else if (byCode) {
+      // Тег есть в письме, но не в этом проекте — молчать нельзя, иначе
+      // нажатие выглядит как сломанное
+      addToast(`Тег ${byCode} в этом проекте не найден.`, 'error');
     } else if (dup) {
       const t = tags.find(x => (x.identifier || '').trim() === dup.trim());
       if (t) { setActiveTab('board'); setTimeout(() => openDuplicates(t.id), 200); }
@@ -2635,80 +2649,75 @@ export default function Registry() {
   });
 
   // Excel compliant export (CSV with Cyrillic BOM)
-  const handleExportSelectedToExcel = () => {
+  /**
+   * Подборка тегов в виде таблицы: заголовки и строки по выбранным колонкам.
+   *
+   * Одна сборка на два выхода — файл Excel и буфер обмена. Раньше выход был
+   * один, и «скопировать три строки в письмо» требовало создать файл, открыть
+   * его, выделить и потом удалить.
+   */
+  const buildExportTable = (): { headers: string[]; rows: string[][] } | null => {
     const matched = getSegmentMatchedTags();
-    if (matched.length === 0) {
-      void openAlert('Нечего выгружать', 'Под текущие фильтры не попала ни одна строка. Измените условия отбора и повторите.');
-      return;
-    }
+    if (matched.length === 0) return null;
 
-    let csvContent = "\uFEFF"; // UTF-8 BOM indicator so Excel opens Cyrillic letters natively
-    
-    // Header Line
     const headers: string[] = [];
     if (exportColumns.identifier) headers.push("Код тега (Tag)");
     if (exportColumns.brand) headers.push("Марка");
     if (exportColumns.brandParts) {
       const maxBrandLen = getMaximumBrandSegmentLength();
-      for (let i = 0; i < maxBrandLen; i++) {
-        headers.push(`Сегмент Марки ${i+1}`);
-      }
+      for (let i = 0; i < maxBrandLen; i++) headers.push(`Сегмент Марки ${i + 1}`);
     }
     if (exportColumns.parts) {
       const maxLen = getMaximumSegmentLength();
-      for (let i = 0; i < maxLen; i++) {
-        headers.push(`Сегмент ${i+1}`);
-      }
+      for (let i = 0; i < maxLen; i++) headers.push(`Сегмент ${i + 1}`);
     }
     if (exportColumns.department) headers.push("Дисциплина / Отдел");
     if (exportColumns.fluid) headers.push("Тех. Среда / Назначение");
     if (exportColumns.chain) headers.push("Инженерная Цепочка (Parent Chain)");
     if (exportColumns.descriptions) headers.push("Замечания и подописания");
 
-    csvContent += headers.map(h => `"${h}"`).join(';') + "\r\n";
-
-    // Data Lines
-    matched.forEach(t => {
+    const rows = matched.map(t => {
       const rowData: string[] = [];
       const parts = splitTagIntoParts(t.identifier);
       const meta = parseTagMetadata(t);
 
-      if (exportColumns.identifier) {
-        rowData.push(t.identifier);
-      }
-      if (exportColumns.brand) {
-        rowData.push(t.brand || "");
-      }
+      if (exportColumns.identifier) rowData.push(t.identifier);
+      if (exportColumns.brand) rowData.push(t.brand || "");
       if (exportColumns.brandParts) {
         const bp = splitBrandIntoParts(t.brand || "");
         const maxBrandLen = getMaximumBrandSegmentLength();
-        for (let i = 0; i < maxBrandLen; i++) {
-          rowData.push(bp[i] || "");
-        }
+        for (let i = 0; i < maxBrandLen; i++) rowData.push(bp[i] || "");
       }
       if (exportColumns.parts) {
         const maxLen = getMaximumSegmentLength();
-        for (let i = 0; i < maxLen; i++) {
-          rowData.push(parts[i] || "");
-        }
+        for (let i = 0; i < maxLen; i++) rowData.push(parts[i] || "");
       }
-      if (exportColumns.department) {
-        rowData.push(t.department || "");
-      }
-      if (exportColumns.fluid) {
-        rowData.push(t.fluid || "");
-      }
-      if (exportColumns.chain) {
-        const lineage = getParentTraceLineage(t.id);
-        rowData.push(lineage || t.identifier);
-      }
+      if (exportColumns.department) rowData.push(t.department || "");
+      if (exportColumns.fluid) rowData.push(t.fluid || "");
+      if (exportColumns.chain) rowData.push(getParentTraceLineage(t.id) || t.identifier);
       if (exportColumns.descriptions) {
         const descTexts = meta.descriptions.map(d => `${d.text} [${d.status.toUpperCase()}]: ${d.comment}`).join(' | ');
         rowData.push(descTexts || "Нет замечаний");
       }
-
-      csvContent += rowData.map(val => `"${val.replace(/"/g, '""')}"`).join(';') + "\r\n";
+      return rowData;
     });
+
+    return { headers, rows };
+  };
+
+  const handleExportSelectedToExcel = () => {
+    const table = buildExportTable();
+    if (!table) {
+      void openAlert('Нечего выгружать', 'Под текущие фильтры не попала ни одна строка. Измените условия отбора и повторите.');
+      return;
+    }
+
+    // BOM в начале — иначе Excel открывает кириллицу крякозябрами
+    let csvContent = "\uFEFF";
+    csvContent += table.headers.map(h => `"${h}"`).join(';') + "\r\n";
+    for (const rowData of table.rows) {
+      csvContent += rowData.map(val => `"${String(val).replace(/"/g, '""')}"`).join(';') + "\r\n";
+    }
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -2718,6 +2727,21 @@ export default function Registry() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  /** Та же подборка — сразу в буфер, чтобы вставить в письмо или протокол */
+  const handleCopySelectedAsTable = async () => {
+    const table = buildExportTable();
+    if (!table) {
+      void openAlert('Нечего копировать', 'Под текущие фильтры не попала ни одна строка. Измените условия отбора и повторите.');
+      return;
+    }
+    const objects = table.rows.map(r => Object.fromEntries(table.headers.map((h, i) => [h, r[i] ?? ''])));
+    const ok = await copyAsTable(objects, table.headers);
+    addToast(
+      ok ? `Скопировано строк: ${objects.length} — вставьте в Ворд или Эксель` : 'Не удалось скопировать',
+      ok ? 'success' : 'error',
+    );
   };
 
   const isIdentifierUnique = !newTagIdentifier || !checkTagExists(newTagIdentifier);
@@ -2833,8 +2857,8 @@ export default function Registry() {
           <div className="grid grid-cols-1 @[560px]:grid-cols-2 @[760px]:grid-cols-3 @[1080px]:grid-cols-12 gap-2.5 items-end">
             {/* Tag identifier code */}
             <div className="relative flex flex-col gap-1 @[1080px]:col-span-3">
-              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase flex justify-between leading-none truncate">
-                <span>Код тега (EN) *</span>
+              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase flex justify-between leading-none min-w-0 gap-2">
+                <span className="truncate">Код тега (EN) *</span>
                 {newTagIdentifier && !isIdentifierUnique && (
                   <span className="text-xs text-rose-550 lowercase font-semibold">Занят</span>
                 )}
@@ -2901,7 +2925,7 @@ export default function Registry() {
 
             {/* Required Mark input field */}
             <div className="flex flex-col gap-1 animate-fadeIn @[1080px]:col-span-2">
-              <label className="text-xs font-bold text-slate-400 dark:text-slate-555 uppercase leading-none truncate">
+              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase leading-none truncate">
                 Марка оборудования *
               </label>
               <input
@@ -2916,7 +2940,7 @@ export default function Registry() {
 
             {/* Main Name string input */}
             <div className="flex flex-col gap-1 @[1080px]:col-span-3">
-              <label className="text-xs font-bold text-slate-400 dark:text-slate-555 uppercase leading-none truncate">
+              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase leading-none truncate">
                 Главное наименование
               </label>
               <input
@@ -2930,7 +2954,7 @@ export default function Registry() {
 
             {/* Actuality Selector */}
             <div className="flex flex-col gap-1 @[1080px]:col-span-2">
-              <label className="text-xs font-bold text-slate-400 dark:text-slate-555 uppercase leading-none truncate">
+              <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase leading-none truncate">
                 Актуальность
               </label>
               <CustomSelect
@@ -3140,7 +3164,7 @@ export default function Registry() {
                   <button type="button"
                     onClick={(e) => { e.stopPropagation(); handleCenterClick(); }}
                     title="1 клик — выбрать главного родителя и центрировать его дерево; 2 клика — вписать весь холст"
-                    className="px-2.5 py-1.5 bg-slate-200/70 dark:bg-slate-850 hover:bg-slate-300 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
+                    className="px-2.5 py-1.5 bg-slate-200/70 dark:bg-slate-850 hover:bg-slate-300 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-300 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
                   >
                     <RefreshCw className="w-3 h-3 text-emerald-600" />
                     Центрировать
@@ -3452,7 +3476,7 @@ export default function Registry() {
                           onMouseLeave={() => setHoveredPort(null)}
                           title="Родительский ввод (Left Port)"
                         >
-                          <div className="w-1.5 h-1.5 rounded-full bg-slate-700 dark:bg-slate-200 m-auto mt-[4px]" />
+                          <div className="w-1.5 h-1.5 rounded-full bg-slate-700 dark:bg-slate-300 m-auto mt-[4px]" />
                         </div>
 
                         <div
@@ -3466,7 +3490,7 @@ export default function Registry() {
                           onMouseLeave={() => setHoveredPort(null)}
                           title="Дочерний выход (Right Port)"
                         >
-                          <div className="w-1.5 h-1.5 rounded-full bg-slate-700 dark:bg-slate-200 m-auto mt-[4px]" />
+                          <div className="w-1.5 h-1.5 rounded-full bg-slate-700 dark:bg-slate-300 m-auto mt-[4px]" />
                         </div>
                         </>)}
 
@@ -3548,15 +3572,15 @@ export default function Registry() {
 
                         {/* EXPANDED SECTION */}
                         {isExpanded && (
-                          <div className="border-t border-slate-105 dark:border-slate-850 animate-fadeIn text-slate-800 dark:text-slate-200">
+                          <div className="border-t border-slate-105 dark:border-slate-850 animate-fadeIn text-slate-800 dark:text-slate-300">
                             
                             {/* INFO TAG FLUID/DEPT */}
                             <div className="px-4 py-2 bg-slate-50/40 dark:bg-slate-950/20 text-xs text-slate-400 flex justify-between border-b border-slate-100 dark:border-slate-900 font-medium">
                               <span className="truncate max-w-[130px]" title={tag.department}>
-                                Отд: <strong className="text-slate-700 dark:text-slate-200">{tag.department || 'Комплекс'}</strong>
+                                Отд: <strong className="text-slate-700 dark:text-slate-300">{tag.department || 'Комплекс'}</strong>
                               </span>
                               <span className="truncate max-w-[120px]" title={tag.fluid}>
-                                Среда: <strong className="text-slate-700 dark:text-slate-200">{tag.fluid || 'Воздух'}</strong>
+                                Среда: <strong className="text-slate-700 dark:text-slate-300">{tag.fluid || 'Воздух'}</strong>
                               </span>
                             </div>
 
@@ -3611,7 +3635,7 @@ export default function Registry() {
                                       .map(t => (
                                         <button type="button" key={t.id}
                                           onClick={async (e) => { e.stopPropagation(); await handleAddConnection(tag.id, t.id); setLinkPicker(null); }}
-                                          className="w-full flex items-center gap-1.5 px-2 py-1 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-left text-xs font-mono font-bold text-slate-700 dark:text-slate-200 cursor-pointer">
+                                          className="w-full flex items-center gap-1.5 px-2 py-1 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-left text-xs font-mono font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
                                           {t.identifier}
                                         </button>
                                       ))}
@@ -3695,7 +3719,7 @@ export default function Registry() {
                                           <div className="flex items-center gap-1.5 min-w-0">
                                             <div className={`w-1.5 h-1.5 rounded-full ${config.text} bg-current shrink-0`} />
                                             <span
-                                              className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate"
+                                              className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate"
                                               title={`${desc.text}${desc.createdBy ? `\nСоздал: ${desc.createdBy}${desc.createdAt ? ` (${formatDateStr(desc.createdAt)})` : ''}` : ''}${desc.updatedBy ? `\nИзменил: ${desc.updatedBy}${desc.updatedAt ? ` (${formatDateStr(desc.updatedAt)})` : ''}` : ''}`}
                                             >{desc.text}</span>
                                           </div>
@@ -3743,7 +3767,7 @@ export default function Registry() {
                               })}
 
                               {meta.descriptions.length === 0 && (
-                                <div className="text-center py-6 text-slate-400 dark:text-slate-600 text-xs italic">
+                                <div className="text-center py-6 text-slate-400 dark:text-slate-500 text-xs italic">
                                   Описания отсутствуют.
                                 </div>
                               )}
@@ -3821,7 +3845,7 @@ export default function Registry() {
                   <span className="font-bold text-emerald-700 dark:text-emerald-300">Выбрано: {selectedTagIds.size}</span>
                   <button type="button"
                     onClick={() => fitToTags(tags.filter(t => selectedTagIds.has(t.id)))}
-                    className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold cursor-pointer"
+                    className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold cursor-pointer"
                   >
                     Показать
                   </button>
@@ -3863,7 +3887,7 @@ export default function Registry() {
                 setSelectedTagIds(collectAncestors(cardMenu.tagId));
                 setCardMenu(null);
               }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-200 cursor-pointer"
+              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-300 cursor-pointer"
             >
               <ChevronUp className="w-3.5 h-3.5 text-emerald-500" /> Выделить вверх по ступеньке (родители)
             </button>
@@ -3872,7 +3896,7 @@ export default function Registry() {
                 setSelectedTagIds(collectDescendants(cardMenu.tagId));
                 setCardMenu(null);
               }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-200 cursor-pointer"
+              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-300 cursor-pointer"
             >
               <ChevronDown className="w-3.5 h-3.5 text-emerald-500" /> Выделить вниз по лестнице (дочерние)
             </button>
@@ -3883,19 +3907,23 @@ export default function Registry() {
                   openDuplicates(cardMenu.tagId);
                   setCardMenu(null);
                 }}
-                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-slate-800 dark:text-slate-200 cursor-pointer"
+                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-slate-800 dark:text-slate-300 cursor-pointer"
               >
                 <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
                 Найти дубли ({dupCountOf(cardMenu.tagId)})
               </button>
             )}
+            <button type="button" onClick={() => { openWhereUsed('tag', cardMenu.tagId); setCardMenu(null); }}
+              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-150 cursor-pointer">
+              <Network className="w-3.5 h-3.5 text-emerald-600" /> Где используется
+            </button>
             <button type="button"
               onClick={() => {
                 const ids = selectedTagIds.size > 0 ? Array.from(selectedTagIds) : [cardMenu.tagId];
                 shareTagsInChat(ids);
                 setCardMenu(null);
               }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-200 cursor-pointer"
+              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-300 cursor-pointer"
             >
               <Link2 className="w-3.5 h-3.5 text-emerald-600" />
               Поделиться в рабочем чате{selectedTagIds.size > 1 ? ` (${selectedTagIds.size})` : ''}
@@ -3906,7 +3934,7 @@ export default function Registry() {
                 setTimeout(() => centerOnTag(cardMenu.tagId), 150);
                 setCardMenu(null);
               }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-800 dark:text-slate-200 cursor-pointer"
+              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-800 dark:text-slate-300 cursor-pointer"
             >
               <RefreshCw className="w-3.5 h-3.5 text-slate-400" /> Показать на холсте
             </button>
@@ -3964,6 +3992,11 @@ export default function Registry() {
                 <AlertTriangle className="w-4 h-4" />
               </button>
             )}
+            <button type="button" onClick={() => { openWhereUsed('tag', cardPanel.tagId); setCardPanel(null); }}
+              title="Где используется: оборудование, документы, файлы, ВДР"
+              className="p-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-600 cursor-pointer">
+              <Network className="w-4 h-4" />
+            </button>
             <button type="button"
               onClick={() => {
                 const ids = selectedTagIds.size > 0 ? Array.from(selectedTagIds) : [cardPanel.tagId];
@@ -4093,8 +4126,8 @@ export default function Registry() {
               <span className="flex items-center gap-1.5">
                 <Link2 className="w-3.5 h-3.5 text-sky-500" />
                 {treeLinkMode === 'click'
-                  ? <>Связи: <b>кликом</b> — кнопка <Link2 className="w-3 h-3 inline -mt-0.5" /> у строки, затем клик по дочерней. Способ меняется в «Настройки → Теги → Дерево».</>
-                  : <>Связи: <b>перетаскиванием</b> — тяните строку тега на другую (перетащенный станет дочерним). Способ меняется в «Настройки → Теги → Дерево».</>}
+                  ? <>Связи: <b>кликом</b> — кнопка <Link2 className="w-3 h-3 inline -mt-0.5" /> у строки, затем клик по дочерней.</>
+                  : <>Связи: <b>перетаскиванием</b> — тяните строку тега на другую (перетащенный станет дочерним).</>}
               </span>
               {treeLinkingFrom && (
                 <button type="button" onClick={() => setTreeLinkingFrom(null)} className="shrink-0 px-2 py-1 rounded-lg bg-sky-500 text-white font-semibold cursor-pointer">Отмена связи (Esc)</button>
@@ -4135,7 +4168,7 @@ export default function Registry() {
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 dark:text-white">Импорт тегов из таблицы</h3>
-                  <p className="text-xs text-slate-500 mt-0.5 max-w-lg">Загрузите Excel в Проводник или вставьте данные, отметьте колонки (код, марка, наименование, родитель…) — теги попадут в реестр, спецификацию и дерево связей с авто-раскладкой.</p>
+                  <p className="text-xs text-slate-500 mt-0.5 max-w-lg">Загрузите Excel в Проводник или вставьте данные и отметьте колонки.</p>
                 </div>
               </div>
               <button type="button"
@@ -4343,7 +4376,7 @@ export default function Registry() {
                                         );
                                       })}
                                       {categoryOptions.length === 0 && (
-                                        <span className="text-xs text-slate-400 dark:text-slate-600 italic">Варианты отсутствуют</span>
+                                        <span className="text-xs text-slate-400 dark:text-slate-500 italic">Варианты отсутствуют</span>
                                       )}
                                     </div>
                                   </div>
@@ -4624,7 +4657,7 @@ export default function Registry() {
                                         );
                                       })}
                                       {categoryOptions.length === 0 && (
-                                        <span className="text-xs text-slate-400 dark:text-slate-600 italic">Варианты отсутствуют</span>
+                                        <span className="text-xs text-slate-400 dark:text-slate-500 italic">Варианты отсутствуют</span>
                                       )}
                                     </div>
                                   </div>
@@ -4788,16 +4821,18 @@ export default function Registry() {
                   <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1">
                     2. Выберите колонки для Экспорта в Excel (.CSV)
                   </h3>
-                  <p className="text-xs text-slate-500">Управляйте структурой скачиваемого файла в зависимости от потребностей верификации состава всех систем.</p>
                 </div>
 
-                <button type="button"
-                  onClick={handleExportSelectedToExcel}
-                  className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 transition-ui cursor-pointer"
-                >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  <span>Экспортировать подборку в Excel</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={handleCopySelectedAsTable} title="Те же колонки — сразу в буфер обмена, без файла"
+                    className="px-4 py-2.5 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-150 rounded-xl text-xs font-bold flex items-center gap-2 transition-ui cursor-pointer">
+                    <Copy className="w-4 h-4" /><span>Скопировать таблицей</span>
+                  </button>
+                  <button type="button" onClick={handleExportSelectedToExcel}
+                    className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 transition-ui cursor-pointer">
+                    <FileSpreadsheet className="w-4 h-4" /><span>Экспортировать подборку в Excel</span>
+                  </button>
+                </div>
               </div>
 
               <div className="flex flex-wrap gap-4 pt-1 text-xs">
@@ -4898,7 +4933,7 @@ export default function Registry() {
                         <span>Статус / Актуальность (Status)</span>
                         <button
                           type="button"
-                          onClick={() => void openAlert('Пока недоступно', 'Расширение колонок справочниками появится в одном из следующих обновлений.')}
+                          onClick={() => void openAlert('Пока недоступно', 'Эта возможность ещё не готова.')}
                           className="p-1 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-905 hover:scale-105 transition-ui cursor-pointer font-bold shrink-0 shadow-xs flex items-center justify-center w-5 h-5 ml-2"
                           title="Добавить колонку (Spreadsheet Extension)"
                         >
@@ -4986,7 +5021,7 @@ export default function Registry() {
                           </td>
 
                           {/* COLUMN 3: NAME */}
-                          <td className="flux-cell font-semibold text-slate-800 dark:text-slate-200 text-xs">
+                          <td className="flux-cell font-semibold text-slate-800 dark:text-slate-300 text-xs">
                             <p className="font-bold text-slate-900 dark:text-white select-all">
                               {tMeta.mainName || <span className="italic opacity-50">Без наименования</span>}
                             </p>
@@ -5149,8 +5184,8 @@ export default function Registry() {
                           </td>
                           <td className="flux-cell">
                             {t.brand ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 shadow-xs max-w-[150px] truncate" title={t.brand}>
-                                {t.brand}
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 shadow-xs max-w-[150px] min-w-0" title={t.brand}>
+                                <span className="flex-1 min-w-0 truncate">{t.brand}</span>
                               </span>
                             ) : (
                               <span className="text-slate-400 dark:text-slate-500 italic text-xs">—</span>
@@ -5494,7 +5529,7 @@ export default function Registry() {
 
                 {/* Добавить подписание */}
                 <div className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl space-y-3">
-                  <h4 className="text-xs font-bold text-slate-750 dark:text-slate-200 uppercase tracking-widest flex items-center gap-1">
+                  <h4 className="text-xs font-bold text-slate-750 dark:text-slate-300 uppercase tracking-widest flex items-center gap-1">
                     <Plus className="w-4 h-4 text-emerald-600" />
                     Новое подписание
                   </h4>
@@ -5656,7 +5691,7 @@ export default function Registry() {
                                 <span>Ср: <strong>{desc.createdBy || 'Система'}</strong> {desc.createdAt && `(${formatDateStr(desc.createdAt)})`}</span>
                                 {desc.updatedBy && (
                                   <>
-                                    <span className="text-slate-300 dark:text-slate-755">|</span>
+                                    <span className="text-slate-300 dark:text-slate-455">|</span>
                                     <span>Из: <strong>{desc.updatedBy}</strong> {desc.updatedAt && `(${formatDateStr(desc.updatedAt)})`}</span>
                                   </>
                                 )}
@@ -6064,7 +6099,7 @@ function TagVdrDocs({ identifier, projectId }: { identifier: string; projectId: 
           <button type="button" key={d.id}
             onClick={() => navigate(`/management?vdr=${d.registerId}&item=${d.id}`)}
             className="w-full text-left px-3 py-1.5 flex items-center gap-2 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-950/30 cursor-pointer">
-            <span className="font-semibold text-slate-700 dark:text-slate-200 truncate flex-1" title={`${d.contractorNo}\n${d.titleRu || d.titleEn}`}>
+            <span className="font-semibold text-slate-700 dark:text-slate-300 truncate flex-1" title={`${d.contractorNo}\n${d.titleRu || d.titleEn}`}>
               {d.contractorNo || d.titleRu || d.titleEn}
             </span>
             <span className="text-emerald-500 font-bold shrink-0">{d.vdrCode}</span>

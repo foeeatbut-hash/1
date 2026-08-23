@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { Layers, X } from 'lucide-react';
 import type { ProjectInput } from '../services/dataService';
 import ProjectFields, { draftOf, trimmed, type ProjectDraft } from './ProjectFields';
+import { useEscapeClose } from '../lib/useDismiss';
 
 interface Props {
   title?: string;
@@ -19,6 +20,9 @@ interface Props {
 export default function ProjectFormModal({ title = 'Новый проект', initial, onClose, onSave }: Props) {
   const [draft, setDraft] = useState<ProjectDraft>(() => draftOf(initial));
   const [busy, setBusy] = useState(false);
+
+  // Во время сохранения окно не закрываем: запрос уже ушёл
+  useEscapeClose(true, () => { if (!busy) onClose(); });
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();

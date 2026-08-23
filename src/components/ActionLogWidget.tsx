@@ -262,7 +262,7 @@ export default function ActionLogWidget() {
                 placeholder="Поиск по модулю или тексту..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="w-full px-2.5 py-1.5 text-xs rounded border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono outline-none text-slate-800 dark:text-slate-200 focus:border-emerald-555 transition"
+                className="w-full px-2.5 py-1.5 text-xs rounded border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono outline-none text-slate-800 dark:text-slate-300 focus:border-emerald-555 transition"
               />
             </div>
 
@@ -272,7 +272,7 @@ export default function ActionLogWidget() {
               className="flex-1 overflow-y-auto p-4 bg-slate-50 dark:bg-slate-950 font-mono text-xs leading-relaxed select-text space-y-2 scrollbar-thin"
             >
               {filteredLogs.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-slate-400 dark:text-slate-600 py-12 gap-2 text-center text-xs">
+                <div className="flex flex-col items-center justify-center h-full text-slate-400 dark:text-slate-500 py-12 gap-2 text-center text-xs">
                   <Terminal className="w-8 h-8 opacity-30" />
                   <p>Нет логов для отображения</p>
                 </div>
@@ -361,7 +361,10 @@ export default function ActionLogWidget() {
         {/* Unread Indicator Badge */}
         {!widgetOpen && logs.length > 0 && (
           <span className={`absolute -top-1 -right-1 text-xs font-bold px-1.5 py-0.5 rounded-full border border-white text-white ${
-            hasUnreadError ? 'bg-rose-500 animate-bounce' : 'bg-slate-500'
+            // Подложка счётчика должна быть темнее белой цифры в обеих темах.
+            // slate-500 в тёмной теме — цвет приглушённого текста (70.5%), и
+            // белым по нему выходило 2.6 к 1: число не читалось.
+            hasUnreadError ? 'bg-rose-500 animate-bounce' : 'bg-slate-600'
           }`}>
             {logs.length > 99 ? '99+' : logs.length}
           </span>

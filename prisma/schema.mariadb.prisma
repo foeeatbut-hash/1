@@ -338,6 +338,9 @@ model EquipmentHistory {
   oldSpecs    String?          @db.LongText
   newSpecs    String?          @db.LongText
   changeType  String           // "UPDATE", "DELETE", "CREATE"
+  // Партия импорта: по ней отменяется весь ввоз расчёта целиком, а не
+  // поэлементно. Пусто у записей, сделанных вручную и до этой правки.
+  batchId     String?
 }
 
 model UserNote {
@@ -345,7 +348,7 @@ model UserNote {
   title       String   @default("Новая заметка")
   ownerId     String?  // Владелец заметки; null — заметка из версий до личного блокнота
   content     String   @db.LongText // HTML-строка или JSON-дерево Rich-text редактора
-  color       String   @default("bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200")
+  color       String   @default("bg-amber-50 dark:bg-amber-950/20 border-amber-200")
   equipmentId String?  // Опциональная привязка к тегу/оборудованию
   groupName   String?  // Пользовательская группа заметок в блокноте
   createdAt   DateTime @default(now())
@@ -488,4 +491,215 @@ model DocFormula {
   updatedById String?
 
   @@index([projectId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Почта. Ящик подключается по IMAP/SMTP и принадлежит одному сотруднику:
+// переписка личная, её не видит и администратор.
+//
+// Письма синхронизируются в базу заголовками — отправитель, тема, фрагмент,
+// флаги. Тело и вложения тянутся при открытии: тысяча писем это несколько
+// мегабайт, а не гигабайты, и список открывается мгновенно.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model MailAccount {
+  id           String    @id @default(uuid())
+  // Кому принадлежит ящик. PERSONAL — личный, ownerId заполнен, настраивает
+  // сам сотрудник и может завести несколько. SHARED — общая почта компании,
+  // ownerId пуст, настраивается один раз и видна всем.
+  scope        String    @default("PERSONAL")  // PERSONAL | SHARED
+  ownerId      String    @default("")          // User.id для личного; пусто для общего
+  label        String    @default("")          // Как назвать ящик в списке слева
+  sortOrder    Int       @default(100)         // Порядок в списке ящиков
+  email        String                          // Обратный адрес
+  displayName  String    @default("")          // Имя в поле «От кого»
+  imapHost     String
+  imapPort     Int       @default(993)
+  imapSecure   Boolean   @default(true)
+  smtpHost     String
+  smtpPort     Int       @default(465)
+  smtpSecure   Boolean   @default(true)
+  login        String                          // Обычно совпадает с email, но не всегда
+  secret       String  @db.Text                    // Пароль под AES-256-GCM; наружу не отдаётся
+  secretNonce  String    @default("")
+  signature    String  @db.Text  @default("")      // Подпись, подставляется в новое письмо
+  syncDays     Int       @default(90)          // На сколько дней вглубь тянуть при первом входе
+  active       Boolean   @default(true)
+  lastSyncAt   DateTime?
+  lastError    String  @db.Text  @default("")      // Последняя ошибка связи — видна в разделе
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([ownerId])
+  @@index([scope])
+}
+
+model MailFolder {
+  id           String    @id @default(uuid())
+  accountId    String
+  path         String                          // Путь IMAP как есть: "INBOX", "[Gmail]/Drafts"
+  name         String                          // Как показываем человеку
+  kind         String    @default("CUSTOM")    // INBOX SENT DRAFTS TRASH SPAM ARCHIVE CUSTOM
+  // Метка поколения папки. Сервер сменил её — все сохранённые uid указывают
+  // на другие письма, и папку надо перечитать целиком.
+  uidValidity  String    @default("")
+  lastUid      Int       @default(0)
+  unread       Int       @default(0)
+  total        Int       @default(0)
+  sortOrder    Int       @default(100)
+  syncedAt     DateTime?
+
+  @@unique([accountId, path])
+  @@index([accountId])
+}
+
+model MailMessage {
+  id           String    @id @default(uuid())
+  accountId    String
+  folderId     String
+  uid          Int                             // Номер письма в папке
+  messageId    String    @default("")          // Message-ID из заголовка
+  inReplyTo    String    @default("")          // In-Reply-To
+  refs         String  @db.Text  @default("")      // References, через пробел
+  threadKey    String    @default("")          // Корень цепочки — считаем сами
+  fromName     String  @db.Text  @default("")
+  fromAddr     String    @default("")
+  toAddrs      String  @db.Text  @default("")      // «Имя <адрес>» через запятую
+  ccAddrs      String  @db.Text  @default("")
+  subject      String  @db.Text  @default("")
+  snippet      String  @db.Text  @default("")      // Первые ~200 знаков для списка
+  sentAt       DateTime
+  size         Int       @default(0)
+  seen         Boolean   @default(false)
+  flagged      Boolean   @default(false)
+  answered     Boolean   @default(false)
+  draft        Boolean   @default(false)
+  hasFiles     Boolean   @default(false)
+  // Тема, отправитель и фрагмент одной строкой в нижнем регистре.
+  // LIKE в SQLite приводит к нижнему регистру только латиницу, поэтому
+  // искать по-русски без заранее приведённого поля нельзя.
+  searchText   String  @db.Text  @default("")
+  bodyText     String?  @db.LongText                   // Тянется при открытии
+  bodyHtml     String?  @db.LongText
+  bodyAt       DateTime?
+
+  @@unique([folderId, uid])
+  @@index([accountId, threadKey])
+  @@index([folderId, sentAt])
+  @@index([accountId, seen])
+}
+
+model MailAttachment {
+  id           String    @id @default(uuid())
+  messageId    String                          // MailMessage.id
+  partId       String    @default("")          // Часть письма в терминах IMAP
+  fileName     String  @db.Text  @default("")
+  filePath     String  @db.Text  @default("")      // Файл на диске, как вложения Чата
+  size         Int       @default(0)
+  mimeType     String    @default("")
+  contentId    String    @default("")          // Для картинок внутри письма
+  inline       Boolean   @default(false)
+
+  @@index([messageId])
+}
+
+model MailDraft {
+  id           String    @id @default(uuid())
+  accountId    String
+  ownerId      String
+  toAddrs      String  @db.Text  @default("")
+  ccAddrs      String  @db.Text  @default("")
+  bccAddrs     String  @db.Text  @default("")
+  subject      String  @db.Text  @default("")
+  bodyHtml     String  @db.LongText  @default("")
+  inReplyToId  String    @default("")          // MailMessage.id, если это ответ
+  mode         String    @default("NEW")       // NEW | REPLY | REPLY_ALL | FORWARD
+  files        String  @db.Text  @default("[]")    // JSON: приложенные файлы
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([ownerId])
+}
+
+// ── Подписи ──────────────────────────────────────────────────────────────
+// Подпись личная: сотрудник заводит её себе сам. Одна и та же подпись может
+// стоять на всех ящиках (accountId пуст) или только на выбранном — с общей
+// почты человек подписывается иначе, чем со своей.
+model MailSignature {
+  id           String    @id @default(uuid())
+  ownerId      String                          // Чья подпись (User.id)
+  accountId    String    @default("")          // Пусто — годится для всех ящиков
+  name         String    @default("Подпись")   // Как называется в списке
+  html         String    @default("")          // Разметка подписи
+  isDefault    Boolean   @default(false)       // Подставлять в новое письмо
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([ownerId])
+}
+
+// Картинки подписи: логотип компании, скан подписи. Лежат на диске, как
+// вложения; при отправке вставляются в письмо частями с Content-ID, иначе
+// почтовые службы вырежут ссылку на наш сервер.
+model MailSignatureImage {
+  id           String    @id @default(uuid())
+  ownerId      String
+  fileName     String    @default("")
+  filePath     String    @default("")
+  mimeType     String    @default("")
+  size         Int       @default(0)
+  width        Int       @default(0)           // Ширина показа в письме, px
+  createdAt    DateTime  @default(now())
+
+  @@index([ownerId])
+}
+
+// ── Общий ящик ───────────────────────────────────────────────────────────
+// Флаг \Seen в IMAP один на всех: стоит одному сотруднику открыть письмо, и
+// у девяти остальных оно перестанет быть непрочитанным. Для общей почты это
+// неверно — «я это видел» у каждого своё, поэтому храним отметку у себя.
+model MailSeenLocal {
+  id           String    @id @default(uuid())
+  accountId    String
+  userId       String
+  // Message-ID письма, а не наш id: он переживает пересинхронизацию папки
+  // и смену uidValidity, после которых наши строки создаются заново.
+  msgKey       String
+  seenAt       DateTime  @default(now())
+
+  @@unique([accountId, userId, msgKey])
+  @@index([accountId, userId])
+}
+
+// Состояние переписки в общем ящике: кто взял в работу и кто ответил.
+// Ключ — цепочка, а не письмо: в работу берут разговор целиком.
+model MailThreadState {
+  id             String    @id @default(uuid())
+  accountId      String
+  threadKey      String
+  status         String    @default("NEW")     // NEW | IN_PROGRESS | ANSWERED | CLOSED
+  claimedById    String    @default("")
+  claimedByName  String    @default("")
+  claimedAt      DateTime?
+  repliedById    String    @default("")
+  repliedByName  String    @default("")
+  repliedAt      DateTime?
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([accountId, threadKey])
+  @@index([accountId, status])
+}
+
+// Лента действий по переписке — чтобы девять остальных видели, что произошло.
+model MailActivity {
+  id           String    @id @default(uuid())
+  accountId    String
+  threadKey    String
+  userId       String    @default("")
+  userName     String    @default("")
+  kind         String    @default("NOTE")      // CLAIMED RELEASED REPLIED FORWARDED STATUS NOTE
+  note         String    @default("")
+  createdAt    DateTime  @default(now())
+
+  @@index([accountId, threadKey])
 }

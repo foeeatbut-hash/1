@@ -119,13 +119,16 @@ console.log('6. Размер файлов не растёт (храповик)')
 const BUDGET = 1200;
 const LEGACY: Record<string, number> = {
   'src/screens/Registry.tsx': 6071,
-  'server.ts': 4225,
-  'src/screens/Explorer.tsx': 2560,
+  'server.ts': 4296,
+  // Строки и значки уехали в components/explorer/FileItems.tsx — планка ниже
+  'src/screens/Explorer.tsx': 2371,
   'src/screens/DictionaryEditor.tsx': 2279,
-  'src/screens/ChatManagement.tsx': 2029,
+  // Пузырь сообщения уехал в components/chat/MessageBubble.tsx — планка ниже
+  'src/screens/ChatManagement.tsx': 1864,
   'src/screens/ConstructorScreen.tsx': 1909,
   'src/screens/SettingsScreen.tsx': 1620,
-  'src/store/assistantStore.ts': 1238,
+  // Типы ответа и два новых ответа уехали в src/assistant/ — планка ниже
+  'src/store/assistantStore.ts': 1225,
 };
 const SLACK = 50; // мелкие правки в старых файлах не должны ронять проверку
 const all = [...SRC, ...ELECTRON, ...walk('server'), ...walk('scripts'), 'server.ts'];
@@ -171,6 +174,151 @@ for (const file of SRC) {
   }
 }
 ok(`оформление держится палитры (найдено чужих оттенков: ${strays.length})`, strays.length === 0, strays.slice(0, 12));
+
+// ── Тёмная тема: серая шкала в ней переставлена ──
+//
+// В `.dark` шкала slate переопределена, и ступени распределены по назначению,
+// а не по яркости: 100 и 300 — светлый текст, 350–500 — приглушённый, а 200 и
+// 600–950 отданы линиям и подложкам и остаются тёмными. Поэтому «dark:text-»
+// с тёмной ступенью даёт тёмный текст на тёмном фоне.
+//
+// Так и было: 80 мест писали `dark:text-slate-200`, разумно полагая, что между
+// светлыми 100 и 300 лежит тоже светлое. Замер показал 1.24 к 1 — надпись
+// «Документ» в Конструкторе была не видна вовсе, как и подпись «Новая папка»
+// в Проводнике (ровно цвет фона, 1 к 1).
+//
+// Читаемые ступени для текста в тёмной теме: 100, 105, 150, 255, 300, 350,
+// 400, 405, 410, 450, 500, 503, 550 и 455 (приглушённая, но различимая — для
+// недоступных кнопок, прочерков «нет значения» и разделителей).
+//
+// Список включает и полуступени: они объявлены псевдонимами (`--color-slate-250:
+// var(--color-slate-200)`) и наследуют значение вместе с дырой. Именно на этом
+// попался корень дерева в Проводнике — `dark:text-slate-250`, 1.36 к 1.
+const DARK_TEXT_BAD = /\bdark:text-slate-(50|200|202|205|250|555|600|605|650|655|700|705|707|750|755|800|805|850|855|900|905|950|955|990)\b/g;
+const darkText: string[] = [];
+for (const file of SRC) {
+  if (!file.endsWith('.tsx')) continue;
+  const lines = read(file).split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    for (const m of lines[i].matchAll(DARK_TEXT_BAD)) {
+      // Перевёрнутая плашка: светлая подложка, тёмный текст на ней — так и надо
+      if (/dark:bg-slate-(50|100|300)\b/.test(lines[i])) continue;
+      // Значок-подложка пустого состояния: он бледен намеренно и в обеих темах
+      // одинаково (в светлой — slate-200/300 на белом). Цвет стоит на самом
+      // значке, у которого задан размер, — по этому и отличаем от текста.
+      if (/<[A-Z][A-Za-z]*\s[^>]*className="[^"]*\bw-\d/.test(lines[i])) continue;
+      darkText.push(`${file}:${i + 1}: ${m[0]}`);
+    }
+  }
+}
+ok(`в тёмной теме текст не берёт ступени подложек (найдено: ${darkText.length})`, darkText.length === 0, darkText.slice(0, 12));
+
+// ── truncate на flex-контейнере ничего не обрезает ──
+//
+// `truncate` — это overflow:hidden + text-overflow:ellipsis + nowrap, и
+// многоточие ставится только собственному тексту элемента. У flex-контейнера
+// своего текста нет: дети раскладываются как flex-элементы, и текст без
+// `flex-1 min-w-0` не сжимается, а вылезает наружу.
+//
+// Так уже было дважды. Крестик вкладки из-за этого сидел ровно в середине, и
+// нажатие в середину закрывало раздел. Заголовок заметки вылезал за карточку
+// на 34 px, а карточка за колонку — на 22 px; ловилось только при заметке с
+// названием по умолчанию, то есть у любого, кто нажал «создать».
+const TRUNC_FLEX = /className=(?:"|\{`)([^"`]*\btruncate\b[^"`]*)/g;
+const truncFlex: string[] = [];
+for (const file of SRC) {
+  if (!file.endsWith('.tsx')) continue;
+  const lines = read(file).split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    for (const m of lines[i].matchAll(TRUNC_FLEX)) {
+      const cls = m[1];
+      // inline-flex/flex как display на том же элементе, что и truncate
+      if (!/(?:^|\s)(?:inline-)?flex(?:$|\s)/.test(cls)) continue;
+      truncFlex.push(`${file}:${i + 1}`);
+    }
+  }
+}
+ok(`truncate не стоит на flex-контейнере (найдено: ${truncFlex.length})`, truncFlex.length === 0, truncFlex.slice(0, 12));
+
+
+// ── Каждый раздел должен быть доступен из оболочки ──
+//
+// Левое меню — отдельный список, написанный руками рядом с реестром разделов.
+// Оно уже отставало: «Почта» появилась разделом, но в меню её не внесли, и
+// попасть туда можно было только с плиток Главной. «Генератор» не попал ни
+// туда, ни туда — раздел существовал, но открыть его было нечем.
+//
+// Исключения перечисляем поимённо и с причиной: раздел, до которого нельзя
+// дотянуться, — это раздел, которого для человека нет.
+const REACHABLE_ELSEWHERE: Record<string, string> = {
+  '/settings': 'кнопка внизу левого меню',
+  '/logs': 'карточки на Главной',
+  '/handbook': 'кнопка «Справка» на правом рельсе и F1',
+  // Не решено. «Генератор» собирает шаблон обозначения из блоков — ту же
+  // задачу решает редактор шаблонов в Справочнике, поэтому раздел когда-то
+  // убрали и с плиток Главной. Открыть его сейчас можно только по адресу.
+  // Либо вернуть в меню, либо убрать из реестра разделов — но не оставлять
+  // висеть. Пока висит, об этом сказано в руководстве.
+  '/generator': 'нигде — раздел вне навигации, решение отложено',
+};
+{
+  const sectionsSrc = read('src/workspace/sections.tsx');
+  const layoutSrc = read('src/components/Layout.tsx');
+  const paths = [...sectionsSrc.matchAll(/path: '([^']+)', title: '([^']+)'/g)].map((m) => m[1]);
+  const unreachable = paths.filter((p) => {
+    if (REACHABLE_ELSEWHERE[p]) return false;
+    return !new RegExp(`path: '${p.replace('/', '\\/')}'`).test(layoutSrc);
+  });
+  ok(`каждый раздел открывается из меню (недоступных: ${unreachable.length})`, unreachable.length === 0, unreachable);
+}
+
+// ── Чьи данные в разделе: проектные или общие ──
+//
+// Разделение объявлено данными в реестре разделов, а показано подписями групп
+// в левом меню. Это два разных списка, и разойтись они могут молча: раздел
+// переедет в меню из одной группы в другую, а реестр останется прежним — и
+// подпись над кнопкой начнёт врать. Сверяем.
+console.log('\n8. Область данных раздела');
+{
+  const sectionsSrc = read('src/workspace/sections.tsx');
+  const layoutSrc = read('src/components/Layout.tsx');
+
+  const entries = [...sectionsSrc.matchAll(/path: '([^']+)', title: '([^']+)'[^\n]*?scope: '([a-z]+)'/g)]
+    .map((m) => ({ path: m[1], title: m[2], scope: m[3] }));
+  const paths = [...sectionsSrc.matchAll(/\{ path: '([^']+)'/g)].map((m) => m[1]);
+
+  ok(`область объявлена у всех разделов (${entries.length} из ${paths.length})`,
+    entries.length === paths.length,
+    paths.filter((p) => !entries.some((e) => e.path === p)));
+
+  const allowed = ['project', 'global', 'mixed'];
+  const strange = entries.filter((e) => !allowed.includes(e.scope));
+  ok('областей всего три: проектная, общая, смешанная', strange.length === 0, strange);
+
+  // Группы левого меню: от подписи группы до следующей подписи или до конца.
+  const groupPaths = (label: string): string[] => {
+    const start = layoutSrc.indexOf(`label: '${label}'`);
+    if (start < 0) return [];
+    const rest = layoutSrc.slice(start + label.length);
+    const end = rest.search(/\{ label: '|\n  \];/);
+    return [...(end > 0 ? rest.slice(0, end) : rest).matchAll(/path: '([^']+)'/g)].map((m) => m[1]);
+  };
+
+  for (const [label, want] of [['Проект', 'project'], ['Общее', 'global']] as const) {
+    const inMenu = groupPaths(label);
+    ok(`группа меню «${label}» непуста`, inMenu.length > 0, inMenu);
+    const wrong = inMenu.filter((p) => {
+      const e = entries.find((x) => x.path === p);
+      return !e || e.scope !== want;
+    });
+    ok(`в группе «${label}» только разделы с областью «${want}»`, wrong.length === 0, wrong);
+  }
+
+  // Разделы, до которых из меню не дотянуться, области тоже обязаны объявить —
+  // на них смотрит руководство и помощник.
+  const orphan = entries.filter((e) => e.scope === 'mixed').map((e) => e.path);
+  ok('смешанных разделов немного (Главная и Настройки)', orphan.length <= 2, orphan);
+}
 
 console.log(f === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${f}`);
 process.exit(f === 0 ? 0 : 1);

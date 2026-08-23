@@ -6,6 +6,9 @@ import { useChatStore, ChatMessage } from '../store/chatStore';
 import { useShareStore } from '../store/shareStore';
 import { useNotificationStore } from '../store/notificationStore';
 import { decodeShare } from '../lib/shareLink';
+import { openInProject } from '../lib/projectScope';
+import MessageBubble, { DayDivider } from '../components/chat/MessageBubble';
+import { markGroups } from '../components/chat/grouping';
 import RichChatInput, { RichChatInputHandle } from '../components/RichChatInput';
 import { Link2 } from 'lucide-react';
 import {
@@ -152,20 +155,20 @@ export default function ChatManagement() {
   } = useChatStore();
   const setFocusTarget = useShareStore(s => s.setFocusTarget);
 
-  // Переход по «поделиться-ссылке» в сообщении (с учётом проекта)
+  // Переход по «поделиться-ссылке» в сообщении.
+  //
+  // Чат — общий раздел: в нём лежат ссылки на данные всех проектов. Ссылка на
+  // чужой проект не ломается и не открывается молча — спрашивает, как и всё
+  // остальное в программе (см. src/lib/projectScope.ts). Раньше здесь был свой
+  // текст вопроса, отличавшийся от всех прочих.
   const handleShareClick = (token: string) => {
     const t = decodeShare(token);
     if (!t) return;
-    const goNow = () => { setFocusTarget(t); navigate(t.r); };
-    if (t.p && activeProject?.id && t.p !== activeProject.id) {
-      // Цель из другого проекта — предлагаем переключиться
-      addToast(`Эта ссылка из проекта «${t.pn || 'другой'}». Нажмите, чтобы перейти в него и открыть.`, 'info', () => {
-        setActiveProject({ id: t.p!, name: t.pn || 'Проект' } as any);
-        setTimeout(goNow, 100);
-      });
-      return;
-    }
-    goNow();
+    openInProject({
+      what: t.l ? `«${t.l}»` : 'Ссылка из чата',
+      projectId: t.p || null,
+      open: () => { setFocusTarget(t); navigate(t.r); },
+    });
   };
 
   const [messageText, setMessageText] = useState('');
@@ -624,6 +627,18 @@ export default function ChatManagement() {
     ? messages.filter(m => m.content.toLowerCase().includes(conversationSearch.trim().toLowerCase()))
     : messages;
 
+  // Разбивка на кучки подряд идущих сообщений одного человека (grouping.ts)
+  const groupMarks = React.useMemo(() => markGroups(visibleMessages), [visibleMessages]);
+
+  /** Перейти к сообщению, на которое отвечали, и подсветить его. */
+  const jumpToMessage = (id: string) => {
+    const el = document.getElementById(`msg-${id}`);
+    if (!el) { addToast('Это сообщение осталось выше — нажмите «Показать более ранние».', 'info'); return; }
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('flux-hb-flash');
+    window.setTimeout(() => el.classList.remove('flux-hb-flash'), 2000);
+  };
+
   // TAG CLICK RESOLVER: Finds component element by Tag name and triggers navigation+highlight in Equipment Tree
   const handleTagClick = async (tag: string) => {
     try {
@@ -997,11 +1012,11 @@ export default function ChatManagement() {
                       <div className="fixed inset-0 z-40" onClick={() => setShowChatMenu(false)} />
                       <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl py-1">
                         {activeGroup && activeGroup.type !== 'PROJECT' && (
-                          <button type="button" onClick={() => { setShowChatMenu(false); setShowGroupSettings(true); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+                          <button type="button" onClick={() => { setShowChatMenu(false); setShowGroupSettings(true); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
                             <Settings className="w-3.5 h-3.5" /> Настройки {activeGroup.type === 'CHANNEL' ? 'канала' : 'группы'}
                           </button>
                         )}
-                        <button type="button" onClick={handleClearHistory} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+                        <button type="button" onClick={handleClearHistory} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
                           <Trash2 className="w-3.5 h-3.5" /> Очистить историю
                         </button>
                         {activeGroup && activeGroup.type !== 'PROJECT' && (activeGroup.ownerId === user?.id || user?.role === 'ADMIN') && (
@@ -1077,213 +1092,33 @@ export default function ChatManagement() {
                 )}
                 {visibleMessages.map((msg, msgIndex) => {
                   const isMe = msg.senderId === user?.id;
-                  const msgDay = new Date(msg.createdAt).toDateString();
-                  const prevDay = msgIndex > 0 ? new Date(visibleMessages[msgIndex - 1].createdAt).toDateString() : null;
-                  const showDaySeparator = msgDay !== prevDay;
-                  const dayLabel = (() => {
-                    const d = new Date(msg.createdAt);
-                    const today = new Date();
-                    const yesterday = new Date(); yesterday.setDate(today.getDate() - 1);
-                    if (d.toDateString() === today.toDateString()) return 'Сегодня';
-                    if (d.toDateString() === yesterday.toDateString()) return 'Вчера';
-                    return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
-                  })();
+                  const mark = groupMarks[msgIndex];
                   return (
                     <React.Fragment key={msg.id}>
-                    {showDaySeparator && (
-                      <div className="flex items-center gap-3 my-2 select-none">
-                        <div className="flex-1 h-px bg-slate-200 dark:bg-slate-800" />
-                        <span className="text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">{dayLabel}</span>
-                        <div className="flex-1 h-px bg-slate-200 dark:bg-slate-800" />
-                      </div>
-                    )}
-                    <div 
-                      className={`flux-lazy-item group flex gap-3 max-w-[85%] ${isMe ? 'ml-auto flex-row-reverse' : 'mr-auto'}`}
-                    >
-                      <div className="w-8 h-8 rounded-full bg-slate-150 dark:bg-slate-800 shrink-0 border border-slate-250 dark:border-slate-750 flex items-center justify-center text-xs font-bold text-slate-600 dark:text-slate-400">
-                        {(msg.sender?.name || 'С').charAt(0)}
-                      </div>
-
-                      <div className="space-y-1 text-left">
-                        <div className="flex items-center gap-2 text-xs text-slate-400 select-none">
-                          <span className="font-bold text-slate-500 dark:text-slate-450">
-                            {isMe ? 'Вы' : msg.sender?.name}
-                          </span>
-                          <span>•</span>
-                          <span className="flex items-center gap-0.5">
-                            <Clock className="w-2.5 h-2.5" />
-                            {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                          {msg.editedAt && (
-                            <span className="italic text-slate-400/80" title={`Изменено ${new Date(msg.editedAt).toLocaleString('ru-RU')}`}>(изменено)</span>
-                          )}
-
-                          {/* Панель действий над сообщением (по наведению) */}
-                          <span className={`relative opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 ${isMe ? 'mr-1' : 'ml-1'}`}>
-                            <button
-                              type="button"
-                              onClick={() => setReactPickerFor(reactPickerFor === msg.id ? null : msg.id)}
-                              className="p-1 rounded hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-400 hover:text-amber-500 cursor-pointer"
-                              title="Реакция"
-                            >
-                              <Smile className="w-3 h-3" />
-                            </button>
-                            {reactPickerFor === msg.id && (
-                              <span className="absolute z-50 top-full mt-1 right-0 flex gap-0.5 p-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl">
-                                {REACTION_EMOJIS.map(em => (
-                                  <button key={em} type="button" onClick={() => handleReact(msg, em)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-sm">{em}</button>
-                                ))}
-                              </span>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => handleStartReply(msg)}
-                              className="p-1 rounded hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 cursor-pointer"
-                              title="Ответить"
-                            >
-                              <Reply className="w-3 h-3" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setForwardFor(msg)}
-                              className="p-1 rounded hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-400 hover:text-sky-600 dark:hover:text-sky-400 cursor-pointer"
-                              title="Переслать"
-                            >
-                              <CornerUpRight className="w-3 h-3" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handlePin(msg)}
-                              className={`p-1 rounded hover:bg-slate-200/70 dark:hover:bg-slate-800 cursor-pointer ${msg.pinned ? 'text-amber-500' : 'text-slate-400 hover:text-amber-500'}`}
-                              title={msg.pinned ? 'Открепить' : 'Закрепить'}
-                            >
-                              <Pin className="w-3 h-3" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyMessage(msg)}
-                              className="p-1 rounded hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 cursor-pointer"
-                              title="Копировать текст"
-                            >
-                              <Copy className="w-3 h-3" />
-                            </button>
-                            {isMe && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => handleStartEdit(msg)}
-                                  className="p-1 rounded hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 cursor-pointer"
-                                  title="Изменить"
-                                >
-                                  <Pencil className="w-3 h-3" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteMessage(msg)}
-                                  className="p-1 rounded hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 cursor-pointer"
-                                  title="Удалить"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
-                              </>
-                            )}
-                          </span>
-                        </div>
-
-                        {/* Speech bubble bubble text */}
-                        <div className={`p-3 rounded-lg border text-xs shadow-3xs relative overflow-hidden transition-ui ${
-                          isMe 
-                            ? 'bg-emerald-50/90 dark:bg-emerald-950/25 border-emerald-200 dark:border-emerald-900/40 text-slate-900 dark:text-emerald-150 rounded-tr-none' 
-                            : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850/60 text-slate-800 dark:text-slate-150 rounded-tl-none'
-                        }`}>
-                          {msg.forwardedFrom && (
-                            <div className="mb-1.5 text-2xs font-semibold text-sky-600 dark:text-sky-400 flex items-center gap-1 select-none">
-                              <CornerUpRight className="w-3 h-3" /> Переслано от {msg.forwardedFrom}
-                            </div>
-                          )}
-                          {msg.replyTo && (
-                            <div className="mb-2 pl-2 border-l-2 border-emerald-400 dark:border-emerald-500 text-xs select-none">
-                              <div className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                                <CornerDownRight className="w-3 h-3" />
-                                {msg.replyTo.sender?.name || 'Сообщение'}
-                              </div>
-                              <div className="text-slate-500 dark:text-slate-400 truncate max-w-[260px]">
-                                {(msg.replyTo.content || '').slice(0, 120) || 'Вложение'}
-                              </div>
-                            </div>
-                          )}
-                          <FormattedMessage text={msg.content} onTagClick={handleTagClick} onShareClick={handleShareClick} />
-
-                          {/* Interactive Equipment Link */}
-                          {msg.linkedElement && (
-                            <button
-                              type="button"
-                              onClick={() => handleEquipmentClick(msg.linkedElementId!)}
-                              className="mt-2 text-left block w-full p-2 bg-emerald-600/10 dark:bg-emerald-450/15 border border-emerald-500/20 rounded-md hover:bg-emerald-600/15 dark:hover:bg-emerald-450/20 cursor-pointer transition-ui shrink-0"
-                            >
-                              <div className="text-xs font-bold text-emerald-800 dark:text-emerald-400 uppercase tracking-wider mb-0.5 flex items-center gap-1 font-sans">
-                                ⚙️ Сквозная ссылка MAX
-                              </div>
-                              <div className="text-xs font-black text-slate-800 dark:text-slate-200">
-                                {msg.linkedElement.name}
-                              </div>
-                              <div className="text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5">
-                                Код узла: {msg.linkedElement.itemCode}
-                              </div>
-                            </button>
-                          )}
-
-                          {/* Attachments */}
-                          {msg.attachments && msg.attachments.length > 0 && (
-                            <div className="mt-2 space-y-1 shrink-0">
-                              {msg.attachments.map((file) => (
-                                <button
-                                  key={file.id}
-                                  type="button"
-                                  onClick={() => openFile(file.filePath)}
-                                  className="w-full text-left flex items-center justify-between p-2 bg-slate-100 dark:bg-slate-900 hover:bg-slate-200/60 dark:hover:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-md cursor-pointer group transition-ui"
-                                >
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <File className="w-3.5 h-3.5 text-emerald-650 dark:text-emerald-400 shrink-0" />
-                                    <div className="min-w-0">
-                                      <p className="text-xs font-bold text-slate-850 dark:text-slate-250 truncate group-hover:text-emerald-700 dark:group-hover:text-emerald-400">
-                                        {file.fileName}
-                                      </p>
-                                      <p className="text-xs text-slate-400 font-mono">
-                                        {formatBytes(file.fileSize)}
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <Download className="w-3.5 h-3.5 text-slate-400 hover:text-emerald-505 shrink-0 ml-2" />
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Реакции под сообщением */}
-                        {parseReactions(msg).length > 0 && (
-                          <div className={`flex flex-wrap gap-1 mt-1 ${isMe ? 'justify-end' : ''}`}>
-                            {parseReactions(msg).map(r => (
-                              <button
-                                key={r.emoji}
-                                type="button"
-                                onClick={() => handleReact(msg, r.emoji)}
-                                className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-xs cursor-pointer transition-colors ${
-                                  r.mine
-                                    ? 'bg-emerald-600/15 border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
-                                    : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                                }`}
-                                title={r.mine ? 'Убрать реакцию' : 'Поставить реакцию'}
-                              >
-                                <span>{r.emoji}</span>
-                                <span className="font-semibold">{r.count}</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                      {mark.newDay && <DayDivider label={mark.dayLabel} />}
+                      <MessageBubble
+                        msg={msg as any}
+                        isMe={isMe}
+                        mark={mark}
+                        hideNames={!activeGroupId}
+                        reactions={parseReactions(msg)}
+                        emojis={REACTION_EMOJIS}
+                        pickerOpen={reactPickerFor === msg.id}
+                        onTogglePicker={() => setReactPickerFor(reactPickerFor === msg.id ? null : msg.id)}
+                        onReact={(em) => handleReact(msg, em)}
+                        onReply={() => handleStartReply(msg)}
+                        onForward={() => setForwardFor(msg)}
+                        onPin={() => handlePin(msg)}
+                        onCopy={() => handleCopyMessage(msg)}
+                        onEdit={() => handleStartEdit(msg)}
+                        onDelete={() => handleDeleteMessage(msg)}
+                        onOpenEquipment={handleEquipmentClick}
+                        onOpenFile={openFile}
+                        onJumpTo={jumpToMessage}
+                        formatBytes={formatBytes}
+                      >
+                        <FormattedMessage text={msg.content} onTagClick={handleTagClick} onShareClick={handleShareClick} />
+                      </MessageBubble>
                     </React.Fragment>
                   );
                 })}
@@ -1565,7 +1400,7 @@ export default function ChatManagement() {
                 <div className="bg-white dark:bg-slate-950 p-3 rounded-lg border border-slate-200 dark:border-slate-800/80 space-y-2.5 shadow-3xs text-xs">
                   <div>
                     <span className="text-xs text-slate-400 uppercase block font-extrabold">Тип оборудования</span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-200 block mt-0.5">
+                    <span className="font-semibold text-slate-800 dark:text-slate-300 block mt-0.5">
                       {selectedTagElement.type || 'Спецификация MAX'}
                     </span>
                   </div>
@@ -1573,7 +1408,7 @@ export default function ChatManagement() {
                   {selectedTagElement.monoblock && (
                     <div>
                       <span className="text-xs text-slate-400 uppercase block font-extrabold">Моноблок</span>
-                      <span className="font-semibold text-slate-800 dark:text-slate-200 block mt-0.5">
+                      <span className="font-semibold text-slate-800 dark:text-slate-300 block mt-0.5">
                         📦 {selectedTagElement.monoblock.name}
                       </span>
                     </div>
@@ -1582,7 +1417,7 @@ export default function ChatManagement() {
                   {selectedTagElement.monoblock?.system && (
                     <div>
                       <span className="text-xs text-slate-400 uppercase block font-extrabold">Система</span>
-                      <span className="font-semibold text-slate-800 dark:text-slate-200 block mt-0.5">
+                      <span className="font-semibold text-slate-800 dark:text-slate-300 block mt-0.5">
                         🌐 {selectedTagElement.monoblock.system.name}
                       </span>
                     </div>
@@ -1787,7 +1622,7 @@ export default function ChatManagement() {
                       className="w-full text-left p-2 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/10 border border-slate-100 dark:border-transparent rounded-lg cursor-pointer transition-ui flex items-center justify-between"
                     >
                       <div>
-                        <p className="text-xs font-bold text-slate-805 dark:text-slate-200">
+                        <p className="text-xs font-bold text-slate-805 dark:text-slate-300">
                           ⚙️ {c.name}
                         </p>
                         <p className="text-xs text-slate-400 mt-0.5">
@@ -1806,7 +1641,7 @@ export default function ChatManagement() {
                 <button
                   type="button"
                   onClick={() => setIsEquipmentModalOpen(false)}
-                  className="px-4 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-bold hover:bg-slate-300 dark:hover:bg-slate-700 cursor-pointer"
+                  className="px-4 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold hover:bg-slate-300 dark:hover:bg-slate-700 cursor-pointer"
                 >
                   Закрыть
                 </button>
@@ -1922,7 +1757,7 @@ export default function ChatManagement() {
                 const sel = ngMembers.includes(u.id);
                 return (
                   <button key={u.id} type="button" onClick={() => setNgMembers(sel ? ngMembers.filter(id => id !== u.id) : [...ngMembers, u.id])} className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer">
-                    <span className="text-xs text-slate-700 dark:text-slate-200">{u.name} <span className="text-slate-400 font-mono">({u.symbol})</span></span>
+                    <span className="text-xs text-slate-700 dark:text-slate-300">{u.name} <span className="text-slate-400 font-mono">({u.symbol})</span></span>
                     <span className={`w-4 h-4 rounded border flex items-center justify-center ${sel ? 'bg-emerald-600 border-emerald-600' : 'border-slate-300 dark:border-slate-600'}`}>{sel && <Check className="w-3 h-3 text-white" />}</span>
                   </button>
                 );
@@ -1962,13 +1797,13 @@ export default function ChatManagement() {
             <div className="max-h-72 overflow-y-auto space-y-1">
               <div className="text-2xs font-bold uppercase tracking-wider text-slate-400 px-1 py-1">Группы и каналы</div>
               {groups.map(g => (
-                <button key={g.id} type="button" onClick={() => handleForwardTo({ groupId: g.id })} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs text-slate-700 dark:text-slate-200">
+                <button key={g.id} type="button" onClick={() => handleForwardTo({ groupId: g.id })} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
                   {g.type === 'CHANNEL' ? <Radio className="w-4 h-4 text-emerald-500" /> : <Users className="w-4 h-4 text-emerald-500" />} {g.name}
                 </button>
               ))}
               <div className="text-2xs font-bold uppercase tracking-wider text-slate-400 px-1 py-1 mt-2">Личные диалоги</div>
               {users.filter(u => u.id !== user?.id).map(u => (
-                <button key={u.id} type="button" onClick={() => handleForwardTo({ receiverId: u.id })} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs text-slate-700 dark:text-slate-200">
+                <button key={u.id} type="button" onClick={() => handleForwardTo({ receiverId: u.id })} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
                   <User className="w-4 h-4 text-emerald-500" /> {u.name}
                 </button>
               ))}
@@ -1996,7 +1831,7 @@ export default function ChatManagement() {
                 const isOwner = activeGroup.ownerId === u.id;
                 return (
                   <button key={u.id} type="button" disabled={isOwner} onClick={() => { const base = gsMembers.length ? gsMembers : (activeGroup.members || []).map(m => m.id); setGsMembers(sel ? base.filter(id => id !== u.id) : [...base, u.id]); }} className={`w-full flex items-center justify-between px-3 py-2 text-left ${isOwner ? 'opacity-60' : 'hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer'}`}>
-                    <span className="text-xs text-slate-700 dark:text-slate-200">{u.name} {isOwner && <span className="text-amber-500 font-semibold">· владелец</span>}</span>
+                    <span className="text-xs text-slate-700 dark:text-slate-300">{u.name} {isOwner && <span className="text-amber-500 font-semibold">· владелец</span>}</span>
                     <span className={`w-4 h-4 rounded border flex items-center justify-center ${sel ? 'bg-emerald-600 border-emerald-600' : 'border-slate-300 dark:border-slate-600'}`}>{sel && <Check className="w-3 h-3 text-white" />}</span>
                   </button>
                 );

@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useEscapeClose } from '../lib/useDismiss';
 import {
   X, Loader2, CheckCircle2, AlertTriangle, FileSpreadsheet, ChevronRight, ChevronDown,
   Plus, RefreshCw, Minus, Pencil,
 } from 'lucide-react';
+import { rememberImport } from '../lib/lastImport';
 
 // ── Предпросмотр импорта оборудования (dry-run, Фаза 2 «Импорт бланков 2.0») ──
 // Показывает, ЧТО изменится в проекте, ДО записи: дерево систем/блоков с диффом,
@@ -42,6 +44,8 @@ const actionBadge = (a: PlanBlock['action']) =>
   : { icon: Minus, cls: 'text-slate-400 bg-slate-100 dark:bg-slate-800', text: 'без изменений' };
 
 export default function EquipmentImportPreview({ fileIds, category, categoryLabel, projectId, onClose, onDone }: Props) {
+  useEscapeClose(true, onClose);
+
   const [idx, setIdx] = useState(0);
   const [fileName, setFileName] = useState('');
   const [plan, setPlan] = useState<ImportPlan | null>(null);
@@ -115,6 +119,9 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
       if (!r.ok) { setError(d.error || 'Ошибка импорта'); setApplying(false); return; }
       const conflicts = totalConflicts + (d.conflictsCount || 0);
       setTotalConflicts(conflicts);
+      // Партию запоминаем сразу: если импорт идёт очередью, отменить нужно
+      // будет последний файл — на нём обычно и замечают, что залили не туда
+      if (d.batchId) rememberImport(projectId, d.batchId, fileIds.length);
       // Следующий файл в очереди или завершение
       if (idx + 1 < fileIds.length) { setIdx(idx + 1); }
       else { onDone({ files: fileIds.length, conflicts }); }
@@ -174,7 +181,7 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
                           {collapsed[sys] ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                         </button>
                         <input type="checkbox" checked={allOn} onChange={() => toggleSystem(sys, blocks)} className="w-3.5 h-3.5 accent-emerald-500 cursor-pointer" />
-                        <span className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate flex-1" title={s?.title}>{sys}</span>
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate flex-1" title={s?.title}>{sys}</span>
                         {s?.action === 'create'
                           ? <span className="text-2xs px-1 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 font-bold">новая</span>
                           : <span className="text-2xs px-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold" title={s?.matchedName ? `сопоставлена с «${s.matchedName}»` : ''}>есть</span>}

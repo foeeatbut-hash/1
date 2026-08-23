@@ -214,7 +214,7 @@ export default function TitleTemplateEditor({ docId, onClose }: { docId: string;
               </div>
             ))}
             <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
-              <button onMouseDown={(e) => { e.preventDefault(); insertStamp(); }} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer" title="Таблица основной надписи внизу титула">
+              <button onMouseDown={(e) => { e.preventDefault(); insertStamp(); }} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer" title="Таблица основной надписи внизу титула">
                 <Table className="w-3.5 h-3.5" /> Вставить штамп
               </button>
               <button type="button" onClick={() => setFxOpen((v) => !v)}

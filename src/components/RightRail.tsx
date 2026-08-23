@@ -2,8 +2,10 @@ import React, { useEffect } from 'react';
 import { useStore } from '../store/store';
 import { useAssistantStore } from '../store/assistantStore';
 import { useNotificationStore } from '../store/notificationStore';
-import { Bell, MessageCircleQuestion } from 'lucide-react';
+import { Bell, MessageCircleQuestion, LifeBuoy } from 'lucide-react';
 import { WorkspaceRailControls } from './Workspace';
+import { useWorkspaceStore } from '../store/workspaceStore';
+import { useNavigate } from 'react-router-dom';
 
 /**
  * Тонкая правая панель-рельс (зеркало левого меню): Уведомления, ИИ-чат,
@@ -17,6 +19,7 @@ import { WorkspaceRailControls } from './Workspace';
  */
 export default function RightRail() {
   const { user, sidebarCompact } = useStore();
+  const navigate = useNavigate();
   const assistantOpen = useAssistantStore(s => s.isOpen);
   const setAssistantOpen = useAssistantStore(s => s.setOpen);
   const { panelOpen, setPanelOpen, unread, chatUnread, startPolling, stopPolling } = useNotificationStore();
@@ -30,6 +33,22 @@ export default function RightRail() {
 
   const openNotif = () => { setAssistantOpen(false); setPanelOpen(!panelOpen); };
   const openAI = () => { setPanelOpen(false); setAssistantOpen(!assistantOpen); };
+
+  /**
+   * Справка по тому разделу, где человек стоит, — то же, что F1.
+   * Помощник отвечает на вопрос словами, руководство объясняет раздел целиком;
+   * это разные нужды, поэтому и кнопки разные.
+   */
+  const openHandbook = () => {
+    const ws = useWorkspaceStore.getState();
+    const pane = ws.panes.find((p) => p.id === ws.activePaneId);
+    const path = pane ? (pane.stack.includes(pane.active) ? pane.active : pane.stack[pane.stack.length - 1]) : '/';
+    if (path === '/handbook') return;
+    const href = `/handbook?for=${encodeURIComponent(path)}`;
+    ws.setFrozenHref(ws.activePaneId, '/handbook', href);
+    ws.openInActivePane('/handbook');
+    navigate(href);
+  };
 
   // Та же геометрия, что у пунктов левого меню: в сжатом виде квадрат со
   // значком, в развёрнутом — значок с подписью под ним
@@ -63,6 +82,11 @@ export default function RightRail() {
       <button type="button" onClick={openAI} className={btn(assistantOpen)} title="Помощник: вопросы по проекту" data-tour="assistant-btn">
         <MessageCircleQuestion className="w-5 h-5 shrink-0" />
         {!sidebarCompact && <span className="text-2xs font-semibold leading-none">Помощник</span>}
+      </button>
+
+      <button type="button" onClick={openHandbook} className={btn(false)} title="Руководство по этому разделу (F1)">
+        <LifeBuoy className="w-5 h-5 shrink-0" />
+        {!sidebarCompact && <span className="text-2xs font-semibold leading-none">Справка</span>}
       </button>
 
       <div className="mt-auto pt-2 border-t border-slate-200 dark:border-dark-border w-full flex justify-center">

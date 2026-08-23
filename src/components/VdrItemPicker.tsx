@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { FileSpreadsheet, Loader2, Search, X } from 'lucide-react';
+import { useEscapeClose } from '../lib/useDismiss';
 
 // Выбор строки ВДР поиском (номер/название/тип) — общий для Проводника
 // («Прикрепить к строке ВДР») и редакторов («Привязать документ к ВДР»).
@@ -15,6 +16,8 @@ export default function VdrItemPicker({ projectId, title, onPick, onClose }: {
   onPick: (item: VdrItemLite) => void;
   onClose: () => void;
 }) {
+  useEscapeClose(true, onClose);
+
   const [q, setQ] = useState('');
   const [items, setItems] = useState<VdrItemLite[]>([]);
   const [busy, setBusy] = useState(false);

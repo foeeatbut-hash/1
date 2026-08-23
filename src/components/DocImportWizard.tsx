@@ -402,7 +402,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                   >
                     <div className="flex items-center gap-1.5">
                       {j.fileName.toLowerCase().endsWith('.pdf') ? <FileText className="w-3.5 h-3.5 text-rose-500 shrink-0" /> : <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />}
-                      <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">{j.fileName}</span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-300 truncate">{j.fileName}</span>
                     </div>
                     <div className="mt-1 flex items-center gap-1 text-2xs">
                       {(j.status === 'parsing' || j.status === 'ocr') && <><Loader2 className="w-3 h-3 animate-spin text-emerald-500" /> <span className="text-slate-400 truncate">{j.statusText || 'Разбор…'}</span></>}

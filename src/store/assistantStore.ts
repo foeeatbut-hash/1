@@ -5,46 +5,14 @@ import { TOURS, findBestTour, Tour } from '../assistant/tours';
 import { getSection } from '../assistant/sections';
 import { parse, hasIntent, fieldMatchesStems, Parsed } from '../assistant/nlp';
 import { matchLabel, fieldByUniqueUnit, FIELDS, FieldDef } from '../import/dictionary';
+import { asksWhereWritten } from '../assistant/handbookAnswers';
+import { asksToFindMail } from '../assistant/mailQueries';
+import { handbookMessage, mailSearchMessage } from '../assistant/answers';
+import { uid, type AssistantAction, type AssistantTable, type AssistantListItem, type AssistantMessage } from '../assistant/types';
 
-export interface AssistantAction {
-  label: string;
-  kind: 'tour' | 'export-excel' | 'export-word' | 'navigate' | 'ask'
-      | 'focus-tag' | 'find-duplicates' | 'create-note' | 'open-section'
-      | 'focus-equipment' | 'prompt-rename-tag' | 'cancel-input';
-  tourId?: string;
-  route?: string;
-  query?: string;
-  tagId?: string;   // для focus-tag / prompt-rename-tag
-  code?: string;    // для find-duplicates / prompt-rename-tag (текущий код)
-  noteTitle?: string; // для create-note
-  componentId?: string; // для focus-equipment: какой элемент открыть
-  specKey?: string;     // для focus-equipment: какую характеристику подсветить
-  danger?: boolean;     // акцент опасного действия
-}
-
-export interface AssistantTable {
-  columns: string[];
-  rows: (string | number)[][];
-  title: string;
-}
-
-// Интерактивный элемент списка (например, тег-дубликат с кнопками действий)
-export interface AssistantListItem {
-  id: string;
-  title: string;
-  subtitle?: string;
-  badge?: string;
-  actions: AssistantAction[];
-}
-
-export interface AssistantMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  text: string;
-  actions?: AssistantAction[];
-  table?: AssistantTable;
-  list?: AssistantListItem[];
-}
+export type {
+  AssistantAction, AssistantTable, AssistantListItem, AssistantMessage,
+} from '../assistant/types';
 
 // Ожидание ввода в диалоге: следующая реплика пользователя — не запрос,
 // а значение для начатого действия (например, новый код переименовываемого тега)
@@ -115,7 +83,7 @@ export function setAssistantProjectGetter(fn: () => string | null) {
   getActiveProjectId = fn;
 }
 
-const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+
 
 // Стоп-слова: их выкидываем при выделении искомого термина
 const STOPWORDS = new Set([
@@ -757,6 +725,18 @@ export async function resolveQuery(
     return msg('Не нашёл подходящую демонстрацию. Попробуйте, например, «как добавить тег» или «как импортировать оборудование».');
   }
 
+  // A0. Поиск по почте: «покажи все письма про 20-PT-001», «письма от Иванова».
+  //
+  // Ищем по всем ящикам, до которых у человека есть доступ, а не только по
+  // открытому: в каком ящике лежит нужное письмо — вопрос не к спрашивающему.
+  if (asksToFindMail(text)) return { message: await mailSearchMessage(text) };
+
+  // A1. «Где в руководстве написано про …» — руководство отвечает первым
+  if (asksWhereWritten(text)) {
+    const hb = handbookMessage(text, 2);
+    if (hb) return { message: hb };
+  }
+
   // A. Навигационная команда: «открой/перейди в <раздел>»
   if (/(^|\s)(открой|открыть|перейд|зайд|покажи раздел|переключ)/.test(lower)) {
     for (const r of ROUTE_WORDS) {
@@ -1183,7 +1163,14 @@ export async function resolveQuery(
 
     const showTags = mentionsTag || (!mentionsEquip && matchedTags.length >= matchedComps.length);
     if (showTags) {
-      if (matchedTags.length === 0) return msg(stems.length ? `По запросу «${stems.join(' ')}» теги не найдены. Попробуйте другое слово или проверьте активный проект.` : 'В активном проекте пока нет тегов.');
+      if (matchedTags.length === 0) {
+        // Прежде чем сказать «не найдено», спрашиваем руководство. Вопрос
+        // «чем проектные данные отличаются от общих» доезжал сюда и получал
+        // ответ «теги не найдены» — при том, что статья ровно об этом есть.
+        const hb = handbookMessage(text, 6);
+        if (hb) return { message: hb };
+        return msg(stems.length ? `По запросу «${stems.join(' ')}» теги не найдены. Попробуйте другое слово или проверьте активный проект.` : 'В активном проекте пока нет тегов.');
+      }
       const table: AssistantTable = {
         title: stems.length ? `Теги: ${stems.join(' ')}` : 'Все теги проекта',
         columns: ['Тег', 'Марка', 'Отдел', 'Среда', 'Этап'],
@@ -1196,7 +1183,11 @@ export async function resolveQuery(
         result: { kind: 'tags', ids: matchedTags.map(t => t.id), label: stems.join(' ') || 'все теги' },
       };
     } else {
-      if (matchedComps.length === 0) return msg(stems.length ? `По запросу «${stems.join(' ')}» оборудование не найдено.` : 'В активном проекте пока нет оборудования.');
+      if (matchedComps.length === 0) {
+        const hb = handbookMessage(text, 6);
+        if (hb) return { message: hb };
+        return msg(stems.length ? `По запросу «${stems.join(' ')}» оборудование не найдено.` : 'В активном проекте пока нет оборудования.');
+      }
       const table: AssistantTable = {
         title: stems.length ? `Оборудование: ${stems.join(' ')}` : 'Всё оборудование проекта',
         columns: ['Компонент', 'Код', 'Категория', 'Система', 'Теги'],
@@ -1212,6 +1203,13 @@ export async function resolveQuery(
   // H. База знаний (справка о разделах)
   const knowledge = findKnowledge(lower);
   if (knowledge) return msg(knowledge);
+
+  // H2. Руководство. Двадцать с лишним статей знают заметно больше короткого
+  // набора заготовок помощника — прежде чем разводить руками, спрашиваем их.
+  // Порог здесь высокий: поиск по руководству отвечает почти на любой набор
+  // букв, и без порога к каждому вопросу притягивалась бы какая-нибудь статья.
+  const hbFallback = handbookMessage(text, 5);
+  if (hbFallback) return { message: hbFallback };
 
   // I. Честное «не знаю»: сначала говорим, что именно поняли из вопроса,
   // и только потом предлагаем темы. «Не понял» без объяснения — самый

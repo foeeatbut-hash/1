@@ -290,6 +290,13 @@
   --color-slate-200: var(--color-dark-border);
   --color-slate-100: var(--color-dark-text-main);
   --color-slate-50: var(--color-dark-bg);
+  /* Приглушённый, но читаемый текст: недоступные кнопки, разделители и
+     прочерк «нет значения». Отдельная ступень нужна потому, что 600–800 в
+     тёмной теме отданы линиям и подложкам — текст этими значениями сливается
+     с фоном (прочерк в Проводнике давал 1.36 к 1).
+     Значение подобрано замером: на подложке строки таблицы выходит 4.6 к 1 — читается,
+     но заметно тише обычного текста, как slate-400 на белом в светлой теме. */
+  --color-slate-455: oklch(58.0% 0.014 163);
 }
 
 html, body {
@@ -1015,3 +1022,177 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
     linear-gradient(to bottom, oklch(100% 0 0 / 0.050) 1px, transparent 1px);
 }
 .shadow-modal { box-shadow: var(--flux-shadow-modal); }
+
+/* ─────────────────────────────────────────────────────────────
+   Полка картин в шапке помощника (src/art/paintings.tsx).
+
+   Держим движение здесь, а не в компоненте: правила общие для
+   шести сцен, а отключение при «уменьшенном движении» — одно на
+   весь набор. Тот же порядок, что у живого фона по временам года.
+
+   Всё движение медленное и без рывков: полка стоит рядом с
+   перепиской и не должна тянуть взгляд на себя.
+   ───────────────────────────────────────────────────────────── */
+@keyframes flux-art-swirl   { to { transform: rotate(360deg); } }
+@keyframes flux-art-twinkle { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes flux-art-pulse   { 0%, 100% { transform: scale(1); opacity: 0.9; } 50% { transform: scale(1.08); opacity: 1; } }
+@keyframes flux-art-flicker { 0%, 100% { opacity: 0.9; } 40% { opacity: 0.35; } 60% { opacity: 1; } }
+@keyframes flux-art-drift   { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-8px); } }
+@keyframes flux-art-sway    { 0%, 100% { transform: rotate(-1.2deg); } 50% { transform: rotate(1.2deg); } }
+@keyframes flux-art-wave    { 0%, 100% { transform: translate3d(0, 0, 0); } 50% { transform: translate3d(6px, -3px, 0); } }
+@keyframes flux-art-foam    { 0%, 100% { transform: scale(1); opacity: 0.9; } 50% { transform: scale(1.09); opacity: 1; } }
+@keyframes flux-art-bob     { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-2px) rotate(1deg); } }
+@keyframes flux-art-shimmer { 0%, 100% { transform: translateX(0); opacity: 0.45; } 50% { transform: translateX(5px); opacity: 0.95; } }
+@keyframes flux-art-sun     { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
+@keyframes flux-art-crow    { 0% { transform: translateX(-30px); opacity: 0; } 8% { opacity: 1; } 92% { opacity: 1; } 100% { transform: translateX(410px); opacity: 0; } }
+@keyframes flux-art-flap    { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(0.45); } }
+@keyframes flux-art-rays    { to { transform: rotate(360deg); } }
+@keyframes flux-art-swell   { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes flux-art-wheat   { 0%, 100% { transform: skewX(-1.4deg); } 50% { transform: skewX(1.4deg); } }
+@keyframes flux-art-draw    { from { stroke-dashoffset: var(--dash, 400); } to { stroke-dashoffset: 0; } }
+@keyframes flux-art-pose-a  { 0%, 44% { opacity: 1; } 56%, 100% { opacity: 0.12; } }
+@keyframes flux-art-pose-b  { 0%, 44% { opacity: 0.12; } 56%, 100% { opacity: 1; } }
+
+.flux-art-swirl      { animation: flux-art-swirl 46s linear infinite; }
+.flux-art-swirl-back { animation: flux-art-swirl 38s linear infinite reverse; }
+.flux-art-twinkle    { animation: flux-art-twinkle 3.4s ease-in-out infinite; }
+.flux-art-pulse      { animation: flux-art-pulse 6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.flux-art-flicker    { animation: flux-art-flicker 5s ease-in-out infinite; }
+.flux-art-drift      { animation: flux-art-drift 24s ease-in-out infinite; }
+.flux-art-drift-slow { animation: flux-art-drift 34s ease-in-out infinite; }
+.flux-art-sway       { animation: flux-art-sway 9s ease-in-out infinite; }
+.flux-art-wave       { animation: flux-art-wave 7s ease-in-out infinite; }
+.flux-art-wave-far   { animation: flux-art-wave 11s ease-in-out infinite reverse; }
+.flux-art-foam       { animation: flux-art-foam 3.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.flux-art-bob        { animation: flux-art-bob 4.4s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.flux-art-bob-slow   { animation: flux-art-bob 6.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.flux-art-shimmer    { animation: flux-art-shimmer 4.8s ease-in-out infinite; transform-box: fill-box; }
+.flux-art-sun        { animation: flux-art-sun 7s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.flux-art-crow       { animation: flux-art-crow 13s linear infinite; }
+.flux-art-flap       { animation: flux-art-flap 0.5s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.flux-art-rays       { animation: flux-art-rays 90s linear infinite; }
+.flux-art-swell      { animation: flux-art-swell 6.5s ease-in-out infinite; }
+.flux-art-swell-late { animation: flux-art-swell 8.5s ease-in-out infinite reverse; }
+.flux-art-wheat      { animation: flux-art-wheat 7.5s ease-in-out infinite; transform-box: fill-box; transform-origin: bottom; }
+.flux-art-draw       { animation: flux-art-draw 2.6s ease-out both; }
+.flux-art-draw-late  { animation: flux-art-draw 2.6s ease-out 0.5s both; }
+.flux-art-pose-a     { animation: flux-art-pose-a 8s ease-in-out infinite; }
+.flux-art-pose-b     { animation: flux-art-pose-b 8s ease-in-out infinite; }
+
+/* Человеку, который просил не двигать картинку, её не двигают. Картина
+   остаётся — замирает только движение, и композиция от этого не рушится:
+   каждая сцена собрана так, чтобы быть целой и неподвижной. */
+@media (prefers-reduced-motion: reduce) {
+  [class*='flux-art-'] { animation: none !important; }
+  .flux-art-pose-b { opacity: 0.12; }
+}
+
+/* Появление картины при смене: короткое и почти незаметное — это смена
+   экспоната на полке, а не переход между экранами. */
+@keyframes flux-art-enter { from { opacity: 0; transform: scale(1.03); } to { opacity: 1; transform: none; } }
+.flux-art-enter { animation: flux-art-enter 420ms ease-out both; }
+
+/* Обстановка вокруг картины: люди, свет, кисть, перо. Всё медленное — полка
+   стоит вплотную к переписке и не должна тянуть взгляд. */
+@keyframes flux-art-visitor { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-0.8px) rotate(0.7deg); } }
+@keyframes flux-art-lamp    { 0%, 100% { opacity: 1; } 50% { opacity: 0.82; } }
+@keyframes flux-art-hang    { 0%, 100% { transform: rotate(-0.25deg); } 50% { transform: rotate(0.25deg); } }
+@keyframes flux-art-brush   { 0%, 100% { transform: translate(0, 0) rotate(0); } 35% { transform: translate(-4px, 3px) rotate(-4deg); } 70% { transform: translate(-2px, -3px) rotate(3deg); } }
+@keyframes flux-art-pen     { 0%, 100% { transform: translate(0, 0) rotate(0); } 50% { transform: translate(-6px, 4px) rotate(-3deg); } }
+@keyframes flux-art-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.012); } }
+@keyframes flux-art-scream  { 0%, 100% { transform: translateY(0) scaleY(1); } 50% { transform: translateY(-0.6px) scaleY(1.015); } }
+@keyframes flux-art-bloom   { 0%, 100% { transform: scale(1) rotate(0); } 50% { transform: scale(1.05) rotate(3deg); } }
+@keyframes flux-art-spark   { 0%, 100% { opacity: 0.75; transform: scale(1); } 50% { opacity: 1; transform: scale(1.14); } }
+
+.flux-art-visitor { animation: flux-art-visitor 5.5s ease-in-out infinite; }
+.flux-art-lamp    { animation: flux-art-lamp 7s ease-in-out infinite; }
+.flux-art-hang    { animation: flux-art-hang 12s ease-in-out infinite; }
+.flux-art-brush   { animation: flux-art-brush 4.2s ease-in-out infinite; }
+.flux-art-pen     { animation: flux-art-pen 5.4s ease-in-out infinite; }
+.flux-art-breathe { animation: flux-art-breathe 12s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.flux-art-breathe-slow { animation: flux-art-breathe 18s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.flux-art-scream  { animation: flux-art-scream 3.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.flux-art-bloom   { animation: flux-art-bloom 6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.flux-art-spark   { animation: flux-art-spark 3s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+
+/* ── Пейзаж на полке: небо, осадки, деревья ──────────────────────────────────
+   Всё медленное и мелкоамплитудное по той же причине, что и обстановка вокруг
+   картины: полка стоит вплотную к переписке. Исключение — дождь: капля,
+   падающая медленно, читается не как дождь, а как поломка. */
+@keyframes flux-sky-drift  { from { transform: translateX(-58px); } to { transform: translateX(438px); } }
+@keyframes flux-sky-rain   { from { transform: translate(0, -14px); opacity: 0; }
+                             12% { opacity: 1; }
+                             to  { transform: translate(-8px, 30px); opacity: 0; } }
+@keyframes flux-sky-snow   { from { transform: translate(0, -18px); opacity: 0; }
+                             10% { opacity: 1; }
+                             50% { transform: translate(7px, 22px); }
+                             90% { opacity: 1; }
+                             to  { transform: translate(-4px, 56px); opacity: 0; } }
+@keyframes flux-sky-leaf   { from { transform: translate(0, -10px) rotate(0); opacity: 0; }
+                             15% { opacity: 1; }
+                             to  { transform: translate(-26px, 44px) rotate(320deg); opacity: 0; } }
+@keyframes flux-sky-star   { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+@keyframes flux-sky-glow   { 0%, 100% { opacity: 1; } 50% { opacity: 0.88; } }
+@keyframes flux-sky-sway   { 0%, 100% { transform: rotate(-0.9deg); } 50% { transform: rotate(0.9deg); } }
+@keyframes flux-sky-ripple { 0%, 100% { transform: scaleX(1); opacity: 0.5; } 50% { transform: scaleX(1.06); opacity: 0.72; } }
+
+.flux-sky-drift  { animation: flux-sky-drift 180s linear infinite; }
+.flux-sky-rain   { animation: flux-sky-rain 0.9s linear infinite; }
+.flux-sky-snow   { animation: flux-sky-snow 7s linear infinite; transform-box: fill-box; }
+.flux-sky-leaf   { animation: flux-sky-leaf 9s linear infinite; transform-box: fill-box; transform-origin: center; }
+.flux-sky-star   { animation: flux-sky-star 3.4s ease-in-out infinite; }
+.flux-sky-glow   { animation: flux-sky-glow 9s ease-in-out infinite; }
+.flux-sky-sway   { animation: flux-sky-sway 7s ease-in-out infinite; }
+.flux-sky-ripple { animation: flux-sky-ripple 4.5s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+
+/* Просили не двигать — не двигаем. Пейзаж остаётся целым и без движения:
+   дождь и снег нарисованы в промежуточном положении, а не в исходном. */
+@media (prefers-reduced-motion: reduce) {
+  [class*='flux-sky-'] { animation: none !important; }
+}
+
+/* Место в руководстве, на которое привёл помощник. Подсветка гаснет сама:
+   постоянная выделяла бы кусок статьи навсегда, а нужна она ровно на то
+   мгновение, пока глаз ищет, куда его перенесло. */
+@keyframes flux-hb-flash {
+  0%   { background: oklch(84% 0.09 163 / 0.55); }
+  70%  { background: oklch(84% 0.09 163 / 0.35); }
+  100% { background: transparent; }
+}
+.flux-hb-flash { animation: flux-hb-flash 2s ease-out both; border-radius: 6px; }
+@media (prefers-reduced-motion: reduce) { .flux-hb-flash { animation: none !important; } }
+
+/* Своё сообщение в чате залито цветом Flux, и всё, что живёт внутри текста —
+   теги и ссылки, — на этой заливке пропадало: светло-зелёный чип на зелёном
+   фоне не виден вовсе. Внутри своего пузыря чипы становятся белыми на
+   полупрозрачной подложке. Правило точечное: перекрашиваем только то, что
+   лежит внутри пузыря, и только у своих сообщений. */
+.flux-own-msg button {
+  background: rgb(255 255 255 / 0.18) !important;
+  border-color: rgb(255 255 255 / 0.35) !important;
+  color: #fff !important;
+}
+.flux-own-msg button:hover { background: rgb(255 255 255 / 0.3) !important; }
+
+/* Репродукция в раме: очень медленное приближение. У снимка нет отдельных
+   звёзд и мазков, которые можно оживить по одному, а совсем неподвижная
+   картина посреди живой сцены — с посетителями, светом и кистью художника —
+   выглядит подставленной. Полминуты на цикл и полтора процента размаха:
+   заметить можно, только специально приглядываясь. */
+@keyframes flux-art-drift {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.015); }
+}
+.flux-art-drift {
+  animation: flux-art-drift 34s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@media (prefers-reduced-motion: reduce) { .flux-art-drift { animation: none !important; } }
+/* Панель связей выезжает справа. Движение короткое (180 мс): панель зовут
+   десятки раз за день, и длинная анимация начинает раздражать раньше, чем
+   успевает понравиться. */
+@keyframes insight-in {
+  from { transform: translateX(16px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}

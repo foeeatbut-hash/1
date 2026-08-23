@@ -5,6 +5,7 @@ import { dataService, User, UserNote } from '../services/dataService';
 import { ENV_CONFIG, getAuthToken } from '../config/env';
 import { useToastStore } from '../store/toastStore';
 import { initials } from '../lib/declension';
+import { useEscapeClose } from '../lib/useDismiss';
 
 /**
  * «Поделиться заметкой»: выбрать коллег и уровень доступа.
@@ -18,6 +19,7 @@ export default function NoteShareDialog({ note, onClose, onSaved }: {
   onClose: () => void;
   onSaved?: () => void;
 }) {
+  useEscapeClose(true, onClose);
   const { addToast } = useToastStore();
   const [people, setPeople] = useState<User[]>([]);
   const [shares, setShares] = useState<Record<string, boolean>>({});   // userId → canEdit
