@@ -71,6 +71,10 @@ export interface VdrLite {
   docId: string | null; issueDate: string | null; dueDate: string | null;
 }
 export interface NoteLite { id: string; title: string; text: string }
+export interface MailLite {
+  id: string; accountId: string; folderId: string; threadKey: string;
+  subject: string; from: string; text: string; sentAt: string | null;
+}
 export interface ChatLite { id: string; text: string; author: string; at: string | null; elementId: string | null }
 
 export interface StageLite { id: string; label: string }
@@ -87,6 +91,7 @@ export interface ProjectSnapshot {
   vdr: VdrLite[];
   notes: NoteLite[];
   chat: ChatLite[];
+  mail: MailLite[];
   stages: StageLite[];
 }
 
@@ -145,6 +150,12 @@ export interface SnapshotOptions {
   withDocText?: boolean;
   /** Кому отдаём: личные документы и заметки чужими не показываем */
   userId?: string;
+  /**
+   * Ящики, доступные этому человеку (свои личные и общий). Считает вызывающий
+   * через readableAccounts: письма — личная переписка, и решать, что из них
+   * видно, должна почта, а не панель связей.
+   */
+  mailAccountIds?: string[];
 }
 
 const DEFAULT_STAGES: StageLite[] = [
@@ -154,7 +165,7 @@ const DEFAULT_STAGES: StageLite[] = [
 
 export async function projectSnapshot(prisma: any, projectId: string, opts: SnapshotOptions = {}): Promise<ProjectSnapshot> {
   const uid = opts.userId || '';
-  const [project, allProjects, stageSetting, tags, systems, docs, files, registers, notes, chat] = await Promise.all([
+  const [project, allProjects, stageSetting, tags, systems, docs, files, registers, notes, mail, chat] = await Promise.all([
     prisma.project.findUnique({ where: { id: projectId }, select: { id: true, name: true } }).catch(() => null),
     prisma.project.findMany({ select: { id: true, name: true } }).catch(() => []),
     prisma.appSetting.findFirst({ where: { key: 'procurement_stages', userId: null } }).catch(() => null),
@@ -188,6 +199,16 @@ export async function projectSnapshot(prisma: any, projectId: string, opts: Snap
     // Переписка — личная. Берём только то, что этот человек и так видит: свои
     // сообщения, адресованные ему и группы, где он состоит. Иначе панель
     // связей стала бы дырой в приватности чата.
+    (opts.mailAccountIds && opts.mailAccountIds.length
+      ? prisma.mailMessage.findMany({
+        where: { accountId: { in: opts.mailAccountIds } },
+        select: {
+          id: true, accountId: true, folderId: true, threadKey: true,
+          subject: true, fromName: true, fromAddr: true, snippet: true, bodyText: true, sentAt: true,
+        },
+        orderBy: { sentAt: 'desc' }, take: 800,
+      })
+      : Promise.resolve([])).catch(() => []),
     prisma.chatMessage.findMany({
       where: {
         OR: [
@@ -289,6 +310,15 @@ export async function projectSnapshot(prisma: any, projectId: string, opts: Snap
     })),
     vdr,
     notes: (notes || []).map((n: any) => ({ id: n.id, title: String(n.title || ''), text: plainText(n.content) })),
+    mail: (mail || []).map((m: any) => ({
+      id: m.id, accountId: m.accountId, folderId: m.folderId, threadKey: String(m.threadKey || ''),
+      subject: String(m.subject || ''),
+      from: String(m.fromName || m.fromAddr || ''),
+      // Тело подтягивается только при открытии письма — пока его нет, ищем по
+      // теме и фрагменту, иначе связь нашлась бы лишь у прочитанных писем
+      text: `${m.subject || ''} ${m.snippet || ''} ${m.bodyText || ''}`,
+      sentAt: m.sentAt ? new Date(m.sentAt).toISOString() : null,
+    })),
     chat: (chat || []).map((m: any) => ({
       id: m.id, text: plainText(m.content), author: String(m.sender?.name || ''),
       at: m.createdAt ? new Date(m.createdAt).toISOString() : null,
@@ -303,7 +333,7 @@ export async function projectSnapshot(prisma: any, projectId: string, opts: Snap
 export type UsageKind = 'tag' | 'element' | 'doc' | 'file' | 'vdr';
 
 export interface UsageLink {
-  kind: UsageKind | 'note' | 'chat' | 'system';
+  kind: UsageKind | 'note' | 'chat' | 'system' | 'mail';
   id: string;
   title: string;
   subtitle: string;
@@ -337,6 +367,10 @@ const nonEmpty = (groups: UsageGroup[]) => groups.filter(g => g.links.length > 0
  * Ссылка на файл несёт и папку: Проводник не хранит все файлы разом и по
  * одному идентификатору не знал бы, куда переходить.
  */
+/** Ссылка на письмо: почта открывает ящик, папку и цепочку по этим трём */
+const mailRoute = (m: MailLite) =>
+  `/mail?account=${encodeURIComponent(m.accountId)}&folder=${encodeURIComponent(m.folderId)}&thread=${encodeURIComponent(m.threadKey)}`;
+
 const fileRoute = (f: FileLite) =>
   `/explorer?file=${encodeURIComponent(f.id)}${f.folderId ? `&folder=${encodeURIComponent(f.folderId)}` : ''}`;
 
@@ -398,6 +432,14 @@ export function whereUsed(snap: ProjectSnapshot, kind: UsageKind, id: string): U
         })),
       },
       {
+        id: 'mail', title: 'Почта', hint: 'Письма, где встречается обозначение',
+        links: snap.mail.filter(m => mentions(m.text, code)).slice(0, 25).map(m => ({
+          kind: 'mail' as const, id: m.id, title: m.subject || '(без темы)',
+          subtitle: `${m.from}${m.sentAt ? ' · ' + new Date(m.sentAt).toLocaleDateString('ru-RU') : ''}`,
+          route: mailRoute(m),
+        })),
+      },
+      {
         id: 'notes', title: 'Заметки', hint: 'Ваши записи, где встречается обозначение',
         links: snap.notes.filter(n => mentions(n.title, code) || mentions(n.text, code)).map(n => ({
           kind: 'note' as const, id: n.id, title: n.title || 'Без названия', subtitle: 'заметка',
@@ -449,6 +491,14 @@ export function whereUsed(snap: ProjectSnapshot, kind: UsageKind, id: string): U
         links: snap.chat.filter(m => m.elementId === el.id || mentions(m.text, code)).slice(0, 25).map(m => ({
           kind: 'chat' as const, id: m.id, title: m.text.slice(0, 90),
           subtitle: `${m.author}${m.at ? ' · ' + new Date(m.at).toLocaleDateString('ru-RU') : ''}`, route: '/chat',
+        })),
+      },
+      {
+        id: 'mail', title: 'Почта', hint: 'Письма, где встречается обозначение',
+        links: snap.mail.filter(m => mentions(m.text, code)).slice(0, 25).map(m => ({
+          kind: 'mail' as const, id: m.id, title: m.subject || '(без темы)',
+          subtitle: `${m.from}${m.sentAt ? ' · ' + new Date(m.sentAt).toLocaleDateString('ru-RU') : ''}`,
+          route: mailRoute(m),
         })),
       },
       {
@@ -582,7 +632,7 @@ export function whereUsed(snap: ProjectSnapshot, kind: UsageKind, id: string): U
 // ── Общий поиск (Ctrl+K) ────────────────────────────────────────────────────
 
 export interface SearchHit {
-  kind: UsageKind | 'note' | 'section' | 'project';
+  kind: UsageKind | 'note' | 'section' | 'project' | 'mail';
   id: string;
   title: string;
   subtitle: string;
@@ -649,6 +699,13 @@ export function searchAll(snap: ProjectSnapshot, query: string, limit = 30): Sea
       kind: 'note', id: n.id, title: n.title || 'Без названия', subtitle: 'заметка',
       route: `/notes?note=${encodeURIComponent(n.id)}`,
       score: Math.max(scoreOf(n.title, q), n.text.toLowerCase().includes(q) ? 20 : 0),
+    });
+  }
+  for (const m of snap.mail) {
+    push({
+      kind: 'mail', id: m.id, title: m.subject || '(без темы)',
+      subtitle: `письмо · ${m.from}`, route: mailRoute(m),
+      score: Math.max(scoreOf(m.subject, q), scoreOf(m.from, q) - 15),
     });
   }
   for (const p of snap.projects) {

@@ -3,7 +3,7 @@ import {
   Mail as MailIcon, Search, X, Settings2, Plus, AlertTriangle, RefreshCw,
   Archive, Trash2, MailOpen, Star, CheckSquare, Square, KeyRound,
 } from 'lucide-react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useMailStore } from '../store/mailStore';
 import { useStore } from '../store/store';
 import { useRealTimeSync } from '../components/SocketProvider';
@@ -66,6 +66,30 @@ export default function Mail() {
   const dark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
 
   useEffect(() => { void loadAccounts(); }, [loadAccounts]);
+
+  // ── Переход по ссылке: /mail?account=…&folder=…&thread=… ──
+  // Так сюда ведёт панель связей («в каких письмах упомянут AHU-2») и общий
+  // поиск. Ящик и папку в ссылке несём не для красоты: почта держит в памяти
+  // только текущую папку и по одному ключу цепочки не знала бы, где её искать.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkDoneRef = useRef('');
+  useEffect(() => {
+    const acc = searchParams.get('account');
+    const fol = searchParams.get('folder');
+    const thread = searchParams.get('thread');
+    if (!thread || !acc) return;
+    const sig = `${acc}|${fol}|${thread}`;
+    if (linkDoneRef.current === sig) return;
+    linkDoneRef.current = sig;
+    (async () => {
+      if (accountId !== acc) await chooseAccount(acc);
+      if (fol) await chooseFolder(fol);
+      open(thread);
+      const next = new URLSearchParams(searchParams);
+      next.delete('account'); next.delete('folder'); next.delete('thread');
+      setSearchParams(next, { replace: true });
+    })();
+  }, [searchParams, accountId, chooseAccount, chooseFolder, open, setSearchParams]);
 
   // ── Письмо приходит само ───────────────────────────────────────────────────
   //

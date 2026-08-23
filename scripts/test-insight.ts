@@ -40,7 +40,7 @@ const el = (over: Partial<ElementLite> = {}): ElementLite => ({
 
 const snap = (over: Partial<ProjectSnapshot> = {}): ProjectSnapshot => ({
   projectId: 'p1', projectName: 'Азот', projects: [{ id: 'p1', name: 'Азот' }],
-  tags: [tag()], elements: [el()], docs: [], files: [], vdr: [], notes: [], chat: [],
+  tags: [tag()], elements: [el()], docs: [], files: [], vdr: [], notes: [], chat: [], mail: [],
   stages: [{ id: 'added', label: 'Добавлен' }, { id: 'ordered', label: 'Заказан' }, { id: 'purchased', label: 'Куплен' }],
   ...over,
 });
@@ -89,6 +89,16 @@ const rich = snap({
   }],
   notes: [{ id: 'n1', title: 'Созвон', text: 'Уточнить расход у AHU-2' }],
   chat: [{ id: 'm1', text: 'AHU-2 приедет в мае', author: 'Раупов', at: null, elementId: null }],
+  mail: [
+    {
+      id: 'ml1', accountId: 'acc1', folderId: 'f1', threadKey: 'th1',
+      subject: 'Опросный лист AHU-2', from: 'Поставщик', text: 'Опросный лист AHU-2 просим заполнить', sentAt: null,
+    },
+    {
+      id: 'ml2', accountId: 'acc1', folderId: 'f1', threadKey: 'th2',
+      subject: 'Про AHU-21', from: 'Другой', text: 'Тут только AHU-21', sentAt: null,
+    },
+  ],
 });
 const u = whereUsed(rich, 'tag', 't1');
 ok('тег найден', u.found && u.title === 'AHU-2');
@@ -105,6 +115,10 @@ ok('чужой документ не приплетён', !gid('docs')?.links.so
 ok('строка ВДР найдена', gid('vdr')?.links.length === 1);
 ok('заметка найдена', gid('notes')?.links[0].title === 'Созвон');
 ok('сообщение найдено', gid('chat')?.links.length === 1);
+ok('письмо найдено', gid('mail')?.links.length === 1, gid('mail')?.links.map(l => l.title));
+ok('письмо про соседний тег не приплетено', !gid('mail')?.links.some(l => l.title === 'Про AHU-21'));
+ok('ссылка на письмо ведёт в ящик, папку и цепочку',
+  gid('mail')?.links[0].route === '/mail?account=acc1&folder=f1&thread=th1', gid('mail')?.links[0].route);
 ok('пустых групп в ответе нет', u.groups.every(g => g.links.length > 0));
 ok('итог сходится с группами', u.total === u.groups.reduce((s, g) => s + g.links.length, 0));
 ok('ссылка на элемент ведёт в оборудование', gid('elements')?.links[0].route === '/equipment?element=e1');
@@ -222,6 +236,7 @@ ok('точное совпадение выше частичного',
   searchAll(rich, 'бл2.1')[0].kind === 'element', searchAll(rich, 'бл2.1').slice(0, 2));
 ok('у каждой находки есть куда перейти', searchAll(rich, 'ahu').every(h => h.route.startsWith('/')));
 ok('проект находится по названию', searchAll(rich, 'азот').some(h => h.kind === 'project'));
+ok('письмо находится по теме', searchAll(rich, 'опросный').some(h => h.kind === 'mail'));
 
 console.log('10. Склонение в подписях');
 ok('1 день', plural(1, 'день', 'дня', 'дней') === 'день');

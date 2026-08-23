@@ -3913,12 +3913,9 @@ export default function Registry() {
                 Найти дубли ({dupCountOf(cardMenu.tagId)})
               </button>
             )}
-            <button type="button"
-              onClick={() => { openWhereUsed('tag', cardMenu.tagId); setCardMenu(null); }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-200 cursor-pointer"
-            >
-              <Network className="w-3.5 h-3.5 text-emerald-600" />
-              Где используется
+            <button type="button" onClick={() => { openWhereUsed('tag', cardMenu.tagId); setCardMenu(null); }}
+              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-150 cursor-pointer">
+              <Network className="w-3.5 h-3.5 text-emerald-600" /> Где используется
             </button>
             <button type="button"
               onClick={() => {
@@ -3995,11 +3992,9 @@ export default function Registry() {
                 <AlertTriangle className="w-4 h-4" />
               </button>
             )}
-            <button type="button"
-              onClick={() => { openWhereUsed('tag', cardPanel.tagId); setCardPanel(null); }}
-              className="p-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-600 cursor-pointer"
+            <button type="button" onClick={() => { openWhereUsed('tag', cardPanel.tagId); setCardPanel(null); }}
               title="Где используется: оборудование, документы, файлы, ВДР"
-            >
+              className="p-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-600 cursor-pointer">
               <Network className="w-4 h-4" />
             </button>
             <button type="button"
@@ -4829,20 +4824,13 @@ export default function Registry() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <button type="button"
-                    onClick={handleCopySelectedAsTable}
-                    title="Те же колонки — сразу в буфер обмена, без файла"
-                    className="px-4 py-2.5 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold flex items-center gap-2 transition-ui cursor-pointer"
-                  >
-                    <Copy className="w-4 h-4" />
-                    <span>Скопировать таблицей</span>
+                  <button type="button" onClick={handleCopySelectedAsTable} title="Те же колонки — сразу в буфер обмена, без файла"
+                    className="px-4 py-2.5 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-150 rounded-xl text-xs font-bold flex items-center gap-2 transition-ui cursor-pointer">
+                    <Copy className="w-4 h-4" /><span>Скопировать таблицей</span>
                   </button>
-                  <button type="button"
-                    onClick={handleExportSelectedToExcel}
-                    className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 transition-ui cursor-pointer"
-                  >
-                    <FileSpreadsheet className="w-4 h-4" />
-                    <span>Экспортировать подборку в Excel</span>
+                  <button type="button" onClick={handleExportSelectedToExcel}
+                    className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 transition-ui cursor-pointer">
+                    <FileSpreadsheet className="w-4 h-4" /><span>Экспортировать подборку в Excel</span>
                   </button>
                 </div>
               </div>

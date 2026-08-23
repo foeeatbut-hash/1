@@ -112,7 +112,7 @@ export default function ChangeListView() {
                     type="button"
                     title="Связи этого элемента"
                     onClick={() => openWhere('element', e.elementId, true)}
-                    className="shrink-0 p-1 rounded-lg text-slate-300 dark:text-slate-600
+                    className="shrink-0 p-1 rounded-lg text-slate-300 dark:text-slate-455
                                hover:text-emerald-600 dark:hover:text-emerald-400
                                hover:bg-emerald-50 dark:hover:bg-emerald-950/30 cursor-pointer"
                   >
@@ -133,13 +133,13 @@ export default function ChangeListView() {
                           {c.group && <span className="block text-2xs text-slate-400 dark:text-slate-500 truncate">{c.group}</span>}
                         </td>
                         <td className="px-1 py-1.5 align-top text-right text-slate-500 dark:text-slate-400 tabular-nums">
-                          {c.kind === 'added' ? <span className="text-slate-300 dark:text-slate-600">—</span> : <span className="line-through">{c.was || '—'}</span>}
+                          {c.kind === 'added' ? <span className="text-slate-300 dark:text-slate-455">—</span> : <span className="line-through">{c.was || '—'}</span>}
                         </td>
-                        <td className="px-1 py-1.5 align-top w-5 text-slate-300 dark:text-slate-600">
+                        <td className="px-1 py-1.5 align-top w-5 text-slate-300 dark:text-slate-455">
                           <ArrowRight className="w-3 h-3" />
                         </td>
                         <td className="px-3 py-1.5 align-top font-semibold text-sky-700 dark:text-sky-400 tabular-nums">
-                          {c.kind === 'removed' ? <span className="text-slate-300 dark:text-slate-600">удалено</span> : (c.now || '—')}
+                          {c.kind === 'removed' ? <span className="text-slate-300 dark:text-slate-455">удалено</span> : (c.now || '—')}
                         </td>
                       </tr>
                     ))}

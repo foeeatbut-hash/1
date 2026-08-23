@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Tag, Fan, Table2, FileText, FolderOpen, ClipboardList, MessagesSquare, NotebookPen,
-  Boxes, ChevronRight, Search,
+  Boxes, ChevronRight, Search, Mail,
 } from 'lucide-react';
 import { KIND_RU } from '../../lib/insight';
 
@@ -13,7 +13,7 @@ import { KIND_RU } from '../../lib/insight';
 
 const KIND_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   tag: Tag, element: Fan, system: Boxes, doc: Table2, file: FolderOpen,
-  vdr: ClipboardList, note: NotebookPen, chat: MessagesSquare, section: FileText,
+  vdr: ClipboardList, note: NotebookPen, chat: MessagesSquare, section: FileText, mail: Mail,
 };
 
 // Цветом выделены только объекты самого проекта — теги и оборудование.
@@ -68,14 +68,14 @@ export function Row({ icon, title, subtitle, badge, onClick, onSide, sideTitle, 
           <span className="shrink-0 px-1.5 py-0.5 rounded-md text-2xs font-bold tabular-nums
                            bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">{badge}</span>
         )}
-        {onClick && <ChevronRight className="w-3.5 h-3.5 text-slate-300 dark:text-slate-600 shrink-0" />}
+        {onClick && <ChevronRight className="w-3.5 h-3.5 text-slate-300 dark:text-slate-455 shrink-0" />}
       </button>
       {onSide && (
         <button
           type="button"
           onClick={onSide}
           title={sideTitle || 'Связи объекта'}
-          className="shrink-0 px-2 rounded-[10px] text-slate-300 dark:text-slate-600
+          className="shrink-0 px-2 rounded-[10px] text-slate-300 dark:text-slate-455
                      hover:text-emerald-600 dark:hover:text-emerald-400
                      hover:bg-emerald-50 dark:hover:bg-emerald-950/30 cursor-pointer transition-colors"
         >
@@ -114,7 +114,7 @@ export function Empty({ icon, title, hint }: { icon: React.ReactNode; title: str
       <div className="w-11 h-11 rounded-2xl bg-slate-100 dark:bg-slate-850 flex items-center justify-center text-slate-400 dark:text-slate-500">
         {icon}
       </div>
-      <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</p>
+      <p className="text-sm font-semibold text-slate-700 dark:text-slate-150">{title}</p>
       {hint && <p className="text-xs text-slate-400 dark:text-slate-500 max-w-xs leading-relaxed">{hint}</p>}
     </div>
   );

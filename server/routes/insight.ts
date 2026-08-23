@@ -2,6 +2,7 @@ import type { Express, Request, Response } from 'express';
 import { getPrisma, sendError, resolveProjectId } from '../context.js';
 import { projectSnapshot, whereUsed, searchAll, type UsageKind } from '../insight.js';
 import { projectCheck, changeList } from '../insightRules.js';
+import { readableAccounts } from '../mail/access.js';
 
 /**
  * Связи проекта: «где используется», проверка проекта, лист изменений и общий
@@ -18,6 +19,17 @@ import { projectCheck, changeList } from '../insightRules.js';
 
 const actorOf = (req: Request): any => (req as any).authUser || null;
 
+/**
+ * Ящики, письма которых человеку и так видны: свои личные и общий.
+ *
+ * Спрашиваем у самой почты, а не подбираем условие здесь: правило «что кому
+ * видно» должно жить в одном месте, иначе панель связей однажды разойдётся с
+ * почтой и покажет чужую переписку.
+ */
+async function mailIds(req: Request): Promise<string[]> {
+  try { return (await readableAccounts(req)).map((a: any) => a.id); } catch (_) { return []; }
+}
+
 const KINDS = new Set(['tag', 'element', 'doc', 'file', 'vdr']);
 
 export function registerInsightRoutes(app: Express): void {
@@ -30,7 +42,9 @@ export function registerInsightRoutes(app: Express): void {
       const projectId = await resolveProjectId(req.query.projectId as string);
       if (!projectId) return res.json({ found: false, kind, id, title: '', subtitle: '', total: 0, groups: [] });
       // Тексты документов нужны: половина связей — упоминания в формулах
-      const snap = await projectSnapshot(getPrisma(), projectId, { withDocText: true, userId: actorOf(req)?.id });
+      const snap = await projectSnapshot(getPrisma(), projectId, {
+        withDocText: true, userId: actorOf(req)?.id, mailAccountIds: await mailIds(req),
+      });
       res.json(whereUsed(snap, kind as UsageKind, id));
     } catch (err: any) { sendError(res, err); }
   });
@@ -102,7 +116,9 @@ export function registerInsightRoutes(app: Express): void {
       if (q.trim().length < 2) return res.json({ hits: [] });
       const projectId = await resolveProjectId(req.query.projectId as string);
       if (!projectId) return res.json({ hits: [] });
-      const snap = await projectSnapshot(getPrisma(), projectId, { userId: actorOf(req)?.id });
+      const snap = await projectSnapshot(getPrisma(), projectId, {
+        userId: actorOf(req)?.id, mailAccountIds: await mailIds(req),
+      });
       res.json({ hits: searchAll(snap, q, 30) });
     } catch (err: any) { sendError(res, err); }
   });
