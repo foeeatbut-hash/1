@@ -29,7 +29,11 @@ function diffSpecs(oldGroups: SpecGroup[], newGroups: SpecGroup[]): ParamConflic
   return conflicts;
 }
 
-export interface ImportSummary { conflictsCount: number; newBlocks: number; updatedBlocks: number; systems: number; }
+export interface ImportSummary {
+  conflictsCount: number; newBlocks: number; updatedBlocks: number; systems: number;
+  /** Партия импорта — по ней ввоз отменяется целиком (см. importUndo) */
+  batchId: string;
+}
 
 /**
  * Записывает разобранный расчёт в БД: установки → моноблоки → блоки.
@@ -45,7 +49,10 @@ export async function importEquipmentToDB(
   result: EquipParseResult,
   conflictMode: 'immediate' | 'wait',
 ): Promise<ImportSummary> {
-  const summary: ImportSummary = { conflictsCount: 0, newBlocks: 0, updatedBlocks: 0, systems: 0 };
+  // Партия: всё, что записал один ввоз расчёта. Без неё «отменить импорт»
+  // пришлось бы собирать по времени, а два импорта подряд слились бы в один.
+  const batchId = `imp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const summary: ImportSummary = { conflictsCount: 0, newBlocks: 0, updatedBlocks: 0, systems: 0, batchId };
 
   for (const unitData of result.units) {
     summary.systems++;
@@ -88,7 +95,7 @@ export async function importEquipmentToDB(
       });
 
       if (!component) {
-        await prisma.componentElement.create({
+        const created = await prisma.componentElement.create({
           data: {
             monoblockId: monoblock.id,
             itemCode: blk.name,
@@ -97,6 +104,15 @@ export async function importEquipmentToDB(
             specs: serialized,
             version: 1,
             status: 'OK',
+          },
+        });
+        // Заведение тоже пишем в историю: без этой записи отмена импорта не
+        // знала бы, какие элементы завёл именно он, и оставила бы их навсегда
+        await prisma.equipmentHistory.create({
+          data: {
+            elementId: created.id, version: 1,
+            oldSpecs: null, newSpecs: serialized,
+            changeType: 'CREATE', batchId,
           },
         });
         summary.newBlocks++;
@@ -127,6 +143,7 @@ export async function importEquipmentToDB(
           oldSpecs: component.specs,
           newSpecs: serialized,
           changeType: 'UPDATE',
+          batchId,
         },
       });
 

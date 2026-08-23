@@ -338,6 +338,9 @@ model EquipmentHistory {
   oldSpecs    String?          @db.LongText
   newSpecs    String?          @db.LongText
   changeType  String           // "UPDATE", "DELETE", "CREATE"
+  // Партия импорта: по ней отменяется весь ввоз расчёта целиком, а не
+  // поэлементно. Пусто у записей, сделанных вручную и до этой правки.
+  batchId     String?
 }
 
 model UserNote {

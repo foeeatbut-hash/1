@@ -4,6 +4,7 @@ import {
   X, Loader2, CheckCircle2, AlertTriangle, FileSpreadsheet, ChevronRight, ChevronDown,
   Plus, RefreshCw, Minus, Pencil,
 } from 'lucide-react';
+import { rememberImport } from '../lib/lastImport';
 
 // ── Предпросмотр импорта оборудования (dry-run, Фаза 2 «Импорт бланков 2.0») ──
 // Показывает, ЧТО изменится в проекте, ДО записи: дерево систем/блоков с диффом,
@@ -118,6 +119,9 @@ export default function EquipmentImportPreview({ fileIds, category, categoryLabe
       if (!r.ok) { setError(d.error || 'Ошибка импорта'); setApplying(false); return; }
       const conflicts = totalConflicts + (d.conflictsCount || 0);
       setTotalConflicts(conflicts);
+      // Партию запоминаем сразу: если импорт идёт очередью, отменить нужно
+      // будет последний файл — на нём обычно и замечают, что залили не туда
+      if (d.batchId) rememberImport(projectId, d.batchId, fileIds.length);
       // Следующий файл в очереди или завершение
       if (idx + 1 < fileIds.length) { setIdx(idx + 1); }
       else { onDone({ files: fileIds.length, conflicts }); }

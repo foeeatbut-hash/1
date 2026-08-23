@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useInsightStore } from '../store/insightStore';
+import { useEntityChanged } from '../lib/entityWatch';
+import { readLastImport, forgetImport, type LastImport } from '../lib/lastImport';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import {
-  RefreshCw, AlertTriangle, History, Check, Pencil, Eye, EyeOff, Settings,
+  RefreshCw, AlertTriangle, History, Check, Pencil, Eye, EyeOff, Settings, Network,
   ChevronRight, ChevronDown, Trash2, Tag as TagIcon, X, Plus, Boxes, Layers, Wind, ScanLine,
   Fan, Filter, Flame, Snowflake, Droplets, Recycle, Volume2, SlidersHorizontal, Box, Square,
   ArrowRight, LayoutGrid, List, Search
@@ -227,6 +230,47 @@ export default function Equipment() {
     }
   }, [allBlocks]);
 
+  // ── Отмена ввоза расчёта ──
+  // Массовая запись обязана отменяться (skill flux-data-safety §6). Сначала
+  // показываем план — сколько вернём, сколько удалим и что обойдём стороной, —
+  // и только по согласию человека применяем.
+  const [undoable, setUndoable] = useState<LastImport | null>(null);
+  const [undoBusy, setUndoBusy] = useState(false);
+  useEffect(() => { setUndoable(readLastImport(activeProject?.id || '')); }, [activeProject?.id, systems.length]);
+
+  const undoImport = async () => {
+    if (!undoable) return;
+    setUndoBusy(true);
+    try {
+      const r = await fetch(`/api/equipment/import-undo/${encodeURIComponent(undoable.batchId)}`);
+      const plan = await r.json();
+      if (!r.ok) { addToast(plan.error || 'Не удалось построить план отмены', 'error'); return; }
+      if (!plan.restore?.length && !plan.remove?.length) {
+        addToast('Отменять нечего: данные после импорта уже изменились', 'info');
+        forgetImport(activeProject?.id || ''); setUndoable(null);
+        return;
+      }
+      const lines = [
+        plan.restore.length ? `вернуть характеристики: ${plan.restore.length}` : '',
+        plan.remove.length ? `удалить заведённое импортом: ${plan.remove.length}` : '',
+        plan.skip.length ? `пропустить (правили после импорта): ${plan.skip.length}` : '',
+      ].filter(Boolean).join('\n');
+      const yes = await openConfirm('Отменить импорт расчёта?', `${lines}\n\nОтменить можно только один раз.`);
+      if (!yes) return;
+      const ar = await fetch('/api/equipment/import-undo', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batchId: undoable.batchId }),
+      });
+      const res = await ar.json();
+      if (!ar.ok) { addToast(res.error || 'Не удалось отменить импорт', 'error'); return; }
+      forgetImport(activeProject?.id || ''); setUndoable(null);
+      await loadSystems();
+      addToast(`Импорт отменён: вернули ${res.restored}, удалили ${res.removed}${res.skipped ? `, пропустили ${res.skipped}` : ''}`, 'success');
+    } catch (e: any) {
+      addToast('Не удалось отменить импорт', 'error');
+    } finally { setUndoBusy(false); }
+  };
+
   // ── Переход по ссылке: /equipment?element=… и ?system=… ──
   // Так сюда ведут проверка проекта, панель связей и общий поиск. Без этого
   // их ссылки открывали бы раздел «вообще», и элемент приходилось бы искать
@@ -336,7 +380,25 @@ export default function Equipment() {
   }
 
   return (
-    <div className="h-full flex sheet overflow-x-auto text-slate-800 dark:text-slate-100">
+    <div className="h-full flex flex-col sheet text-slate-800 dark:text-slate-100">
+      {undoable && (
+        <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950/25 border-b border-amber-200 dark:border-amber-900/40 text-xs text-amber-900 dark:text-amber-200">
+          <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+          <span className="flex-1 min-w-0 truncate">
+            Импорт расчёта от {new Date(undoable.at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+            {undoable.files > 1 ? ` · файлов: ${undoable.files}` : ''} — можно отменить
+          </span>
+          <button type="button" onClick={undoImport} disabled={undoBusy}
+            className="shrink-0 px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold cursor-pointer disabled:opacity-50">
+            {undoBusy ? 'Отменяю…' : 'Отменить импорт'}
+          </button>
+          <button type="button" onClick={() => { forgetImport(activeProject?.id || ''); setUndoable(null); }}
+            title="Больше не предлагать" className="shrink-0 p-0.5 rounded hover:bg-amber-100 dark:hover:bg-amber-900/40 cursor-pointer">
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+      <div className="flex-1 min-h-0 flex overflow-x-auto">
       {/* КАТЕГОРИИ */}
       <div className="zone w-12 @[820px]:w-40 @[1060px]:w-56 shrink-0 flex flex-col overflow-hidden">
         <div className="px-2 @[820px]:px-3 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-center @[820px]:justify-between">
@@ -447,6 +509,7 @@ export default function Equipment() {
             setShowAllParams={setShowAllParams}
             isHidden={isHidden}
             toggleHidden={toggleHidden}
+            onReload={loadSystems}
             onResolve={resolveConflict}
             onOverride={overrideParam}
             onHistory={() => openHistory(selected.block)}
@@ -506,6 +569,7 @@ export default function Equipment() {
           onClose={() => setTagPickerFor(null)}
         />
       )}
+      </div>
     </div>
   );
 }
@@ -709,7 +773,7 @@ function UnitSchematic({ unit, blockLabel, onSelectBlock, onPickTag, onUnlinkTag
 
 // ── Карточка блока ──
 function BlockCard(props: any) {
-  const { comp, unitName, showAllParams, setShowAllParams, isHidden, toggleHidden, onResolve, onOverride, onHistory, onPickTag, onUnlinkTag, blockLabel, onBackToUnit, highlightKey } = props;
+  const { comp, unitName, showAllParams, setShowAllParams, isHidden, toggleHidden, onResolve, onOverride, onHistory, onPickTag, onUnlinkTag, blockLabel, onBackToUnit, highlightKey, onReload } = props;
   const specs = normalizeSpecs(comp?.specs);
   // Подсветка характеристики, к которой привёл ИИ-чат: скроллим к строке
   const hlNorm = (highlightKey || '').trim().toLowerCase();
@@ -726,6 +790,11 @@ function BlockCard(props: any) {
   let overrides: Record<string, string> = {};
   try { overrides = comp?.overrides ? JSON.parse(comp.overrides) : {}; } catch (_) { overrides = {}; }
   const conflictOf = (g: string, k: string) => conflicts.find(c => c.group === g && c.key === k);
+  const openWhereUsed = useInsightStore((st) => st.openWhere);
+  // Кто-то ещё правит эту же карточку: сообщаем, но не перечитываем сами —
+  // иначе набранное в поле значение исчезло бы под руками
+  const me = useStore((st) => st.user);
+  const { change, clear } = useEntityChanged('element', comp?.id, me?.id);
   const [editKey, setEditKey] = useState<string | null>(null);
   const [editVal, setEditVal] = useState('');
 
@@ -762,8 +831,29 @@ function BlockCard(props: any) {
             {showAllParams ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </button>
           <button type="button" onClick={onHistory} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" title="История версий"><History className="w-4 h-4" /></button>
+          {/* Связи элемента: в каких документах, файлах и строках ВДР он
+              встречается. Рядом с историей не случайно — оба вопроса задают
+              перед тем, как что-то в элементе поменять. */}
+          <button type="button" onClick={() => openWhereUsed('element', comp.id)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" title="Где используется: теги, документы, обсуждения"><Network className="w-4 h-4" /></button>
         </div>
       </div>
+
+      {change && (
+        <div className="px-4 py-2 bg-sky-50 dark:bg-sky-950/20 border-b border-sky-200 dark:border-sky-900/40 text-xs text-sky-800 dark:text-sky-300 flex items-center gap-2">
+          <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+          <span className="flex-1 min-w-0 truncate">
+            {change.by ? `${change.by} изменил эту карточку` : 'Карточку изменили'} — вы смотрите старые данные
+          </span>
+          <button type="button" onClick={() => { clear(); onReload?.(); }}
+            className="shrink-0 px-2 py-0.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold cursor-pointer">
+            Обновить
+          </button>
+          <button type="button" onClick={clear} title="Скрыть сообщение"
+            className="shrink-0 p-0.5 rounded hover:bg-sky-100 dark:hover:bg-sky-900/40 cursor-pointer">
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
 
       {conflicts.length > 0 && (
         <div className="px-4 py-2 bg-rose-50 dark:bg-rose-950/20 border-b border-rose-200 dark:border-rose-900/40 text-xs text-rose-700 dark:text-rose-400 flex items-center gap-2">

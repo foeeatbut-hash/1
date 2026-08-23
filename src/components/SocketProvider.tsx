@@ -73,6 +73,12 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       window.dispatchEvent(new CustomEvent('socket:tag:updated', { detail: data }));
     };
 
+    // Кто-то изменил карточку, которую я, возможно, сейчас смотрю. Тост тут
+    // не нужен — сообщать должна сама карточка, и только если она открыта.
+    const handleEntityChanged = (data: { kind: string; id: string; by?: string; byId?: string; at?: number }) => {
+      window.dispatchEvent(new CustomEvent('socket:entity:changed', { detail: data }));
+    };
+
     const handleEquipmentConflict = (data: {
       componentId: string;
       systemId: string;
@@ -103,12 +109,14 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     activeSocket.on('tag:updated', handleTagUpdated);
     activeSocket.on('equipment:conflict', handleEquipmentConflict);
     activeSocket.on('app:update-published', handleUpdatePublished);
+    activeSocket.on('entity:changed', handleEntityChanged);
 
     return () => {
       activeSocket.off('tag:linked', handleTagLinked);
       activeSocket.off('tag:updated', handleTagUpdated);
       activeSocket.off('equipment:conflict', handleEquipmentConflict);
       activeSocket.off('app:update-published', handleUpdatePublished);
+      activeSocket.off('entity:changed', handleEntityChanged);
       activeSocket.disconnect();
     };
   }, [addToast, navigate, userId]);

@@ -3,9 +3,12 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
+import { useInsightStore } from '../store/insightStore';
+import { copyAsTable } from '../lib/copyTable';
 import { dataService } from '../services/dataService';
 import {
   Network,
+  Copy,
   List,
   Table,
   Scissors,
@@ -356,6 +359,8 @@ export default function Registry() {
   const location = useLocation();
   const navigate = useNavigate();
   const { addToast } = useToastStore();
+  // Панель связей: «где ещё встречается этот тег» — из меню карточки и с её панели
+  const openWhereUsed = useInsightStore((st) => st.openWhere);
   const [tags, setTags] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'board' | 'tree' | 'segments' | 'table' | 'equipment'>('board');
   const [showImportWizard, setShowImportWizard] = useState(false);
@@ -2644,80 +2649,75 @@ export default function Registry() {
   });
 
   // Excel compliant export (CSV with Cyrillic BOM)
-  const handleExportSelectedToExcel = () => {
+  /**
+   * Подборка тегов в виде таблицы: заголовки и строки по выбранным колонкам.
+   *
+   * Одна сборка на два выхода — файл Excel и буфер обмена. Раньше выход был
+   * один, и «скопировать три строки в письмо» требовало создать файл, открыть
+   * его, выделить и потом удалить.
+   */
+  const buildExportTable = (): { headers: string[]; rows: string[][] } | null => {
     const matched = getSegmentMatchedTags();
-    if (matched.length === 0) {
-      void openAlert('Нечего выгружать', 'Под текущие фильтры не попала ни одна строка. Измените условия отбора и повторите.');
-      return;
-    }
+    if (matched.length === 0) return null;
 
-    let csvContent = "\uFEFF"; // UTF-8 BOM indicator so Excel opens Cyrillic letters natively
-    
-    // Header Line
     const headers: string[] = [];
     if (exportColumns.identifier) headers.push("Код тега (Tag)");
     if (exportColumns.brand) headers.push("Марка");
     if (exportColumns.brandParts) {
       const maxBrandLen = getMaximumBrandSegmentLength();
-      for (let i = 0; i < maxBrandLen; i++) {
-        headers.push(`Сегмент Марки ${i+1}`);
-      }
+      for (let i = 0; i < maxBrandLen; i++) headers.push(`Сегмент Марки ${i + 1}`);
     }
     if (exportColumns.parts) {
       const maxLen = getMaximumSegmentLength();
-      for (let i = 0; i < maxLen; i++) {
-        headers.push(`Сегмент ${i+1}`);
-      }
+      for (let i = 0; i < maxLen; i++) headers.push(`Сегмент ${i + 1}`);
     }
     if (exportColumns.department) headers.push("Дисциплина / Отдел");
     if (exportColumns.fluid) headers.push("Тех. Среда / Назначение");
     if (exportColumns.chain) headers.push("Инженерная Цепочка (Parent Chain)");
     if (exportColumns.descriptions) headers.push("Замечания и подописания");
 
-    csvContent += headers.map(h => `"${h}"`).join(';') + "\r\n";
-
-    // Data Lines
-    matched.forEach(t => {
+    const rows = matched.map(t => {
       const rowData: string[] = [];
       const parts = splitTagIntoParts(t.identifier);
       const meta = parseTagMetadata(t);
 
-      if (exportColumns.identifier) {
-        rowData.push(t.identifier);
-      }
-      if (exportColumns.brand) {
-        rowData.push(t.brand || "");
-      }
+      if (exportColumns.identifier) rowData.push(t.identifier);
+      if (exportColumns.brand) rowData.push(t.brand || "");
       if (exportColumns.brandParts) {
         const bp = splitBrandIntoParts(t.brand || "");
         const maxBrandLen = getMaximumBrandSegmentLength();
-        for (let i = 0; i < maxBrandLen; i++) {
-          rowData.push(bp[i] || "");
-        }
+        for (let i = 0; i < maxBrandLen; i++) rowData.push(bp[i] || "");
       }
       if (exportColumns.parts) {
         const maxLen = getMaximumSegmentLength();
-        for (let i = 0; i < maxLen; i++) {
-          rowData.push(parts[i] || "");
-        }
+        for (let i = 0; i < maxLen; i++) rowData.push(parts[i] || "");
       }
-      if (exportColumns.department) {
-        rowData.push(t.department || "");
-      }
-      if (exportColumns.fluid) {
-        rowData.push(t.fluid || "");
-      }
-      if (exportColumns.chain) {
-        const lineage = getParentTraceLineage(t.id);
-        rowData.push(lineage || t.identifier);
-      }
+      if (exportColumns.department) rowData.push(t.department || "");
+      if (exportColumns.fluid) rowData.push(t.fluid || "");
+      if (exportColumns.chain) rowData.push(getParentTraceLineage(t.id) || t.identifier);
       if (exportColumns.descriptions) {
         const descTexts = meta.descriptions.map(d => `${d.text} [${d.status.toUpperCase()}]: ${d.comment}`).join(' | ');
         rowData.push(descTexts || "Нет замечаний");
       }
-
-      csvContent += rowData.map(val => `"${val.replace(/"/g, '""')}"`).join(';') + "\r\n";
+      return rowData;
     });
+
+    return { headers, rows };
+  };
+
+  const handleExportSelectedToExcel = () => {
+    const table = buildExportTable();
+    if (!table) {
+      void openAlert('Нечего выгружать', 'Под текущие фильтры не попала ни одна строка. Измените условия отбора и повторите.');
+      return;
+    }
+
+    // BOM в начале — иначе Excel открывает кириллицу крякозябрами
+    let csvContent = "\uFEFF";
+    csvContent += table.headers.map(h => `"${h}"`).join(';') + "\r\n";
+    for (const rowData of table.rows) {
+      csvContent += rowData.map(val => `"${String(val).replace(/"/g, '""')}"`).join(';') + "\r\n";
+    }
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -2727,6 +2727,21 @@ export default function Registry() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  /** Та же подборка — сразу в буфер, чтобы вставить в письмо или протокол */
+  const handleCopySelectedAsTable = async () => {
+    const table = buildExportTable();
+    if (!table) {
+      void openAlert('Нечего копировать', 'Под текущие фильтры не попала ни одна строка. Измените условия отбора и повторите.');
+      return;
+    }
+    const objects = table.rows.map(r => Object.fromEntries(table.headers.map((h, i) => [h, r[i] ?? ''])));
+    const ok = await copyAsTable(objects, table.headers);
+    addToast(
+      ok ? `Скопировано строк: ${objects.length} — вставьте в Ворд или Эксель` : 'Не удалось скопировать',
+      ok ? 'success' : 'error',
+    );
   };
 
   const isIdentifierUnique = !newTagIdentifier || !checkTagExists(newTagIdentifier);
@@ -3899,6 +3914,13 @@ export default function Registry() {
               </button>
             )}
             <button type="button"
+              onClick={() => { openWhereUsed('tag', cardMenu.tagId); setCardMenu(null); }}
+              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-200 cursor-pointer"
+            >
+              <Network className="w-3.5 h-3.5 text-emerald-600" />
+              Где используется
+            </button>
+            <button type="button"
               onClick={() => {
                 const ids = selectedTagIds.size > 0 ? Array.from(selectedTagIds) : [cardMenu.tagId];
                 shareTagsInChat(ids);
@@ -3973,6 +3995,13 @@ export default function Registry() {
                 <AlertTriangle className="w-4 h-4" />
               </button>
             )}
+            <button type="button"
+              onClick={() => { openWhereUsed('tag', cardPanel.tagId); setCardPanel(null); }}
+              className="p-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-600 cursor-pointer"
+              title="Где используется: оборудование, документы, файлы, ВДР"
+            >
+              <Network className="w-4 h-4" />
+            </button>
             <button type="button"
               onClick={() => {
                 const ids = selectedTagIds.size > 0 ? Array.from(selectedTagIds) : [cardPanel.tagId];
@@ -4799,13 +4828,23 @@ export default function Registry() {
                   </h3>
                 </div>
 
-                <button type="button"
-                  onClick={handleExportSelectedToExcel}
-                  className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 transition-ui cursor-pointer"
-                >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  <span>Экспортировать подборку в Excel</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button type="button"
+                    onClick={handleCopySelectedAsTable}
+                    title="Те же колонки — сразу в буфер обмена, без файла"
+                    className="px-4 py-2.5 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold flex items-center gap-2 transition-ui cursor-pointer"
+                  >
+                    <Copy className="w-4 h-4" />
+                    <span>Скопировать таблицей</span>
+                  </button>
+                  <button type="button"
+                    onClick={handleExportSelectedToExcel}
+                    className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 transition-ui cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    <span>Экспортировать подборку в Excel</span>
+                  </button>
+                </div>
               </div>
 
               <div className="flex flex-wrap gap-4 pt-1 text-xs">
