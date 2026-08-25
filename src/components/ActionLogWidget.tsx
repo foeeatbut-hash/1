@@ -206,11 +206,14 @@ export default function ActionLogWidget() {
   return (
     <div
       id="dx-logs-widget"
-      className="fixed bottom-4 z-[9999] flex flex-col items-end pointer-events-none transition-ui duration-300"
-      /* Отступ считается от ширины рельса, а не от вписанного числа 72:
-         рельс теперь меняет ширину вместе с левым меню, и значок журнала
-         иначе наезжал бы на него. */
-      style={{ right: `calc(var(--flux-rail-w) + 16px${(assistantOpen || notifOpen) ? ' + 380px' : ''})` }}
+      className="fixed z-[9999] flex flex-col items-end pointer-events-none transition-ui duration-300"
+      /* Отступы считаются от переменных, а не от вписанных чисел: рельс меняет
+         ширину вместе с левым меню, а нижняя панель поднимает журнал над собой —
+         иначе он наезжал бы и на то и на другое. */
+      style={{
+        bottom: 'calc(var(--flux-taskbar-h, 0px) + 1rem)',
+        right: `calc(var(--flux-rail-w) + 16px${(assistantOpen || notifOpen) ? ' + 380px' : ''})`,
+      }}
     >
       
       {/* Mini Window Popover */}

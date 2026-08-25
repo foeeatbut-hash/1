@@ -38,6 +38,9 @@ interface AppState {
   setDensity: (d: Density) => void;
   sidebarCompact: boolean;
   toggleSidebarCompact: () => void;
+  /** Нижняя панель задач вместо левого меню */
+  taskbar: boolean;
+  toggleTaskbar: () => void;
 }
 
 // Плотность рабочего места: инженеру нужно видеть больше строк на экране,
@@ -47,6 +50,7 @@ export type Density = 'compact' | 'standard' | 'comfortable';
 
 const DENSITY_KEY = 'flux_density';
 const SIDEBAR_KEY = 'flux_sidebar_compact';
+const TASKBAR_KEY = 'flux_taskbar';
 
 export function applyDensity(d: Density) {
   if (typeof document === 'undefined') return;
@@ -71,6 +75,9 @@ export const useStore = create<AppState>((set, get) => {
   const initialDensity = ((typeof window !== 'undefined' && localStorage.getItem(DENSITY_KEY)) || 'standard') as Density;
   applyDensity(initialDensity);
   const initialSidebarCompact = typeof window !== 'undefined' && localStorage.getItem(SIDEBAR_KEY) === '1';
+  // По умолчанию включена: панель задач — то, ради чего затевалась оболочка.
+  // Вернуть левое меню можно в Параметрах, поэтому решение обратимо
+  const initialTaskbar = typeof window === 'undefined' || localStorage.getItem(TASKBAR_KEY) !== '0';
 
   // Восстанавливаем сессию: окна-стикеры и перезапуск не должны требовать повторного входа
   let initialUser: User | null = null;
@@ -173,6 +180,15 @@ export const useStore = create<AppState>((set, get) => {
       const next = !get().sidebarCompact;
       localStorage.setItem(SIDEBAR_KEY, next ? '1' : '0');
       set({ sidebarCompact: next });
+    },
+
+    // Разделы одного уровня стоят в ряд внизу, а не столбиком слева. Левое меню
+    // при этом прячется целиком: два одинаковых списка на экране — хуже одного
+    taskbar: initialTaskbar,
+    toggleTaskbar: () => {
+      const next = !get().taskbar;
+      localStorage.setItem(TASKBAR_KEY, next ? '1' : '0');
+      set({ taskbar: next });
     },
 
     explorerHistory: [null],

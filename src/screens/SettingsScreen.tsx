@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
+import SectionShell from '../components/settings/SectionShell';
+import GeneralSection from '../components/settings/GeneralSection';
+import ToggleRow from '../components/settings/ToggleRow';
 import { useToastStore } from '../store/toastStore';
 import { useLogStore } from '../store/logStore';
 import NotificationSettings from '../components/NotificationSettings';
@@ -70,7 +73,7 @@ const SETTING_GROUPS: Array<{ scope: SettingScope; label: string; hint: string }
 ];
 
 export default function SettingsScreen() {
-  const { user, theme, toggleTheme, density, setDensity } = useStore();
+  const { user, theme, toggleTheme, density, setDensity, taskbar, toggleTaskbar } = useStore();
   const { addToast } = useToastStore();
   const addLog = useLogStore((s) => s.addLog);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -152,7 +155,7 @@ export default function SettingsScreen() {
 
       {/* Содержимое категории */}
       <div className="flex-1 min-w-0 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg shadow-xs overflow-y-auto p-3 @[700px]:p-6">
-        {section === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} density={density} setDensity={setDensity} />}
+        {section === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} density={density} setDensity={setDensity} taskbar={taskbar} toggleTaskbar={toggleTaskbar} />}
         {section === 'roles' && <RolesSection user={user} addToast={addToast} />}
         {section === 'management' && <ManagementSection isAdmin={isAdmin} addToast={addToast} />}
         {section === 'equipment' && <EquipmentSection isAdmin={isAdmin} addToast={addToast} />}
@@ -177,128 +180,8 @@ export default function SettingsScreen() {
   );
 }
 
-function SectionShell({ title, desc, children }: { title: string; desc: string; children: React.ReactNode }) {
-  return (
-    <div className="max-w-3xl">
-      <h2 className="text-xl font-bold text-slate-900 dark:text-white">{title}</h2>
-      <p className="text-xs text-slate-400 mt-1 mb-5">{desc}</p>
-      {children}
-    </div>
-  );
-}
 
 // ── Общие ──────────────────────────────────────────────────────────────────────
-function GeneralSection({ theme, toggleTheme, density, setDensity }: any) {
-  return (
-    <SectionShell title="Общие" desc="Внешний вид программы.">
-      <div className="space-y-4">
-        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Тема интерфейса</div>
-          {/* Переключатель, а не две залитые кнопки: выбранное состояние
-              показывается плашкой, а не полным фирменным цветом. */}
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(120px,1fr))] gap-1 p-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
-            <button
-              type="button"
-              onClick={() => { if (theme === 'dark') toggleTheme(); }}
-              aria-pressed={theme !== 'dark'}
-              className={`py-2 px-2 min-w-0 rounded-lg text-sm font-semibold transition-colors duration-[120ms] flex items-center justify-center gap-2 cursor-pointer ${
-                theme !== 'dark' ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
-              }`}
-            >
-              <Sun className="w-4 h-4" /> Светлая
-            </button>
-            <button
-              type="button"
-              onClick={() => { if (theme !== 'dark') toggleTheme(); }}
-              aria-pressed={theme === 'dark'}
-              className={`py-2 px-2 min-w-0 rounded-lg text-sm font-semibold transition-colors duration-[120ms] flex items-center justify-center gap-2 cursor-pointer ${
-                theme === 'dark' ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
-              }`}
-            >
-              <Moon className="w-4 h-4" /> Тёмная
-            </button>
-          </div>
-        </div>
-
-        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Плотность</div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-            Сколько строк помещается на экране. Влияет на таблицы и списки во всех разделах.
-          </p>
-          {/* Три равные доли ширины вместо ряда по содержимому. Было inline-flex:
-              ряд считался по самым длинным подписям, не переносился и не сжимался —
-              при узком окне он вылезал за карточку на 47 px, и «Компактно»
-              обрезалось. Сетка не может стать шире родителя. */}
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(96px,1fr))] gap-1 p-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
-            {([
-              { key: 'comfortable', label: 'Просторно' },
-              { key: 'standard', label: 'Стандарт' },
-              { key: 'compact', label: 'Компактно' },
-            ] as const).map((opt) => (
-              <button
-                key={opt.key}
-                type="button"
-                onClick={() => setDensity(opt.key)}
-                aria-pressed={density === opt.key}
-                title={opt.label}
-                className={`min-w-0 truncate py-2 px-2 rounded-lg text-sm font-semibold transition-colors duration-[120ms] cursor-pointer ${
-                  density === opt.key ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Главный экран и помощник</div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-            Живой фон по времени года и картины в шапке помощника. Если отвлекают — выключите.
-          </p>
-          <div className="space-y-2">
-            <ToggleRow
-              storageKey="flux_backdrop"
-              event="flux:backdrop-changed"
-              title="Фон главного экрана"
-              desc="Снег зимой, листья осенью, солнце и луна по времени суток. В день рождения — шарики."
-            />
-            <ToggleRow
-              storageKey="flux_art"
-              event="flux:art-changed"
-              title="Картины в шапке помощника"
-              desc="Ван Гог, Хокусай, да Винчи, Моне, Айвазовский — нарисованы кодом и оживают. Нажатие на полке меняет картину."
-            />
-          </div>
-        </div>
-
-        <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">О программе</div>
-          <div className="flex items-center gap-3.5">
-            <FluxLogo size={46} radius={13} />
-            <div className="min-w-0">
-              <div className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                Flux
-                <span className="font-mono text-xs font-normal text-slate-400 dark:text-slate-500">v{__APP_VERSION__}</span>
-              </div>
-              <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Разработка <span className="font-semibold text-slate-600 dark:text-slate-300">Раупова Хусрава</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </SectionShell>
-  );
-}
-
-// ── Менеджмент: редактор этапов закупки и шаблонов ─────────────────────────────
-// Стандартный набор этапов — общий по умолчанию. Дополнительно можно завести
-// именованные шаблоны со своими этапами и правилами применения: отделы (классы),
-// типы оборудования, категории установок, подстроки обозначения. Отдельным
-// тегам шаблон назначается вручную в разделе «Менеджмент».
-
-// Переиспользуемый редактор списка этапов (для стандартного набора и шаблонов)
 function StageListEditor({ stages, onChange, isAdmin, addToast }: {
   stages: ProcurementStage[];
   onChange: (next: ProcurementStage[]) => void;
@@ -1636,29 +1519,4 @@ function RolesSection({ user, addToast }: { user: any; addToast: (m: string, t?:
 // Переключатель «включено/выключено», который живёт в localStorage и сообщает
 // об изменении событием: так его слышат и главный экран, и рабочая область,
 // не завися от того, где он нарисован.
-function ToggleRow({ storageKey, event, title, desc }: {
-  storageKey: string; event: string; title: string; desc: string;
-}) {
-  const [on, setOn] = useState<boolean>(() => {
-    try { return localStorage.getItem(storageKey) !== '0'; } catch { return true; }
-  });
-  const flip = () => {
-    const next = !on;
-    setOn(next);
-    try { localStorage.setItem(storageKey, next ? '1' : '0'); } catch (_) {}
-    try { window.dispatchEvent(new CustomEvent(event)); } catch (_) {}
-  };
-  return (
-    <button type="button" onClick={flip} role="switch" aria-checked={on}
-      className="w-full flex items-start gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-left hover:border-emerald-500 transition-ui cursor-pointer">
-      <span className={`mt-0.5 shrink-0 w-9 h-5 rounded-full p-0.5 transition-colors ${on ? 'bg-emerald-600' : 'bg-slate-300 dark:bg-slate-700'}`}>
-        <span className={`block w-4 h-4 rounded-full bg-white transition-transform ${on ? 'translate-x-4' : ''}`} />
-      </span>
-      <span className="min-w-0">
-        <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100 break-words">{title}</span>
-        <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5 break-words text-pretty">{desc}</span>
-      </span>
-    </button>
-  );
-}
 

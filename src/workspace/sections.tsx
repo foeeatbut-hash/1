@@ -41,6 +41,13 @@ const Handbook = lazy(() => import('../screens/Handbook'));
  */
 export type SectionScope = 'project' | 'global' | 'mixed';
 
+/**
+ * Откуда раздел берёт счётчик на нижней панели. Красный кружок означает «надо
+ * разобрать», поэтому его нет у разделов, где число — это просто «сколько
+ * открыто»: разбирать там нечего.
+ */
+export type SectionBadge = 'mail' | 'chat';
+
 export interface SectionDef {
   path: string;
   title: string;
@@ -48,24 +55,27 @@ export interface SectionDef {
   scroll: 'auto' | 'fixed';
   pad: boolean;
   adminOnly?: boolean;
-  /** Значок раздела: тот же в левом меню и на вкладке рабочего стола */
+  /** Значок раздела: тот же в левом меню, на вкладке и на нижней панели */
   icon?: React.ComponentType<{ className?: string }>;
+  /** Стоит на нижней панели всегда, даже когда не запущен */
+  pinned?: boolean;
+  badge?: SectionBadge;
   Component: React.LazyExoticComponent<React.ComponentType<any>>;
 }
 
 export const SECTIONS: SectionDef[] = [
   { path: '/', title: 'Главная', icon: Home, scope: 'mixed', scroll: 'auto', pad: true, Component: Dashboard },
   { path: '/projects', title: 'Проекты', icon: FolderKanban, scope: 'global', scroll: 'auto', pad: true, Component: ProjectsManagement },
-  { path: '/registry', title: 'Теги', icon: Tag, scope: 'project', scroll: 'fixed', pad: true, Component: Registry },
-  { path: '/equipment', title: 'Оборудование', icon: Fan, scope: 'project', scroll: 'auto', pad: true, Component: Equipment },
+  { path: '/registry', title: 'Теги', icon: Tag, scope: 'project', scroll: 'fixed', pad: true, pinned: true, Component: Registry },
+  { path: '/equipment', title: 'Оборудование', icon: Fan, scope: 'project', scroll: 'auto', pad: true, pinned: true, Component: Equipment },
   { path: '/directory', title: 'Справочник', icon: BookOpen, scope: 'project', scroll: 'fixed', pad: true, Component: DictionaryEditor },
   { path: '/management', title: 'Менеджмент', icon: Briefcase, scope: 'project', scroll: 'auto', pad: true, Component: ProcurementManagement },
-  { path: '/explorer', title: 'Проводник', icon: FolderOpen, scope: 'global', scroll: 'auto', pad: true, Component: Explorer },
-  { path: '/constructor', title: 'Конструктор', icon: Table2, scope: 'project', scroll: 'auto', pad: true, Component: ConstructorScreen },
+  { path: '/explorer', title: 'Проводник', icon: FolderOpen, scope: 'global', scroll: 'auto', pad: true, pinned: true, Component: Explorer },
+  { path: '/constructor', title: 'Конструктор', icon: Table2, scope: 'project', scroll: 'auto', pad: true, pinned: true, Component: ConstructorScreen },
   { path: '/notes', title: 'Блокнот', icon: NotebookPen, scope: 'global', scroll: 'auto', pad: true, Component: NotesManagement },
-  { path: '/chat', title: 'Чат', icon: MessagesSquare, scope: 'global', scroll: 'fixed', pad: true, Component: ChatManagement },
+  { path: '/chat', title: 'Чат', icon: MessagesSquare, scope: 'global', scroll: 'fixed', pad: true, badge: 'chat', Component: ChatManagement },
   // Почта занимает всю высоту и прокручивает списки внутри — как Чат и Теги
-  { path: '/mail', title: 'Почта', icon: Mail, scope: 'global', scroll: 'fixed', pad: true, Component: MailScreen },
+  { path: '/mail', title: 'Почта', icon: Mail, scope: 'global', scroll: 'fixed', pad: true, pinned: true, badge: 'mail', Component: MailScreen },
   { path: '/generator', title: 'Генератор', icon: Wand2, scope: 'project', scroll: 'auto', pad: true, Component: UniversalGenerator },
   { path: '/settings', title: 'Настройки', icon: Settings, scope: 'mixed', scroll: 'auto', pad: true, Component: SettingsScreen },
   { path: '/handbook', title: 'Руководство', icon: LifeBuoy, scope: 'global', scroll: 'fixed', pad: true, Component: Handbook },

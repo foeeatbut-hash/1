@@ -1,0 +1,120 @@
+/**
+ * Проверки нижней панели задач.
+ *
+ * Панель ломается незаметно: она выглядит правильно ровно в том состоянии, в
+ * котором её открыли на макете, и разъезжается на четырнадцати окнах или на
+ * нуле. Поэтому все решения о составе и сжатии считает чистый модуль, а здесь
+ * проверяются именно они.
+ */
+import {
+  buildTaskbar, badgeCount, clockLabel, dateLabel, deadlineLabel, badgeLabel,
+  LABELS_UNTIL, TIDY_FROM, type TaskbarSource,
+} from '../src/lib/taskbar';
+import { SECTIONS } from '../src/workspace/sections';
+
+let failed = 0;
+const check = (name: string, cond: boolean, got?: unknown) => {
+  if (cond) return;
+  failed++;
+  console.error(`  ✗ ${name}${got === undefined ? '' : ` — получили ${JSON.stringify(got)}`}`);
+};
+
+const S: TaskbarSource[] = [
+  { path: '/registry', title: 'Теги', pinned: true },
+  { path: '/equipment', title: 'Оборудование', pinned: true },
+  { path: '/explorer', title: 'Проводник', pinned: true },
+  { path: '/mail', title: 'Почта', pinned: true, badge: 'mail' },
+  { path: '/chat', title: 'Чат', badge: 'chat' },
+  { path: '/notes', title: 'Блокнот' },
+  { path: '/users', title: 'Сотрудники', adminOnly: true },
+];
+const NONE = { mail: 0, chat: 0 };
+
+console.log('Состав панели');
+{
+  const v = buildTaskbar(S, { open: [], activePath: '/', counts: NONE });
+  check('без открытых разделов на панели только закреплённые', v.buttons.length === 4, v.buttons.map((b) => b.path));
+  check('ни одна кнопка не «запущена»', v.buttons.every((b) => !b.running));
+  check('подписи показываются', v.labels === true);
+  check('прибираться не предлагается', v.tidy === false);
+}
+{
+  const v = buildTaskbar(S, { open: ['/notes', '/registry'], activePath: '/notes', counts: NONE });
+  check('открытый незакреплённый добавился в конец', v.buttons[v.buttons.length - 1].path === '/notes', v.buttons.map((b) => b.path));
+  check('закреплённые не сдвинулись с места', v.buttons[0].path === '/registry');
+  check('запущенное помечено', v.buttons.find((b) => b.path === '/registry')?.running === true);
+  check('активное помечено ровно одно', v.buttons.filter((b) => b.active).length === 1);
+  check('активное — то, что в активной панели', v.buttons.find((b) => b.active)?.path === '/notes');
+}
+{
+  const v = buildTaskbar(S, { open: ['/users'], activePath: '/users', counts: NONE });
+  check('раздел только для админа не показан обычному', !v.buttons.some((b) => b.path === '/users'));
+  const a = buildTaskbar(S, { open: ['/users'], activePath: '/users', counts: NONE, isAdmin: true });
+  check('админу показан', a.buttons.some((b) => b.path === '/users'));
+}
+{
+  const dup = buildTaskbar(S, { open: ['/registry', '/registry'], activePath: '/registry', counts: NONE });
+  check('закреплённый не задваивается при открытии', dup.buttons.filter((b) => b.path === '/registry').length === 1);
+}
+
+console.log('Сжатие');
+{
+  const many = Array.from({ length: 9 }, (_, i) => ({ path: `/p${i}`, title: `Р${i}`, pinned: true }));
+  const v = buildTaskbar(many, { open: [], activePath: '/', counts: NONE });
+  check(`после ${LABELS_UNTIL} кнопок подписи уходят`, v.labels === false, v.buttons.length);
+  const eight = buildTaskbar(many.slice(0, LABELS_UNTIL), { open: [], activePath: '/', counts: NONE });
+  check('ровно на пороге подписи ещё есть', eight.labels === true);
+}
+{
+  const open = Array.from({ length: TIDY_FROM }, (_, i) => `/p${i}`);
+  const v = buildTaskbar(S, { open, activePath: '/', counts: NONE });
+  check('на пороге предлагается прибраться', v.tidy === true);
+  const less = buildTaskbar(S, { open: open.slice(0, TIDY_FROM - 1), activePath: '/', counts: NONE });
+  check('до порога не предлагается', less.tidy === false);
+}
+
+console.log('Счётчики');
+{
+  check('почта берёт своё число', badgeCount('mail', { mail: 3, chat: 9 }) === 3);
+  check('чат берёт своё число', badgeCount('chat', { mail: 3, chat: 9 }) === 9);
+  check('без источника счётчика нет', badgeCount(undefined, { mail: 3, chat: 9 }) === 0);
+  check('отрицательное не показываем', badgeCount('mail', { mail: -2, chat: 0 }) === 0);
+  const v = buildTaskbar(S, { open: [], activePath: '/', counts: { mail: 4, chat: 0 } });
+  check('счётчик доехал до кнопки', v.buttons.find((b) => b.path === '/mail')?.badge === 4);
+  check('у Проводника счётчика нет', v.buttons.find((b) => b.path === '/explorer')?.badge === 0);
+  check('трёхзначное сворачивается', badgeLabel(128) === '99+');
+  check('двузначное остаётся как есть', badgeLabel(42) === '42');
+}
+
+console.log('Часы и срок');
+{
+  check('часы двузначные', clockLabel(new Date(2026, 7, 23, 9, 5)) === '09:05');
+  check('полночь', clockLabel(new Date(2026, 7, 23, 0, 0)) === '00:00');
+  const now = new Date(2026, 7, 23, 12, 47);
+  check('дата по-русски', dateLabel(now) === '23 августа', dateLabel(now));
+  check('срока нет — показываем дату', deadlineLabel(null, now) === '23 августа');
+  check('сегодня', deadlineLabel(new Date(2026, 7, 23, 23, 0), now) === 'ВДР сегодня');
+  check('завтра', deadlineLabel(new Date(2026, 7, 24, 1, 0), now) === 'ВДР завтра');
+  check('на неделе', deadlineLabel(new Date(2026, 7, 26), now) === 'ВДР через 3 дн.');
+  check('далеко — дата', deadlineLabel(new Date(2026, 8, 12), now) === 'ВДР 12 сентября', deadlineLabel(new Date(2026, 8, 12), now));
+  check('просрочен на день', deadlineLabel(new Date(2026, 7, 22), now) === 'ВДР просрочен на день');
+  check('просрочен надолго', deadlineLabel(new Date(2026, 7, 18), now) === 'ВДР просрочен на 5 дн.');
+}
+
+console.log('Реестр разделов');
+{
+  const pinned = SECTIONS.filter((s) => s.pinned);
+  check('закреплено пять программ', pinned.length === 5, pinned.map((s) => s.path));
+  check('закреплённое не помечено adminOnly', pinned.every((s) => !s.adminOnly));
+  check('у всех закреплённых есть значок', pinned.every((s) => !!s.icon));
+  const badged = SECTIONS.filter((s) => s.badge);
+  check('счётчики только у Почты и Чата', badged.map((s) => s.path).sort().join(',') === '/chat,/mail', badged.map((s) => s.path));
+  const v = buildTaskbar(SECTIONS as any, { open: [], activePath: '/', counts: NONE });
+  check('настоящий реестр даёт панель с подписями', v.labels === true, v.buttons.length);
+}
+
+if (failed) {
+  console.error(`\nПровалено проверок: ${failed}`);
+  process.exit(1);
+}
+console.log('\nВсе проверки нижней панели пройдены');
