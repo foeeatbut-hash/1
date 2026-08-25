@@ -19,9 +19,9 @@ import { useStore } from '../store/store';
 import { useNavigate } from 'react-router-dom';
 import { useNotificationStore } from '../store/notificationStore';
 import { useMailStore } from '../store/mailStore';
-import { useInsightStore } from '../store/insightStore';
 import { buildTaskbar, clockLabel, deadlineLabel, badgeLabel } from '../lib/taskbar';
 import ContextMenu, { MenuItem } from './ContextMenu';
+import StartMenu, { rememberSection } from './StartMenu';
 
 /** Минута — самый крупный шаг, который видно на часах без секунд */
 function useNow(): Date {
@@ -51,10 +51,17 @@ export default function Taskbar() {
   const chatUnread = useNotificationStore((s) => s.chatUnread);
   const togglePanel = useNotificationStore((s) => s.togglePanel);
   const unreadByAccount = useMailStore((s) => s.unreadByAccount);
-  const togglePalette = useInsightStore((s) => s.togglePalette);
   const now = useNow();
   const [menu, setMenu] = React.useState<{ x: number; y: number; path: string } | null>(null);
   const [userMenu, setUserMenu] = React.useState<{ x: number; y: number } | null>(null);
+  const [startOpen, setStartOpen] = React.useState(false);
+
+  // Раздел, открытый с панели или из меню, попадает в «недавние». Здесь, а не в
+  // хранилище рабочего стола: список нужен только Пуску и переживает закрытие
+  const openSection = React.useCallback((path: string) => {
+    rememberSection(path);
+    openInActivePane(path);
+  }, [openInActivePane]);
 
   // Открытые разделы — объединение стеков видимых панелей. Скрытые панели
   // (режим «одно окно») своих разделов на панель задач не выносят: человек их
@@ -85,13 +92,13 @@ export default function Taskbar() {
   const iconOf = (path: string) => SECTIONS.find((s) => s.path === path)?.icon;
 
   const menuItems: MenuItem[] = menu ? [
-    { label: 'Открыть', onClick: () => openInActivePane(menu.path) },
+    { label: 'Открыть', onClick: () => openSection(menu.path) },
     { label: 'Открыть в отдельном окне', onClick: () => openSectionWindow(menu.path) },
   ] : [];
 
   // Всё, что жило в подвале левого меню: без этого спрятать меню было бы нельзя
   const userItems: MenuItem[] = [
-    { label: 'Параметры программы', icon: <Settings className="w-3.5 h-3.5" />, onClick: () => openInActivePane('/settings') },
+    { label: 'Параметры программы', icon: <Settings className="w-3.5 h-3.5" />, onClick: () => openSection('/settings') },
     {
       label: theme === 'dark' ? 'Светлая тема' : 'Тёмная тема',
       icon: theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />,
@@ -112,12 +119,15 @@ export default function Taskbar() {
       className="relative z-30 h-[52px] shrink-0 flex items-center gap-1.5 px-3
                  bg-white dark:bg-dark-surface border-t border-slate-200 dark:border-dark-border"
     >
+      {startOpen && <StartMenu onClose={() => setStartOpen(false)} />}
+
       {/* Пуск — единственная кнопка с заливкой на всей панели, чтобы её
-          находили не глядя. Открывает общий поиск: он и есть меню пуска */}
+          находили не глядя */}
       <button
         type="button"
-        onClick={togglePalette}
-        title="Пуск — поиск по проекту"
+        onClick={() => setStartOpen((v) => !v)}
+        aria-expanded={startOpen}
+        title="Пуск — все разделы и поиск"
         className="flex items-center gap-2 h-9 px-4 rounded-[10px] shrink-0 cursor-pointer
                    bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition-colors"
       >
@@ -134,7 +144,7 @@ export default function Taskbar() {
             <button
               key={b.path}
               type="button"
-              onClick={() => openInActivePane(b.path)}
+              onClick={() => openSection(b.path)}
               onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, path: b.path }); }}
               title={b.title}
               aria-current={b.active ? 'true' : undefined}
@@ -172,7 +182,7 @@ export default function Taskbar() {
 
       {view.tidy && (
         <span className="shrink-0 text-2xs text-amber-700 dark:text-amber-400 px-2 whitespace-nowrap">
-          открыто много — <button type="button" onClick={() => openInActivePane('/')} className="underline cursor-pointer">на Главную</button>
+          открыто много — <button type="button" onClick={() => openSection('/')} className="underline cursor-pointer">на Главную</button>
         </span>
       )}
 
@@ -182,7 +192,7 @@ export default function Taskbar() {
         {activeProject && (
           <button
             type="button"
-            onClick={() => openInActivePane('/projects')}
+            onClick={() => openSection('/projects')}
             title={`Проект «${activeProject.name}» — сменить`}
             className="flex items-center gap-2 h-9 px-3 rounded-[10px] cursor-pointer max-w-[200px]
                        border border-slate-200 dark:border-dark-border text-sm
@@ -226,7 +236,7 @@ export default function Taskbar() {
             попадает не глядя. Девять точек, которые ничего не стоят */}
         <button
           type="button"
-          onClick={() => openInActivePane('/')}
+          onClick={() => openSection('/')}
           title="Показать Главную"
           aria-label="Показать Главную"
           className="w-2.5 self-stretch my-1.5 ml-1 rounded-sm cursor-pointer
