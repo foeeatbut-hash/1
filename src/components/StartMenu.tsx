@@ -12,18 +12,9 @@ import React from 'react';
 import { Search, Settings, LogOut, Sun, Moon, ArrowRight } from 'lucide-react';
 import { SECTIONS } from '../workspace/sections';
 import { useStore } from '../store/store';
-import { useWorkspaceStore } from '../store/workspaceStore';
+import { useWorkspaceStore, rememberSectionUse, recentSections } from '../store/workspaceStore';
 import { useInsightStore } from '../store/insightStore';
-import {
-  groupSections, countFound, recentSections, readRecent, writeRecent, pushRecent,
-} from '../lib/startMenu';
-
-const store = () => (typeof window === 'undefined' ? null : window.localStorage);
-
-/** Запомнить открытый раздел — зовётся и из меню, и с панели задач */
-export function rememberSection(path: string): void {
-  writeRecent(store(), pushRecent(readRecent(store()), path));
-}
+import { groupSections, countFound, visibleRecent } from '../lib/startMenu';
 
 export default function StartMenu({ onClose }: { onClose: () => void }) {
   const user = useStore((s) => s.user);
@@ -56,12 +47,13 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
 
   const groups = React.useMemo(() => groupSections(SECTIONS as any, isAdmin, q), [isAdmin, q]);
   const found = countFound(groups);
+  // Список ведёт рабочий стол; здесь только убираем недоступное по правам
   const recent = React.useMemo(
-    () => (q ? [] : recentSections(readRecent(store()), SECTIONS as any, isAdmin)),
+    () => (q ? [] : visibleRecent(recentSections(), SECTIONS as any, isAdmin)),
     [q, isAdmin],
   );
 
-  const go = (path: string) => { rememberSection(path); openInActivePane(path); onClose(); };
+  const go = (path: string) => { rememberSectionUse(path); openInActivePane(path); onClose(); };
   const iconOf = (path: string) => SECTIONS.find((s) => s.path === path)?.icon;
 
   const Tile = ({ path, title }: { path: string; title: string }) => {

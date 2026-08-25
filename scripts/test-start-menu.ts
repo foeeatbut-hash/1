@@ -6,8 +6,7 @@
  * раскладкой и список недавних, который обязан переживать закрытие раздела.
  */
 import {
-  groupSections, countFound, allowed, matches, toRu,
-  pushRecent, readRecent, writeRecent, recentSections, RECENT_MAX,
+  groupSections, countFound, allowed, matches, toRu, visibleRecent, RECENT_SHOWN,
   type StartSource,
 } from '../src/lib/startMenu';
 import { SECTIONS } from '../src/workspace/sections';
@@ -65,28 +64,18 @@ console.log('Поиск');
 
 console.log('Недавние');
 {
-  let l: string[] = [];
-  l = pushRecent(l, '/mail');
-  l = pushRecent(l, '/registry');
-  check('последний открытый — первый в списке', l[0] === '/registry', l);
-  l = pushRecent(l, '/mail');
-  check('повтор поднимается наверх, а не задваивается', l.join(',') === '/mail,/registry', l);
-  let long: string[] = [];
-  for (let i = 0; i < RECENT_MAX + 4; i++) long = pushRecent(long, `/p${i}`);
-  check(`длина ограничена ${RECENT_MAX}`, long.length === RECENT_MAX, long.length);
-  check('вытесняется самый старый', !long.includes('/p0'));
-
-  // Хранилище: подделка вместо localStorage, чтобы проверка не зависела от среды
-  const box: Record<string, string> = {};
-  const fake = { getItem: (k: string) => box[k] ?? null, setItem: (k: string, v: string) => { box[k] = v; } };
-  writeRecent(fake, ['/mail', '/registry']);
-  check('прочиталось то, что записали', readRecent(fake).join(',') === '/mail,/registry');
-  check('сломанное значение не роняет чтение', (() => { box['flux_recent_sections'] = '{не json'; return readRecent(fake).length === 0; })());
-  check('без хранилища не падает', readRecent(null).length === 0 && (writeRecent(null, ['/a']), true));
-
-  const r = recentSections(['/users', '/mail', '/нет-такого'], S, false);
-  check('недоступное по правам выпало из недавних', r.map((s) => s.path).join(',') === '/mail', r.map((s) => s.path));
+  // Сам список ведёт рабочий стол; здесь проверяется только то, что меню
+  // показывает из него, — и это ровно то место, где ошибка не видна глазом
+  const r = visibleRecent(['/users', '/mail', '/нет-такого', '/registry'], S, false);
+  check('недоступное по правам выпало', !r.some((s) => s.path === '/users'), r.map((s) => s.path));
   check('несуществующий путь выпал', !r.some((s) => s.path === '/нет-такого'));
+  check('порядок сохранён', r.map((s) => s.path).join(',') === '/mail,/registry', r.map((s) => s.path));
+  check('администратору свой раздел виден', visibleRecent(['/users'], S, true).length === 1);
+  const dup = visibleRecent(['/mail', '/mail', '/registry'], S, false);
+  check('повтор не задваивается', dup.length === 2, dup.map((s) => s.path));
+  const many = Array.from({ length: RECENT_SHOWN + 4 }, () => '/mail');
+  check(`показываем не больше ${RECENT_SHOWN}`, visibleRecent(many, S, false).length <= RECENT_SHOWN);
+  check('пустой список не ломает', visibleRecent([], S, false).length === 0);
 }
 
 console.log('Настоящий реестр');

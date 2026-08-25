@@ -14,14 +14,15 @@
 import React from 'react';
 import { Bell, LayoutGrid, Sun, Moon, Settings, LogOut } from 'lucide-react';
 import { SECTIONS } from '../workspace/sections';
-import { useWorkspaceStore, visiblePanes, openSectionWindow } from '../store/workspaceStore';
+import { useWorkspaceStore, visiblePanes, openSectionWindow, rememberSectionUse } from '../store/workspaceStore';
 import { useStore } from '../store/store';
 import { useNavigate } from 'react-router-dom';
 import { useNotificationStore } from '../store/notificationStore';
 import { useMailStore } from '../store/mailStore';
+import { useWindowStore, openPaths, activeWindowPath } from '../store/windowStore';
 import { buildTaskbar, clockLabel, deadlineLabel, badgeLabel } from '../lib/taskbar';
 import ContextMenu, { MenuItem } from './ContextMenu';
-import StartMenu, { rememberSection } from './StartMenu';
+import StartMenu from './StartMenu';
 
 /** Минута — самый крупный шаг, который видно на часах без секунд */
 function useNow(): Date {
@@ -35,6 +36,7 @@ function useNow(): Date {
 
 export default function Taskbar() {
   const user = useStore((s) => s.user);
+  const shell = useStore((s) => s.shell);
   const setUser = useStore((s) => s.setUser);
   const theme = useStore((s) => s.theme);
   const toggleTheme = useStore((s) => s.toggleTheme);
@@ -47,6 +49,10 @@ export default function Taskbar() {
     return p ? (p.stack.includes(p.active) ? p.active : p.stack[p.stack.length - 1]) : '/';
   });
   const openInActivePane = useWorkspaceStore((s) => s.openInActivePane);
+  const windows = useWindowStore((s) => s.windows);
+  const toggleWindow = useWindowStore((s) => s.toggle);
+  const minimizeAll = useWindowStore((s) => s.minimizeAll);
+  const tileAll = useWindowStore((s) => s.tileAll);
   const notifUnread = useNotificationStore((s) => s.unread);
   const chatUnread = useNotificationStore((s) => s.chatUnread);
   const togglePanel = useNotificationStore((s) => s.togglePanel);
@@ -58,21 +64,28 @@ export default function Taskbar() {
 
   // Раздел, открытый с панели или из меню, попадает в «недавние». Здесь, а не в
   // хранилище рабочего стола: список нужен только Пуску и переживает закрытие
+  const windowed = shell === 'windows';
   const openSection = React.useCallback((path: string) => {
-    rememberSection(path);
-    openInActivePane(path);
-  }, [openInActivePane]);
+    rememberSectionUse(path);
+    if (windowed) toggleWindow(path); else openInActivePane(path);
+  }, [windowed, toggleWindow, openInActivePane]);
 
-  // Открытые разделы — объединение стеков видимых панелей. Скрытые панели
-  // (режим «одно окно») своих разделов на панель задач не выносят: человек их
-  // сейчас не видит, и кнопка вела бы в пустоту
+  /**
+   * Что считать «открытым». В окнах — открытые окна, включая свёрнутые: у
+   * свёрнутого есть кнопка, за ней его и возвращают. В панелях — стеки видимых
+   * панелей; скрытая панель своих разделов не выносит, кнопка вела бы в пустоту.
+   */
   const open = React.useMemo(() => {
+    if (windowed) return openPaths(windows);
     const seen: string[] = [];
     for (const p of visiblePanes({ panes, layout })) {
       for (const path of p.stack) if (!seen.includes(path)) seen.push(path);
     }
     return seen;
-  }, [panes, layout]);
+  }, [windowed, windows, panes, layout]);
+
+  // Активная кнопка — раздел верхнего окна, а не активной панели
+  const highlighted = windowed ? activeWindowPath(windows) : activePath;
 
   const mail = React.useMemo(
     () => Object.values(unreadByAccount).reduce((a, b) => a + (b || 0), 0),
@@ -82,11 +95,11 @@ export default function Taskbar() {
   const view = React.useMemo(
     () => buildTaskbar(SECTIONS, {
       open,
-      activePath,
+      activePath: highlighted,
       counts: { mail, chat: chatUnread },
       isAdmin: user?.role === 'ADMIN',
     }),
-    [open, activePath, mail, chatUnread, user?.role],
+    [open, highlighted, mail, chatUnread, user?.role],
   );
 
   const iconOf = (path: string) => SECTIONS.find((s) => s.path === path)?.icon;
@@ -182,7 +195,7 @@ export default function Taskbar() {
 
       {view.tidy && (
         <span className="shrink-0 text-2xs text-amber-700 dark:text-amber-400 px-2 whitespace-nowrap">
-          открыто много — <button type="button" onClick={() => openSection('/')} className="underline cursor-pointer">на Главную</button>
+          открыто много — <button type="button" onClick={() => (windowed ? tileAll() : openSection('/'))} className="underline cursor-pointer">{windowed ? 'разложить' : 'на Главную'}</button>
         </span>
       )}
 
@@ -236,9 +249,9 @@ export default function Taskbar() {
             попадает не глядя. Девять точек, которые ничего не стоят */}
         <button
           type="button"
-          onClick={() => openSection('/')}
-          title="Показать Главную"
-          aria-label="Показать Главную"
+          onClick={() => (windowed ? minimizeAll() : openSection('/'))}
+          title={windowed ? 'Показать стол — свернуть все окна' : 'Показать Главную'}
+          aria-label={windowed ? 'Свернуть все окна' : 'Показать Главную'}
           className="w-2.5 self-stretch my-1.5 ml-1 rounded-sm cursor-pointer
                      border-l border-slate-200 dark:border-dark-border
                      hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors"

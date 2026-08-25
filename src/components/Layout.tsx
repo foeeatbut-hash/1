@@ -22,6 +22,7 @@ import FluxLogo from './FluxLogo';
 import { useNotificationStore } from '../store/notificationStore';
 import Workspace from './Workspace';
 import Taskbar from './Taskbar';
+import WindowsLayer from './WindowsLayer';
 import ProjectSwitcher from './ProjectSwitcher';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import { useWorkspaceStore, visiblePanes, openSectionWindow } from '../store/workspaceStore';
@@ -31,7 +32,7 @@ import { useModalStore } from '../store/modalStore';
 const { openAlert } = useModalStore.getState();
 
 export default function Layout() {
-  const { user, setUser, activeProject, theme, toggleTheme, syncStatus, sidebarCompact, toggleSidebarCompact, taskbar } = useStore();
+  const { user, setUser, activeProject, theme, toggleTheme, syncStatus, sidebarCompact, toggleSidebarCompact, shell } = useStore();
   const navigate = useNavigate();
   const [eqOpen, setEqOpen] = useState(true);
   // Робот-помощник: его можно выключить в настройках — тогда он не создаётся
@@ -95,10 +96,10 @@ export default function Layout() {
    * подниматься над панелью, иначе она их накрывает.
    */
   React.useEffect(() => {
-    document.documentElement.style.setProperty('--flux-taskbar-h', taskbar ? '52px' : '0px');
-  }, [taskbar]);
+    document.documentElement.style.setProperty('--flux-taskbar-h', shell === 'menu' ? '0px' : '52px');
+  }, [shell]);
   // На Главной (/) в режиме одного окна левой панели нет; иначе она закреплена
-  const sidebarHidden = taskbar || (wsLayout === 'single' && wsActivePath === '/');
+  const sidebarHidden = shell !== 'menu' || (wsLayout === 'single' && wsActivePath === '/');
   const chatUnread = useNotificationStore((s) => s.chatUnread);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   // Окно своей подписи: открывается из профиля
@@ -662,9 +663,9 @@ export default function Layout() {
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-100 dark:bg-dark-bg relative transition-colors duration-250">
         <div className="flex-1 min-h-0">
-          <Workspace />
+          {shell === 'windows' ? <WindowsLayer /> : <Workspace />}
         </div>
-        {taskbar && <Taskbar />}
+        {shell !== 'menu' && <Taskbar />}
       </main>
 
       {/* ПКМ по разделу в левом меню */}

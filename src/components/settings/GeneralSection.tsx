@@ -11,7 +11,7 @@ import SectionShell from './SectionShell';
 import ToggleRow from './ToggleRow';
 import FluxLogo from '../FluxLogo';
 
-export default function GeneralSection({ theme, toggleTheme, density, setDensity, taskbar, toggleTaskbar }: any) {
+export default function GeneralSection({ theme, toggleTheme, density, setDensity, shell, setShell }: any) {
   return (
     <SectionShell title="Общие" desc="Внешний вид программы.">
       <div className="space-y-4">
@@ -75,24 +75,25 @@ export default function GeneralSection({ theme, toggleTheme, density, setDensity
         </div>
 
         <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Где искать разделы</div>
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Как открываются разделы</div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-            Панель задач внизу или меню слева. Два одинаковых списка на экране хуже одного,
-            поэтому включено что-то одно.
+            Окнами на столе, панелями рабочего стола или по-старому — списком в меню слева.
+            Открытое никуда не денется: смена вида переставляет то же самое.
           </p>
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-1 p-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(126px,1fr))] gap-1 p-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
             {([
-              { on: true, label: 'Панель задач внизу' },
-              { on: false, label: 'Меню слева' },
+              { key: 'windows', label: 'Окнами' },
+              { key: 'panes', label: 'Панелями' },
+              { key: 'menu', label: 'Меню слева' },
             ] as const).map((opt) => (
               <button
-                key={String(opt.on)}
+                key={opt.key}
                 type="button"
-                onClick={() => { if (taskbar !== opt.on) toggleTaskbar(); }}
-                aria-pressed={taskbar === opt.on}
+                onClick={() => setShell(opt.key)}
+                aria-pressed={shell === opt.key}
                 title={opt.label}
                 className={`min-w-0 truncate py-2 px-2 rounded-lg text-sm font-semibold transition-colors duration-[120ms] cursor-pointer ${
-                  taskbar === opt.on ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
+                  shell === opt.key ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
                 }`}
               >
                 {opt.label}

@@ -19,9 +19,8 @@ export interface StartGroup {
   items: StartSource[];
 }
 
-const RECENT_KEY = 'flux_recent_sections';
-/** Шесть строк — столько влезает в подвал меню, не заставляя прокручивать */
-export const RECENT_MAX = 6;
+/** Шесть строк — столько влезает в меню, не заставляя прокручивать */
+export const RECENT_SHOWN = 6;
 
 /**
  * Поиск по названию: без учёта регистра и без учёта раскладки — «tuub» вместо
@@ -70,34 +69,21 @@ export function countFound(groups: StartGroup[]): number {
   return groups.reduce((n, g) => n + g.items.length, 0);
 }
 
-// ── Недавние ───────────────────────────────────────────────────────────────
-
 /**
- * Список недавних держим сами, а не выводим из открытых панелей: панель
- * закрыли — раздел из «открытых» исчез, а из «недавних» исчезать не должен,
- * в этом весь смысл списка.
+ * Недавние, из которых убрано то, чего человек больше не видит по правам.
+ *
+ * Сам список ведёт рабочий стол (rememberSectionUse / recentSections в
+ * workspaceStore) — он же его и пишет при открытии раздела. Заводить здесь
+ * второй список значило бы иметь два писателя в один ключ хранилища.
  */
-export function pushRecent(list: string[], path: string, max = RECENT_MAX): string[] {
-  const without = list.filter((p) => p !== path);
-  return [path, ...without].slice(0, max);
-}
-
-export function readRecent(store: Pick<Storage, 'getItem'> | null): string[] {
-  try {
-    const raw = store?.getItem(RECENT_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string').slice(0, RECENT_MAX) : [];
-  } catch (_) {
-    return [];
-  }
-}
-
-export function writeRecent(store: Pick<Storage, 'setItem'> | null, list: string[]): void {
-  try { store?.setItem(RECENT_KEY, JSON.stringify(list.slice(0, RECENT_MAX))); } catch (_) { /* приватный режим */ }
-}
-
-/** Недавние, из которых убрано то, чего человек больше не видит по правам */
-export function recentSections(paths: string[], sections: StartSource[], isAdmin: boolean): StartSource[] {
+export function visibleRecent(paths: string[], sections: StartSource[], isAdmin: boolean): StartSource[] {
   const ok = new Map(allowed(sections, isAdmin).map((s) => [s.path, s]));
-  return paths.map((p) => ok.get(p)).filter((s): s is StartSource => !!s);
+  const seen = new Set<string>();
+  const out: StartSource[] = [];
+  for (const p of paths) {
+    const s = ok.get(p);
+    if (s && !seen.has(p)) { seen.add(p); out.push(s); }
+    if (out.length >= RECENT_SHOWN) break;
+  }
+  return out;
 }

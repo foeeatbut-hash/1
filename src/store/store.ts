@@ -38,9 +38,9 @@ interface AppState {
   setDensity: (d: Density) => void;
   sidebarCompact: boolean;
   toggleSidebarCompact: () => void;
-  /** Нижняя панель задач вместо левого меню */
-  taskbar: boolean;
-  toggleTaskbar: () => void;
+  /** Как открываются разделы: окнами, панелями или по старому — с меню слева */
+  shell: ShellMode;
+  setShell: (m: ShellMode) => void;
 }
 
 // Плотность рабочего места: инженеру нужно видеть больше строк на экране,
@@ -51,6 +51,9 @@ export type Density = 'compact' | 'standard' | 'comfortable';
 const DENSITY_KEY = 'flux_density';
 const SIDEBAR_KEY = 'flux_sidebar_compact';
 const TASKBAR_KEY = 'flux_taskbar';
+
+/** Оболочка: окна на столе, панели рабочего стола или старое меню слева */
+export type ShellMode = 'windows' | 'panes' | 'menu';
 
 export function applyDensity(d: Density) {
   if (typeof document === 'undefined') return;
@@ -75,9 +78,16 @@ export const useStore = create<AppState>((set, get) => {
   const initialDensity = ((typeof window !== 'undefined' && localStorage.getItem(DENSITY_KEY)) || 'standard') as Density;
   applyDensity(initialDensity);
   const initialSidebarCompact = typeof window !== 'undefined' && localStorage.getItem(SIDEBAR_KEY) === '1';
-  // По умолчанию включена: панель задач — то, ради чего затевалась оболочка.
-  // Вернуть левое меню можно в Параметрах, поэтому решение обратимо
-  const initialTaskbar = typeof window === 'undefined' || localStorage.getItem(TASKBAR_KEY) !== '0';
+  // По умолчанию окна: это то, ради чего затевалась оболочка. Вернуть панели
+  // или левое меню можно в Параметрах, поэтому решение обратимо.
+  // Старые значения '0'/'1' переводим: раньше флаг был двоичным
+  const initialShell: ShellMode = (() => {
+    if (typeof window === 'undefined') return 'windows';
+    const v = localStorage.getItem(TASKBAR_KEY);
+    if (v === '0') return 'menu';
+    if (v === '1' || v === null) return 'windows';
+    return v === 'panes' || v === 'menu' || v === 'windows' ? v : 'windows';
+  })();
 
   // Восстанавливаем сессию: окна-стикеры и перезапуск не должны требовать повторного входа
   let initialUser: User | null = null;
@@ -184,11 +194,10 @@ export const useStore = create<AppState>((set, get) => {
 
     // Разделы одного уровня стоят в ряд внизу, а не столбиком слева. Левое меню
     // при этом прячется целиком: два одинаковых списка на экране — хуже одного
-    taskbar: initialTaskbar,
-    toggleTaskbar: () => {
-      const next = !get().taskbar;
-      localStorage.setItem(TASKBAR_KEY, next ? '1' : '0');
-      set({ taskbar: next });
+    shell: initialShell,
+    setShell: (m) => {
+      localStorage.setItem(TASKBAR_KEY, m);
+      set({ shell: m });
     },
 
     explorerHistory: [null],
