@@ -71,6 +71,15 @@ const api = async (method: string, url: string, body?: any) => {
   const page = await browser.newPage({ viewport: { width: 1500, height: 940 } });
   const errors: string[] = [];
   page.on('pageerror', (e: any) => errors.push('исключение: ' + String(e.message).slice(0, 110)));
+
+  // Проверка написана для панельной оболочки: она ходит по разделам сменой
+  // адреса и работает с их содержимым напрямую. По умолчанию оболочка стала
+  // оконной — раздел живёт в окне, а после входа виден пустой стол, и обход
+  // спотыкался на первом же шаге, хотя вход проходил.
+  await page.addInitScript(() => {
+    try { localStorage.setItem('flux_taskbar', 'panes'); } catch (_) { /* приватный режим */ }
+  });
+
   page.on('console', (m: any) => { if (m.type() === 'error') errors.push('консоль: ' + m.text().slice(0, 110)); });
   page.on('response', (r: any) => { if (r.status() >= 400 && /\/api\//.test(r.url())) errors.push(`ответ ${r.status()} ${new URL(r.url()).pathname}`); });
 
@@ -82,15 +91,34 @@ const api = async (method: string, url: string, body?: any) => {
   }));
 
   /** Нажать первую видимую кнопку с таким именем. Невидимые — свёрнутое меню. */
-  const clickByName = async (name: string, timeout = 6000) => {
-    const loc = page.getByRole('button', { name, exact: true });
+  const clickVisible = async (loc: any, timeout: number) => {
     const n = await loc.count();
     for (let k = 0; k < n; k++) {
       const el = loc.nth(k);
-      if (!(await el.isVisible())) continue;
+      if (!(await el.isVisible().catch(() => false))) continue;
       if (await el.click({ timeout }).then(() => true).catch(() => false)) return true;
     }
     return false;
+  };
+
+  /**
+   * Открыть раздел так, как это делает человек.
+   *
+   * На панели задач стоят только закреплённые разделы, а левого меню в этой
+   * оболочке нет вовсе — «Менеджмент» и «Блокнот» ищутся в «Пуске». Раньше
+   * проверка просто не находила кнопку и объявляла, что раздел не открылся,
+   * хотя открыть его было можно.
+   */
+  const clickByName = async (name: string, timeout = 6000) => {
+    if (await clickVisible(page.getByRole('button', { name, exact: true }), timeout)) return true;
+    const start = page.getByRole('button', { name: 'Пуск', exact: true }).first();
+    if (!(await start.isVisible().catch(() => false))) return false;
+    await start.click({ timeout }).catch(() => {});
+    await page.waitForTimeout(700);
+    const menu = page.getByRole('dialog', { name: 'Пуск' });
+    const hit = await clickVisible(menu.getByRole('button', { name, exact: true }), timeout);
+    if (!hit) await page.keyboard.press('Escape');
+    return hit;
   };
 
   /** Первое видимое поле по селектору: скрытые разделы остаются в разметке */
