@@ -106,6 +106,13 @@ export default function Desktop() {
     // и заводить его ради стола — значит развести два разных дерева одних папок
     if (item.kind === 'folder') return go(`/explorer?folder=${encodeURIComponent(item.id)}`);
     if (item.refId) return go(`/constructor?doc=${encodeURIComponent(item.refId)}`);
+    // Файл без своего редактора (чертёж, бланк, картинка) открывается там, где
+    // его и смотрят, — в Проводнике, выделенным, с просмотром сбоку. Заводить
+    // ради этого второй просмотрщик значит развести два разных вида одного
+    // файла: в Проводнике он выглядел бы так, а со стола — иначе
+    if (item.folderId) {
+      return go(`/explorer?file=${encodeURIComponent(item.id)}&folder=${encodeURIComponent(item.folderId)}`);
+    }
     go('/explorer');
   };
 

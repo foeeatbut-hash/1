@@ -98,6 +98,7 @@ export const useDesktopStore = create<DesktopState>((set, get) => ({
         name: f.name,
         shared: f.scope !== 'PERSONAL',
         refId: f.refId || null,
+        folderId: f.folderId || null,
         updatedAt: f.updatedAt || f.createdAt || null,
       }));
       const folders: DeskItem[] = (r.folders || []).map((f: any) => ({

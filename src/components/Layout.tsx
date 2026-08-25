@@ -87,8 +87,27 @@ export default function Layout() {
    * оказался бы неверным.
    */
   React.useEffect(() => {
-    document.documentElement.style.setProperty('--flux-rail-w', sidebarCompact ? '56px' : '96px');
-  }, [sidebarCompact]);
+    // Правый рельс остался только при левом меню: он был его зеркалом, и без
+    // меню зеркалить нечего. В остальных оболочках его работу делает панель
+    // задач, а ноль здесь означает, что раздвижные панели прижимаются к самому
+    // краю окна, а не оставляют полосу пустоты шириной с исчезнувший рельс
+    const railed = shell === 'menu';
+    document.documentElement.style.setProperty('--flux-rail-w', railed ? (sidebarCompact ? '56px' : '96px') : '0px');
+  }, [sidebarCompact, shell]);
+
+  /**
+   * Уведомления опрашиваются, пока программа открыта. Опрос жил в правом
+   * рельсе — вместе с ним он бы и пропал, а уведомления просто перестали бы
+   * приходить, ничем этого не показав. Место опроса — здесь: Layout открыт
+   * всегда, в любой оболочке.
+   */
+  React.useEffect(() => {
+    const st = useNotificationStore.getState();
+    if (user?.id) st.startPolling(user.id);
+    const onFocus = () => { if (user?.id) useNotificationStore.getState().fetch(user.id); };
+    window.addEventListener('focus', onFocus);
+    return () => { useNotificationStore.getState().stopPolling(); window.removeEventListener('focus', onFocus); };
+  }, [user?.id]);
 
   /**
    * Высота нижней панели — переменной, а не числом в каждом месте: всё, что
@@ -105,8 +124,6 @@ export default function Layout() {
   // Окно своей подписи: открывается из профиля
   const [signOpen, setSignOpen] = useState(false);
   const addLog = useLogStore((state) => state.addLog);
-  const toggleAssistant = useAssistantStore((s) => s.toggleOpen);
-  const assistantOpen = useAssistantStore((s) => s.isOpen);
 
   // Глобальный перехват событий для детального логирования действий пользователя.
   // Пишем КАЖДЫЙ клик (кнопка, поле, строка, пустое место) — чтобы при ошибке
@@ -685,10 +702,11 @@ export default function Layout() {
         />
       )}
 
-      {/* Раздвижные панели справа (сдвигают контент) + тонкий правый рельс */}
+      {/* Раздвижные панели справа сдвигают содержимое. Рельс — только при левом
+          меню: без меню его работу делает трей панели задач */}
       <NotificationsPanel />
       <AssistantPanel />
-      <RightRail />
+      {shell === 'menu' && <RightRail />}
 
 
       {/* Связи проекта и общий поиск — поверх всего: их зовут из любого места */}

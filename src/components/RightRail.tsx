@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useStore } from '../store/store';
 import { useAssistantStore } from '../store/assistantStore';
 import { useNotificationStore } from '../store/notificationStore';
@@ -8,8 +8,13 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { useNavigate } from 'react-router-dom';
 
 /**
- * Тонкая правая панель-рельс (зеркало левого меню): Уведомления, ИИ-чат,
- * внизу — управление раскладкой рабочего стола (1/2/4 панели, вынос в окно).
+ * Тонкая правая панель-рельс (зеркало левого меню): Уведомления, Помощник,
+ * Справка, внизу — управление раскладкой (1/2/4 панели, вынос в окно).
+ *
+ * Показывается только при левом меню (оболочка «menu»). Зеркалу нечего
+ * зеркалить, когда меню нет: в оболочках с панелью задач всё то же самое
+ * стоит в её трее, а рельс оставался пустой полосой у правого края и отрезал
+ * панели задач угол экрана.
  *
  * Ширина повторяет левое меню и переключается той же кнопкой сжатия. Раньше
  * рельс был жёстко 56 px против 96 у меню: зеркалом он назывался, но зеркалом
@@ -22,14 +27,9 @@ export default function RightRail() {
   const navigate = useNavigate();
   const assistantOpen = useAssistantStore(s => s.isOpen);
   const setAssistantOpen = useAssistantStore(s => s.setOpen);
-  const { panelOpen, setPanelOpen, unread, chatUnread, startPolling, stopPolling } = useNotificationStore();
-
-  useEffect(() => {
-    if (user?.id) startPolling(user.id);
-    const onFocus = () => { if (user?.id) useNotificationStore.getState().fetch(user.id); };
-    window.addEventListener('focus', onFocus);
-    return () => { stopPolling(); window.removeEventListener('focus', onFocus); };
-  }, [user?.id]);
+  const { panelOpen, setPanelOpen, unread, chatUnread } = useNotificationStore();
+  // Опрос уведомлений переехал в Layout: рельс показывается не всегда, а
+  // уведомления обязаны приходить в любой оболочке
 
   const openNotif = () => { setAssistantOpen(false); setPanelOpen(!panelOpen); };
   const openAI = () => { setPanelOpen(false); setAssistantOpen(!assistantOpen); };

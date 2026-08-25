@@ -73,6 +73,30 @@ export function labelsFit(titles: string[], width: number): boolean {
   return titles.reduce((sum, t) => sum + BTN_BASE + t.length * CHAR_W, 0) <= width;
 }
 
+/**
+ * Что панель отдаёт первым, когда окно узкое.
+ *
+ * Пуск, кнопки разделов, часы, уведомления и профиль остаются всегда — это то,
+ * ради чего панель существует. Первыми уходят необязательные: подсказка
+ * «открыто много», кнопки раскладки панелей и длина названия проекта. Иначе
+ * при узком окне трей просто вылезал за край, унося с собой профиль и
+ * полоску «показать стол».
+ */
+export interface TrayFit {
+  /** Кнопки раскладки 1/2/4 (только в панельной оболочке) */
+  layout: boolean;
+  /** Подсказка «открыто много — разложить» */
+  hint: boolean;
+  /** Предел ширины названия проекта в точках */
+  projectMax: number;
+}
+
+export function trayFit(barWidth: number): TrayFit {
+  if (!barWidth || barWidth >= 1200) return { layout: true, hint: true, projectMax: 200 };
+  if (barWidth >= 1000) return { layout: false, hint: true, projectMax: 140 };
+  return { layout: false, hint: false, projectMax: 96 };
+}
+
 export function badgeCount(kind: BadgeKind | undefined, counts: Counts): number {
   if (kind === 'mail') return Math.max(0, counts.mail | 0);
   if (kind === 'chat') return Math.max(0, counts.chat | 0);

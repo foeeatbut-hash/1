@@ -8,7 +8,7 @@
  */
 import {
   buildTaskbar, badgeCount, clockLabel, dateLabel, deadlineLabel, badgeLabel,
-  LABELS_UNTIL, TIDY_FROM, type TaskbarSource,
+  LABELS_UNTIL, TIDY_FROM, trayFit, type TaskbarSource,
 } from '../src/lib/taskbar';
 import { SECTIONS } from '../src/workspace/sections';
 
@@ -128,6 +128,20 @@ console.log('Реестр разделов');
   check('счётчики только у Почты и Чата', badged.map((s) => s.path).sort().join(',') === '/chat,/mail', badged.map((s) => s.path));
   const v = buildTaskbar(SECTIONS as any, { open: [], activePath: '/', counts: NONE });
   check('настоящий реестр даёт панель с подписями', v.labels === true, v.buttons.length);
+}
+
+console.log('Тесная панель');
+{
+  const wide = trayFit(1440);
+  check('на широком окне трей полный', wide.layout && wide.hint && wide.projectMax === 200, wide);
+  const mid = trayFit(1100);
+  check('на ноутбуке уходят кнопки раскладки', !mid.layout && mid.hint, mid);
+  const narrow = trayFit(820);
+  check('в узком окне уходит и подсказка', !narrow.layout && !narrow.hint, narrow);
+  check('название проекта ужимается, а не пропадает', narrow.projectMax > 0 && narrow.projectMax < mid.projectMax, [narrow.projectMax, mid.projectMax]);
+  check('ширина не измерена — ничего не прячем', trayFit(0).layout === true);
+  check('чем у́же, тем короче название',
+    trayFit(1440).projectMax >= trayFit(1100).projectMax && trayFit(1100).projectMax >= trayFit(820).projectMax);
 }
 
 if (failed) {

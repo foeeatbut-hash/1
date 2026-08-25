@@ -26,6 +26,8 @@ export interface DeskItem {
   refId?: string | null;
   /** Раздел программы */
   path?: string;
+  /** Папка стола, в которой лежит файл, — по ней его находит Проводник */
+  folderId?: string | null;
   /** Когда изменён — для упорядочивания по дате */
   updatedAt?: string | number | null;
 }

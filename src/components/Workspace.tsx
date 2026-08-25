@@ -186,7 +186,7 @@ export default function Workspace() {
 
 // Кнопки раскладки: 1 / 2 столбца / 2 строки / 4 + вынос активного раздела в
 // отдельное окно. Живут в правом рельсе (RightRail) — ничего не перекрывают.
-export function WorkspaceRailControls() {
+export function WorkspaceRailControls({ horizontal = false }: { horizontal?: boolean } = {}) {
   const layout = useWorkspaceStore((s) => s.layout);
   const setLayout = useWorkspaceStore((s) => s.setLayout);
   const activePath = useWorkspaceStore((s) => {
@@ -211,8 +211,10 @@ export function WorkspaceRailControls() {
     </button>
   );
 
+  // Столбиком в правом рельсе, строкой — в трее панели задач: кнопки те же,
+  // а место у них разное, и заводить ради этого второй набор незачем
   return (
-    <div className="flex flex-col items-center gap-0.5">
+    <div className={`flex items-center gap-0.5 ${horizontal ? '' : 'flex-col'}`}>
       <Btn mode="single" title="Одно окно"><Square className="w-4 h-4" /></Btn>
       <Btn mode="dual" title="Две панели рядом"><SquareSplitHorizontal className="w-4 h-4" /></Btn>
       <Btn mode="dualh" title="Две панели одна над другой"><SquareSplitVertical className="w-4 h-4" /></Btn>

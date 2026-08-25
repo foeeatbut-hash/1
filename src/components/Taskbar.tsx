@@ -12,17 +12,19 @@
  * «кто в проекте» и связь появятся вместе со своими механизмами, а не раньше.
  */
 import React from 'react';
-import { Bell, LayoutGrid, Sun, Moon, Settings, LogOut } from 'lucide-react';
+import { Bell, LayoutGrid, Sun, Moon, Settings, LogOut, MessageCircleQuestion, LifeBuoy } from 'lucide-react';
 import { SECTIONS } from '../workspace/sections';
 import { useWorkspaceStore, visiblePanes, openSectionWindow, rememberSectionUse } from '../store/workspaceStore';
 import { useStore } from '../store/store';
 import { useNavigate } from 'react-router-dom';
 import { useNotificationStore } from '../store/notificationStore';
+import { useAssistantStore } from '../store/assistantStore';
 import { useMailStore } from '../store/mailStore';
 import { useWindowStore, openPaths, activeWindowPath } from '../store/windowStore';
-import { buildTaskbar, clockLabel, deadlineLabel, badgeLabel } from '../lib/taskbar';
+import { buildTaskbar, clockLabel, deadlineLabel, badgeLabel, trayFit } from '../lib/taskbar';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import StartMenu from './StartMenu';
+import { WorkspaceRailControls } from './Workspace';
 
 /** Минута — самый крупный шаг, который видно на часах без секунд */
 function useNow(): Date {
@@ -56,13 +58,29 @@ export default function Taskbar() {
   const notifUnread = useNotificationStore((s) => s.unread);
   const chatUnread = useNotificationStore((s) => s.chatUnread);
   const togglePanel = useNotificationStore((s) => s.togglePanel);
+  const notifOpen = useNotificationStore((s) => s.panelOpen);
+  const setNotifOpen = useNotificationStore((s) => s.setPanelOpen);
+  const assistantOpen = useAssistantStore((s) => s.isOpen);
+  const setAssistantOpen = useAssistantStore((s) => s.setOpen);
   const unreadByAccount = useMailStore((s) => s.unreadByAccount);
   const now = useNow();
   const [menu, setMenu] = React.useState<{ x: number; y: number; path: string } | null>(null);
   const [userMenu, setUserMenu] = React.useState<{ x: number; y: number } | null>(null);
   const [startOpen, setStartOpen] = React.useState(false);
   const rowRef = React.useRef<HTMLDivElement>(null);
+  const barRef = React.useRef<HTMLDivElement>(null);
   const [width, setWidth] = React.useState(0);
+  const [barWidth, setBarWidth] = React.useState(0);
+
+  // Ширина всей панели решает, что из необязательного показывать в трее
+  React.useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setBarWidth(Math.round(el.getBoundingClientRect().width)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const fit = trayFit(barWidth);
 
   // Ширину полосы кнопок меряем сами: влезут ли подписи, знает только экран.
   // Полоса тянется по остатку и от своего содержимого не зависит — поэтому
@@ -134,11 +152,36 @@ export default function Taskbar() {
     { label: 'Выйти', icon: <LogOut className="w-3.5 h-3.5" />, onClick: () => { setUser(null); navigate('/'); } },
   ];
 
+  // Обе панели выезжают справа и заняли бы одно место — открываем по одной
+  const openAssistant = () => { setNotifOpen(false); setAssistantOpen(!assistantOpen); };
+
+  /**
+   * Справка по тому разделу, где человек стоит, — то же, что F1. Помощник
+   * отвечает на вопрос словами, руководство объясняет раздел целиком: это
+   * разные нужды, поэтому и кнопки разные.
+   */
+  const openHandbook = () => {
+    const path = highlighted || '/';
+    if (path === '/handbook') return;
+    const href = `/handbook?for=${encodeURIComponent(path)}`;
+    useWorkspaceStore.getState().setFrozenHref(useWorkspaceStore.getState().activePaneId, '/handbook', href);
+    rememberSectionUse('/handbook');
+    navigate(href);
+  };
+
+  const trayBtn = (active: boolean) =>
+    `relative w-10 h-9 rounded-[10px] cursor-pointer flex items-center justify-center transition-colors ${
+      active
+        ? 'bg-emerald-600 text-white'
+        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-850'
+    }`;
+
   const initials = (user?.name || '')
     .split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
 
   return (
     <div
+      ref={barRef}
       role="toolbar"
       aria-label="Панель задач"
       /* 52 точки: кнопка 36 плюс по 8 сверху и снизу. Ниже 48 — мажешь мимо,
@@ -166,7 +209,11 @@ export default function Taskbar() {
 
       <div className="w-3 shrink-0" />
 
-      <div ref={rowRef} className="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">
+      {/* Прокрутка видимая, а не убранная: при полутора десятках открытых
+          разделов кнопки не помещаются ни при каких подписях, и обрезать их
+          по краю — значит потерять их без следа. Так же сделаны вкладки
+          внутри панели (см. Workspace) */}
+      <div ref={rowRef} className="flex-1 min-w-0 flex items-center gap-1.5 overflow-x-auto scrollbar-thin">
         {view.buttons.map((b) => {
           const Icon = iconOf(b.path) as any;
           return (
@@ -209,7 +256,7 @@ export default function Taskbar() {
         })}
       </div>
 
-      {view.tidy && (
+      {view.tidy && fit.hint && (
         <span className="shrink-0 flex items-center gap-1.5 text-2xs text-amber-700 dark:text-amber-400 px-2 whitespace-nowrap">
           открыто много —
           {/* Настоящая кнопка, а не подчёркнутая строчка: в текст высотой в
@@ -234,7 +281,8 @@ export default function Taskbar() {
             type="button"
             onClick={() => openSection('/projects')}
             title={`Проект «${activeProject.name}» — сменить`}
-            className="flex items-center gap-2 h-9 px-3 rounded-[10px] cursor-pointer max-w-[200px]
+            style={{ maxWidth: fit.projectMax }}
+            className="flex items-center gap-2 h-9 px-3 rounded-[10px] cursor-pointer
                        border border-slate-200 dark:border-dark-border text-sm
                        text-slate-700 dark:text-slate-150 hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors"
           >
@@ -248,16 +296,43 @@ export default function Taskbar() {
           <span className="text-2xs text-slate-500 dark:text-slate-400">{deadlineLabel(null, now)}</span>
         </div>
 
+        {/* Раскладка панелей — только там, где панели и есть: в оконной
+            оболочке раскладку задают сами окна */}
+        {shell === 'panes' && fit.layout && (
+          <div className="flex items-center">
+            <WorkspaceRailControls horizontal />
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={openAssistant}
+          title="Помощник: вопросы по проекту"
+          data-tour="assistant-btn"
+          className={trayBtn(assistantOpen)}
+        >
+          <MessageCircleQuestion className="w-[19px] h-[19px]" />
+        </button>
+
+        <button
+          type="button"
+          onClick={openHandbook}
+          title="Руководство по этому разделу (F1)"
+          className={trayBtn(false)}
+        >
+          <LifeBuoy className="w-[19px] h-[19px]" />
+        </button>
+
         <button
           type="button"
           onClick={togglePanel}
           title={notifUnread > 0 ? `Уведомления: ${notifUnread} непрочитанных` : 'Уведомления'}
-          className="relative w-10 h-9 rounded-[10px] cursor-pointer flex items-center justify-center
-                     text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors"
+          data-tour="notif-btn"
+          className={trayBtn(notifOpen)}
         >
           <Bell className="w-[19px] h-[19px]" />
           {notifUnread > 0 && (
-            <span aria-hidden className="absolute top-1.5 right-2 w-2 h-2 rounded-full bg-rose-600" />
+            <span aria-hidden className={`absolute top-1.5 right-2 w-2 h-2 rounded-full ${chatUnread > 0 ? 'bg-emerald-500' : 'bg-rose-600'}`} />
           )}
         </button>
 
