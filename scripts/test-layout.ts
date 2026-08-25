@@ -94,6 +94,11 @@ const ALLOWED = [
   // Круглая кнопка журнала: счётчик намеренно выступает за её край
   { cls: 'rounded-full flex items-center justify-center shadow-lg', why: 'счётчик выступает за круглую кнопку' },
   { cls: 'fixed bottom-4', why: 'обёртка плавающего значка журнала' },
+  // Полоска «показать стол» в правом нижнем углу. Она узкая нарочно и берёт не
+  // размером, а положением: мышь упирается в угол экрана и попадает в неё не
+  // глядя, сколько бы ни было в ней точек. Ради этого она и идёт во всю высоту
+  // панели вплотную к краю — расширять её значит съесть место у трея впустую
+  { cls: 'w-3 self-stretch ml-1 cursor-pointer', why: 'угловая полоска «показать стол»' },
 ];
 
 /** Порог: 1–3 px набегают от округления и субпиксельных рамок */
@@ -119,6 +124,15 @@ const TOLERANCE = 4;
   const page = await browser.newPage({ viewport: { width: 1920, height: 1000 } });
   const jsErrors: string[] = [];
   page.on('pageerror', (e: any) => jsErrors.push(String(e.message).slice(0, 160)));
+
+  // Меряем панельную оболочку, а не оконную. Обход ходит по разделам сменой
+  // адреса и опирается на кнопки раскладки «Одно окно» / «Четыре панели» — они
+  // есть только в панелях. В оконной оболочке (она теперь стоит по умолчанию)
+  // раздел живёт в окне произвольного размера, и «ширина панели» перестаёт
+  // что-либо значить: проверка мерила бы стол и панель задач.
+  await page.addInitScript(() => {
+    try { localStorage.setItem('flux_taskbar', 'panes'); } catch (_) { /* приватный режим */ }
+  });
 
   // Лицензия проверяется подписью, приватного ключа в репозитории нет —
   // подменяем только ответ проверки, код программы не трогаем
@@ -217,11 +231,21 @@ const TOLERANCE = 4;
 
     // Без выбранного проекта пять разделов показывают заглушку, и таблицы —
     // ровно то, что надо смотреть при сжатии — вообще не рисуются
+    // Проект выбирается не кнопкой: раньше её искали по подписи «Проект», и
+    // после переезда меню в панель задач по этой подписи находилась уже кнопка
+    // раздела «Проекты». Обход тихо шёл по заглушкам «Сначала выберите проект»
+    // и рапортовал, что раскладка цела, — мерить там было нечего. Кладём
+    // проект туда же, где его помнит сама программа.
+    await page.evaluate(async () => {
+      const me = JSON.parse(localStorage.getItem('pdm_session_user') || 'null');
+      const list = await (await fetch('/api/projects')).json();
+      const first = Array.isArray(list) ? list[0] : (list?.projects || [])[0];
+      if (me && first) localStorage.setItem(`max_active_project_${me.id}`, JSON.stringify(first));
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(6500);
     await page.evaluate(() => { window.location.hash = '#/registry'; });
-    await page.waitForTimeout(2500);
-    await page.getByRole('button', { name: /Проект/ }).first()
-      .click({ timeout: 4000 }).catch(() => {});
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(3000);
     const hasProject = await page.evaluate(() => !/Сначала выберите проект/.test(document.body.innerText));
     ok('проект выбран — разделы показывают данные, а не заглушку', hasProject);
 

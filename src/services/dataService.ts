@@ -773,6 +773,39 @@ export const dataService = {
     });
   },
 
+  // --- РАБОЧИЙ СТОЛ ---
+  // Стол — это две системные папки Проводника («Рабочий стол» в общем разделе и
+  // в личном), поэтому переименование и удаление идут обычными файловыми
+  // запросами выше. Здесь только то, что своё: чтение обеих папок сразу,
+  // создание на столе и перенос между общим и личным столом.
+  async getDesktop(projectId: string): Promise<{
+    sharedFolderId: string; personalFolderId: string | null; files: any[]; folders: any[];
+  }> {
+    return request(`/desktop?projectId=${encodeURIComponent(projectId || '')}`);
+  },
+
+  async createDesktopFolder(projectId: string, name: string, scope: 'SHARED' | 'PERSONAL'): Promise<{ folder: any }> {
+    return request('/desktop/folder', { method: 'POST', body: JSON.stringify({ projectId, name, scope }) });
+  },
+
+  async createDesktopDoc(projectId: string, kind: 'DOC' | 'TEXT' | 'NOTE', name: string, scope: 'SHARED' | 'PERSONAL'): Promise<{ doc: any; file: any }> {
+    return request('/desktop/doc', { method: 'POST', body: JSON.stringify({ projectId, kind, name, scope }) });
+  },
+
+  async moveDesktopItem(projectId: string, id: string, to: 'SHARED' | 'PERSONAL'): Promise<{ success: boolean }> {
+    return request('/desktop/move', { method: 'POST', body: JSON.stringify({ projectId, id, to }) });
+  },
+
+  /** Переименование файла или папки — то же, что в Проводнике */
+  async renameNode(id: string, isFile: boolean, name: string): Promise<any> {
+    return request(isFile ? `/files/${id}` : `/folders/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+  },
+
+  /** Удаление мягкое: содержимое уходит в корзину Проводника и восстановимо */
+  async trashNode(id: string, isFile: boolean): Promise<{ success: boolean; trashed?: boolean }> {
+    return request(isFile ? `/files/${id}` : `/folders/${id}`, { method: 'DELETE' });
+  },
+
   // --- USER NOTES & LOGS ---
   async getNotes(): Promise<UserNote[]> {
     const res = await request<{ notes: UserNote[] }>('/notes');

@@ -11,10 +11,12 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Minus, Square, X, Copy } from 'lucide-react';
-import { SECTIONS, sectionForPath } from '../workspace/sections';
+import { SECTIONS, isKnownSection, sectionForPath } from '../workspace/sections';
+import { useWorkspaceStore } from '../store/workspaceStore';
 import { useWindowStore } from '../store/windowStore';
 import { snapZoneAt, type Edge, type SnapZone, type WinState } from '../lib/windows';
-import SectionFrame from './SectionFrame';
+import SectionFrame, { asHref } from './SectionFrame';
+import Desktop from './Desktop';
 
 /** Восемь краёв: четыре стороны и четыре угла */
 const EDGES: { edge: Edge; cls: string }[] = [
@@ -171,10 +173,43 @@ export default function WindowsLayer() {
     return () => ro.disconnect();
   }, [setArea]);
 
-  const top = React.useMemo(() => {
+  const topWin = React.useMemo(() => {
     const vis = windows.filter((w) => !w.minimized);
-    return vis.length ? vis.reduce((a, b) => (b.z > a.z ? b : a)).id : null;
+    return vis.length ? vis.reduce((a, b) => (b.z > a.z ? b : a)) : null;
   }, [windows]);
+  const top = topWin?.id || null;
+
+  /**
+   * Верхнее окно и общий адрес — одно и то же. Раздел верхнего окна «живой»:
+   * его location берётся из адреса программы. Разойдясь, они дали бы живому
+   * разделу чужой адрес — открытый Конструктор получил бы параметры Тегов.
+   *
+   * Панели держат ту же связь (см. Workspace), окнам она нужна ровно так же:
+   * без неё не работают ни ссылка на документ, ни кнопка «назад».
+   */
+  React.useEffect(() => {
+    if (!topWin || location.pathname === topWin.path) return;
+    const remembered = useWorkspaceStore.getState().frozenHrefs[`win:${topWin.id}::${topWin.path}`];
+    navigate(remembered || topWin.path);
+  }, [topWin?.id, topWin?.path]);
+
+  // Обратная сторона той же связи: адрес пришёл извне (ссылка, помощник,
+  // двойное нажатие по документу на столе) — поднимаем нужное окно
+  React.useEffect(() => {
+    if (!isKnownSection(location.pathname)) return;
+    // «/» — начальный адрес программы, а не просьба открыть Главную. Открывали
+    // бы — поверх пустого стола всплывало бы окно, которого не просили, и
+    // закрыть его насовсем было бы нельзя: вход, выход из раздела и просто
+    // перезапуск снова приводят сюда. Главная открывается со стола, из Пуска
+    // и с панели задач — там нажатие сказано вслух
+    if (location.pathname === '/') return;
+    const st = useWindowStore.getState();
+    const cur = st.windows.filter((w) => !w.minimized);
+    const now = cur.length ? cur.reduce((a, b) => (b.z > a.z ? b : a)) : null;
+    // Адрес запоминает сам SectionFrame живого окна — здесь только поднять окно
+    if (now && now.path === location.pathname) return;
+    st.open(location.pathname);
+  }, [location]);
 
   const visible = windows.filter((w) => !w.minimized).length;
 
@@ -184,16 +219,8 @@ export default function WindowsLayer() {
       data-desk
       className="relative w-full h-full overflow-hidden bg-slate-100 dark:bg-dark-bg"
     >
-      {visible === 0 && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center px-8">
-          <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-            {windows.length ? 'Все окна свёрнуты' : 'Ни одного окна не открыто'}
-          </p>
-          <p className="text-xs text-slate-400 dark:text-slate-500 max-w-sm">
-            Откройте раздел с панели задач внизу или нажмите «Пуск».
-          </p>
-        </div>
-      )}
+      {/* Значки живут под окнами: стол — это фон, а не ещё одно окно */}
+      <Desktop />
 
       {windows.map((w) => (
         <WindowFrame

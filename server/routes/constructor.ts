@@ -281,7 +281,10 @@ async function ensureConstructorFolder(projectId: string, scope: string, ownerId
   return prisma.folder.create({ data: where });
 }
 
-async function syncMirror(doc: any): Promise<void> {
+// Экспортируется ради рабочего стола (server/routes/desktop.ts): документ,
+// созданный на столе, обязан зеркалиться теми же правилами, что и созданный в
+// Конструкторе. Своя копия этой функции однажды разошлась бы с этой.
+export async function syncMirror(doc: any): Promise<void> {
   const prisma = getPrisma();
   try {
     const existing = await prisma.fileNode.findFirst({ where: { type: 'CONSTRUCTOR', refId: doc.id } });

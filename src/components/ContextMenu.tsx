@@ -41,7 +41,19 @@ export default function ContextMenu({ x, y, items, onClose }: {
   };
 
   return createPortal(
-    <div ref={ref} className="fixed z-[95] min-w-52 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl select-none" style={style} onContextMenu={(e) => e.preventDefault()}>
+    <div
+      ref={ref}
+      className="fixed z-[95] min-w-52 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl select-none"
+      style={style}
+      onContextMenu={(e) => e.preventDefault()}
+      /* Меню — портал в body, но события React пускает по дереву компонентов, а
+         не по дереву узлов: нажатие в меню доходило до того, над чем меню
+         открыто. На рабочем столе это стоило пункту меню срабатывания — стол
+         перехватывал указатель на своё выделение рамкой, и мышь отпускалась уже
+         не над кнопкой, так что нажатия не случалось вовсе */
+      onPointerDown={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
       {items.map((it, i) => (
         <button type="button"
           key={i}

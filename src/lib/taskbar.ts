@@ -51,6 +51,28 @@ export const LABELS_UNTIL = 8;
 /** После двенадцати панель мягко предлагает прибраться. Предложение, не запрет. */
 export const TIDY_FROM = 12;
 
+/** Значок, отступы, счётчик и промежуток до соседа — кнопка без подписи */
+const BTN_BASE = 52;
+/** Ширина буквы подписи: замерено на живой панели, с запасом вверх */
+const CHAR_W = 9;
+
+/**
+ * Влезут ли подписи в полосу кнопок.
+ *
+ * Одного счёта кнопок мало. Шесть кнопок с подписями требуют больше 700 точек,
+ * и на ноутбуке ряд не помещался — а полоса обрезана по краю, так что лишние
+ * кнопки просто исчезали: ни многоточия, ни прокрутки, ни следа.
+ *
+ * Ширина здесь — самой полосы кнопок, а не всей панели. Полоса тянется по
+ * остатку от Пуска и трея, и её ширина от содержимого не зависит: значит,
+ * подписи не могут то влезать, то не влезать от собственного исчезновения.
+ * Считать же по буквам приходится оттого, что мерить надо ДО отрисовки.
+ */
+export function labelsFit(titles: string[], width: number): boolean {
+  if (!width || !titles.length) return true; // нечего мерить — не мигаем подписями
+  return titles.reduce((sum, t) => sum + BTN_BASE + t.length * CHAR_W, 0) <= width;
+}
+
 export function badgeCount(kind: BadgeKind | undefined, counts: Counts): number {
   if (kind === 'mail') return Math.max(0, counts.mail | 0);
   if (kind === 'chat') return Math.max(0, counts.chat | 0);
@@ -69,6 +91,8 @@ export function buildTaskbar(
     activePath: string;
     counts: Counts;
     isAdmin?: boolean;
+    /** Ширина полосы кнопок в точках; 0 — ещё не измерена */
+    width?: number;
   },
 ): TaskbarView {
   const openSet = new Set(opts.open);
@@ -91,7 +115,7 @@ export function buildTaskbar(
 
   return {
     buttons,
-    labels: buttons.length <= LABELS_UNTIL,
+    labels: buttons.length <= LABELS_UNTIL && labelsFit(buttons.map((b) => b.title), opts.width || 0),
     tidy: opts.open.length >= TIDY_FROM,
   };
 }

@@ -9,21 +9,28 @@
  * src/lib/startMenu.ts — там же они и проверяются.
  */
 import React from 'react';
-import { Search, Settings, LogOut, Sun, Moon, ArrowRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, Settings, LogOut, Sun, Moon, ArrowRight, Pin, PinOff, FolderOpen } from 'lucide-react';
 import { SECTIONS } from '../workspace/sections';
 import { useStore } from '../store/store';
-import { useWorkspaceStore, rememberSectionUse, recentSections } from '../store/workspaceStore';
+import { rememberSectionUse, recentSections } from '../store/workspaceStore';
+import { useDesktopStore } from '../store/desktopStore';
 import { useInsightStore } from '../store/insightStore';
 import { groupSections, countFound, visibleRecent } from '../lib/startMenu';
+import ContextMenu, { MenuItem } from './ContextMenu';
 
 export default function StartMenu({ onClose }: { onClose: () => void }) {
   const user = useStore((s) => s.user);
   const setUser = useStore((s) => s.setUser);
   const theme = useStore((s) => s.theme);
   const toggleTheme = useStore((s) => s.toggleTheme);
-  const openInActivePane = useWorkspaceStore((s) => s.openInActivePane);
   const togglePalette = useInsightStore((s) => s.togglePalette);
+  const navigate = useNavigate();
+  const apps = useDesktopStore((s) => s.apps);
+  const pinApp = useDesktopStore((s) => s.pinApp);
+  const unpinApp = useDesktopStore((s) => s.unpinApp);
   const [q, setQ] = React.useState('');
+  const [menu, setMenu] = React.useState<{ x: number; y: number; path: string } | null>(null);
   const boxRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const isAdmin = user?.role === 'ADMIN';
@@ -53,8 +60,22 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
     [q, isAdmin],
   );
 
-  const go = (path: string) => { rememberSectionUse(path); openInActivePane(path); onClose(); };
+  // Открыть — только перейти по адресу. Окно или вкладку панели заводит сама
+  // оболочка: она одна знает, в каком виде сейчас показываются разделы, и
+  // меню не должно об этом гадать. Раньше здесь звали панели напрямую, и в
+  // оконной оболочке нажатие в Пуске не открывало ничего
+  const go = (path: string) => { rememberSectionUse(path); navigate(path); onClose(); };
   const iconOf = (path: string) => SECTIONS.find((s) => s.path === path)?.icon;
+
+  // Значок программы можно снять со стола — значит, его надо уметь вернуть.
+  // Место возврата очевидное: там же, где программы и перечислены
+  const pinned = (path: string) => apps.includes(path);
+  const menuItems: MenuItem[] = menu ? [
+    { label: 'Открыть', icon: <FolderOpen className="w-3.5 h-3.5" />, onClick: () => go(menu.path) },
+    pinned(menu.path)
+      ? { label: 'Убрать с рабочего стола', icon: <PinOff className="w-3.5 h-3.5" />, onClick: () => unpinApp(menu.path) }
+      : { label: 'Закрепить на рабочем столе', icon: <Pin className="w-3.5 h-3.5" />, onClick: () => pinApp(menu.path) },
+  ] : [];
 
   const Tile = ({ path, title }: { path: string; title: string }) => {
     const Icon = iconOf(path) as any;
@@ -62,7 +83,8 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
       <button
         type="button"
         onClick={() => go(path)}
-        title={title}
+        onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, path }); }}
+        title={pinned(path) ? `${title} — на рабочем столе` : title}
         className="flex flex-col items-center gap-2 p-3 rounded-xl cursor-pointer min-w-0
                    text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-850
                    transition-colors"
@@ -188,6 +210,8 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
           <LogOut className="w-4 h-4" />
         </button>
       </div>
+
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
     </div>
   );
 }

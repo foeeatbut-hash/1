@@ -66,6 +66,23 @@ console.log('Сжатие');
   check('ровно на пороге подписи ещё есть', eight.labels === true);
 }
 {
+  // Счёта кнопок мало: шесть длинных названий не влезают в ноутбучные 1180,
+  // а полоса обрезана по краю — кнопки исчезали без следа, ни многоточия, ни
+  // прокрутки. Ширина решает наравне с количеством
+  const long = ['Оборудование', 'Справочник', 'Конструктор', 'Проводник', 'Менеджмент', 'Руководство']
+    .map((title, i) => ({ path: `/p${i}`, title, pinned: true }));
+  const wide = buildTaskbar(long, { open: [], activePath: '/', counts: NONE, width: 1290 });
+  check('на широком экране подписи есть', wide.labels === true);
+  const narrow = buildTaskbar(long, { open: [], activePath: '/', counts: NONE, width: 720 });
+  check('на узком подписи уходят, а кнопки остаются', narrow.labels === false && narrow.buttons.length === 6, narrow.buttons.length);
+  const unknown = buildTaskbar(long, { open: [], activePath: '/', counts: NONE });
+  check('ширина не измерена — подписями не мигаем', unknown.labels === true);
+  check('короткие названия влезают и в узкую панель',
+    buildTaskbar([{ path: '/a', title: 'Теги', pinned: true }], { open: [], activePath: '/', counts: NONE, width: 200 }).labels === true);
+  check('пустая панель не спорит с шириной',
+    buildTaskbar([], { open: [], activePath: '/', counts: NONE, width: 400 }).labels === true);
+}
+{
   const open = Array.from({ length: TIDY_FROM }, (_, i) => `/p${i}`);
   const v = buildTaskbar(S, { open, activePath: '/', counts: NONE });
   check('на пороге предлагается прибраться', v.tidy === true);

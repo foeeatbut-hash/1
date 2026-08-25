@@ -61,6 +61,19 @@ export default function Taskbar() {
   const [menu, setMenu] = React.useState<{ x: number; y: number; path: string } | null>(null);
   const [userMenu, setUserMenu] = React.useState<{ x: number; y: number } | null>(null);
   const [startOpen, setStartOpen] = React.useState(false);
+  const rowRef = React.useRef<HTMLDivElement>(null);
+  const [width, setWidth] = React.useState(0);
+
+  // Ширину полосы кнопок меряем сами: влезут ли подписи, знает только экран.
+  // Полоса тянется по остатку и от своего содержимого не зависит — поэтому
+  // измерение устойчиво и подписи не мигают
+  React.useEffect(() => {
+    const el = rowRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setWidth(Math.round(el.getBoundingClientRect().width)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Раздел, открытый с панели или из меню, попадает в «недавние». Здесь, а не в
   // хранилище рабочего стола: список нужен только Пуску и переживает закрытие
@@ -98,8 +111,9 @@ export default function Taskbar() {
       activePath: highlighted,
       counts: { mail, chat: chatUnread },
       isAdmin: user?.role === 'ADMIN',
+      width,
     }),
-    [open, highlighted, mail, chatUnread, user?.role],
+    [open, highlighted, mail, chatUnread, user?.role, width],
   );
 
   const iconOf = (path: string) => SECTIONS.find((s) => s.path === path)?.icon;
@@ -129,7 +143,9 @@ export default function Taskbar() {
       aria-label="Панель задач"
       /* 52 точки: кнопка 36 плюс по 8 сверху и снизу. Ниже 48 — мажешь мимо,
          выше 56 — панель начинает есть экран */
-      className="relative z-30 h-[52px] shrink-0 flex items-center gap-1.5 px-3
+      /* Справа без отступа: последняя в ряду полоска «показать стол» обязана
+         доходить до самого края окна, иначе угол экрана перестаёт быть целью */
+      className="relative z-30 h-[52px] shrink-0 flex items-center gap-1.5 pl-3
                  bg-white dark:bg-dark-surface border-t border-slate-200 dark:border-dark-border"
     >
       {startOpen && <StartMenu onClose={() => setStartOpen(false)} />}
@@ -150,7 +166,7 @@ export default function Taskbar() {
 
       <div className="w-3 shrink-0" />
 
-      <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">
+      <div ref={rowRef} className="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">
         {view.buttons.map((b) => {
           const Icon = iconOf(b.path) as any;
           return (
@@ -194,8 +210,19 @@ export default function Taskbar() {
       </div>
 
       {view.tidy && (
-        <span className="shrink-0 text-2xs text-amber-700 dark:text-amber-400 px-2 whitespace-nowrap">
-          открыто много — <button type="button" onClick={() => (windowed ? tileAll() : openSection('/'))} className="underline cursor-pointer">{windowed ? 'разложить' : 'на Главную'}</button>
+        <span className="shrink-0 flex items-center gap-1.5 text-2xs text-amber-700 dark:text-amber-400 px-2 whitespace-nowrap">
+          открыто много —
+          {/* Настоящая кнопка, а не подчёркнутая строчка: в текст высотой в
+              четырнадцать точек надо целиться, и мимо попадают чаще, чем в него */}
+          <button
+            type="button"
+            onClick={() => (windowed ? tileAll() : openSection('/'))}
+            className="h-7 px-2 rounded-lg cursor-pointer font-semibold
+                       border border-amber-300 dark:border-amber-800
+                       hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors"
+          >
+            {windowed ? 'разложить' : 'на Главную'}
+          </button>
         </span>
       )}
 
@@ -252,7 +279,10 @@ export default function Taskbar() {
           onClick={() => (windowed ? minimizeAll() : openSection('/'))}
           title={windowed ? 'Показать стол — свернуть все окна' : 'Показать Главную'}
           aria-label={windowed ? 'Свернуть все окна' : 'Показать Главную'}
-          className="w-2.5 self-stretch my-1.5 ml-1 rounded-sm cursor-pointer
+          /* Во всю высоту панели и вплотную к краю окна: в угол экрана мышь
+             упирается и попадает не глядя — тем полоска и берёт, а не
+             размером. Отступы сверху и снизу этот угол отрезали */
+          className="w-3 self-stretch ml-1 cursor-pointer
                      border-l border-slate-200 dark:border-dark-border
                      hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors"
         />

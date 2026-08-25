@@ -1126,7 +1126,9 @@ export default function DictionaryEditor() {
           <div className="space-y-2">
             <button type="button"
               onClick={() => setShowTagCreationSidebar(!showTagCreationSidebar)}
-              className="w-full flex items-center justify-between text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 uppercase tracking-widest cursor-pointer select-none"
+              /* py-1.5: заголовок-переключатель был высотой в 16 точек — по
+                 такому промахиваются мышью чаще, чем попадают */
+              className="w-full flex items-center justify-between py-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 uppercase tracking-widest cursor-pointer select-none"
             >
               <span className="flex items-center gap-1.5">
                 <Settings className="w-3.5 h-3.5 text-emerald-500" />
