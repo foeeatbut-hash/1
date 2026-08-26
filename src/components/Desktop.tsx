@@ -48,6 +48,7 @@ export default function Desktop() {
   const {
     items, apps, cells, sortBy, selected, error, personalFolderId, trashCount,
     load, select, setCell, arrangeBy, unpinApp, createFolder, createDoc, rename, remove, share, setStatus,
+    acceptDrop,
   } = useDesktopStore();
   const openConfirm = useModalStore((s) => s.openConfirm);
   const addToast = useToastStore((s) => s.addToast);
@@ -59,6 +60,10 @@ export default function Desktop() {
   const [band, setBand] = React.useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
   const [dragging, setDragging] = React.useState<{ id: string; dx: number; dy: number; x: number; y: number } | null>(null);
   const [props, setProps] = React.useState<string | null>(null);
+  const [dropHere, setDropHere] = React.useState(false);
+  // Начатый перенос средствами браузера отменяет перенос указателем: иначе
+  // значок и уедет по сетке, и переедет в другую папку одним движением
+  const nativeDrag = React.useRef(false);
   // Вид стола личный и живёт рядом с местами значков: это привычка человека,
   // а не свойство проекта
   const [asList, setAsList] = React.useState(() => {
@@ -129,6 +134,7 @@ export default function Desktop() {
     const box = ref.current?.getBoundingClientRect();
     if (!cell || !box) return;
     e.preventDefault();
+    nativeDrag.current = false;
     const at = cellToXY(cell);
     // Смещение внутри значка запоминаем, иначе значок «прыгает» под курсор
     const dx = e.clientX - box.left - at.x;
@@ -140,6 +146,7 @@ export default function Desktop() {
       const y = ev.clientY - box.top - dy;
       // Четыре точки: дрожание руки при нажатии не должно считаться переносом,
       // иначе значки разъезжаются от простых нажатий
+      if (nativeDrag.current) { moved = false; return; }
       if (!moved && Math.abs(x - at.x) < 4 && Math.abs(y - at.y) < 4) return;
       moved = true;
       setDragging({ id: item.id, dx, dy, x, y });
@@ -271,6 +278,44 @@ export default function Desktop() {
   const propsItem = props ? all.find((i) => i.id === props) || null : null;
 
   /**
+   * Перенос между столом и Проводником — средствами браузера, тем же
+   * содержимым, что кладёт Проводник (`app_items`). Так документ переносится
+   * в обе стороны одним и тем же запросом; свой формат означал бы, что
+   * перенос со стола и перенос в Проводнике однажды разойдутся.
+   *
+   * Пометка «desk» отличает перекладывание значка по столу от переноса файла
+   * в другую папку: снаружи это одно движение, а внутри — разные вещи.
+   */
+  const onIconDragStart = (e: React.DragEvent, item: DeskItem) => {
+    if (isSystemKind(item.kind)) { e.preventDefault(); return; }
+    nativeDrag.current = true;
+    setDragging(null);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'app_items', ids: [item.id], desk: true }));
+  };
+
+  const onDeskDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDropHere(false);
+    const box = ref.current?.getBoundingClientRect();
+    let data: any = null;
+    try { data = JSON.parse(e.dataTransfer.getData('text/plain') || 'null'); } catch (_) { data = null; }
+    if (!data || data.type !== 'app_items' || !Array.isArray(data.ids)) return;
+
+    // Со стола на стол — это перекладывание значка, а не перенос файла
+    if (data.desk) {
+      if (!box || asList) return;
+      const cell = xyToCell(e.clientX - box.left + CELL_W / 2 - 24, e.clientY - box.top + CELL_H / 2 - 24, area);
+      setCell(data.ids[0], cell, area);
+      return;
+    }
+    try {
+      await acceptDrop(data.ids, projectId);
+      addToast(data.ids.length > 1 ? 'Перенесено на ваш стол' : 'Документ на вашем столе', 'success');
+    } catch (err: any) { addToast(err?.message || 'Не удалось перенести на стол', 'error'); }
+  };
+
+  /**
    * Клавиши стола. Правила — в src/lib/deskKeys.ts: там же и проверки, потому
    * что перехваченное не вовремя сочетание не падает и не мигает, а молча
    * отнимает клавишу у того, кто печатает.
@@ -306,7 +351,19 @@ export default function Desktop() {
       ref={ref}
       onPointerDown={asList ? undefined : startBand}
       onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, id: null }); }}
-      className="absolute inset-0 overflow-hidden select-none"
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+      onDragEnter={(e) => {
+        // Подсветка только для чужого: своё перекладывание по столу и так видно
+        try {
+          const raw = e.dataTransfer.types.includes('text/plain');
+          if (raw) setDropHere(true);
+        } catch (_) { /* некоторые источники не дают заглянуть в содержимое */ }
+      }}
+      onDragLeave={(e) => { if (e.currentTarget === e.target) setDropHere(false); }}
+      onDrop={onDeskDrop}
+      className={`absolute inset-0 overflow-hidden select-none ${
+        dropHere ? 'ring-2 ring-inset ring-emerald-500/60 bg-emerald-500/5' : ''
+      }`}
     >
       {error && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 px-3 py-1.5 rounded-lg text-2xs font-semibold
@@ -347,6 +404,9 @@ export default function Desktop() {
             onRenameChange={(v) => setRenaming({ id: item.id, value: v })}
             onRenameCommit={() => { if (renaming) rename(item.id, renaming.value, projectId); setRenaming(null); }}
             onRenameCancel={() => setRenaming(null)}
+            draggable={!isSystemKind(item.kind)}
+            onDragStart={(e) => onIconDragStart(e, item)}
+            onDragEnd={() => { nativeDrag.current = false; setDragging(null); }}
             onPointerDown={(e) => { e.stopPropagation(); select([item.id]); startDrag(e as any, item); }}
             onDoubleClick={() => openItem(item)}
             onContextMenu={(e) => {

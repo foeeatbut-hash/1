@@ -61,7 +61,10 @@ export default function DeskIcon({
   onRenameChange: (v: string) => void;
   onRenameCommit: () => void;
   onRenameCancel: () => void;
-} & Pick<React.HTMLAttributes<HTMLDivElement>, 'onPointerDown' | 'onDoubleClick' | 'onContextMenu'>) {
+} & Pick<
+  React.HTMLAttributes<HTMLDivElement>,
+  'onPointerDown' | 'onDoubleClick' | 'onContextMenu' | 'onDragStart' | 'onDragEnd' | 'draggable'
+>) {
   const st = statusOf(item.status);
   const showStatus = !isSystemKind(item.kind) && item.kind !== 'folder';
   /**

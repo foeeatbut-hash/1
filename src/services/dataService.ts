@@ -801,6 +801,18 @@ export const dataService = {
     return request(isFile ? `/files/${id}` : `/folders/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
   },
 
+  /**
+   * Перенос файлов и папок в другую папку — тот же запрос, которым двигает
+   * Проводник. Один путь на обе стороны: разойдись они, перенос со стола в
+   * Проводник и обратно вели бы себя по-разному
+   */
+  async moveNodes(ids: string[], targetFolderId: string | null, targetScope?: 'SHARED' | 'PERSONAL', targetOwnerId?: string | null): Promise<any> {
+    return request('/files/copy', {
+      method: 'POST',
+      body: JSON.stringify({ ids, targetFolderId, isCut: true, targetScope, targetOwnerId }),
+    });
+  },
+
   /** Статус документооборота: D черновик → C на проверке → B согласован → A выдан */
   async setFileStatus(id: string, statusCode: string): Promise<any> {
     return request(`/files/${id}`, { method: 'PATCH', body: JSON.stringify({ statusCode }) });

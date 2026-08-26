@@ -68,6 +68,8 @@ interface DesktopState {
   remove: (id: string, projectId: string) => Promise<void>;
   share: (id: string, to: 'SHARED' | 'PERSONAL', projectId: string) => Promise<void>;
   setStatus: (id: string, code: string, projectId: string) => Promise<void>;
+  /** Перетащили с Проводника на стол: кладём в свою папку стола */
+  acceptDrop: (ids: string[], projectId: string) => Promise<void>;
   /** Сколько лежит в корзине Проводника — числом на значке корзины */
   trashCount: number;
 }
@@ -203,6 +205,16 @@ export const useDesktopStore = create<DesktopState>((set, get) => ({
   // над документом, — а закончив, человек смотрит на стол, а не в Проводник
   setStatus: async (id, code, projectId) => {
     await dataService.setFileStatus(id, code);
+    await get().load(projectId);
+  },
+
+  // Перенос на стол — обычный перенос в папку Проводника, тем же запросом.
+  // Кладём на личный стол: положить документ всем на виду случайным
+  // перетаскиванием нельзя, для этого есть отдельное «Положить на общий стол»
+  acceptDrop: async (ids, projectId) => {
+    const target = get().personalFolderId || get().sharedFolderId;
+    if (!target || !ids.length) return;
+    await dataService.moveNodes(ids, target);
     await get().load(projectId);
   },
 }));
