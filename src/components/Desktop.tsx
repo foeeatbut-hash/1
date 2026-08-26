@@ -3,14 +3,15 @@
  *
  * На столе лежат две разные вещи, и различие видно и на глаз, и в Проводнике:
  *
- *   — программы (разделы Flux) — системные ярлыки. Их нет в Проводнике и нет в
- *     базе: это привычка сотрудника, а не документ проекта;
+ *   — системные значки (разделы Flux и корзина). Их нет в Проводнике и нет в
+ *     базе: это привычка сотрудника и вид Проводника, а не документы проекта;
  *   — файлы и папки — настоящие. Лежат в системной папке «Рабочий стол» — своей
  *     у каждого и одной общей на проект, — и из Проводника видны там же.
  *     Значок из общей папки помечен: по нему сразу видно, что документ видят все.
  *
- * Значки рисуются теми же картинками, что в Проводнике: один документ обязан
- * выглядеть одинаково там и там, иначе человек решит, что это разные файлы.
+ * У стола два вида: значками и списком. Значки отвечают на «где лежит», список —
+ * на «что с этим»: тег, стадия, ревизия, кто менял. Колонки те же, что в
+ * Проводнике, иначе один документ был бы описан в двух местах по-разному.
  *
  * Раскладку (клетки, свободные места, что не поместилось) считает
  * src/lib/desktop.ts — там же и проверки: значок под значком и значок за краем
@@ -19,47 +20,34 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Folder, FileSpreadsheet, FileText, File as FileIcon, StickyNote,
-  FolderPlus, Table, Type, Users, Lock, RefreshCw, ArrowDownAZ, Clock, Shapes,
-  Pencil, Trash2, FolderOpen, PinOff,
+  FolderPlus, Table, Type, StickyNote, Users, Lock, RefreshCw, ArrowDownAZ, Clock, Shapes,
+  Pencil, Trash2, FolderOpen, PinOff, Info, LayoutGrid, List,
 } from 'lucide-react';
-import { SECTIONS } from '../workspace/sections';
 import { useStore } from '../store/store';
 import { useDesktopStore } from '../store/desktopStore';
 import { rememberSectionUse } from '../store/workspaceStore';
 import { useModalStore } from '../store/modalStore';
 import { useToastStore } from '../store/toastStore';
 import {
-  cellToXY, xyToCell, layout, withApps, CELL_W, CELL_H,
+  cellToXY, xyToCell, layout, withApps, isSystemKind, BIN_ID, CELL_W, CELL_H,
   type DeskItem, type SortBy,
 } from '../lib/desktop';
+import { deskAction, isTyping } from '../lib/deskKeys';
 import ContextMenu, { MenuItem } from './ContextMenu';
+import DeskIcon, { titleOf } from './desktop/DeskIcon';
+import DeskList from './desktop/DeskList';
+import DeskProperties from './desktop/DeskProperties';
 
-const iconClass = 'w-9 h-9';
-
-/** Те же картинки, что в Проводнике: один файл — одна картинка везде */
-function ItemIcon({ item }: { item: DeskItem }) {
-  if (item.kind === 'app') {
-    const Icon = SECTIONS.find((s) => s.path === item.path)?.icon as any;
-    return Icon ? <Icon className={`${iconClass} text-emerald-600 dark:text-emerald-400`} /> : <Shapes className={iconClass} />;
-  }
-  if (item.kind === 'folder') return <Folder className={`${iconClass} text-amber-500 fill-amber-200`} />;
-  if (item.kind === 'note') return <StickyNote className={`${iconClass} text-amber-500`} />;
-  if (item.kind === 'text') return <FileText className={`${iconClass} text-emerald-600`} />;
-  if (item.kind === 'doc') return <FileSpreadsheet className={`${iconClass} text-emerald-600`} />;
-  return <FileIcon className={`${iconClass} text-slate-400`} />;
-}
-
-const titleOf = (item: DeskItem): string =>
-  item.kind === 'app' ? (SECTIONS.find((s) => s.path === item.path)?.title || item.path || '') : item.name;
+/** Корзина — это вид Проводника, поэтому и открывается им */
+const BIN_HREF = '/explorer?folder=trash%3Aroot';
 
 export default function Desktop() {
   const activeProject = useStore((s) => s.activeProject);
   const user = useStore((s) => s.user);
   const navigate = useNavigate();
   const {
-    items, apps, cells, sortBy, selected, error, personalFolderId,
-    load, select, setCell, arrangeBy, unpinApp, createFolder, createDoc, rename, remove, share,
+    items, apps, cells, sortBy, selected, error, personalFolderId, trashCount,
+    load, select, setCell, arrangeBy, unpinApp, createFolder, createDoc, rename, remove, share, setStatus,
   } = useDesktopStore();
   const openConfirm = useModalStore((s) => s.openConfirm);
   const addToast = useToastStore((s) => s.addToast);
@@ -70,6 +58,16 @@ export default function Desktop() {
   const [renaming, setRenaming] = React.useState<{ id: string; value: string } | null>(null);
   const [band, setBand] = React.useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
   const [dragging, setDragging] = React.useState<{ id: string; dx: number; dy: number; x: number; y: number } | null>(null);
+  const [props, setProps] = React.useState<string | null>(null);
+  // Вид стола личный и живёт рядом с местами значков: это привычка человека,
+  // а не свойство проекта
+  const [asList, setAsList] = React.useState(() => {
+    try { return localStorage.getItem('flux_desk_view') === 'list'; } catch (_) { return false; }
+  });
+  const setView = (list: boolean) => {
+    try { localStorage.setItem('flux_desk_view', list ? 'list' : 'icons'); } catch (_) { /* приватный режим */ }
+    setAsList(list);
+  };
 
   const projectId = activeProject?.id || '';
   React.useEffect(() => { load(projectId); }, [projectId, load]);
@@ -102,6 +100,7 @@ export default function Desktop() {
 
   const openItem = (item: DeskItem) => {
     if (item.kind === 'app' && item.path) return go(item.path);
+    if (item.kind === 'bin') return go(BIN_HREF);
     // Папка стола открывается в Проводнике: второго проводника у программы нет,
     // и заводить его ради стола — значит развести два разных дерева одних папок
     if (item.kind === 'folder') return go(`/explorer?folder=${encodeURIComponent(item.id)}`);
@@ -198,6 +197,7 @@ export default function Desktop() {
 
   const doRemove = async (item: DeskItem) => {
     if (item.kind === 'app') { unpinApp(item.path || ''); return; }
+    if (item.kind === 'bin') return; // корзину со стола не убирают
     const ok = await openConfirm(
       item.kind === 'folder' ? 'Убрать папку со стола?' : 'Убрать файл со стола?',
       'Со стола он уйдёт в корзину Проводника — оттуда его можно вернуть.',
@@ -225,10 +225,13 @@ export default function Desktop() {
   const target = menu?.id ? all.find((i) => i.id === menu.id) || null : null;
   const canPersonal = !!personalFolderId && !!user;
 
-  const itemMenu = (item: DeskItem): MenuItem[] => item.kind === 'app'
+  const itemMenu = (item: DeskItem): MenuItem[] => isSystemKind(item.kind)
     ? [
       { label: 'Открыть', icon: <FolderOpen className="w-3.5 h-3.5" />, onClick: () => openItem(item) },
-      { label: 'Убрать со стола', icon: <PinOff className="w-3.5 h-3.5" />, onClick: () => unpinApp(item.path || '') },
+      ...(item.kind === 'app'
+        ? [{ label: 'Убрать со стола', icon: <PinOff className="w-3.5 h-3.5" />, onClick: () => unpinApp(item.path || '') }]
+        : []),
+      { label: 'Свойства', icon: <Info className="w-3.5 h-3.5" />, onClick: () => setProps(item.id) },
     ]
     : [
       { label: 'Открыть', icon: <FolderOpen className="w-3.5 h-3.5" />, onClick: () => openItem(item) },
@@ -239,6 +242,7 @@ export default function Desktop() {
         disabled: item.shared && !canPersonal,
         onClick: () => doShare(item),
       },
+      { label: 'Свойства', icon: <Info className="w-3.5 h-3.5" />, onClick: () => setProps(item.id) },
       { label: 'Убрать со стола', icon: <Trash2 className="w-3.5 h-3.5" />, danger: true, onClick: () => doRemove(item) },
     ];
 
@@ -254,14 +258,53 @@ export default function Desktop() {
     { label: sortBy === 'name' ? 'Упорядочить по имени ✓' : 'Упорядочить по имени', icon: <ArrowDownAZ className="w-3.5 h-3.5" />, onClick: () => arrangeBy('name', area) },
     { label: sortBy === 'date' ? 'Упорядочить по дате ✓' : 'Упорядочить по дате', icon: <Clock className="w-3.5 h-3.5" />, onClick: () => arrangeBy('date', area) },
     { label: sortBy === 'kind' ? 'Упорядочить по типу ✓' : 'Упорядочить по типу', icon: <Shapes className="w-3.5 h-3.5" />, onClick: () => arrangeBy('kind', area) },
+    { label: sortBy === 'status' ? 'Упорядочить по стадии ✓' : 'Упорядочить по стадии', icon: <Shapes className="w-3.5 h-3.5" />, onClick: () => arrangeBy('status', area) },
+    {
+      label: asList ? 'Показать значками' : 'Показать списком',
+      icon: asList ? <LayoutGrid className="w-3.5 h-3.5" /> : <List className="w-3.5 h-3.5" />,
+      onClick: () => setView(!asList),
+    },
     { label: 'Обновить', icon: <RefreshCw className="w-3.5 h-3.5" />, onClick: () => load(projectId) },
     { label: 'Открыть в Проводнике', icon: <FolderOpen className="w-3.5 h-3.5" />, onClick: () => go('/explorer') },
   ];
 
+  const propsItem = props ? all.find((i) => i.id === props) || null : null;
+
+  /**
+   * Клавиши стола. Правила — в src/lib/deskKeys.ts: там же и проверки, потому
+   * что перехваченное не вовремя сочетание не падает и не мигает, а молча
+   * отнимает клавишу у того, кто печатает.
+   *
+   * Окно поверх стола забирает клавиши себе: пока открыт Конструктор, Delete
+   * относится к ячейке таблицы, а не к значку под окном.
+   */
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (renaming) return;
+      const act = deskAction(e, {
+        typing: isTyping(document.activeElement as any),
+        hasSelection: selected.length > 0,
+      });
+      if (!act) return;
+      const one = selected.length === 1 ? all.find((i) => i.id === selected[0]) : null;
+      if (act === 'clearSelection') { select([]); setProps(null); return; }
+      if (act === 'selectAll') { e.preventDefault(); select(all.map((i) => i.id)); return; }
+      if (act === 'refresh') { e.preventDefault(); load(projectId); return; }
+      if (act === 'toggleView') { setView(!asList); return; }
+      if (!one) return;
+      if (act === 'open') { e.preventDefault(); openItem(one); }
+      if (act === 'properties') { e.preventDefault(); setProps(one.id); }
+      if (act === 'rename' && !isSystemKind(one.kind)) { e.preventDefault(); setRenaming({ id: one.id, value: one.name }); }
+      if (act === 'remove') { e.preventDefault(); doRemove(one); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   return (
     <div
       ref={ref}
-      onPointerDown={startBand}
+      onPointerDown={asList ? undefined : startBand}
       onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, id: null }); }}
       className="absolute inset-0 overflow-hidden select-none"
     >
@@ -272,69 +315,50 @@ export default function Desktop() {
         </div>
       )}
 
-      {all.map((item) => {
+      {asList ? (
+        <DeskList
+          items={all}
+          selected={selected}
+          sortBy={sortBy}
+          onSort={(by) => arrangeBy(by, area)}
+          onSelect={select}
+          onOpen={openItem}
+          onMenu={(e, item) => {
+            e.preventDefault(); e.stopPropagation();
+            select([item.id]);
+            setMenu({ x: e.clientX, y: e.clientY, id: item.id });
+          }}
+        />
+      ) : all.map((item) => {
         const cell = view.cells.get(item.id);
         if (!cell) return null;
         const at = cellToXY(cell);
         const isDragged = dragging?.id === item.id;
-        const pos = isDragged ? { left: dragging.x, top: dragging.y } : { left: at.x, top: at.y };
-        const isSelected = selected.includes(item.id);
         return (
-          <div
+          <DeskIcon
             key={item.id}
-            style={{ ...pos, width: CELL_W, height: CELL_H, zIndex: isDragged ? 5 : 1 }}
-            onPointerDown={(e) => { e.stopPropagation(); select([item.id]); startDrag(e, item); }}
+            item={item}
+            x={isDragged ? dragging.x : at.x}
+            y={isDragged ? dragging.y : at.y}
+            selected={selected.includes(item.id)}
+            dragged={isDragged}
+            badge={item.id === BIN_ID ? trashCount : undefined}
+            renaming={renaming?.id === item.id ? renaming.value : null}
+            onRenameChange={(v) => setRenaming({ id: item.id, value: v })}
+            onRenameCommit={() => { if (renaming) rename(item.id, renaming.value, projectId); setRenaming(null); }}
+            onRenameCancel={() => setRenaming(null)}
+            onPointerDown={(e) => { e.stopPropagation(); select([item.id]); startDrag(e as any, item); }}
             onDoubleClick={() => openItem(item)}
-            onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); select([item.id]); setMenu({ x: e.clientX, y: e.clientY, id: item.id }); }}
-            title={titleOf(item)}
-            className={`absolute flex flex-col items-center gap-1 pt-2 px-1 rounded-lg cursor-default
-                        ${isDragged ? 'opacity-70' : ''}
-                        ${isSelected ? 'bg-emerald-500/15 ring-1 ring-emerald-500/50' : 'hover:bg-slate-500/10'}`}
-          >
-            <span className="relative shrink-0">
-              <ItemIcon item={item} />
-              {/* Метка общего доступа: по значку сразу видно, что документ видят
-                  все. Без неё «положил на стол» и «выложил всем» неразличимы */}
-              {item.shared && item.kind !== 'app' && (
-                <span
-                  aria-label="Лежит на общем столе"
-                  className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center
-                             bg-sky-600 text-white border-2 border-slate-100 dark:border-dark-bg"
-                >
-                  <Users className="w-2 h-2" />
-                </span>
-              )}
-            </span>
-            {renaming?.id === item.id ? (
-              <input
-                autoFocus
-                value={renaming.value}
-                onChange={(e) => setRenaming({ id: item.id, value: e.target.value })}
-                onPointerDown={(e) => e.stopPropagation()}
-                onBlur={() => { rename(item.id, renaming.value, projectId); setRenaming(null); }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') { rename(item.id, renaming.value, projectId); setRenaming(null); }
-                  if (e.key === 'Escape') setRenaming(null);
-                }}
-                className="w-full text-2xs text-center rounded border border-emerald-500 outline-none px-1
-                           bg-white dark:bg-slate-900 text-slate-900 dark:text-white select-text"
-              />
-            ) : (
-              <span
-                /* Две строки и обрыв: «Ведомость оборудования системы В-1» не
-                   должна наезжать на соседний значок */
-                className={`w-full text-center text-2xs leading-tight line-clamp-2 break-words ${
-                  isSelected ? 'text-emerald-900 dark:text-emerald-100 font-semibold' : 'text-slate-700 dark:text-slate-150'
-                }`}
-              >
-                {titleOf(item)}
-              </span>
-            )}
-          </div>
+            onContextMenu={(e) => {
+              e.preventDefault(); e.stopPropagation();
+              select([item.id]);
+              setMenu({ x: e.clientX, y: e.clientY, id: item.id });
+            }}
+          />
         );
       })}
 
-      {band && (
+      {band && !asList && (
         <div
           aria-hidden
           style={{
@@ -347,16 +371,33 @@ export default function Desktop() {
 
       {/* Что не поместилось — сказано вслух. Молча спрятать значок значит
           показать человеку пустое место там, где лежит его документ */}
-      {view.overflow.length > 0 && (
+      {!asList && view.overflow.length > 0 && (
         <button
           type="button"
-          onClick={() => go('/explorer')}
+          onClick={() => setView(true)}
           className="absolute bottom-3 right-3 z-[6] px-2.5 py-1 rounded-lg cursor-pointer text-2xs font-semibold
                      bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400
                      border border-amber-200 dark:border-amber-900 hover:brightness-95"
         >
-          ещё {view.overflow.length} не поместилось — открыть в Проводнике
+          ещё {view.overflow.length} не поместилось — показать списком
         </button>
+      )}
+
+      {propsItem && (
+        <DeskProperties
+          item={propsItem}
+          onClose={() => setProps(null)}
+          onStatus={async (code) => {
+            try { await setStatus(propsItem.id, code, projectId); }
+            catch (e: any) { addToast(e?.message || 'Не удалось сменить стадию', 'error'); }
+          }}
+          onOpenPlace={() => {
+            setProps(null);
+            if (propsItem.folderId) {
+              go(`/explorer?file=${encodeURIComponent(propsItem.id)}&folder=${encodeURIComponent(propsItem.folderId)}`);
+            } else go(`/explorer?folder=${encodeURIComponent(propsItem.id)}`);
+          }}
+        />
       )}
 
       {menu && (

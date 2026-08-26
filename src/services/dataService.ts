@@ -779,7 +779,7 @@ export const dataService = {
   // запросами выше. Здесь только то, что своё: чтение обеих папок сразу,
   // создание на столе и перенос между общим и личным столом.
   async getDesktop(projectId: string): Promise<{
-    sharedFolderId: string; personalFolderId: string | null; files: any[]; folders: any[];
+    sharedFolderId: string; personalFolderId: string | null; files: any[]; folders: any[]; trashCount: number;
   }> {
     return request(`/desktop?projectId=${encodeURIComponent(projectId || '')}`);
   },
@@ -799,6 +799,11 @@ export const dataService = {
   /** Переименование файла или папки — то же, что в Проводнике */
   async renameNode(id: string, isFile: boolean, name: string): Promise<any> {
     return request(isFile ? `/files/${id}` : `/folders/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+  },
+
+  /** Статус документооборота: D черновик → C на проверке → B согласован → A выдан */
+  async setFileStatus(id: string, statusCode: string): Promise<any> {
+    return request(`/files/${id}`, { method: 'PATCH', body: JSON.stringify({ statusCode }) });
   },
 
   /** Удаление мягкое: содержимое уходит в корзину Проводника и восстановимо */

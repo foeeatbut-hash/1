@@ -67,6 +67,9 @@ interface DesktopState {
   rename: (id: string, name: string, projectId: string) => Promise<void>;
   remove: (id: string, projectId: string) => Promise<void>;
   share: (id: string, to: 'SHARED' | 'PERSONAL', projectId: string) => Promise<void>;
+  setStatus: (id: string, code: string, projectId: string) => Promise<void>;
+  /** Сколько лежит в корзине Проводника — числом на значке корзины */
+  trashCount: number;
 }
 
 /** Имя нового документа: дата, а не «Документ 1» — по ней его потом и ищут */
@@ -87,6 +90,7 @@ export const useDesktopStore = create<DesktopState>((set, get) => ({
   error: '',
   personalFolderId: null,
   sharedFolderId: null,
+  trashCount: 0,
 
   load: async (projectId) => {
     set({ loading: true, error: '' });
@@ -99,6 +103,11 @@ export const useDesktopStore = create<DesktopState>((set, get) => ({
         shared: f.scope !== 'PERSONAL',
         refId: f.refId || null,
         folderId: f.folderId || null,
+        status: f.statusCode || 'D',
+        revision: f.revision || '1',
+        tag: (f.mainTags || [])[0]?.identifier || '',
+        updatedBy: f.updatedBy?.name || f.createdBy?.name || '',
+        size: Number(f.size) || 0,
         updatedAt: f.updatedAt || f.createdAt || null,
       }));
       const folders: DeskItem[] = (r.folders || []).map((f: any) => ({
@@ -109,6 +118,7 @@ export const useDesktopStore = create<DesktopState>((set, get) => ({
         items: [...folders, ...files],
         personalFolderId: r.personalFolderId || null,
         sharedFolderId: r.sharedFolderId || null,
+        trashCount: Number(r.trashCount) || 0,
         loading: false,
       });
     } catch (err: any) {
@@ -186,6 +196,13 @@ export const useDesktopStore = create<DesktopState>((set, get) => ({
 
   share: async (id, to, projectId) => {
     await dataService.moveDesktopItem(projectId, id, to);
+    await get().load(projectId);
+  },
+
+  // Статус меняется прямо со стола: чаще всего его и меняют, закончив работу
+  // над документом, — а закончив, человек смотрит на стол, а не в Проводник
+  setStatus: async (id, code, projectId) => {
+    await dataService.setFileStatus(id, code);
     await get().load(projectId);
   },
 }));

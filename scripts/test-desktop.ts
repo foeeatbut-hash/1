@@ -97,7 +97,19 @@ console.log('Упорядочивание');
   const pinned = withApps([item('f1', { name: 'Акт' })], ['/яблоко', '/абрикос']);
   const kept = sortItems(pinned, 'name');
   check('закреплённые программы порядка не меняют', kept.slice(0, 2).map((i) => i.path).join(',') === '/яблоко,/абрикос', kept.map((i) => i.path || i.name));
-  check('и всё равно стоят впереди файлов', kept[2].kind === 'file');
+  check('корзина идёт следом за программами', kept[2].kind === 'bin', kept.map((i) => i.kind));
+  check('и всё системное стоит впереди файлов', kept[3].kind === 'file', kept.map((i) => i.kind));
+
+  // Статус: наверху то, что ещё ждёт работы, внизу выданное
+  const byStatus = sortItems([
+    item('a', { name: 'Выдан', status: 'A' }),
+    item('d', { name: 'Черновик', status: 'D' }),
+    item('c', { name: 'Проверка', status: 'C' }),
+    item('b', { name: 'Согласован', status: 'B' }),
+  ], 'status');
+  check('порядок статусов: черновик → выдан', byStatus.map((i) => i.status).join('') === 'DCBA', byStatus.map((i) => i.status));
+  const noStatus = sortItems([item('x', { name: 'Б' }), item('y', { name: 'А', status: 'A' })], 'status');
+  check('файл без статуса считается черновиком', noStatus[0].id === 'x', noStatus.map((i) => i.id));
 
   const cells = arrange(items, 'name', AREA);
   check('упорядочивание расставило всех', Object.keys(cells).length === 4);
