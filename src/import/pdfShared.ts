@@ -2,10 +2,37 @@
 // чтобы извлечение текста и последующий OCR не парсили один и тот же файл дважды.
 // Работает в браузере (воркер) и в Node (legacy-сборка для тестов).
 
+/**
+ * pdf.js 6 зовёт Map.prototype.getOrInsertComputed — метод из предложения,
+ * которого нет ни в одном выпущенном браузере (и в Chromium нашей сборки тоже
+ * нет). Без него страница просто не рисуется: ошибка вылетает внутри воркера,
+ * канва остаётся прозрачной, и снаружи это выглядит как «чертёж не
+ * открывается». Дописываем метод сами — он определён однозначно: есть ключ —
+ * вернуть значение, нет — посчитать, положить, вернуть.
+ */
+function ensureMapGetOrInsert(): void {
+  for (const Ctor of [Map, WeakMap] as any[]) {
+    const proto = Ctor?.prototype;
+    if (!proto || typeof proto.getOrInsertComputed === 'function') continue;
+    proto.getOrInsertComputed = function (key: any, callback: (k: any) => any) {
+      if (this.has(key)) return this.get(key);
+      const value = callback(key);
+      this.set(key, value);
+      return value;
+    };
+    proto.getOrInsert = function (key: any, value: any) {
+      if (this.has(key)) return this.get(key);
+      this.set(key, value);
+      return value;
+    };
+  }
+}
+
 let pdfjsPromise: Promise<any> | null = null;
 
 export async function loadPdfJs(): Promise<any> {
   if (pdfjsPromise) return pdfjsPromise;
+  ensureMapGetOrInsert();
   pdfjsPromise = (async () => {
     if (typeof window !== 'undefined') {
       const pdfjs: any = await import('pdfjs-dist');

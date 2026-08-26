@@ -190,6 +190,25 @@ app.get('/api/projects/:projectId/trash', async (req: Request, res: Response) =>
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+/**
+ * Один файл целиком, вместе с содержимым.
+ *
+ * Список файлов содержимое не отдаёт — на сотне чертежей это десятки мегабайт
+ * в каждом ответе. Редактору ПДФ нужен именно файл, поэтому для него отдельный
+ * маршрут, а не «добавим content в список».
+ */
+app.get('/api/files/:id', async (req: Request, res: Response) => {
+  const prisma = getPrisma();
+  try {
+    const file = await prisma.fileNode.findUnique({
+      where: { id: req.params.id },
+      include: { mainTags: true, createdBy: { select: { id: true, name: true } } },
+    });
+    if (!file || file.deletedAt) return res.status(404).json({ error: 'Файл не найден' });
+    res.json({ file });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/files/:id/restore', async (req: Request, res: Response) => {
   const prisma = getPrisma();
   try {
