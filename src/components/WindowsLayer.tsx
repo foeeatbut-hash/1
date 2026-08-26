@@ -15,6 +15,7 @@ import { SECTIONS, isKnownSection, sectionForPath } from '../workspace/sections'
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useWindowStore } from '../store/windowStore';
 import { snapZoneAt, type Edge, type SnapZone, type WinState } from '../lib/windows';
+import { deskAction, isTyping, nextInCycle } from '../lib/deskKeys';
 import SectionFrame, { asHref } from './SectionFrame';
 import Desktop from './Desktop';
 
@@ -210,6 +211,30 @@ export default function WindowsLayer() {
     if (now && now.path === location.pathname) return;
     st.open(location.pathname);
   }, [location]);
+
+  /**
+   * Клавиши окон: Alt+Tab по кругу, Ctrl+F4 закрыть, Ctrl+Alt+D показать стол.
+   * Alt+Tab работает и во время набора — это переключение между окнами, а не
+   * правка содержимого, и отбирать его у человека нельзя (см. src/lib/deskKeys).
+   */
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const act = deskAction(e, { typing: isTyping(document.activeElement as any), hasSelection: false });
+      if (act !== 'nextWindow' && act !== 'prevWindow' && act !== 'closeWindow' && act !== 'minimizeAll') return;
+      const st = useWindowStore.getState();
+      if (!st.windows.length) return;
+      e.preventDefault();
+      if (act === 'minimizeAll') { st.minimizeAll(); return; }
+      const cur = st.windows.filter((w) => !w.minimized).reduce<typeof st.windows[number] | null>(
+        (a, b) => (!a || b.z > a.z ? b : a), null,
+      );
+      if (act === 'closeWindow') { if (cur) st.close(cur.id); return; }
+      const next = nextInCycle(st.windows, cur?.id || null, act === 'prevWindow');
+      if (next) st.focus(next.id);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const visible = windows.filter((w) => !w.minimized).length;
 

@@ -53,18 +53,29 @@ export function registerDesktopRoutes(app: Express): void {
       const personal = me ? await ensureDeskFolder(projectId, 'PERSONAL', me) : null;
       const ids = [shared.id, ...(personal ? [personal.id] : [])];
 
-      const [files, folders] = await Promise.all([
+      const [files, folders, trashCount] = await Promise.all([
+        // Теги и тот, кто менял последним, нужны прямо на столе: значок обязан
+        // показывать не только имя файла, но и то, ради чего в Flux вообще
+        // ведут документацию, — ревизию, статус и владельца
         prisma.fileNode.findMany({
           where: { folderId: { in: ids }, deletedAt: null },
           orderBy: { name: 'asc' },
+          include: { mainTags: true, updatedBy: true, createdBy: true },
         }),
         prisma.folder.findMany({
           where: { parentId: { in: ids }, deletedAt: null },
           orderBy: { name: 'asc' },
         }),
+        // Число на значке корзины: пустая она или нет, видно не заходя в неё.
+        // Считаем и папки — в корзине Проводника лежат и они, и показывать
+        // «пусто» на непустой корзине нельзя
+        Promise.all([
+          prisma.fileNode.count({ where: { deletedAt: { not: null }, type: { not: 'CHAT_FILE' } } }),
+          prisma.folder.count({ where: { projectId, deletedAt: { not: null } } }),
+        ]).then(([f, d]: number[]) => f + d),
       ]);
 
-      res.json({ sharedFolderId: shared.id, personalFolderId: personal?.id || null, files, folders });
+      res.json({ sharedFolderId: shared.id, personalFolderId: personal?.id || null, files, folders, trashCount });
     } catch (err: any) { sendError(res, err); }
   });
 

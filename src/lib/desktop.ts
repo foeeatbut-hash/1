@@ -12,8 +12,14 @@
  * (см. overflow в layout) — вместо того чтобы молча исчезнуть.
  */
 
-/** Что лежит на столе. Программы — не файлы, см. пояснение в desktopStore */
-export type DeskKind = 'app' | 'folder' | 'doc' | 'text' | 'note' | 'file';
+/**
+ * Что лежит на столе. Программы — не файлы, см. пояснение в desktopStore;
+ * «bin» — корзина, тоже системный значок и тоже не файл.
+ */
+export type DeskKind = 'app' | 'bin' | 'folder' | 'doc' | 'text' | 'note' | 'file';
+
+/** Значки, которых нет в Проводнике: они системные, а не документы проекта */
+export const isSystemKind = (kind: DeskKind): boolean => kind === 'app' || kind === 'bin';
 
 export interface DeskItem {
   /** Для программ — «app:/registry», для остального — идентификатор из базы */
@@ -28,6 +34,16 @@ export interface DeskItem {
   path?: string;
   /** Папка стола, в которой лежит файл, — по ней его находит Проводник */
   folderId?: string | null;
+  /** Статус документооборота: D черновик, C на проверке, B согласован, A выдан */
+  status?: string;
+  /** Ревизия документа — «1», «2»… */
+  revision?: string;
+  /** Основной тег: по нему документ и ищут в проекте */
+  tag?: string;
+  /** Кто менял последним */
+  updatedBy?: string;
+  /** Размер в байтах, 0 — неизвестен */
+  size?: number;
   /** Когда изменён — для упорядочивания по дате */
   updatedAt?: string | number | null;
 }
@@ -91,21 +107,36 @@ export function nextFreeCell(taken: Set<string>, size: GridSize): Cell | null {
   return null;
 }
 
+/** Корзина — один значок на стол, а не файл: свой идентификатор ей и не нужен */
+export const BIN_ID = 'bin:trash';
+
 /**
- * Программы идут значками наравне с файлами, но приходят не из базы: это
- * настройка сотрудника. Название значка берёт сам стол из реестра разделов —
- * сюда оно не попадает, потому что реестр разделов лежит слоем выше.
+ * Системные значки идут наравне с файлами, но приходят не из базы: программы —
+ * настройка сотрудника, корзина — вид Проводника. Название значка берёт сам
+ * стол из реестра разделов: реестр лежит слоем выше и сюда не попадает.
+ *
+ * Корзина стоит после программ и всегда последней из системных — так её место
+ * не съезжает от закрепления новой программы.
  */
 export const withApps = (items: DeskItem[], apps: string[]): DeskItem[] => [
   ...apps.map((path): DeskItem => ({ id: `app:${path}`, kind: 'app', name: path, shared: false, path })),
+  { id: BIN_ID, kind: 'bin', name: 'Корзина', shared: false },
   ...items,
 ];
 
-export type SortBy = 'name' | 'kind' | 'date';
+export type SortBy = 'name' | 'kind' | 'date' | 'status';
+
+/**
+ * Порядок статусов на столе: сначала то, что дальше от готового.
+ *
+ * Черновик наверху не потому, что он важнее выданного, а потому, что
+ * выданный документ уже никого не ждёт, а черновик ждёт именно вас.
+ */
+export const STATUS_RANK: Record<string, number> = { D: 0, C: 1, B: 2, A: 3 };
 
 /** Программы всегда впереди файлов: они системные и с места не уходят */
 const KIND_ORDER: Record<DeskKind, number> = {
-  app: 0, folder: 1, doc: 2, text: 3, note: 4, file: 5,
+  app: 0, bin: 1, folder: 2, doc: 3, text: 4, note: 5, file: 6,
 };
 
 const byName = (a: DeskItem, b: DeskItem) => a.name.localeCompare(b.name, 'ru');
@@ -114,12 +145,14 @@ const stamp = (i: DeskItem) => (i.updatedAt ? new Date(i.updatedAt).getTime() : 
 export function sortItems(items: DeskItem[], by: SortBy): DeskItem[] {
   const list = [...items];
   list.sort((a, b) => {
-    if (a.kind === 'app' && b.kind !== 'app') return -1;
-    if (b.kind === 'app' && a.kind !== 'app') return 1;
-    // Программы между собой не сортируем: они стоят в том порядке, в каком их
-    // закрепили. Переставлять закреплённое по алфавиту — значит ломать руку,
-    // которая уже привыкла тянуться в определённое место
-    if (a.kind === 'app' && b.kind === 'app') return 0;
+    const sa = isSystemKind(a.kind);
+    const sb = isSystemKind(b.kind);
+    if (sa && !sb) return -1;
+    if (sb && !sa) return 1;
+    // Системные значки между собой не сортируем: они стоят в том порядке, в
+    // каком их закрепили. Переставлять закреплённое по алфавиту — значит
+    // ломать руку, которая уже привыкла тянуться в определённое место
+    if (sa && sb) return 0;
     if (by === 'kind') {
       const d = KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
       if (d) return d;
@@ -127,6 +160,11 @@ export function sortItems(items: DeskItem[], by: SortBy): DeskItem[] {
     }
     if (by === 'date') {
       const d = stamp(b) - stamp(a);
+      if (d) return d;
+      return byName(a, b);
+    }
+    if (by === 'status') {
+      const d = (STATUS_RANK[a.status || 'D'] ?? 0) - (STATUS_RANK[b.status || 'D'] ?? 0);
       if (d) return d;
       return byName(a, b);
     }

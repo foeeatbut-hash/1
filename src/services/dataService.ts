@@ -779,7 +779,7 @@ export const dataService = {
   // запросами выше. Здесь только то, что своё: чтение обеих папок сразу,
   // создание на столе и перенос между общим и личным столом.
   async getDesktop(projectId: string): Promise<{
-    sharedFolderId: string; personalFolderId: string | null; files: any[]; folders: any[];
+    sharedFolderId: string; personalFolderId: string | null; files: any[]; folders: any[]; trashCount: number;
   }> {
     return request(`/desktop?projectId=${encodeURIComponent(projectId || '')}`);
   },
@@ -799,6 +799,35 @@ export const dataService = {
   /** Переименование файла или папки — то же, что в Проводнике */
   async renameNode(id: string, isFile: boolean, name: string): Promise<any> {
     return request(isFile ? `/files/${id}` : `/folders/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+  },
+
+  /**
+   * Перенос файлов и папок в другую папку — тот же запрос, которым двигает
+   * Проводник. Один путь на обе стороны: разойдись они, перенос со стола в
+   * Проводник и обратно вели бы себя по-разному
+   */
+  async moveNodes(ids: string[], targetFolderId: string | null, targetScope?: 'SHARED' | 'PERSONAL', targetOwnerId?: string | null): Promise<any> {
+    return request('/files/copy', {
+      method: 'POST',
+      body: JSON.stringify({ ids, targetFolderId, isCut: true, targetScope, targetOwnerId }),
+    });
+  },
+
+  /**
+   * Копия документа со своим содержимым — выход из конфликта «сохранил поверх
+   * чужой правки»: обе работы остаются целыми и лежат раздельно
+   */
+  async forkDoc(docId: string, workbook: string, name: string): Promise<any> {
+    const r = await request<any>(`/constructor/docs/${docId}/duplicate`, { method: 'POST' });
+    const copy = r?.doc;
+    if (!copy?.id) throw new Error('Не удалось создать копию');
+    await request(`/constructor/docs/${copy.id}`, { method: 'PUT', body: JSON.stringify({ workbook, name }) });
+    return copy;
+  },
+
+  /** Статус документооборота: D черновик → C на проверке → B согласован → A выдан */
+  async setFileStatus(id: string, statusCode: string): Promise<any> {
+    return request(`/files/${id}`, { method: 'PATCH', body: JSON.stringify({ statusCode }) });
   },
 
   /** Удаление мягкое: содержимое уходит в корзину Проводника и восстановимо */

@@ -553,6 +553,43 @@ export function registerConstructorRoutes(app: Express): void {
         return res.status(403).json({ error: 'Личный документ другого пользователя' });
       }
 
+      /**
+       * Запись поверх чужой правки не выполняется молча.
+       *
+       * Замка на документе нет: двое правят одновременно и видят правки друг
+       * друга — Конструктор рассылает операции по сокету. Но окно, отставшее
+       * от жизни (свёрнутое, пережившее перезапуск, потерявшее связь), держит
+       * в памяти старую книгу и своим автосохранением кладёт её поверх свежей.
+       * Ошибки при этом нет, всё «сохранено», и через неделю по ведомости
+       * заказывают то, чего в ней уже не должно быть.
+       *
+       * Поэтому: пришло время, с которым окно читало документ, и оно не
+       * совпало с текущим — отказ и разбор. Клиент без базы (старая версия)
+       * пишет как раньше: остановить отделу работу обновлением нельзя.
+       */
+      const base = typeof req.body?.baseUpdatedAt === 'string' ? req.body.baseUpdatedAt : '';
+      const touchesContent = typeof req.body?.workbook === 'string' || typeof req.body?.bindings === 'string';
+      if (base && touchesContent && +new Date(base) !== +new Date(doc.updatedAt)) {
+        if (req.body?.force !== true) {
+          const who = doc.updatedById
+            ? await prisma.user.findUnique({ where: { id: doc.updatedById }, select: { name: true } })
+            : null;
+          return res.status(409).json({
+            conflict: true,
+            error: 'Документ изменился с тех пор, как вы его открыли',
+            who: who?.name || '',
+            at: doc.updatedAt,
+          });
+        }
+        // Настояли на своём — снимок чужой правки делаем ДО записи: после неё
+        // восстанавливать будет нечего (см. skill flux-data-safety §6)
+        const who = doc.updatedById
+          ? await prisma.user.findUnique({ where: { id: doc.updatedById }, select: { name: true } })
+          : null;
+        await createDocVersion(doc, `перед сохранением поверх правки: ${who?.name || 'коллега'}`, doc.updatedById || null)
+          .catch(() => { /* без снимка не отказываем: иначе правка не сохранится вовсе */ });
+      }
+
       const data: any = { updatedById: me?.id || null };
       if (typeof req.body?.workbook === 'string') data.workbook = req.body.workbook;
       if (typeof req.body?.bindings === 'string') data.bindings = req.body.bindings;
