@@ -7,6 +7,11 @@ import { PLACEHOLDERS, placeholderToken, fillSnapshot, countTokens } from '../li
 import { type ConflictChoice } from '../lib/docConflict';
 import SaveConflictDialog from '../components/SaveConflictDialog';
 import DocVersionsPanel from '../components/DocVersionsPanel';
+import DataWizard from '../components/DataWizard';
+import type { CatalogData, WizardResult } from '../lib/constructorTypes';
+import EditorFrame from '../components/ribbon/EditorFrame';
+import { sheetRibbon, SHEET_TEXT_COLORS, SHEET_FILL_COLORS } from '../lib/ribbonSheet';
+import { editorFileMenu } from '../lib/ribbonFile';
 import { dataService } from '../services/dataService';
 import { useToastStore } from '../store/toastStore';
 import * as XLSX from 'xlsx';
@@ -56,24 +61,6 @@ function fmtDate(s: string) {
 
 // ═══════════════════════ Мастер «Собрать данные» ═══════════════════════
 
-interface CatalogData {
-  counts: { tags: number; elements: number };
-  tagFields: { path: string; title: string }[];
-  elementFields: { path: string; title: string }[];
-  params: { group: string; key: string; unit: string; count: number; sample: string }[];
-  metaKeys: { path: string; key: string; count: number }[];
-  aliases?: { path: string; title: string; unit: string; members: string[]; count: number }[];
-  similar?: string[][]; // группы «группа|ключ» лексически похожих сырых параметров
-}
-
-interface WizardResult {
-  headers: string[];
-  rows: any[][];
-  keys: string[];   // entityKey каждой строки — реестр умного блока
-  query: { entity: 'tag' | 'element'; columns: { path: string; title: string }[]; filters: any[] };
-  suggestedName: string;
-}
-
 // ── Умный блок: вставленная таблица помнит свой запрос ──
 // Упрощение MVP относительно части II дизайна: ручные правки внутри блока
 // обнаруживаются при обновлении сравнением с последними записанными
@@ -99,257 +86,6 @@ interface ConflictItem {
 
 const sameCell = (a: any, b: any) => String(a ?? '') === String(b ?? '');
 
-function DataWizard({ projectId, onInsert, onClose }: {
-  projectId: string;
-  onInsert: (r: WizardResult) => void;
-  onClose: () => void;
-}) {
-  const { addToast } = useToastStore();
-  const [step, setStep] = useState(1);
-  const [catalog, setCatalog] = useState<CatalogData | null>(null);
-  const [entity, setEntity] = useState<'tag' | 'element'>('tag');
-  const [selected, setSelected] = useState<{ path: string; title: string }[]>([]);
-  const [search, setSearch] = useState('');
-  const [filterField, setFilterField] = useState('');
-  const [filterOp, setFilterOp] = useState('contains');
-  const [filterValue, setFilterValue] = useState('');
-  const [preview, setPreview] = useState<{ rows: any[]; total: number } | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const loadCatalog = () => {
-    fetch(`/api/constructor/catalog?projectId=${projectId}`)
-      .then(r => r.json())
-      .then(setCatalog)
-      .catch(() => addToast('Не удалось загрузить каталог полей', 'error'));
-  };
-  useEffect(() => { loadCatalog(); }, [projectId]);
-
-  // Объединить выбранные сырые параметры в один алиас (сшивает разные названия
-  // из бланков). Право проверяет сервер; после — обновляем каталог.
-  const mergeSelectedIntoAlias = async () => {
-    const members = selected
-      .filter(s => s.path.startsWith('param:') && !s.path.startsWith('param:@'))
-      .map(s => s.path.slice(6));
-    if (members.length < 2) return;
-    const name = await openPrompt('Объединить поля', 'Как назвать общее поле?', 'Например: Расход воздуха', selected[0]?.title?.split(',')[0] || '');
-    if (!name || !name.trim()) return;
-    try {
-      const existing = catalog?.aliases?.map(a => ({ name: a.title, unit: a.unit, members: a.members })) || [];
-      const r = await fetch('/api/constructor/aliases', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId, aliases: [...existing, { name: name.trim(), members }] }),
-      });
-      if (!r.ok) { const d = await r.json().catch(() => ({})); addToast(d.error || 'Не удалось создать поле', 'error'); return; }
-      addToast(`Поле «${name.trim()}» объединяет ${members.length} параметра`, 'success');
-      // Снимаем сырые параметры, выбираем новый алиас
-      setSelected(prev => [...prev.filter(s => !members.includes(s.path.slice(6))), { path: `param:@${name.trim()}`, title: name.trim() }]);
-      loadCatalog();
-    } catch (_) { addToast('Ошибка сети', 'error'); }
-  };
-
-  const toggle = (path: string, title: string) => {
-    setSelected(prev => prev.find(s => s.path === path)
-      ? prev.filter(s => s.path !== path)
-      : [...prev, { path, title }]);
-  };
-
-  const buildFilters = () => (filterField && (filterValue || filterOp === 'empty' || filterOp === 'nempty'))
-    ? [{ field: filterField, op: filterOp, value: filterValue }]
-    : [];
-
-  const runQuery = async (limit: number) => {
-    const res = await fetch('/api/constructor/query', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId, entity, columns: selected.map(s => s.path), filters: buildFilters(), limit }),
-    });
-    if (!res.ok) throw new Error('query failed');
-    return res.json();
-  };
-
-  const loadPreview = async () => {
-    setBusy(true);
-    try { setPreview(await runQuery(8)); }
-    catch (_) { addToast('Ошибка запроса данных', 'error'); }
-    finally { setBusy(false); }
-  };
-
-  const insert = async () => {
-    setBusy(true);
-    try {
-      const data = await runQuery(50000);
-      const entityName = entity === 'tag' ? 'Теги' : 'Оборудование';
-      onInsert({
-        headers: selected.map(s => s.title),
-        rows: data.rows.map((r: any) => r.cells),
-        keys: data.rows.map((r: any) => r.key),
-        query: { entity, columns: selected, filters: buildFilters() },
-        suggestedName: filterValue ? `${entityName}: ${filterValue}` : `${entityName} проекта`,
-      });
-    } catch (_) { addToast('Ошибка запроса данных', 'error'); }
-    finally { setBusy(false); }
-  };
-
-  // Дерево доступных колонок для выбранной сущности
-  const fields = useMemo(() => {
-    if (!catalog) return [] as { path: string; title: string; note?: string; alias?: boolean }[];
-    const base = entity === 'tag' ? catalog.tagFields : catalog.elementFields;
-    const meta = entity === 'tag' ? catalog.metaKeys.map(m => ({ path: m.path, title: m.key, note: `${m.count}` })) : [];
-    // Объединённые поля (алиасы) — сверху, с пометкой
-    const aliasFields = (catalog.aliases || []).map(a => ({
-      path: a.path,
-      title: `${a.title}${a.unit ? `, ${a.unit}` : ''}`,
-      note: `объединённое · есть у ${a.count}`,
-      alias: true,
-    }));
-    const params = catalog.params.map(p => ({
-      path: `param:${p.group}|${p.key}`,
-      title: `${p.key}${p.unit ? `, ${p.unit}` : ''}`,
-      note: `${p.group} · есть у ${p.count}`,
-      alias: false,
-    }));
-    const all = [...aliasFields, ...base, ...meta, ...params];
-    const q = search.trim().toLowerCase();
-    return q ? all.filter(f => f.title.toLowerCase().includes(q) || (f as any).note?.toLowerCase?.().includes(q)) : all;
-  }, [catalog, entity, search]);
-
-  const rawSelectedCount = selected.filter(s => s.path.startsWith('param:') && !s.path.startsWith('param:@')).length;
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6" onClick={onClose}>
-      <div className="w-full max-w-3xl max-h-[85vh] bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 dark:border-slate-800">
-          <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
-            <Database className="w-4.5 h-4.5 text-emerald-600" /> Собрать данные — шаг {step} из 3
-          </h3>
-          <button type="button" title="Закрыть сборку данных" onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded cursor-pointer"><X className="w-4.5 h-4.5" /></button>
-        </div>
-
-        <div className="flex-1 overflow-auto p-5">
-          {step === 1 && (
-            <div className="grid grid-cols-2 gap-4">
-              {[
-                { key: 'tag' as const, title: 'Теги', desc: 'Реестр тегов проекта: идентификаторы, марки, отделы + параметры связанного оборудования', count: catalog?.counts.tags },
-                { key: 'element' as const, title: 'Оборудование', desc: 'Элементы оборудования: позиции, типы, системы + все параметры из бланков', count: catalog?.counts.elements },
-              ].map(c => (
-                <button type="button" key={c.key} onClick={() => { setEntity(c.key); setSelected([]); }}
-                  className={`text-left p-5 rounded-xl border-2 transition-ui cursor-pointer ${entity === c.key ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20' : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'}`}>
-                  <div className="font-bold text-slate-800 dark:text-white text-lg">{c.title}</div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">{c.desc}</div>
-                  <div className="text-xs font-bold text-emerald-600 dark:text-emerald-400 mt-3">{c.count ?? '…'} в проекте</div>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {step === 2 && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="relative flex-1">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск поля или параметра…"
-                    className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500" />
-                </div>
-                <span className="text-xs font-bold text-slate-500 shrink-0">Выбрано: {selected.length}</span>
-              </div>
-              {rawSelectedCount >= 2 && (
-                <button type="button" onClick={mergeSelectedIntoAlias}
-                  className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 text-xs font-bold hover:bg-emerald-100 dark:hover:bg-emerald-950/50 cursor-pointer">
-                  ⚭ Объединить выбранные {rawSelectedCount} параметра в одно поле
-                </button>
-              )}
-              <div className="max-h-[46vh] overflow-auto border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-850">
-                {fields.map(f => {
-                  const on = !!selected.find(s => s.path === f.path);
-                  return (
-                    <label key={f.path} className={`flex items-center gap-3 px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer ${(f as any).alias ? 'bg-emerald-50/40 dark:bg-emerald-950/10' : ''}`}>
-                      <input type="checkbox" checked={on} onChange={() => toggle(f.path, f.title)} className="w-4 h-4 accent-emerald-500" />
-                      <span className="text-sm text-slate-800 dark:text-slate-300 flex items-center gap-1.5">
-                        {(f as any).alias && <span className="text-emerald-500" title="Объединённое поле (алиас)">⚭</span>}
-                        {f.title}
-                      </span>
-                      {(f as any).note && <span className="text-xs text-slate-400 ml-auto shrink-0">{(f as any).note}</span>}
-                    </label>
-                  );
-                })}
-                {fields.length === 0 && <div className="p-6 text-center text-sm text-slate-400">Ничего не найдено</div>}
-              </div>
-            </div>
-          )}
-
-          {step === 3 && (
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Фильтр строк:</span>
-                <select value={filterField} onChange={e => setFilterField(e.target.value)}
-                  className="text-sm px-2.5 py-1.5 border border-slate-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950 text-slate-800 dark:text-white">
-                  <option value="">— без фильтра (все строки) —</option>
-                  {selected.map(s => <option key={s.path} value={s.path}>{s.title}</option>)}
-                </select>
-                {filterField && (
-                  <>
-                    <select value={filterOp} onChange={e => setFilterOp(e.target.value)}
-                      className="text-sm px-2.5 py-1.5 border border-slate-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950 text-slate-800 dark:text-white">
-                      <option value="contains">содержит</option>
-                      <option value="eq">равно</option>
-                      <option value="neq">не равно</option>
-                      <option value="nempty">не пусто</option>
-                      <option value="empty">пусто</option>
-                    </select>
-                    {filterOp !== 'empty' && filterOp !== 'nempty' && (
-                      <input value={filterValue} onChange={e => setFilterValue(e.target.value)} placeholder="значение…"
-                        className="text-sm px-2.5 py-1.5 border border-slate-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950 text-slate-800 dark:text-white w-44" />
-                    )}
-                  </>
-                )}
-                <button type="button" onClick={loadPreview} disabled={busy}
-                  className="ml-auto text-xs font-bold px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer flex items-center gap-1.5">
-                  {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Предпросмотр
-                </button>
-              </div>
-
-              {preview && (
-                <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-auto max-h-[40vh]">
-                  <table className="w-full text-xs">
-                    <thead className="bg-slate-50 dark:bg-slate-850 sticky top-0">
-                      <tr>{selected.map(s => <th key={s.path} className="text-left px-3 py-2 font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap">{s.title}</th>)}</tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-850">
-                      {preview.rows.map((r: any, i: number) => (
-                        <tr key={i}>{r.cells.map((c: any, j: number) => <td key={j} className="px-3 py-1.5 text-slate-700 dark:text-slate-300 whitespace-nowrap">{String(c)}</td>)}</tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <div className="px-3 py-2 text-xs text-slate-400 bg-slate-50 dark:bg-slate-850 sticky bottom-0">
-                    Показаны первые {preview.rows.length} из {countOf(preview.total, 'строка')} — вставятся все
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="flex items-center justify-between px-5 py-3.5 border-t border-slate-200 dark:border-slate-800">
-          <button type="button" onClick={() => step > 1 ? setStep(step - 1) : onClose()}
-            className="text-sm font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer">
-            {step > 1 ? '← Назад' : 'Отмена'}
-          </button>
-          {step < 3 ? (
-            <button type="button" onClick={() => { setStep(step + 1); if (step === 2 && selected.length === 0) return; }}
-              disabled={step === 2 && selected.length === 0}
-              className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-sm font-bold cursor-pointer flex items-center gap-1.5">
-              Далее <ChevronRight className="w-4 h-4" />
-            </button>
-          ) : (
-            <button type="button" onClick={insert} disabled={busy || selected.length === 0}
-              className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-sm font-bold cursor-pointer flex items-center gap-1.5">
-              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Вставить таблицу
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ═══════════════════════ Редактор (движок Univer) ═══════════════════════
 
@@ -392,6 +128,15 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   const bindingsDirtyRef = useRef(false);
   const [blocksTick, setBlocksTick] = useState(0);          // форс-перерисовка панели блоков
   const [blocksOpen, setBlocksOpen] = useState(false);
+  // Чтение оформления выделения зовётся из слушателя команд движка, который
+  // создаётся раньше самой функции. Держим её в ссылке: слушатель живёт всё
+  // время жизни книги, а функция пересоздаётся на каждой отрисовке
+  const cellStateFnRef = useRef<() => void>(() => {});
+  // Родная панель движка: настройка переживает закрытие книги — включают её
+  // не на один раз. Объявлена до создания движка: он читает её при запуске
+  const [nativePanel, setNativePanel] = useState(() => {
+    try { return localStorage.getItem('flux_sheet_native') === '1'; } catch (_) { return false; }
+  });
   // История версий: автоснимки перед обновлением данных + ручные + откат
   const [versionsOpen, setVersionsOpen] = useState(false);
   // Титул: присвоенный шаблон + реквизиты этого документа (как у Ворда)
@@ -686,7 +431,15 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           locales: { [LocaleType.RU_RU]: mergeLocales(pick(ruRU), pick(fRu), pick(sRu), pick(cfRu), pick(frRu)) },
           theme: defaultTheme,
           presets: [
-            (corePreset as any).UniverSheetsCorePreset({ container: containerRef.current }),
+            (corePreset as any).UniverSheetsCorePreset({
+              container: containerRef.current,
+              // Родную панель движка прячем: ленту рисует Flux (components/
+              // ribbon), и две панели с разными отступами означали бы два
+              // места для одного действия. Строка формул и ярлычки листов
+              // остаются — без них таблица не таблица. Вернуть родную ленту
+              // можно кнопкой «Панель движка» во вкладке «Вид»
+              toolbar: nativePanel,
+            }),
             (filterP as any).UniverSheetsFilterPreset(),
             (sortP as any).UniverSheetsSortPreset(),
             (cfP as any).UniverSheetsConditionalFormattingPreset(),
@@ -793,7 +546,12 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         });
 
         // Мои мутации → остальным участникам (операции вроде выделения не шлём)
+        let selTimer: any = null;
         const cmdDisposer = univerAPI.onCommandExecuted((command: any, options: any) => {
+          // Сумма и среднее в строке состояния: считаем после выделения и
+          // правки, но не на каждую команду — их за одно движение мыши десятки
+          clearTimeout(selTimer);
+          selTimer = setTimeout(() => cellStateFnRef.current(), 150);
           if (applyingRemoteRef.current || options?.fromCollab || options?.fromChangeset) return;
           if (command?.type !== 2) return; // 2 = CommandType.MUTATION
           const cmdId = String(command.id || '');
@@ -1249,142 +1007,259 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
 
   const isAuthor = !doc?.createdById || doc?.createdById === user?.id || user?.role === 'ADMIN';
 
+  // ── Лента: состояние, значения органов и разбор команд ──
+  const tabs = useMemo(() => sheetRibbon(), []);
+  const [tab, setTab] = useState('Главная');
+  const [folded, setFolded] = useState(false);
+  const [fileOpen, setFileOpen] = useState(false);
+  const [zoom, setZoom] = useState(100);
+  const [font, setFont] = useState('');
+  const [numFormat, setNumFormat] = useState('General');
+  const [textColor, setTextColor] = useState(SHEET_TEXT_COLORS[0]);
+  const [fillColor, setFillColor] = useState(SHEET_FILL_COLORS[0]);
+  const [wrapOn, setWrapOn] = useState(false);
+  const [fontSize, setFontSize] = useState(11);
+  const [marks, setMarks] = useState({ bold: false, italic: false, underline: false, strike: false });
+  const [gridOn, setGridOn] = useState(true);
+
+  /**
+   * Команда движку.
+   *
+   * Отклонение обещания гасим сами: движок отвечает обещанием, и необработанный
+   * отказ уходит в журнал как критическая ошибка программы.
+   */
+  const exec = (id: string, params?: any) => {
+    const api = univerRef.current?.univerAPI;
+    if (!api) { addToast('Редактор ещё загружается', 'error'); return; }
+    try {
+      const r = api.executeCommand(id, params);
+      if (r && typeof r.catch === 'function') r.catch(() => {});
+    } catch (_) { addToast('Не удалось выполнить команду', 'error'); }
+    setTimeout(() => saveNow(), 400);
+  };
+
+  /** Выделение книги — через фасад: там же и границы, и формат числа */
+  const activeRange = () => {
+    try {
+      return univerRef.current?.univerAPI?.getActiveWorkbook?.()?.getActiveSheet?.()?.getActiveRange?.() || null;
+    } catch (_) { return null; }
+  };
+
+  /** Действие над выделением фасадом движка: возвращает false, если выделения нет */
+  const onRange = (fn: (r: any) => void): boolean => {
+    const r = activeRange();
+    if (!r) { addToast('Выделите ячейки', 'error'); return false; }
+    try { fn(r); } catch (_) { addToast('Не удалось применить к выделению', 'error'); return false; }
+    setTimeout(() => saveNow(), 400);
+    return true;
+  };
+
+  /**
+   * Что стоит в выделенных ячейках — в ленту.
+   *
+   * Кнопка обязана отвечать, что с ней: «Ж» не команда, а переключатель, по
+   * нему читают, жирный ли текст под курсором. Сумму и среднее не считаем —
+   * их показывает сам движок в своей нижней строке, и вторая такая же строка
+   * была бы ровно тем, что мы тут и исправляем.
+   */
+  const refreshCellState = () => {
+    try {
+      const r = activeRange();
+      if (!r) return;
+      const st: any = r.getCellStyle?.();
+      const fam = r.getFontFamily?.();
+      if (fam) setFont(String(fam));
+      const size = r.getFontSize?.();
+      if (size) setFontSize(Number(size));
+      setMarks({
+        bold: !!st?.bold,
+        italic: !!st?.italic,
+        underline: !!st?.underline,
+        strike: !!st?.strikethrough,
+      });
+      setWrapOn(!!r.getWrap?.());
+    } catch (_) { /* выделения нет или движок ещё грузится — молча */ }
+  };
+  cellStateFnRef.current = refreshCellState;
+
+  /**
+   * Родная панель движка: показать её можно только пересозданием редактора —
+   * состав рабочей области движок читает один раз при запуске. Пишем книгу
+   * до пересоздания, иначе несохранённая правка ушла бы вместе с ним.
+   */
+  const toggleNativePanel = async () => {
+    const next = !nativePanel;
+    await saveNow();
+    try { localStorage.setItem('flux_sheet_native', next ? '1' : '0'); } catch (_) {}
+    setNativePanel(next);
+    setLoading(true);
+    setReloadTick(t => t + 1);
+  };
+
+  /** Книга как шаблон: структура и блоки без данных — для других проектов */
+  const saveAsTemplate = async () => {
+    await saveNow();
+    const res = await fetch(`/api/constructor/docs/${docId}/duplicate`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'TEMPLATE', name: `${doc?.name || 'Документ'} — шаблон` }),
+    });
+    addToast(res.ok ? 'Сохранён в «Шаблоны»: структура, блоки и формулы переиспользуемы' : 'Не удалось сохранить шаблон',
+      res.ok ? 'success' : 'error');
+  };
+
+  const runCommand = (id: string, value?: string) => {
+    const api = univerRef.current?.univerAPI;
+    switch (id) {
+      case 'sh.undo': { const r = api?.undo?.(); if (r?.catch) r.catch(() => {}); return; }
+      case 'sh.redo': { const r = api?.redo?.(); if (r?.catch) r.catch(() => {}); return; }
+      case 'sh.font': { setFont(value || ''); return exec('sheet.command.set-range-font-family', { value }); }
+      case 'sh.size': return exec(value === '+'
+        ? 'sheet.command.set-range-font-increase' : 'sheet.command.set-range-font-decrease');
+      case 'sh.bold': return exec('sheet.command.set-range-bold');
+      case 'sh.italic': return exec('sheet.command.set-range-italic');
+      case 'sh.underline': return exec('sheet.command.set-range-underline');
+      case 'sh.strike': return exec('sheet.command.set-range-stroke');
+      case 'sh.color': {
+        const c = value && value !== 'open' ? value : textColor;
+        setTextColor(c);
+        return exec('sheet.command.set-range-text-color', { value: c });
+      }
+      case 'sh.fill': {
+        const c = value && value !== 'open' ? value : fillColor;
+        setFillColor(c);
+        return exec('sheet.command.set-background-color', { value: c });
+      }
+      case 'sh.borders': { onRange(r => r.setBorder('all', 1)); return; }
+      case 'sh.noBorders': { onRange(r => r.setBorder('all', 0)); return; }
+      case 'sh.left': return exec('sheet.command.set-horizontal-text-align', { value: 1 });
+      case 'sh.center': return exec('sheet.command.set-horizontal-text-align', { value: 2 });
+      case 'sh.right': return exec('sheet.command.set-horizontal-text-align', { value: 3 });
+      case 'sh.top': return exec('sheet.command.set-vertical-text-align', { value: 1 });
+      case 'sh.bottom': return exec('sheet.command.set-vertical-text-align', { value: 3 });
+      case 'sh.wrap': { setWrapOn(v => !v); return exec('sheet.command.set-text-wrap', { value: wrapOn ? 1 : 3 }); }
+      case 'sh.format': {
+        const f = value || 'General';
+        setNumFormat(f);
+        onRange(r => r.setNumberFormat?.(f));
+        return;
+      }
+      case 'sh.merge': return exec('sheet.command.add-worksheet-merge-all');
+      case 'sh.unmerge': return exec('sheet.command.remove-worksheet-merge');
+      case 'sh.rowAfter': return exec('sheet.command.insert-row-after');
+      case 'sh.colAfter': return exec('sheet.command.insert-col-after');
+      case 'sh.rowBefore': return exec('sheet.command.insert-row-before');
+      case 'sh.colBefore': return exec('sheet.command.insert-col-before');
+      case 'sh.delRow': return exec('sheet.command.remove-row');
+      case 'sh.delCol': return exec('sheet.command.remove-col');
+      case 'sh.clear': return exec('sheet.command.clear-selection-content');
+      case 'sh.newSheet': return exec('sheet.command.insert-sheet');
+      case 'sh.wizard': return setWizardOpen(true);
+      case 'sh.title': return setTitleOpen(v => !v);
+      case 'sh.blocks': return setBlocksOpen(v => !v);
+      case 'sh.refreshAll': return refreshAll();
+      case 'sh.placeholders': return setPhOpen(v => !v);
+      case 'sh.fillData': return fillPlaceholders();
+      case 'sh.template': return saveAsTemplate();
+      case 'sh.versions': { setVersionsOpen(v => !v); if (!versionsOpen) loadVersions(); return; }
+      case 'sh.zoom': {
+        const next = Math.min(400, Math.max(30, zoom + (value === '+' ? 10 : -10)));
+        setZoom(next);
+        return exec('sheet.command.set-zoom-ratio', { zoomRatio: next / 100 });
+      }
+      case 'sh.zoomReset': { setZoom(100); return exec('sheet.command.set-zoom-ratio', { zoomRatio: 1 }); }
+      case 'sh.freeze': return exec('sheet.command.set-selection-frozen');
+      case 'sh.unfreeze': return exec('sheet.command.cancel-frozen');
+      case 'sh.grid': { setGridOn(v => !v); return exec('sheet.command.toggle-gridlines'); }
+      case 'sh.native': return toggleNativePanel();
+      default: return undefined;
+    }
+  };
+
+  const organState: Record<string, boolean | string> = {
+    'sh.font': font,
+    'sh.size': String(fontSize),
+    'sh.bold': marks.bold,
+    'sh.italic': marks.italic,
+    'sh.underline': marks.underline,
+    'sh.strike': marks.strike,
+    'sh.format': numFormat,
+    'sh.color': textColor,
+    'sh.fill': fillColor,
+    'sh.wrap': wrapOn,
+    'sh.grid': gridOn,
+    'sh.zoom': `${zoom} %`,
+    'sh.title': !!titleSettings.titleTemplateId,
+    'sh.blocks': blocksOpen,
+    'sh.placeholders': phOpen,
+    'sh.versions': versionsOpen,
+    'sh.native': nativePanel,
+  };
+  const organDisabled: Record<string, string> = {};
+  if (!bindingsRef.current.blocks.length) {
+    organDisabled['sh.refreshAll'] = 'В книге пока нет умных блоков — обновлять нечего';
+  }
+  if (!phCount) organDisabled['sh.fillData'] = 'Незаполненных меток нет';
+
+  const fileSections = editorFileMenu({
+    saveNow: () => { saveNow(); setFileOpen(false); },
+    saveVersion: async () => { setFileOpen(false); await makeVersion('ручное сохранение'); addToast('Версия сохранена', 'success'); },
+    versions: () => { setFileOpen(false); setVersionsOpen(true); loadVersions(); },
+    copy: async () => {
+      setFileOpen(false);
+      await saveNow();
+      const r = await fetch(`/api/constructor/docs/${docId}/duplicate`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: `${doc?.name || 'Таблица'} — копия` }),
+      });
+      addToast(r.ok ? 'Копия создана' : 'Не удалось создать копию', r.ok ? 'success' : 'error');
+    },
+    template: () => { setFileOpen(false); saveAsTemplate(); },
+    revision: () => { setFileOpen(false); setTitleOpen(true); },
+    noRevision: 'Ревизии выпускаются у документов, привязанных к строке ВДР',
+    print: () => { setFileOpen(false); handlePrint(); },
+    pdf: () => { setFileOpen(false); handlePdf(); },
+    office: () => { setFileOpen(false); exportDownload(); },
+    officeLabel: 'Скачать XLSX',
+    officeHint: 'Книга целиком для Excel',
+    toExplorer: () => { setFileOpen(false); exportToExplorer(); },
+    close: () => { setFileOpen(false); handleClose(); },
+  });
+
+  const fileInfo = [
+    { label: 'Имя', value: doc?.name || '—' },
+    { label: 'Раздел', value: doc?.scope === 'PERSONAL' ? 'Личный' : 'Общий' },
+    { label: 'Проект', value: activeProject?.name || '—' },
+    { label: 'Умных блоков', value: String(bindingsRef.current.blocks.length) },
+    { label: 'Изменён', value: doc?.updatedAt ? fmtDate(doc.updatedAt) : '—' },
+    { label: 'Меток без данных', value: String(phCount) },
+  ];
+
   return (
-    <div className="h-full flex flex-col">
-      {/* Шапка редактора: все свойства файла в одну строку, без диалогов */}
-      <div className="flex items-center gap-3 px-4 py-2.5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shrink-0">
-        <button type="button" onClick={handleClose} className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer">
-          <ArrowLeft className="w-4 h-4" /> Закрыть
-        </button>
-        <input
-          value={doc?.name || ''}
-          onChange={e => setDoc((d: any) => ({ ...d, name: e.target.value }))}
-          onBlur={e => { const v = e.target.value.trim(); if (v && v !== '' && doc) saveNow({ name: v }); }}
-          className="font-bold text-slate-800 dark:text-white bg-transparent border-b border-transparent hover:border-slate-300 focus:border-emerald-500 focus:outline-none px-1 py-0.5 min-w-40 max-w-md"
-        />
-        {isAuthor && doc && (
-          <select
-            value={doc.scope}
-            onChange={e => saveNow({ scope: e.target.value })}
-            className="text-xs font-semibold px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300 cursor-pointer"
-            title="Общий — виден всем; Личный — только вам"
-          >
-            <option value="SHARED">Общий</option>
-            <option value="PERSONAL">Личный</option>
-          </select>
-        )}
-        {/* Состояние сохранения держим рядом с названием: у правого края
-            оно уезжало за границу панели на ноутбуке. */}
-        <span className={`text-xs w-24 shrink-0 ${saveState === 'saving' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
-          {saveState === 'saving' ? 'сохраняю…' : saveState === 'saved' ? 'сохранено' : ''}
-        </span>
-        <div className="flex-1" />
-        {peers.length > 0 && (
-          <div className="flex items-center mr-1" title={`В документе: ${peers.map(pp => pp.name).join(', ')}`}>
-            <div className="flex -space-x-1.5">
-              {peers.slice(0, 5).map(pp => (
-                <div key={pp.socketId}
-                  className="w-6 h-6 rounded-full flex items-center justify-center text-2xs font-black text-white ring-2 ring-white dark:ring-slate-900"
-                  style={{ background: pp.color }} title={pp.name}>
-                  {pp.name.trim().charAt(0).toUpperCase()}
-                </div>
-              ))}
-              {peers.length > 5 && (
-                <div className="w-6 h-6 rounded-full bg-slate-400 text-white text-2xs font-black flex items-center justify-center ring-2 ring-white dark:ring-slate-900">+{peers.length - 5}</div>
-              )}
-            </div>
-            <span className="ml-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400">✏️ {peers.length + 1} в документе</span>
-          </div>
-        )}
-        <button type="button" onClick={() => setWizardOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer">
-          <Database className="w-3.5 h-3.5" /> Собрать данные
-        </button>
-        <button type="button" onClick={() => { setVersionsOpen(v => !v); if (!versionsOpen) loadVersions(); }}
-          title="История версий: автоснимки перед обновлением данных и ручные сохранения"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
-          <History className="w-3.5 h-3.5" /> История
-        </button>
-        {bindingsRef.current.blocks.length > 0 && (
-          <button type="button" onClick={() => setBlocksOpen(v => !v)}
-            className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
-            <Boxes className="w-3.5 h-3.5" /> Блоки ({bindingsRef.current.blocks.length})
-            {Object.values(staleMap).some(Boolean) && (
-              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 ring-2 ring-white dark:ring-slate-900" title="Данные проекта изменились" />
-            )}
-          </button>
-        )}
-        <button type="button"
-          onClick={async () => {
-            await saveNow();
-            const res = await fetch(`/api/constructor/docs/${docId}/duplicate`, {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ kind: 'TEMPLATE', name: `${doc?.name || 'Документ'} — шаблон` }),
-            });
-            if (res.ok) addToast('Сохранён в «Шаблоны»: структура, блоки и формулы переиспользуемы', 'success');
-            else addToast('Не удалось сохранить шаблон', 'error');
-          }}
-          title="Сохранить как шаблон: структура и блоки с запросами, применяется к любым данным"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
-          <Copy className="w-3.5 h-3.5" /> Как шаблон
-        </button>
-        <button type="button" onClick={() => setTitleOpen(v => !v)}
-          title="Присвоить шаблон титульного листа — заполнится данными этого документа"
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${titleSettings.titleTemplateId ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
-          <Stamp className="w-3.5 h-3.5" /> Титул
-        </button>
-        {/* Подстановки: переключатель отдельной ленты под панелью */}
-        <button type="button" onClick={() => setPhOpen(v => !v)}
-          aria-pressed={phOpen}
-          title="Лента подстановок: кнопки вставляют метку туда, где стоит курсор"
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-ui ${
-            phOpen
-              ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 ring-1 ring-emerald-600/40'
-              : 'border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900'
-          }`}>
-          <Braces className="w-3.5 h-3.5" /> Подстановки
-        </button>
-
-        {/* Выгрузка одной кнопкой: раньше четыре отдельные кнопки не
-            помещались в панель на ноутбуке, и индикатор сохранения уезжал
-            за край экрана. */}
-        <div className="relative">
-          <button type="button" onClick={() => setExportOpen(v => !v)}
-            aria-haspopup="menu" aria-expanded={exportOpen}
-            title="Печать, PDF, XLSX и сохранение в Проводник"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 text-xs font-bold cursor-pointer">
-            <Download className="w-3.5 h-3.5" /> Выгрузить
-            <ChevronDown className="w-3 h-3 opacity-60" />
-          </button>
-          {exportOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setExportOpen(false)} />
-              <div role="menu" className="absolute right-0 top-full mt-1 z-50 w-56 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-lg overflow-hidden">
-                {[
-                  { label: 'Печать листа', icon: Printer, hint: 'Активный лист на принтер', run: handlePrint },
-                  { label: 'Сохранить в PDF', icon: FileText, hint: 'Активный лист файлом PDF', run: handlePdf },
-                  { label: 'Скачать XLSX', icon: Download, hint: 'Книга целиком для Excel', run: exportDownload },
-                  { label: 'Сохранить в Проводник', icon: FolderOpen, hint: 'XLSX в архив программы', run: exportToExplorer },
-                ].map((it) => {
-                  const Icon = it.icon as any;
-                  return (
-                    <button key={it.label} type="button" role="menuitem"
-                      onClick={() => { setExportOpen(false); it.run(); }}
-                      className="w-full flex items-start gap-2.5 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-900 cursor-pointer">
-                      <Icon className="w-3.5 h-3.5 mt-0.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                      <span className="min-w-0">
-                        <span className="block text-xs font-semibold">{it.label}</span>
-                        <span className="block text-2xs text-slate-400">{it.hint}</span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </div>
-
-      </div>
-
+    <div className="h-full">
+      <EditorFrame
+        doc={{
+          icon: <Table2 className="w-3.5 h-3.5 text-emerald-600" />,
+          name: doc?.name || '',
+          onRename: (v) => setDoc((d: any) => ({ ...d, name: v })),
+          onClose: handleClose,
+          scope: isAuthor ? (doc?.scope === 'PERSONAL' ? 'PERSONAL' : 'SHARED') : undefined,
+          onScope: isAuthor ? (v) => saveNow({ scope: v }) : undefined,
+          peers,
+          saveState: saveConflict ? 'conflict' : saveState,
+          menu: [
+            { label: 'История версий', hint: 'Снимки и возврат к любому', run: () => { setVersionsOpen(true); loadVersions(); } },
+            { label: 'Умные блоки', hint: 'Что откуда собрано и когда обновлялось', run: () => setBlocksOpen(true) },
+          ],
+        }}
+        tabs={tabs} active={tab} onActive={setTab}
+        state={organState} disabled={organDisabled} onCommand={runCommand}
+        attention={{ 'sh.refreshAll': Object.values(staleMap).some(Boolean) }}
+        folded={folded} onFold={setFolded}
+        file={fileSections} fileInfo={fileInfo} fileOpen={fileOpen} onFileOpen={setFileOpen}
+      >
+      {/* Полоса меток и полотно — колонкой: метки над листом, как в Экселе
+          строка формул */}
+      <div className="absolute inset-0 flex flex-col">
       {/* ═══ Лента подстановок ═══
           Отдельная полоса под панелью: кнопка = метка. Нажал «Дата
           прописью» — в активной ячейке появилась метка, при заполнении она
@@ -1465,6 +1340,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
             <div className="flex items-center gap-3 text-slate-500"><Loader2 className="w-5 h-5 animate-spin" /> Загрузка редактора…</div>
           </div>
         )}
+      </div>
       </div>
 
       {wizardOpen && (
@@ -1614,6 +1490,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           </div>
         </div>
       )}
+      </EditorFrame>
     </div>
   );
 }
