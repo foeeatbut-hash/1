@@ -8,6 +8,39 @@ import { getPrisma } from '../context.js';
 // клиент пересоздаётся при смене базы, поэтому захватывать его при импорте
 // нельзя (см. комментарий в server/context.ts).
 
+// true, если candidateId совпадает с rootId или лежит внутри поддерева rootId.
+// Используется, чтобы не дать переместить папку саму в себя/в свою подпапку —
+// иначе в parentId возникнет цикл и applyScopeRecursive уйдёт в бесконечную рекурсию.
+async function isFolderInSubtree(candidateId: string, rootId: string): Promise<boolean> {
+  const prisma = getPrisma();
+  let cur: string | null = candidateId;
+  const guard = new Set<string>();
+  while (cur) {
+    if (cur === rootId) return true;
+    if (guard.has(cur)) break; // защита от уже существующего цикла в данных
+    guard.add(cur);
+    const f: { parentId: string | null } | null =
+      await prisma.folder.findUnique({ where: { id: cur }, select: { parentId: true } });
+    cur = f?.parentId || null;
+  }
+  return false;
+}
+
+// Рекурсивно проставляет раздел (общий/личный) папке, её файлам и подпапкам.
+// Вынесено из тела registerExplorerRoutes и экспортируется ради рабочего стола
+// (server/routes/desktop.ts): там папку тоже переносят между общим и личным
+// разделом, и подпапки обязаны переехать вместе с ней — иначе внутри общей
+// папки остаётся личное содержимое, невидимое всем, кроме владельца.
+export async function applyScopeRecursive(folderId: string, scope: string, ownerId: string | null) {
+  const prisma = getPrisma();
+  await prisma.folder.update({ where: { id: folderId }, data: { scope, ownerId } as any });
+  await prisma.fileNode.updateMany({ where: { folderId }, data: { scope, ownerId } as any });
+  const children = await prisma.folder.findMany({ where: { parentId: folderId } });
+  for (const child of children) {
+    await applyScopeRecursive(child.id, scope, ownerId);
+  }
+}
+
 export function registerExplorerRoutes(app: Express): void {
 // Folders & Files (Explorer)
 // «Главный Администратор» — единственный: самый первый созданный пользователь с ролью ADMIN.
@@ -232,35 +265,6 @@ app.post('/api/files', async (req: Request, res: Response) => {
   });
   res.json({ file });
 });
-
-// true, если candidateId совпадает с rootId или лежит внутри поддерева rootId.
-// Используется, чтобы не дать переместить папку саму в себя/в свою подпапку —
-// иначе в parentId возникнет цикл и applyScopeRecursive уйдёт в бесконечную рекурсию.
-async function isFolderInSubtree(candidateId: string, rootId: string): Promise<boolean> {
-  const prisma = getPrisma();
-  let cur: string | null = candidateId;
-  const guard = new Set<string>();
-  while (cur) {
-    if (cur === rootId) return true;
-    if (guard.has(cur)) break; // защита от уже существующего цикла в данных
-    guard.add(cur);
-    const f: { parentId: string | null } | null =
-      await prisma.folder.findUnique({ where: { id: cur }, select: { parentId: true } });
-    cur = f?.parentId || null;
-  }
-  return false;
-}
-
-// Рекурсивно проставляет раздел (общий/личный) папке, её файлам и подпапкам
-async function applyScopeRecursive(folderId: string, scope: string, ownerId: string | null) {
-  const prisma = getPrisma();
-  await prisma.folder.update({ where: { id: folderId }, data: { scope, ownerId } as any });
-  await prisma.fileNode.updateMany({ where: { folderId }, data: { scope, ownerId } as any });
-  const children = await prisma.folder.findMany({ where: { parentId: folderId } });
-  for (const child of children) {
-    await applyScopeRecursive(child.id, scope, ownerId);
-  }
-}
 
 app.post('/api/files/copy', async (req: Request, res: Response) => {
   const prisma = getPrisma();

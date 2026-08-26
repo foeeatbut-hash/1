@@ -7,7 +7,10 @@ export default function ToastProvider() {
   const { toasts, removeToast } = useToastStore();
 
   return (
-    <div className="fixed bottom-20 right-4 z-[10000] flex flex-col gap-2">
+    <div
+      style={{ bottom: 'calc(var(--flux-taskbar-h, 0px) + 5rem)' }}
+      className="fixed right-4 z-[10000] flex flex-col gap-2"
+    >
       <AnimatePresence>
         {toasts.map((toast) => (
           <motion.div

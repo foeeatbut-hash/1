@@ -21,6 +21,8 @@ import InsightDrawer from './insight/InsightDrawer';
 import FluxLogo from './FluxLogo';
 import { useNotificationStore } from '../store/notificationStore';
 import Workspace from './Workspace';
+import Taskbar from './Taskbar';
+import WindowsLayer from './WindowsLayer';
 import ProjectSwitcher from './ProjectSwitcher';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import { useWorkspaceStore, visiblePanes, openSectionWindow } from '../store/workspaceStore';
@@ -30,7 +32,7 @@ import { useModalStore } from '../store/modalStore';
 const { openAlert } = useModalStore.getState();
 
 export default function Layout() {
-  const { user, setUser, activeProject, theme, toggleTheme, syncStatus, sidebarCompact, toggleSidebarCompact } = useStore();
+  const { user, setUser, activeProject, theme, toggleTheme, syncStatus, sidebarCompact, toggleSidebarCompact, shell } = useStore();
   const navigate = useNavigate();
   const [eqOpen, setEqOpen] = useState(true);
   // Робот-помощник: его можно выключить в настройках — тогда он не создаётся
@@ -85,17 +87,43 @@ export default function Layout() {
    * оказался бы неверным.
    */
   React.useEffect(() => {
-    document.documentElement.style.setProperty('--flux-rail-w', sidebarCompact ? '56px' : '96px');
-  }, [sidebarCompact]);
+    // Правый рельс остался только при левом меню: он был его зеркалом, и без
+    // меню зеркалить нечего. В остальных оболочках его работу делает панель
+    // задач, а ноль здесь означает, что раздвижные панели прижимаются к самому
+    // краю окна, а не оставляют полосу пустоты шириной с исчезнувший рельс
+    const railed = shell === 'menu';
+    document.documentElement.style.setProperty('--flux-rail-w', railed ? (sidebarCompact ? '56px' : '96px') : '0px');
+  }, [sidebarCompact, shell]);
+
+  /**
+   * Уведомления опрашиваются, пока программа открыта. Опрос жил в правом
+   * рельсе — вместе с ним он бы и пропал, а уведомления просто перестали бы
+   * приходить, ничем этого не показав. Место опроса — здесь: Layout открыт
+   * всегда, в любой оболочке.
+   */
+  React.useEffect(() => {
+    const st = useNotificationStore.getState();
+    if (user?.id) st.startPolling(user.id);
+    const onFocus = () => { if (user?.id) useNotificationStore.getState().fetch(user.id); };
+    window.addEventListener('focus', onFocus);
+    return () => { useNotificationStore.getState().stopPolling(); window.removeEventListener('focus', onFocus); };
+  }, [user?.id]);
+
+  /**
+   * Высота нижней панели — переменной, а не числом в каждом месте: всё, что
+   * висит у нижнего края (журнал действий, всплывающие сообщения), должно
+   * подниматься над панелью, иначе она их накрывает.
+   */
+  React.useEffect(() => {
+    document.documentElement.style.setProperty('--flux-taskbar-h', shell === 'menu' ? '0px' : '52px');
+  }, [shell]);
   // На Главной (/) в режиме одного окна левой панели нет; иначе она закреплена
-  const sidebarHidden = wsLayout === 'single' && wsActivePath === '/';
+  const sidebarHidden = shell !== 'menu' || (wsLayout === 'single' && wsActivePath === '/');
   const chatUnread = useNotificationStore((s) => s.chatUnread);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   // Окно своей подписи: открывается из профиля
   const [signOpen, setSignOpen] = useState(false);
   const addLog = useLogStore((state) => state.addLog);
-  const toggleAssistant = useAssistantStore((s) => s.toggleOpen);
-  const assistantOpen = useAssistantStore((s) => s.isOpen);
 
   // Глобальный перехват событий для детального логирования действий пользователя.
   // Пишем КАЖДЫЙ клик (кнопка, поле, строка, пустое место) — чтобы при ошибке
@@ -652,8 +680,9 @@ export default function Layout() {
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-100 dark:bg-dark-bg relative transition-colors duration-250">
         <div className="flex-1 min-h-0">
-          <Workspace />
+          {shell === 'windows' ? <WindowsLayer /> : <Workspace />}
         </div>
+        {shell !== 'menu' && <Taskbar />}
       </main>
 
       {/* ПКМ по разделу в левом меню */}
@@ -673,10 +702,11 @@ export default function Layout() {
         />
       )}
 
-      {/* Раздвижные панели справа (сдвигают контент) + тонкий правый рельс */}
+      {/* Раздвижные панели справа сдвигают содержимое. Рельс — только при левом
+          меню: без меню его работу делает трей панели задач */}
       <NotificationsPanel />
       <AssistantPanel />
-      <RightRail />
+      {shell === 'menu' && <RightRail />}
 
 
       {/* Связи проекта и общий поиск — поверх всего: их зовут из любого места */}

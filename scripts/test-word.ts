@@ -118,6 +118,15 @@ const api = async (method: string, url: string, body?: any) => {
   const page = await browser.newPage({ viewport: { width: 1500, height: 940 } });
   const errors: string[] = [];
   page.on('pageerror', (e: any) => errors.push('исключение: ' + String(e.message).slice(0, 130)));
+
+  // Проверка написана для панельной оболочки: она ходит по разделам сменой
+  // адреса и работает с их содержимым напрямую. По умолчанию оболочка стала
+  // оконной — раздел живёт в окне, а после входа виден пустой стол, и обход
+  // спотыкался на первом же шаге, хотя вход проходил.
+  await page.addInitScript(() => {
+    try { localStorage.setItem('flux_taskbar', 'panes'); } catch (_) { /* приватный режим */ }
+  });
+
   page.on('console', (m: any) => { if (m.type() === 'error') errors.push('консоль: ' + m.text().slice(0, 130)); });
 
   // Лицензия проверяется подписью, приватного ключа в репозитории нет —

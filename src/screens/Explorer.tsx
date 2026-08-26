@@ -367,17 +367,18 @@ export default function Explorer() {
   };
 
   // ── Переход по ссылке: /explorer?file=…&folder=… ──
-  // Так сюда ведут панель связей и общий поиск. Папка в ссылке обязательна:
-  // Проводник держит только текущую папку и по одному имени файла не знал бы,
-  // куда идти.
+  // Сюда ведут панель связей, общий поиск и рабочий стол. Для ФАЙЛА папка в
+  // ссылке обязательна: Проводник держит только текущую папку и по одному имени
+  // файла не знал бы, куда идти. Папка без файла — тоже осмысленная ссылка (так
+  // открывают папку со стола); раньше она молча не делала ничего.
   useEffect(() => {
     const fileId = searchParams.get('file');
     const folderId = searchParams.get('folder');
-    if (!fileId) return;
+    if (!fileId && !folderId) return;
     if (folderId && folderId !== currentFolderIdRef.current) navigateTo(folderId);
     // Выделение ставим после перехода: список папки перерисовывается, и
     // выделение, поставленное раньше, тут же затирается
-    setTimeout(() => setSelectedIds(new Set([fileId])), 250);
+    if (fileId) setTimeout(() => setSelectedIds(new Set([fileId])), 250);
     const next = new URLSearchParams(searchParams);
     next.delete('file'); next.delete('folder');
     setSearchParams(next, { replace: true });
