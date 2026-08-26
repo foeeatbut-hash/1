@@ -9,20 +9,7 @@
 import React from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { ribbonIcon } from './icons';
-
-export interface FileMenuItem {
-  label: string;
-  hint?: string;
-  icon?: string;
-  /** Причина недоступности; пусто — доступен */
-  disabled?: string;
-  run: () => void;
-}
-
-export interface FileMenuSection {
-  name: string;
-  items: FileMenuItem[];
-}
+import type { FileMenuSection } from '../../lib/ribbon';
 
 export default function FileMenu({ sections, info, onClose }: {
   sections: FileMenuSection[];

@@ -211,6 +211,24 @@ export function fitTabs(
   return { shown, hidden };
 }
 
+// ── Меню «Файл» ────────────────────────────────────────────────────────────
+// Не вкладка, а экран: здесь живут действия, которые нельзя нажать случайно.
+// Описание тоже данными — по той же причине, что и лента.
+
+export interface FileMenuItem {
+  label: string;
+  hint?: string;
+  icon?: string;
+  /** Причина недоступности; пусто — доступен */
+  disabled?: string;
+  run: () => void;
+}
+
+export interface FileMenuSection {
+  name: string;
+  items: FileMenuItem[];
+}
+
 /** Все органы вкладки подряд — для проверок и поиска команды по имени */
 export function organsOf(tab: RibbonTab): Organ[] {
   return tab.groups.flatMap((g) => g.organs);
