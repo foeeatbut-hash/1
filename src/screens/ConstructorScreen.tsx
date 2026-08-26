@@ -4,6 +4,10 @@ import { io, Socket } from 'socket.io-client';
 import { ENV_CONFIG, getAuthToken } from '../config/env';
 import { useStore } from '../store/store';
 import { PLACEHOLDERS, placeholderToken, fillSnapshot, countTokens } from '../lib/docPlaceholders';
+import { type ConflictChoice } from '../lib/docConflict';
+import SaveConflictDialog from '../components/SaveConflictDialog';
+import DocVersionsPanel from '../components/DocVersionsPanel';
+import { dataService } from '../services/dataService';
 import { useToastStore } from '../store/toastStore';
 import * as XLSX from 'xlsx';
 import {
@@ -357,6 +361,16 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   const univerRef = useRef<any>(null);       // { univer, univerAPI }
   const lastSavedRef = useRef<string>('');
   const [doc, setDoc] = useState<any>(null);
+  /**
+   * Время, с которым это окно прочитало документ. Уходит на сервер при каждой
+   * записи: разошлось с тем, что там лежит, — значит окно отстало от жизни и
+   * пишет старую книгу поверх свежей (см. src/lib/docConflict.ts).
+   */
+  const baseRef = useRef<string>('');
+  const [saveConflict, setSaveConflict] = useState<{ who: string; at: string | null } | null>(null);
+  // Пока конфликт не разобран, автосохранение молчит: иначе окно повторяло бы
+  // отказ каждые две с половиной секунды
+  const saveConflictRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'idle'>('idle');
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -494,7 +508,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
     setSaveState('saving');
     const res = await fetch(`/api/constructor/docs/${docId}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workbook: JSON.stringify(result) }),
+      body: JSON.stringify({ workbook: JSON.stringify(result), baseUpdatedAt: baseRef.current }),
     });
     if (!res.ok) { setSaveState('idle'); addToast('Не удалось сохранить заполненный документ', 'error'); return; }
     lastSavedRef.current = JSON.stringify(result);
@@ -506,11 +520,12 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
     setReloadTick(t => t + 1); // редактор перечитывает документ уже с данными
   };
 
-  const saveNow = async (extra?: Record<string, any>) => {
+  const saveNow = async (extra?: Record<string, any>, force = false) => {
+    if (saveConflictRef.current && !force) return;
     const snapshot = takeSnapshot();
     const bindingsChanged = bindingsDirtyRef.current;
     if (!snapshot && !extra && !bindingsChanged) return;
-    if (snapshot === lastSavedRef.current && !extra && !bindingsChanged) return;
+    if (snapshot === lastSavedRef.current && !extra && !bindingsChanged && !force) return;
     setSaveState('saving');
     try {
       const res = await fetch(`/api/constructor/docs/${docId}`, {
@@ -519,6 +534,8 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           ...(snapshot ? { workbook: snapshot } : {}),
           ...(bindingsChanged ? { bindings: JSON.stringify(bindingsRef.current) } : {}),
           ...(extra || {}),
+          baseUpdatedAt: baseRef.current,
+          ...(force ? { force: true } : {}),
         }),
       });
       if (res.ok) {
@@ -526,13 +543,60 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         if (bindingsChanged) bindingsDirtyRef.current = false;
         const d = await res.json();
         setDoc(d.doc);
+        baseRef.current = d.doc?.updatedAt || baseRef.current;
+        saveConflictRef.current = false;
+        setSaveConflict(null);
         setSaveState('saved');
-      } else {
-        const d = await res.json().catch(() => ({}));
-        if (d.error) addToast(d.error, 'error');
-        setSaveState('idle');
+        return;
       }
+      const d = await res.json().catch(() => ({}));
+      if (res.status === 409 && d.conflict) {
+        // Разбор вместо записи. Правка человека цела — она в книге на экране
+        saveConflictRef.current = true;
+        setSaveConflict({ who: d.who || '', at: d.at || null });
+        setSaveState('idle');
+        return;
+      }
+      if (d.error) addToast(d.error, 'error');
+      setSaveState('idle');
     } catch (_) { setSaveState('idle'); }
+  };
+
+  /**
+   * Три выхода, и ни один не теряет молча: копия сохраняет обе работы, «своё»
+   * уводит чужую правку в историю версий, «его» теряет только то, что человек
+   * прямо сейчас видит на экране, — и об этом сказано прямо в окне.
+   */
+  const resolveSaveConflict = async (choice: ConflictChoice) => {
+    if (choice === 'theirs') {
+      saveConflictRef.current = false;
+      setSaveConflict(null);
+      lastSavedRef.current = '';
+      setLoading(true);
+      setReloadTick(t => t + 1);
+      return;
+    }
+    if (choice === 'mine') {
+      saveConflictRef.current = false;
+      setSaveConflict(null);
+      await saveNow(undefined, true);
+      addToast('Сохранено. Правка коллеги — в истории версий', 'success');
+      return;
+    }
+    // Копия: своё уходит отдельным документом, а это окно перечитывает чужую
+    // правку — обе работы целы и лежат раздельно
+    const copyName = `${doc?.name || 'Документ'} — моя правка`;
+    try {
+      await dataService.forkDoc(docId, takeSnapshot(), copyName);
+      addToast(`Ваша правка сохранена документом «${copyName}»`, 'success');
+      saveConflictRef.current = false;
+      setSaveConflict(null);
+      lastSavedRef.current = '';
+      setLoading(true);
+      setReloadTick(t => t + 1);
+    } catch (e: any) {
+      addToast(e?.message || 'Не удалось сохранить копию', 'error');
+    }
   };
 
   // Страховка от вылета/закрытия окна: несохранённый снапшот уходит запросом
@@ -546,7 +610,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         fetch(`/api/constructor/docs/${docId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ workbook: snapshot }),
+          body: JSON.stringify({ workbook: snapshot, baseUpdatedAt: baseRef.current }),
           keepalive: true,
         }).catch(() => {});
         lastSavedRef.current = snapshot;
@@ -641,6 +705,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           sheets: { 'sheet-1': { id: 'sheet-1', name: 'Лист1', rowCount: 5000, columnCount: 200 } },
         });
         lastSavedRef.current = loaded.workbook || '';
+        baseRef.current = loaded.updatedAt || '';
 
         // ── Формульные функции с данными проекта (часть I §7, MVP) ──
         // Асинхронные: движок сам ждёт ответа сервера; повторные вызовы с теми же
@@ -1405,6 +1470,13 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       {wizardOpen && (
         <DataWizard projectId={activeProject?.id || 'default'} onInsert={handleInsert} onClose={() => setWizardOpen(false)} />
       )}
+      {saveConflict && (
+        <SaveConflictDialog
+          info={saveConflict}
+          meName={user?.name || ''}
+          onChoose={resolveSaveConflict}
+        />
+      )}
 
       {/* Панель «Титул»: шаблон + реквизиты этого документа */}
       {titleOpen && (
@@ -1419,40 +1491,13 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
 
       {/* Панель истории версий: автоснимки и ручные, откат */}
       {versionsOpen && (
-        <div className="absolute right-4 top-14 z-40 w-96 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-800">
-            <span className="text-sm font-bold text-slate-800 dark:text-white">История версий</span>
-            <div className="flex items-center gap-2">
-              <button type="button"
-                onClick={async () => { await makeVersion('ручное сохранение'); await loadVersions(); addToast('Версия сохранена', 'success'); }}
-                className="text-xs font-bold px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer flex items-center gap-1">
-                <History className="w-3 h-3" /> Сохранить версию
-              </button>
-              <button type="button" onClick={() => setVersionsOpen(false)} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
-            </div>
-          </div>
-          <div className="max-h-80 overflow-auto divide-y divide-slate-100 dark:divide-slate-850">
-            {versions.map(v => (
-              <div key={v.id} className="px-4 py-2.5 flex items-center gap-3">
-                <div className="w-9 h-6 shrink-0 rounded bg-slate-100 dark:bg-slate-850 flex items-center justify-center text-xs font-bold text-slate-500">в{v.version}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate">{v.comment || 'без комментария'}</div>
-                  <div className="text-2xs text-slate-400">{fmtDate(v.createdAt)}</div>
-                </div>
-                <button type="button" onClick={() => restoreVersion(v)} title="Восстановить эту версию"
-                  className="text-xs font-bold px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 hover:text-emerald-700 cursor-pointer">
-                  Восстановить
-                </button>
-              </div>
-            ))}
-            {versions.length === 0 && (
-              <div className="px-4 py-6 text-center text-xs text-slate-400">
-                Версий пока нет. Они создаются автоматически перед обновлением
-                данных и кнопкой «Сохранить версию».
-              </div>
-            )}
-          </div>
-        </div>
+        <DocVersionsPanel
+          versions={versions}
+          fmtDate={fmtDate}
+          onSave={async () => { await makeVersion('ручное сохранение'); await loadVersions(); addToast('Версия сохранена', 'success'); }}
+          onRestore={restoreVersion}
+          onClose={() => setVersionsOpen(false)}
+        />
       )}
 
       {/* Панель умных блоков: обновление, отвязка, индикатор устаревания */}
