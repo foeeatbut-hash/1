@@ -15,6 +15,7 @@ import {
   type RibbonGroup, type RibbonTab,
 } from '../src/lib/ribbon';
 import { notesRibbon } from '../src/lib/ribbonNotes';
+import { docRibbon } from '../src/lib/ribbonDoc';
 import { RIBBON_ICON_NAMES } from '../src/components/ribbon/icons';
 
 let f = 0;
@@ -26,6 +27,7 @@ const ICONS = new Set(RIBBON_ICON_NAMES);
 /** Ленты всех редакторов: имя → вкладки. Пополняется по мере переезда */
 const RIBBONS: Record<string, RibbonTab[]> = {
   'Блокнот': notesRibbon({ tags: true, project: true }),
+  'Документ': docRibbon(),
 };
 
 console.log('1. Общие правила состава');

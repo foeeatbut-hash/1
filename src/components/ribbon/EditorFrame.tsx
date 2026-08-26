@@ -9,8 +9,8 @@
 import React from 'react';
 import RibbonBar, { type RibbonBarProps } from './RibbonBar';
 import DocRow, { type DocRowProps } from './DocRow';
-import FileMenu, { type FileMenuSection } from './FileMenu';
-import { STATUS_H } from '../../lib/ribbon';
+import FileMenu from './FileMenu';
+import { STATUS_H, type FileMenuSection } from '../../lib/ribbon';
 
 export interface EditorFrameProps extends Omit<RibbonBarProps, 'onFile'> {
   doc: DocRowProps;
