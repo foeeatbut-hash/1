@@ -12,10 +12,10 @@
  * «кто в проекте» и связь появятся вместе со своими механизмами, а не раньше.
  */
 import React from 'react';
-import { Bell, LayoutGrid, Sun, Moon, Settings, LogOut, MessageCircleQuestion, LifeBuoy } from 'lucide-react';
+import { Bell, LayoutGrid, Sun, Moon, Settings, LogOut, MessageCircleQuestion, LifeBuoy, AppWindow, Columns2, PanelLeft } from 'lucide-react';
 import { SECTIONS } from '../workspace/sections';
 import { useWorkspaceStore, visiblePanes, openSectionWindow, rememberSectionUse } from '../store/workspaceStore';
-import { useStore } from '../store/store';
+import { useStore, type ShellMode } from '../store/store';
 import { useNavigate } from 'react-router-dom';
 import { useNotificationStore } from '../store/notificationStore';
 import { useAssistantStore } from '../store/assistantStore';
@@ -39,6 +39,7 @@ function useNow(): Date {
 export default function Taskbar() {
   const user = useStore((s) => s.user);
   const shell = useStore((s) => s.shell);
+  const setShell = useStore((s) => s.setShell);
   const setUser = useStore((s) => s.setUser);
   const theme = useStore((s) => s.theme);
   const toggleTheme = useStore((s) => s.toggleTheme);
@@ -141,8 +142,28 @@ export default function Taskbar() {
     { label: 'Открыть в отдельном окне', onClick: () => openSectionWindow(menu.path) },
   ] : [];
 
+  /**
+   * Вид оболочки — прямо здесь, а не только в Параметрах.
+   *
+   * Настройка меняет всё устройство экрана, но на самом экране никак не
+   * подписана: попав не в ту оболочку, человек видит «почему-то вкладки» и не
+   * знает, где это переключить. Место для такого — меню профиля: то же, где
+   * лежат тема и выход.
+   */
+  const SHELLS: { key: ShellMode; label: string; icon: React.ReactNode }[] = [
+    { key: 'windows', label: 'Разделы — окнами', icon: <AppWindow className="w-3.5 h-3.5" /> },
+    { key: 'panes', label: 'Разделы — панелями', icon: <Columns2 className="w-3.5 h-3.5" /> },
+    { key: 'menu', label: 'Разделы — меню слева', icon: <PanelLeft className="w-3.5 h-3.5" /> },
+  ];
+
   // Всё, что жило в подвале левого меню: без этого спрятать меню было бы нельзя
   const userItems: MenuItem[] = [
+    ...SHELLS.map((s): MenuItem => ({
+      label: shell === s.key ? `${s.label} ✓` : s.label,
+      icon: s.icon,
+      disabled: shell === s.key,
+      onClick: () => setShell(s.key),
+    })),
     { label: 'Параметры программы', icon: <Settings className="w-3.5 h-3.5" />, onClick: () => openSection('/settings') },
     {
       label: theme === 'dark' ? 'Светлая тема' : 'Тёмная тема',
