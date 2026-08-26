@@ -16,6 +16,7 @@ import {
 } from '../src/lib/ribbon';
 import { notesRibbon } from '../src/lib/ribbonNotes';
 import { docRibbon } from '../src/lib/ribbonDoc';
+import { sheetRibbon } from '../src/lib/ribbonSheet';
 import { RIBBON_ICON_NAMES } from '../src/components/ribbon/icons';
 
 let f = 0;
@@ -28,6 +29,7 @@ const ICONS = new Set(RIBBON_ICON_NAMES);
 const RIBBONS: Record<string, RibbonTab[]> = {
   'Блокнот': notesRibbon({ tags: true, project: true }),
   'Документ': docRibbon(),
+  'Таблица': sheetRibbon(),
 };
 
 console.log('1. Общие правила состава');
