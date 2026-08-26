@@ -878,6 +878,8 @@ export default function NotesManagement() {
                 onChange={(html) => handleNoteChange({ content: html })}
                 className="h-full border-none shadow-none bg-transparent"
                 projectTags={projectTags}
+                projectId={activeProject?.id}
+                userName={user?.name || user?.symbol || ''}
                 onTagNavigate={(tagId) => { if (tagId) navigate(`/registry?focus=${encodeURIComponent(tagId)}`); }}
               />
             </div>
