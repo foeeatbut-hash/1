@@ -21,7 +21,8 @@ npx tsx scripts/test-<имя>.ts
 `test-constructor-fn` (своды по проекту), `test-architecture` (границы между
 слоями и размер файлов, см. skill `flux-architecture`), `test-blank-parser`,
 `test-normalize`, `test-doc-import`, `test-nlp`, `test-assistant`,
-`test-api`, `test-flow`, `test-mail` и `test-layout` (`api`, `flow` и `layout`
+`test-api`, `test-flow`, `test-mail`, `test-ribbon` (состав лент
+редакторов) и `test-layout` (`api`, `flow` и `layout`
 требуют поднятого сервера, см. ниже).
 
 Формат — простой и одинаковый, без фреймворка: счётчик, функция сравнения,

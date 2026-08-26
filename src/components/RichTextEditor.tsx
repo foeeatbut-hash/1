@@ -1,6 +1,8 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Bold, Italic, Underline, Strikethrough, List, ListOrdered, Table, Check, AlignLeft, AlignCenter, AlignRight, AlignJustify, Undo2, Redo2, Eraser, Baseline, Highlighter, Indent, Outdent, Link2, CheckSquare, SeparatorHorizontal, CalendarClock, Search, ExternalLink, Pencil, Unlink, Rows3, Columns3, Trash2, Tag as TagIcon, Image as ImageIcon } from 'lucide-react';
+import { Check, ExternalLink, Pencil, Unlink, Rows3, Columns3, Trash2, Tag as TagIcon, Database } from 'lucide-react';
+import RibbonBar from './ribbon/RibbonBar';
+import { notesRibbon, NOTE_SIZES, NOTE_TEXT_COLORS, NOTE_MARK_COLORS } from '../lib/ribbonNotes';
 
 interface RichTextEditorProps {
   value: string;
@@ -12,7 +14,20 @@ interface RichTextEditorProps {
   projectTags?: { id: string; identifier: string }[];
   /** Клик по вставленной ссылке на тег */
   onTagNavigate?: (tagId: string, identifier: string) => void;
+  /** Проект: без него вкладка «Данные проекта» не собирается */
+  projectId?: string;
+  /** Имя для вставки «Автор» */
+  userName?: string;
 }
+
+/** Поля проекта, которые есть смысл вставлять в заметку */
+const PROJECT_FIELDS = [
+  { key: 'code', label: 'Шифр проекта' },
+  { key: 'name', label: 'Название' },
+  { key: 'customer', label: 'Заказчик' },
+  { key: 'object', label: 'Объект' },
+  { key: 'stage', label: 'Стадия' },
+];
 
 // Открытие внешней ссылки: в Electron — через системный браузер, в вебе — новая вкладка
 function openExternal(url: string) {
@@ -24,12 +39,6 @@ function openExternal(url: string) {
   }
 }
 
-// Палитры адаптируются к теме: тёмный текст невидим на тёмном фоне
-const TEXT_COLORS_LIGHT = ['#0f172a', '#dc2626', '#ea580c', '#ca8a04', '#16a34a', '#0284c7', '#7c3aed', '#db2777'];
-const TEXT_COLORS_DARK = ['#f1f5f9', '#f87171', '#fb923c', '#facc15', '#4ade80', '#38bdf8', '#a78bfa', '#f472b6'];
-const HIGHLIGHT_COLORS_LIGHT = ['#fef08a', '#bbf7d0', '#bfdbfe', '#fbcfe8', '#fed7aa', '#e9d5ff', 'transparent'];
-const HIGHLIGHT_COLORS_DARK = ['#713f12', '#14532d', '#1e3a8a', '#831843', '#7c2d12', '#581c87', 'transparent'];
-
 // Стили чек-бокса чек-листа — инлайновые, чтобы сохранялись в HTML заметки и в экспорте
 const CLBOX_BASE = 'display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:4px;border:1.5px solid #94a3b8;margin-right:8px;cursor:pointer;font-size:11px;line-height:1;user-select:none;vertical-align:-3px;flex:none;';
 const CLBOX_ON = CLBOX_BASE + 'background:#059669;border-color:#059669;color:#fff;';
@@ -40,23 +49,25 @@ function makeChecklistItemHTML(text = '') {
     `<span style="flex:1;min-width:0;">${text || '<br>'}</span></li>`;
 }
 
-export default function RichTextEditor({ value, onChange, placeholder = 'Введите текст заметки...', className = '', disabled = false, projectTags, onTagNavigate }: RichTextEditorProps) {
+export default function RichTextEditor({
+  value, onChange, placeholder = 'Введите текст заметки...', className = '', disabled = false,
+  projectTags, onTagNavigate, projectId, userName,
+}: RichTextEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
+  // Корень нужен, чтобы найти орган ленты и пристроить к нему всплывающую панель
+  const editorRootRef = useRef<HTMLDivElement>(null);
   const [activeFormats, setActiveFormats] = useState({
     bold: false, italic: false, underline: false, strikeThrough: false, bulletList: false, orderedList: false,
   });
 
-  const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
-  const TEXT_COLORS = isDark ? TEXT_COLORS_DARK : TEXT_COLORS_LIGHT;
-  const HIGHLIGHT_COLORS = isDark ? HIGHLIGHT_COLORS_DARK : HIGHLIGHT_COLORS_LIGHT;
-
-  const [showColorPalette, setShowColorPalette] = useState<null | 'text' | 'highlight'>(null);
   const [showFind, setShowFind] = useState(false);
   const [findText, setFindText] = useState('');
 
   // Вставка таблицы: сетка как в Word (наведение — размер, клик — вставить)
-  const [showTableGrid, setShowTableGrid] = useState(false);
+  const [tablePop, setTablePop] = useState<{ x: number; y: number } | null>(null);
   const [gridHover, setGridHover] = useState({ r: 0, c: 0 });
+  // Список полей проекта — по кнопке «Поле проекта»
+  const [fieldMenu, setFieldMenu] = useState<{ x: number; y: number } | null>(null);
 
   // Контекстное меню таблицы (ПКМ по ячейке)
   const [tableMenu, setTableMenu] = useState<{ x: number; y: number } | null>(null);
@@ -128,7 +139,7 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
     tableHtml += `</tbody></table><p><br></p>`;
     editorRef.current?.focus();
     executeCommand('insertHTML', tableHtml);
-    setShowTableGrid(false);
+    setTablePop(null);
   };
 
   const cellOf = (node: Node | null): HTMLTableCellElement | null => {
@@ -201,14 +212,13 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
 
   // ── Ссылки ─────────────────────────────────────────────────────────────────
 
-  const openLinkInsert = (e: React.MouseEvent) => {
+  const openLinkAt = (pos: { x: number; y: number }) => {
     const sel = window.getSelection();
     savedRangeRef.current = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
     setLinkUrl('https://');
     setLinkText(sel ? sel.toString().trim() : '');
     linkAnchorRef.current = null;
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setLinkPopover({ x: rect.left, y: rect.bottom + 6, mode: 'insert' });
+    setLinkPopover({ x: pos.x, y: pos.y, mode: 'insert' });
     setLinkBubble(null);
   };
 
@@ -470,12 +480,11 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
   };
 
   // ── Ссылка на тег проекта ─────────────────────────────────────────────────
-  const openTagInsert = (e: React.MouseEvent) => {
+  const openTagAt = (pos: { x: number; y: number }) => {
     const sel = window.getSelection();
     savedRangeRef.current = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
     setTagSearch('');
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setTagPopover({ x: rect.left, y: rect.bottom + 6 });
+    setTagPopover(pos);
   };
 
   const insertTagLink = (tag: { id: string; identifier: string }) => {
@@ -500,8 +509,8 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
 
   // Закрытие всплывающих панелей по клику мимо и Esc
   useEffect(() => {
-    if (!tableMenu && !linkBubble && !showTableGrid && !linkPopover && !tagPopover) return;
-    const close = () => { setTableMenu(null); setLinkBubble(null); setShowTableGrid(false); setTagPopover(null); };
+    if (!tableMenu && !linkBubble && !tablePop && !linkPopover && !tagPopover && !fieldMenu) return;
+    const close = () => { setTableMenu(null); setLinkBubble(null); setTablePop(null); setTagPopover(null); setFieldMenu(null); };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { close(); setLinkPopover(null); }
     };
@@ -516,203 +525,147 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
       window.removeEventListener('mousedown', closeOnOutside);
       window.removeEventListener('keydown', onKey);
     };
-  }, [tableMenu, linkBubble, showTableGrid, linkPopover, tagPopover]);
+  }, [tableMenu, linkBubble, tablePop, linkPopover, tagPopover, fieldMenu]);
 
-  const toolBtn = 'p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 cursor-pointer';
-  const toolBtnActive = 'p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 font-bold cursor-pointer';
+  // ── Лента: состояние вкладок и дежурные значения органов ──
+  const tabs = React.useMemo(
+    () => notesRibbon({ tags: !!projectTags?.length, project: !!projectId }),
+    [projectTags?.length, projectId],
+  );
+  const [tab, setTab] = useState('Главная');
+  const [folded, setFolded] = useState(false);
+  const [zoom, setZoom] = useState(100);
+  const [full, setFull] = useState(false);
+  const [block, setBlock] = useState('p');
+  const [font, setFont] = useState('Arial');
+  const [size, setSize] = useState('3');
+  const [textColor, setTextColor] = useState(NOTE_TEXT_COLORS[0]);
+  const [markColor, setMarkColor] = useState(NOTE_MARK_COLORS[0]);
+
+  // Во весь экран — выход по Esc. Кнопка ленты в этот момент под рукой не
+  // всегда: заметка занимает всё окно, и привычка жать Esc сильнее
+  useEffect(() => {
+    if (!full) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFull(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [full]);
+
+  /** Куда пристроить всплывающую панель органа: к нему же и пристроим */
+  const organRect = (id: string): { x: number; y: number } => {
+    const el = editorRootRef.current?.querySelector(`[data-organ="${id}"]`) as HTMLElement | null;
+    const r = el?.getBoundingClientRect();
+    return r ? { x: r.left, y: r.bottom + 6 } : { x: 80, y: 160 };
+  };
+
+  const insertText = (text: string) => {
+    editorRef.current?.focus();
+    executeCommand('insertHTML', text.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] as string)) + '&nbsp;');
+  };
+
+  /** Поле проекта: те же серверные функции, что и в формулах таблиц */
+  const insertProjectField = async (field: string) => {
+    try {
+      const r = await fetch('/api/constructor/fn', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId, calls: [{ fn: 'project', args: [field] }] }),
+      });
+      const v = r.ok ? (await r.json()).results?.[0] : null;
+      insertText(v && v !== '#ОШИБКА' ? String(v) : `{Проект.${field}}`);
+    } catch (_) { insertText(`{Проект.${field}}`); }
+    setFieldMenu(null);
+  };
+
+  // Выполнение команды ленты. Один разбор на все вкладки: орган знает только
+  // своё имя, что с ним делать — решается здесь
+  const runCommand = (id: string, value?: string) => {
+    switch (id) {
+      case 'notes.undo': return executeCommand('undo');
+      case 'notes.redo': return executeCommand('redo');
+      case 'notes.bold': return executeCommand('bold');
+      case 'notes.italic': return executeCommand('italic');
+      case 'notes.underline': return executeCommand('underline');
+      case 'notes.strike': return executeCommand('strikeThrough');
+      case 'notes.block': { const v = value || 'p'; setBlock(v); return executeCommand('formatBlock', v); }
+      case 'notes.font': { const v = value || 'Arial'; setFont(v); return executeCommand('fontName', v); }
+      case 'notes.size': {
+        const idx = NOTE_SIZES.findIndex(s => s.value === size);
+        const next = NOTE_SIZES[Math.min(NOTE_SIZES.length - 1, Math.max(0, idx + (value === '+' ? 1 : -1)))];
+        setSize(next.value);
+        return executeCommand('fontSize', next.value);
+      }
+      case 'notes.color': { const c = value && value !== 'open' ? value : textColor; setTextColor(c); return executeCommand('foreColor', c); }
+      case 'notes.mark': { const c = value && value !== 'open' ? value : markColor; setMarkColor(c); return executeCommand('hiliteColor', c); }
+      case 'notes.clear': { executeCommand('removeFormat'); return executeCommand('formatBlock', 'p'); }
+      case 'notes.left': return executeCommand('justifyLeft');
+      case 'notes.center': return executeCommand('justifyCenter');
+      case 'notes.right': return executeCommand('justifyRight');
+      case 'notes.justify': return executeCommand('justifyFull');
+      case 'notes.indent': return executeCommand('indent');
+      case 'notes.outdent': return executeCommand('outdent');
+      case 'notes.bullets': return executeCommand('insertUnorderedList');
+      case 'notes.numbers': return executeCommand('insertOrderedList');
+      case 'notes.checklist':
+      case 'notes.todo': return insertChecklist();
+      case 'notes.find': return setShowFind(v => !v);
+      case 'notes.table': { const r = organRect('notes.table'); setTablePop(r); return; }
+      case 'notes.image': return imageInputRef.current?.click();
+      case 'notes.link': return openLinkAt(organRect('notes.link'));
+      case 'notes.rule': return executeCommand('insertHorizontalRule');
+      case 'notes.datetime': return insertDateTime();
+      case 'notes.tag': return openTagAt(organRect('notes.tag'));
+      case 'notes.projectField': return setFieldMenu(organRect('notes.projectField'));
+      case 'notes.today': return insertText(new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }));
+      case 'notes.author': return insertText(userName || 'Автор');
+      case 'notes.zoom': return setZoom(z => Math.min(200, Math.max(60, z + (value === '+' ? 10 : -10))));
+      case 'notes.zoomReset': return setZoom(100);
+      case 'notes.full': return setFull(v => !v);
+      default: return undefined;
+    }
+  };
+
+  const organState: Record<string, boolean | string> = {
+    'notes.bold': activeFormats.bold,
+    'notes.italic': activeFormats.italic,
+    'notes.underline': activeFormats.underline,
+    'notes.strike': activeFormats.strikeThrough,
+    'notes.bullets': activeFormats.bulletList,
+    'notes.numbers': activeFormats.orderedList,
+    'notes.block': block,
+    'notes.font': font,
+    'notes.size': NOTE_SIZES.find(s => s.value === size)?.label || 'Обычный',
+    'notes.color': textColor,
+    'notes.mark': markColor,
+    'notes.find': showFind,
+    'notes.zoom': `${zoom} %`,
+    'notes.full': full,
+  };
 
   return (
-    <div className={`flex flex-col border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-950 transition-colors ${className}`}>
-      {/* TOOLBAR */}
-      <div className="flex flex-wrap items-center gap-1 p-2 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800 select-none">
-
-        <button type="button" onClick={() => executeCommand('bold')} className={activeFormats.bold ? toolBtnActive : toolBtn} title="Жирный (Ctrl+B)"><Bold className="w-4 h-4" /></button>
-        <button type="button" onClick={() => executeCommand('italic')} className={activeFormats.italic ? toolBtnActive : toolBtn} title="Курсив (Ctrl+I)"><Italic className="w-4 h-4" /></button>
-        <button type="button" onClick={() => executeCommand('underline')} className={activeFormats.underline ? toolBtnActive : toolBtn} title="Подчеркнутый (Ctrl+U)"><Underline className="w-4 h-4" /></button>
-        <button type="button" onClick={() => executeCommand('strikeThrough')} className={activeFormats.strikeThrough ? toolBtnActive : toolBtn} title="Зачеркнутый"><Strikethrough className="w-4 h-4" /></button>
-
-        <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800 mx-1" />
-
-        {/* Заголовки и размер шрифта */}
-        <select
-          onChange={(e) => { if (e.target.value) { executeCommand('formatBlock', e.target.value); e.target.value = ''; } }}
-          defaultValue=""
-          className="h-7 px-1 max-w-28 min-w-0 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 cursor-pointer outline-none"
-          title="Стиль абзаца"
-        >
-          <option value="" disabled>Стиль</option>
-          <option value="p">Обычный</option>
-          <option value="h1">Заголовок 1</option>
-          <option value="h2">Заголовок 2</option>
-          <option value="h3">Заголовок 3</option>
-          <option value="blockquote">Цитата</option>
-        </select>
-
-        <select
-          onChange={(e) => { if (e.target.value) { executeCommand('fontSize', e.target.value); e.target.value = ''; } }}
-          defaultValue=""
-          className="h-7 px-1 max-w-28 min-w-0 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 cursor-pointer outline-none"
-          title="Размер текста"
-        >
-          <option value="" disabled>Размер</option>
-          <option value="1">Мелкий</option>
-          <option value="3">Обычный</option>
-          <option value="5">Крупный</option>
-          <option value="7">Очень крупный</option>
-        </select>
-
-        <select
-          onChange={(e) => { if (e.target.value) { executeCommand('fontName', e.target.value); e.target.value = ''; } }}
-          defaultValue=""
-          className="h-7 px-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 cursor-pointer outline-none max-w-[90px]"
-          title="Шрифт"
-        >
-          <option value="" disabled>Шрифт</option>
-          <option value="Arial">Arial</option>
-          <option value="Calibri">Calibri</option>
-          <option value="Times New Roman">Times New Roman</option>
-          <option value="Georgia">Georgia</option>
-          <option value="Courier New">Courier New</option>
-          <option value="Verdana">Verdana</option>
-        </select>
-
-        <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800 mx-1" />
-
-        {/* Цвет текста и выделение */}
-        <div className="relative" data-rte-popup>
-          <button type="button" onClick={() => setShowColorPalette(showColorPalette === 'text' ? null : 'text')} className={toolBtn} title="Цвет текста">
-            <Baseline className="w-4 h-4" />
-          </button>
-          {showColorPalette === 'text' && (
-            <div className="absolute top-full left-0 mt-1 p-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl flex gap-1 z-50">
-              {TEXT_COLORS.map(c => (
-                <button key={c} type="button" onMouseDown={(e) => { e.preventDefault(); executeCommand('foreColor', c); setShowColorPalette(null); }}
-                  className="w-5 h-5 rounded border border-slate-200 dark:border-slate-700 cursor-pointer hover:scale-110 transition-transform" style={{ backgroundColor: c }} />
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="relative" data-rte-popup>
-          <button type="button" onClick={() => setShowColorPalette(showColorPalette === 'highlight' ? null : 'highlight')} className={toolBtn} title="Цвет выделения (маркер)">
-            <Highlighter className="w-4 h-4" />
-          </button>
-          {showColorPalette === 'highlight' && (
-            <div className="absolute top-full left-0 mt-1 p-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl flex gap-1 z-50">
-              {HIGHLIGHT_COLORS.map(c => (
-                <button key={c} type="button" onMouseDown={(e) => { e.preventDefault(); executeCommand('hiliteColor', c); setShowColorPalette(null); }}
-                  className="w-5 h-5 rounded border border-slate-300 dark:border-slate-600 cursor-pointer hover:scale-110 transition-transform"
-                  style={{ backgroundColor: c === 'transparent' ? (isDark ? '#0f172a' : 'white') : c, backgroundImage: c === 'transparent' ? 'linear-gradient(45deg, transparent 45%, #f43f5e 45%, #f43f5e 55%, transparent 55%)' : undefined }}
-                  title={c === 'transparent' ? 'Убрать выделение' : undefined} />
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800 mx-1" />
-
-        {/* Выравнивание */}
-        <button type="button" onClick={() => executeCommand('justifyLeft')} className={toolBtn} title="По левому краю"><AlignLeft className="w-4 h-4" /></button>
-        <button type="button" onClick={() => executeCommand('justifyCenter')} className={toolBtn} title="По центру"><AlignCenter className="w-4 h-4" /></button>
-        <button type="button" onClick={() => executeCommand('justifyRight')} className={toolBtn} title="По правому краю"><AlignRight className="w-4 h-4" /></button>
-        <button type="button" onClick={() => executeCommand('justifyFull')} className={toolBtn} title="По ширине"><AlignJustify className="w-4 h-4" /></button>
-
-        <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800 mx-1" />
-
-        {/* Отступы */}
-        <button type="button" onClick={() => executeCommand('indent')} className={toolBtn} title="Увеличить отступ"><Indent className="w-4 h-4" /></button>
-        <button type="button" onClick={() => executeCommand('outdent')} className={toolBtn} title="Уменьшить отступ"><Outdent className="w-4 h-4" /></button>
-
-        <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800 mx-1" />
-
-        {/* Списки */}
-        <button type="button" onClick={() => executeCommand('insertUnorderedList')} className={activeFormats.bulletList ? toolBtnActive : toolBtn} title="Маркированный список"><List className="w-4 h-4" /></button>
-        <button type="button" onClick={() => executeCommand('insertOrderedList')} className={activeFormats.orderedList ? toolBtnActive : toolBtn} title="Нумерованный список"><ListOrdered className="w-4 h-4" /></button>
-        <button type="button" onClick={insertChecklist} className={toolBtn} title="Чек-лист: клик по галочке отмечает пункт, Enter продолжает список">
-          <CheckSquare className="w-4 h-4 text-emerald-600" />
-        </button>
-
-        <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800 mx-1" />
-
-        {/* Ссылка */}
-        <button type="button" onClick={openLinkInsert} className={toolBtn} title="Вставить ссылку (клик по ссылке в тексте — открыть/изменить)">
-          <Link2 className="w-4 h-4 text-sky-600" />
-        </button>
-        {projectTags && projectTags.length > 0 && (
-          <button type="button" onClick={openTagInsert} className={toolBtn} title="Вставить ссылку на тег проекта (клик по тегу в тексте — открыть его в «Тегах»)">
-            <TagIcon className="w-4 h-4 text-emerald-600" />
-          </button>
-        )}
-
-        {/* Горизонтальная линия и дата */}
-        <button type="button" onClick={() => executeCommand('insertHorizontalRule')} className={toolBtn} title="Горизонтальная линия"><SeparatorHorizontal className="w-4 h-4" /></button>
-        <button type="button" onClick={insertDateTime} className={toolBtn} title="Вставить дату и время"><CalendarClock className="w-4 h-4" /></button>
-
-        <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800 mx-1" />
-
-        {/* Таблица: сетка как в Word; операции — ПКМ по ячейке */}
-        <div className="relative" data-rte-popup>
-          <button type="button" onClick={() => setShowTableGrid(v => !v)} className={`${toolBtn} flex items-center gap-1.5 text-xs font-medium`} title="Вставить таблицу (операции со строками/столбцами — правой кнопкой по ячейке)">
-            <Table className="w-4 h-4 text-sky-600" />
-            <span>Таблица</span>
-          </button>
-          {showTableGrid && (
-            <div className="absolute top-full left-0 mt-1 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50">
-              <div className="grid grid-cols-10 gap-0.5" onMouseLeave={() => setGridHover({ r: 0, c: 0 })}>
-                {Array.from({ length: 8 }).map((_, r) =>
-                  Array.from({ length: 10 }).map((_, c) => (
-                    <div
-                      key={`${r}-${c}`}
-                      onMouseEnter={() => setGridHover({ r: r + 1, c: c + 1 })}
-                      onMouseDown={(e) => { e.preventDefault(); insertTableGrid(r + 1, c + 1); }}
-                      className={`w-4 h-4 rounded-sm border cursor-pointer ${
-                        r < gridHover.r && c < gridHover.c
-                          ? 'bg-emerald-500 border-emerald-600'
-                          : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700'
-                      }`}
-                    />
-                  ))
-                )}
-              </div>
-              <div className="text-center text-2xs text-slate-500 dark:text-slate-400 mt-1.5 font-mono">
-                {gridHover.r > 0 ? `${gridHover.r} × ${gridHover.c}` : 'Выберите размер'}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800 mx-1" />
-
-        {/* История и очистка форматирования */}
-        <button type="button" onClick={() => executeCommand('undo')} className={toolBtn} title="Отменить (Ctrl+Z)"><Undo2 className="w-4 h-4" /></button>
-        <button type="button" onClick={() => executeCommand('redo')} className={toolBtn} title="Повторить (Ctrl+Y)"><Redo2 className="w-4 h-4" /></button>
-        <button type="button" onClick={() => { executeCommand('removeFormat'); executeCommand('formatBlock', 'p'); }} className={toolBtn} title="Очистить форматирование"><Eraser className="w-4 h-4" /></button>
-
-        <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800 mx-1" />
-
-        {/* Картинка: файлом или вставкой из буфера (Ctrl+V со скриншотом) */}
-        <button type="button" onClick={() => imageInputRef.current?.click()} className={toolBtn} title="Вставить картинку (или Ctrl+V со скриншотом)">
-          <ImageIcon className="w-4 h-4" />
-        </button>
-        <input ref={imageInputRef} type="file" accept="image/*" className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) insertImageFile(f); e.target.value = ''; }} />
-
-        {/* Поиск по заметке */}
-        <button type="button" onClick={() => setShowFind(v => !v)} className={showFind ? toolBtnActive : toolBtn} title="Найти в заметке">
-          <Search className="w-4 h-4" />
-        </button>
-        {showFind && (
-          <input
-            type="text"
-            autoFocus
-            value={findText}
+    <div ref={editorRootRef}
+      className={`flex flex-col border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 transition-colors
+        ${full ? 'fixed inset-0 z-[120] rounded-none' : `rounded-xl overflow-hidden ${className}`}`}>
+      {/* Лента: та же рама, что у документа, таблицы и чертежа */}
+      <RibbonBar
+        tabs={tabs} active={tab} onActive={setTab}
+        state={organState} onCommand={runCommand}
+        folded={folded} onFold={setFolded}
+      />
+      {/* Поиск по заметке: поле появляется под лентой, чтобы не тянуть её вширь */}
+      {showFind && (
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+          <input type="text" autoFocus value={findText}
             onChange={(e) => setFindText(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runFind(); } }}
             placeholder="Найти… (Enter — далее)"
-            className="h-7 px-2 text-xs rounded-lg border border-emerald-300 dark:border-emerald-800 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 outline-none w-40"
-          />
-        )}
-      </div>
+            className="h-6 px-2 text-2xs rounded-lg border border-emerald-300 dark:border-emerald-800 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 outline-none w-56" />
+          <button type="button" onClick={() => setShowFind(false)}
+            className="text-2xs text-slate-400 hover:text-slate-700 dark:hover:text-slate-150 cursor-pointer">Закрыть</button>
+        </div>
+      )}
+      <input ref={imageInputRef} type="file" accept="image/*" className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) insertImageFile(f); e.target.value = ''; }} />
+
 
       {/* EDITOR WORK AREA */}
       <div
@@ -726,7 +679,7 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
         onKeyUp={updateActiveFormats}
         onPaste={handlePaste}
         className={`flex-1 min-h-[220px] p-4 text-sm text-slate-800 dark:text-slate-300 outline-none overflow-y-auto prose dark:prose-invert max-w-none focus:bg-slate-50/20 dark:focus:bg-slate-950/20 transition-ui`}
-        style={{ direction: 'ltr' }}
+        style={{ direction: 'ltr', fontSize: `${zoom}%` }}
       />
 
       {/* Счётчик слов и символов */}
@@ -837,6 +790,46 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Вве�
           <button type="button" onClick={removeLink} className="p-1.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500 cursor-pointer" title="Убрать ссылку">
             <Unlink className="w-3.5 h-3.5" />
           </button>
+        </div>,
+        document.body
+      )}
+
+      {/* Сетка вставки таблицы: раскрывается под своей кнопкой в ленте */}
+      {tablePop && createPortal(
+        <div data-rte-popup
+          className="fixed z-[140] p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl"
+          style={{ left: Math.min(tablePop.x, window.innerWidth - 240), top: Math.min(tablePop.y, window.innerHeight - 200) }}>
+          <div className="grid grid-cols-10 gap-0.5" onMouseLeave={() => setGridHover({ r: 0, c: 0 })}>
+            {Array.from({ length: 8 }).map((_, r) =>
+              Array.from({ length: 10 }).map((_, c) => (
+                <div key={`${r}-${c}`}
+                  onMouseEnter={() => setGridHover({ r: r + 1, c: c + 1 })}
+                  onMouseDown={(e) => { e.preventDefault(); insertTableGrid(r + 1, c + 1); }}
+                  className={`w-4 h-4 rounded-sm border cursor-pointer ${
+                    r < gridHover.r && c < gridHover.c
+                      ? 'bg-emerald-500 border-emerald-600'
+                      : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`} />
+              ))
+            )}
+          </div>
+          <div className="text-center text-2xs text-slate-500 dark:text-slate-400 mt-1.5 font-mono">
+            {gridHover.r > 0 ? `${gridHover.r} × ${gridHover.c}` : 'Выберите размер'}
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Поля проекта: значение спрашивается у сервера и вставляется текстом */}
+      {fieldMenu && createPortal(
+        <div data-rte-popup
+          className="fixed z-[140] py-1 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl"
+          style={{ left: Math.min(fieldMenu.x, window.innerWidth - 240), top: Math.min(fieldMenu.y, window.innerHeight - 220) }}>
+          {PROJECT_FIELDS.map(f => (
+            <button key={f.key} type="button" onMouseDown={(e) => { e.preventDefault(); insertProjectField(f.key); }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 cursor-pointer">
+              <Database className="w-3 h-3 text-emerald-600 shrink-0" /> {f.label}
+            </button>
+          ))}
         </div>,
         document.body
       )}
