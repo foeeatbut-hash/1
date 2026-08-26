@@ -1069,7 +1069,7 @@ export default function Explorer() {
     const f = allCurrentItemsRef.current?.find((x: any) => x.id === id);
     // Файл из чужого проекта: имя видно, содержимое — после переключения.
     // Особенно важно для документа Конструктора: он собирается из тегов
-    // своего проекта и в чужом просто не соберётся.
+    // своего проекта и в чужом просто не соберётся
     const owner = projectOfRef.current(f);
     if (owner && owner !== useStore.getState().activeProject?.id) {
       openInProject({
@@ -1079,10 +1079,10 @@ export default function Explorer() {
       });
       return;
     }
-    // Зеркало документа Конструктора: открываем сам документ
+    // У документа Конструктора и у чертежа свои редакторы; остальному —
+    // предпросмотр: двойной клик ВСЕГДА что-то делает (B1)
     if (f?.type === 'CONSTRUCTOR' && f?.refId) { navigate(`/constructor?doc=${f.refId}`); return; }
-    // Обычный файл: двойной клик ВСЕГДА что-то делает (B1) — выделяем и
-    // открываем панель предпросмотра; при отсутствии содержимого — тост
+    if (f?.type === 'PDF' || /\.pdf$/i.test(f?.name || '')) { navigate(`/pdf?file=${id}`); return; }
     setSelectedIds(new Set([id]));
     setLastSelectedId(id);
     setShowPreviewPane(true);
