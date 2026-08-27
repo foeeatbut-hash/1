@@ -19,6 +19,7 @@ import ShareLayer from './ShareLayer';
 import CommandBar from './CommandBar';
 import { useReminderStore, onReminder } from '../store/reminderStore';
 import { useShellNotifyStore, toastOf } from '../store/shellNotifyStore';
+import { useWindowStore } from '../store/windowStore';
 import { onFreshNotifications } from '../store/notificationStore';
 import { shouldPopup, shouldSound, playNotifSound } from '../lib/notifPrefs';
 import NotifyToasts from './shell/NotifyToasts';
@@ -62,6 +63,29 @@ export default function Layout() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'F1') return;
       e.preventDefault();
+
+      /**
+       * В оконной оболочке справка открывается окном и встаёт в правую
+       * половину стола — рядом с тем, про что она. Раньше F1 подменял содержимое
+       * панели: раздел, про который спрашивают, при этом закрывался собой же, и
+       * читать инструкцию приходилось по памяти о том, что было на экране.
+       */
+      if (useStore.getState().shell === 'windows') {
+        const st = useWindowStore.getState();
+        const shown = st.windows.filter((w) => !w.minimized && w.desk === st.desk && w.path !== '/handbook');
+        const top = shown.length ? shown.reduce((a, b) => (b.z > a.z ? b : a)) : null;
+        const path = top?.path || '/';
+        st.open(`/handbook?for=${encodeURIComponent(path)}`);
+        // Ставим справку в правую половину, а раздел — в левую: половина на
+        // половину и есть «рядом». Уже стоявшее окно не двигаем второй раз
+        const win = useWindowStore.getState().windows
+          .filter((w) => w.path === '/handbook' && w.desk === st.desk)
+          .reduce<any>((a, b) => (!a || b.z > a.z ? b : a), null);
+        if (win) useWindowStore.getState().putInShare(win.id, { x: 0.5, y: 0, w: 0.5, h: 1 });
+        if (top) useWindowStore.getState().putInShare(top.id, { x: 0, y: 0, w: 0.5, h: 1 });
+        return;
+      }
+
       const path = wsActivePath || '/';
       if (path === '/handbook') return; // уже здесь — не мешаем читать
       // Панель хранит адрес раздела отдельно от пути: сначала кладём адрес с

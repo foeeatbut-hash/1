@@ -1,6 +1,8 @@
 import React from 'react';
-import { ArrowRight, Database, KeyRound, Keyboard, AlertTriangle, ListChecks, Lightbulb } from 'lucide-react';
+import { ArrowRight, Database, KeyRound, Keyboard, AlertTriangle, ListChecks, Lightbulb, Play } from 'lucide-react';
 import type { HandbookArticle } from '../../handbook/model';
+import { toursForRoute } from '../../assistant/tours';
+import { useAssistantStore } from '../../store/assistantStore';
 import { featureById } from '../../lib/permissions';
 import { thingRu, linkRu } from '../../handbook/names';
 
@@ -28,6 +30,10 @@ const Head = ({ id, icon: Icon, children }: { id: string; icon: any; children: R
  * две статьи, знает, где искать в третьей.
  */
 export default function HandbookArticleView({ article: a, onGoToSection, onOpen, titleOf }: Props) {
+  const startTour = useAssistantStore((s) => s.startTour);
+  // Демонстрации того же раздела: словами объяснено выше, а показать — короче
+  const tours = React.useMemo(() => toursForRoute(a.route || '').slice(0, 4), [a.route]);
+
   return (
     <article className="@container flex flex-col gap-7 pb-16">
       <header className="flex flex-col gap-2.5">
@@ -43,6 +49,25 @@ export default function HandbookArticleView({ article: a, onGoToSection, onOpen,
           )}
         </div>
         <p className="text-base text-slate-700 dark:text-slate-300 leading-relaxed max-w-[70ch]">{a.lead}</p>
+
+        {/* Показать вместо «читайте выше»: помощник подсветит кнопки прямо в
+            разделе и подождёт нажатия. Демонстрации берутся из общего списка
+            (assistant/tours), а не переписаны рядом */}
+        {tours.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+            <span className="text-2xs uppercase tracking-wider font-semibold text-slate-400 dark:text-slate-500 mr-0.5">
+              Показать в программе
+            </span>
+            {tours.map((t) => (
+              <button key={t.id} type="button" onClick={() => startTour(t.id)}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-2xs font-semibold
+                           border border-emerald-600/30 bg-emerald-600/10 text-emerald-700 dark:text-emerald-300
+                           hover:bg-emerald-600/20 cursor-pointer">
+                <Play className="w-3 h-3" /> {t.title}
+              </button>
+            ))}
+          </div>
+        )}
       </header>
 
       {a.why && (

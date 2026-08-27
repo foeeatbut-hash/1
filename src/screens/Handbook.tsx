@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { BookOpen, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { BookOpen, PanelLeftClose, PanelLeftOpen, Link2, Link2Off } from 'lucide-react';
 import HandbookNav from '../components/handbook/HandbookNav';
 import HandbookArticleView from '../components/handbook/HandbookArticleView';
 import { ARTICLES, search, articleById } from '../handbook/registry';
 import { anchorsOf } from '../handbook/model';
+import { useWindowStore } from '../store/windowStore';
+import { useWindowTitle } from '../lib/paneTitle';
 
 /**
  * Руководство по программе.
@@ -31,6 +33,23 @@ export default function Handbook() {
   const [anchor, setAnchor] = useState('');
   const bodyRef = useRef<HTMLDivElement>(null);
 
+  /**
+   * «Следовать за программой»: справка меняет статью вслед за верхним окном.
+   *
+   * Ради этого её и ставят рядом — половина экрана Тегам, половина справке.
+   * Без слежения приходилось бы каждый раз возвращаться в справку и заново
+   * искать статью того раздела, в котором работаешь; с ним справка ведёт себя
+   * как подпись к тому, что открыто.
+   */
+  const [follow, setFollow] = useState<boolean>(() => {
+    try { return localStorage.getItem('flux_handbook_follow') === '1'; } catch { return false; }
+  });
+  const topPath = useWindowStore((st) => {
+    const shown = st.windows.filter((w) => !w.minimized && w.desk === st.desk && w.path !== '/handbook');
+    if (!shown.length) return '';
+    return shown.reduce((a, b) => (b.z > a.z ? b : a)).path;
+  });
+
   // Что открыто: явная статья, статья раздела по F1, либо начало
   const openId = useMemo(() => {
     const byId = params.get('article');
@@ -44,6 +63,7 @@ export default function Handbook() {
   }, [params]);
 
   const article = articleById(openId) || ARTICLES[0];
+  useWindowTitle(`Справка · ${article.title}`);
   const hits = useMemo(() => search(query), [query]);
   const anchors = useMemo(() => anchorsOf(article), [article]);
 
@@ -53,6 +73,15 @@ export default function Handbook() {
     next.delete('for');
     setParams(next, { replace: true });
   };
+
+  // Слежение: сменилось верхнее окно — меняется статья. Только когда включено
+  // и только если у этого раздела статья вообще есть: молчаливый прыжок на
+  // «С чего начать» выглядел бы поломкой
+  useEffect(() => {
+    if (!follow || !topPath) return;
+    const a = ARTICLES.find((x) => x.route === topPath);
+    if (a && a.id !== openId) open(a.id);
+  }, [follow, topPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Смена статьи возвращает к началу: иначе новая статья открывается на том
   // месте, до которого была прокручена предыдущая
@@ -130,6 +159,26 @@ export default function Handbook() {
             Что умеет каждый раздел, что где хранится и чем связано
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => {
+            const next = !follow;
+            setFollow(next);
+            try { localStorage.setItem('flux_handbook_follow', next ? '1' : '0'); } catch (_) { /* приватный режим */ }
+          }}
+          title={follow
+            ? 'Справка следует за программой: статья меняется вслед за верхним окном'
+            : 'Следовать за программой: статья будет меняться вслед за верхним окном'}
+          className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-2xs font-semibold
+                      cursor-pointer transition-colors border ${
+            follow
+              ? 'border-emerald-600/40 bg-emerald-600/15 text-emerald-700 dark:text-emerald-300'
+              : 'border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850'
+          }`}
+        >
+          {follow ? <Link2 className="w-3.5 h-3.5" /> : <Link2Off className="w-3.5 h-3.5" />}
+          <span className="hidden @[560px]:inline">Следовать за программой</span>
+        </button>
       </div>
 
       <div className="flex-1 min-h-0 flex gap-4 min-w-0">
