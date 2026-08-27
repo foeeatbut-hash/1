@@ -2,7 +2,9 @@ import React from 'react';
 import { useStore } from '../store/store';
 import { useAssistantStore } from '../store/assistantStore';
 import { useNotificationStore } from '../store/notificationStore';
-import { Bell, MessageCircleQuestion, LifeBuoy } from 'lucide-react';
+import { useShellNotifyStore } from '../store/shellNotifyStore';
+import { isQuiet, untilLabel } from '../lib/notifCenter';
+import { Bell, BellOff, MessageCircleQuestion, LifeBuoy } from 'lucide-react';
 import { WorkspaceRailControls } from './Workspace';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useNavigate } from 'react-router-dom';
@@ -28,6 +30,7 @@ export default function RightRail() {
   const assistantOpen = useAssistantStore(s => s.isOpen);
   const setAssistantOpen = useAssistantStore(s => s.setOpen);
   const { panelOpen, setPanelOpen, unread, chatUnread } = useNotificationStore();
+  const quiet = useShellNotifyStore((s) => s.quiet);
   // Опрос уведомлений переехал в Layout: рельс показывается не всегда, а
   // уведомления обязаны приходить в любой оболочке
 
@@ -67,10 +70,14 @@ export default function RightRail() {
         type="button"
         onClick={openNotif}
         className={`${btn(panelOpen)} ${chatUnread > 0 && !panelOpen ? 'ring-2 ring-emerald-500 text-emerald-600 dark:text-emerald-400' : ''}`}
-        title="Уведомления"
+        title={isQuiet(quiet) ? `Тихий режим ${untilLabel(quiet!)} — уведомления копятся, но не всплывают` : 'Уведомления'}
         data-tour="notif-btn"
       >
-        <Bell className={`w-5 h-5 shrink-0 ${chatUnread > 0 && !panelOpen ? 'animate-pulse' : ''}`} />
+        {/* Тихий режим виден на кнопке: иначе про него забывают и решают, что
+            уведомления сломались */}
+        {isQuiet(quiet)
+          ? <BellOff className="w-5 h-5 shrink-0" />
+          : <Bell className={`w-5 h-5 shrink-0 ${chatUnread > 0 && !panelOpen ? 'animate-pulse' : ''}`} />}
         {!sidebarCompact && <span className="text-2xs font-semibold leading-none">Уведомления</span>}
         {unread > 0 && (
           <span className={`absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full text-white text-2xs font-bold flex items-center justify-center ${chatUnread > 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}>

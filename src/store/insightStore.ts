@@ -18,7 +18,7 @@ interface InsightState {
   target: Target | null;
   /** Куда вернуться по «назад»: панель связей открывается из проверки */
   back: { mode: InsightMode; target: Target | null } | null;
-  /** Открыт ли общий поиск (Ctrl+K) */
+  /** Открыта ли строка «Спросить или найти» (Ctrl+K, components/CommandBar) */
   paletteOpen: boolean;
   /** Счётчик замечаний для значка на Главной; null — ещё не считали */
   checkTotal: number | null;

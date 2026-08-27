@@ -12,12 +12,14 @@
  * «кто в проекте» и связь появятся вместе со своими механизмами, а не раньше.
  */
 import React from 'react';
-import { Bell, LayoutGrid, Sun, Moon, Settings, LogOut, MessageCircleQuestion, LifeBuoy } from 'lucide-react';
+import { Bell, BellOff, LayoutGrid, Sun, Moon, Settings, LogOut, MessageCircleQuestion, LifeBuoy } from 'lucide-react';
 import { SECTIONS } from '../workspace/sections';
 import { useWorkspaceStore, visiblePanes, openSectionWindow, rememberSectionUse } from '../store/workspaceStore';
 import { useStore } from '../store/store';
 import { useNavigate } from 'react-router-dom';
 import { useNotificationStore } from '../store/notificationStore';
+import { useShellNotifyStore } from '../store/shellNotifyStore';
+import { isQuiet, untilLabel } from '../lib/notifCenter';
 import { useAssistantStore } from '../store/assistantStore';
 import { useMailStore } from '../store/mailStore';
 import { useWindowStore, openPaths, activeWindowPath, windowsOf } from '../store/windowStore';
@@ -59,6 +61,9 @@ export default function Taskbar() {
   const minimizeAll = useWindowStore((s) => s.minimizeAll);
   const tileAll = useWindowStore((s) => s.tileAll);
   const notifUnread = useNotificationStore((s) => s.unread);
+  // Тихий режим виден на самой кнопке: иначе про него забывают и решают, что
+  // уведомления сломались
+  const quiet = useShellNotifyStore((s) => s.quiet);
   const chatUnread = useNotificationStore((s) => s.chatUnread);
   const togglePanel = useNotificationStore((s) => s.togglePanel);
   const notifOpen = useNotificationStore((s) => s.panelOpen);
@@ -388,11 +393,13 @@ export default function Taskbar() {
         <button
           type="button"
           onClick={togglePanel}
-          title={notifUnread > 0 ? `Уведомления: ${notifUnread} непрочитанных` : 'Уведомления'}
+          title={isQuiet(quiet)
+            ? `Тихий режим ${untilLabel(quiet!)} — уведомления копятся, но не всплывают`
+            : notifUnread > 0 ? `Уведомления: ${notifUnread} непрочитанных` : 'Уведомления'}
           data-tour="notif-btn"
           className={trayBtn(notifOpen)}
         >
-          <Bell className="w-[19px] h-[19px]" />
+          {isQuiet(quiet) ? <BellOff className="w-[19px] h-[19px]" /> : <Bell className="w-[19px] h-[19px]" />}
           {notifUnread > 0 && (
             <span aria-hidden className={`absolute top-1.5 right-2 w-2 h-2 rounded-full ${chatUnread > 0 ? 'bg-emerald-500' : 'bg-rose-600'}`} />
           )}

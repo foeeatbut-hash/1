@@ -37,6 +37,7 @@ const SECTIONS: [string, string][] = [
   ['Менеджмент', '/management'],
   ['Проводник', '/explorer'],
   ['Конструктор', '/constructor'],
+  ['Помощник', '/assistant'],
   ['Блокнот', '/notes'],
   ['Чат', '/chat'],
   ['Почта', '/mail'],

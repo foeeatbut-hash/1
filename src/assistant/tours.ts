@@ -573,3 +573,15 @@ export function findTourByText(text: string): Tour | null {
   const m = findBestTour(text);
   return m && m.score >= 1.5 ? m.tour : null;
 }
+
+/**
+ * Демонстрации, относящиеся к разделу.
+ *
+ * Нужны руководству: статья про Теги предлагает «Показать в программе», и
+ * список берётся отсюда, а не переписывается рядом. Раздел определяем по
+ * шагам: демонстрация принадлежит тому разделу, в котором происходит.
+ */
+export function toursForRoute(route: string): Tour[] {
+  if (!route) return [];
+  return TOURS.filter((t) => t.steps.some((s) => s.route === route));
+}

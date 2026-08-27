@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, ChevronRight } from 'lucide-react';
+import { X, ChevronRight, Maximize2 } from 'lucide-react';
 import { buildViews, todayWords } from '../art/views';
 
 const KEY = 'flux_art_index';
@@ -16,6 +16,8 @@ const LABEL_H = 22;
 
 interface Props {
   onClose: () => void;
+  /** Разговор переезжает в окно программы; нет обработчика — нет и кнопки */
+  onExpand?: () => void;
 }
 
 /**
@@ -58,7 +60,7 @@ interface Props {
  * белой панелью. Подпись стоит на фоне панели, без своей подложки и без рамки
  * сверху — так она читается подписью под картиной, а не второй плашкой.
  */
-export default function ArtShelf({ onClose }: Props) {
+export default function ArtShelf({ onClose, onExpand }: Props) {
   // Список собирается при открытии: он зависит от сегодняшних даты и часа
   const views = useMemo(() => buildViews(), []);
 
@@ -103,6 +105,21 @@ export default function ArtShelf({ onClose }: Props) {
         >
           <ChevronRight className="w-4 h-4" />
         </button>
+
+        {/* Разговор в окно: помощник — такая же программа, как остальные, и
+            в тесной панели ему бывает мало места */}
+        {onExpand && (
+          <button
+            type="button"
+            onClick={onExpand}
+            title="Открыть окном"
+            aria-label="Открыть окном"
+            className="absolute right-[52px] top-1.5 p-1 rounded-lg cursor-pointer transition-ui
+                       bg-black/20 hover:bg-black/35 ring-1 ring-white/20 text-white/90 backdrop-blur-sm"
+          >
+            <Maximize2 className="w-4 h-4" />
+          </button>
+        )}
 
         {/* Закрыть помощника — кнопка та же, что была у робота */}
         <button

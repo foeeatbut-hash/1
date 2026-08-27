@@ -6,6 +6,7 @@ import { getSection } from '../assistant/sections';
 import { parse, hasIntent, fieldMatchesStems, Parsed } from '../assistant/nlp';
 import { matchLabel, fieldByUniqueUnit, FIELDS, FieldDef } from '../import/dictionary';
 import { asksWhereWritten } from '../assistant/handbookAnswers';
+import { fileCard } from '../assistant/fileCard';
 import { asksToFindMail } from '../assistant/mailQueries';
 import { handbookMessage, mailSearchMessage } from '../assistant/answers';
 import { uid, type AssistantAction, type AssistantTable, type AssistantListItem, type AssistantMessage } from '../assistant/types';
@@ -58,6 +59,12 @@ interface AssistantState {
   lastResult: LastResult | null;
   // Ожидание ввода (диалоговое действие, например переименование тега)
   pendingInput: PendingInput;
+  /**
+   * Объект, прикреплённый к разговору: файл, брошенный в окно помощника.
+   * Разговор ведётся «про него», пока не открепят, — это короче, чем каждый
+   * раз называть словами, какой именно из трёх чертежей имеется в виду.
+   */
+  attached: { id: string; title: string; kind: string } | null;
 
   toggleOpen: () => void;
   setOpen: (open: boolean) => void;
@@ -71,6 +78,11 @@ interface AssistantState {
   advanceTour: () => void;
   cancelTour: () => void;
   setHighlight: (selector: string | null) => void;
+  attach: (v: { id: string; title: string; kind: string } | null) => void;
+  /** Начать разговор заново: приветствие остаётся, прикреплённое снимается */
+  clearTalk: () => void;
+  /** Рассказать про брошенный в разговор файл и прикрепить его */
+  askAbout: (fileId: string) => Promise<void>;
 }
 
 let navigateFn: ((path: string) => void) | null = null;
@@ -281,7 +293,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   messages: [{
     id: uid(),
     role: 'assistant',
-    text: 'Здравствуйте! Я помощник Flux — работаю локально, понимаю обычную речь и опечатки.\n\nМожно спросить про данные («покажи вентиляторы», «где 3700-K02»), проблемы («покажи дубли», «что требует внимания»), закупки («что не заказано») — а я найду и дам кнопки: открыть на холсте, показать в Менеджменте, выгрузить в Excel. Могу и выполнить: «открой менеджмент», «создай заметку». Ctrl+K — вызвать меня из любого места.',
+    text: 'Здравствуйте! Я помощник Flux — работаю локально, понимаю обычную речь и опечатки.\n\nМожно спросить про данные («покажи вентиляторы», «где 3700-K02»), проблемы («покажи дубли», «что требует внимания»), закупки («что не заказано») — а я найду и дам кнопки: открыть на холсте, показать в Менеджменте, выгрузить в Excel. Могу и выполнить: «открой менеджмент», «создай заметку». Ctrl+K — строка «Спросить или найти»: там команды со слэша, поиск по проекту и вопрос мне последней строкой.',
     actions: [
       { label: 'Покажи дубли', kind: 'ask', query: 'покажи дубли' },
       { label: 'Что не заказано', kind: 'ask', query: 'что не заказано' },
@@ -298,6 +310,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   lastTable: null,
   lastResult: null,
   pendingInput: null,
+  attached: null,
 
   toggleOpen: () => set(s => ({ isOpen: !s.isOpen })),
   setOpen: (open) => set({ isOpen: open }),
@@ -420,6 +433,30 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
       set(s => ({
         messages: [...s.messages, { id: uid(), role: 'assistant', text: `Не удалось обработать запрос: ${err.message}` }],
         loading: false,
+      }));
+    }
+  },
+
+  attach: (v) => set({ attached: v }),
+
+  clearTalk: () => set(s => ({
+    messages: s.messages.slice(0, 1),
+    attached: null, lastResult: null, lastTable: null, pendingInput: null,
+  })),
+
+  /** Про брошенный в разговор файл: карточку собирает assistant/fileCard */
+  askAbout: async (fileId) => {
+    set({ loading: true });
+    try {
+      const r = await fetch(`/api/files/${fileId}`);
+      if (!r.ok) throw new Error('файл не найден');
+      const body = await r.json();
+      const card = fileCard(body.file || body);
+      set(s => ({ loading: false, attached: card.attached, messages: [...s.messages, card.message] }));
+    } catch (err: any) {
+      set(s => ({
+        loading: false,
+        messages: [...s.messages, { id: uid(), role: 'assistant', text: `Не смог посмотреть этот файл: ${err.message}` }],
       }));
     }
   },
@@ -637,7 +674,7 @@ const SMALL_TALK: { test: RegExp; reply: () => string }[] = [
   { test: /(как дела|как ты|ты живой|ты человек|кто ты|ты бот|ты робот)/i,
     reply: () => 'Я помощник внутри программы: работаю на этом компьютере, без интернета. Языковой модели во мне нет — я разбираю вопрос по словам и ищу в данных проекта. Поэтому лучше всего отвечаю на вопросы про теги, оборудование, закупки, документы и файлы.' },
   { test: /(^пока$|до свидан|всего доброго)/i,
-    reply: () => 'До связи. Помощник всегда под рукой — Ctrl+K.' },
+    reply: () => 'До связи. Ctrl+K — и я снова тут.' },
   { test: /(извин|прости|сорри)/i,
     reply: () => 'Ничего страшного. Что найти?' },
   { test: /(ты (можешь|умеешь) (всё|все)|любой вопрос|что угодно)/i,

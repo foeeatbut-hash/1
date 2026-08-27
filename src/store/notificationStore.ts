@@ -1,5 +1,19 @@
 import { create } from 'zustand';
 import { dataService, AppNotification } from '../services/dataService';
+import { freshOnes } from '../lib/notifCenter';
+
+/**
+ * Кому рассказать про новое уведомление — назначает оболочка.
+ *
+ * Хранилище не показывает всплывашек само: оно не знает ни про тихий режим, ни
+ * про отложенное, и знать не должно — иначе состояние потянуло бы за собой
+ * интерфейс. Оно только говорит «вот это пришло впервые».
+ */
+let freshSink: ((list: AppNotification[]) => void) | null = null;
+export const onFreshNotifications = (fn: (list: AppNotification[]) => void) => { freshSink = fn; };
+
+/** Что уже видели: по первому опросу всплывашек не показываем вовсе */
+let seenIds: Set<string> | null = null;
 
 // Ключ диалога из targetRoute уведомления ЧАТ: from=<id> или group=<id>
 function convKey(n: AppNotification): string | null {
@@ -50,10 +64,18 @@ export const useNotificationStore = create<NotifState>((set, get) => ({
   setPanelOpen: (v) => set({ panelOpen: v }),
   togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen })),
   fetch: async (userId) => {
-    if (!userId) { set({ personal: [], unread: 0, chatUnread: 0, chatUnreadByKey: {} }); return; }
+    if (!userId) { seenIds = null; set({ personal: [], unread: 0, chatUnread: 0, chatUnreadByKey: {} }); return; }
     set({ loading: true });
     try {
       const list = await dataService.getNotifications(userId);
+      // Первый опрос только запоминает: показать разом всё непрочитанное за
+      // неделю — лучший способ добиться, чтобы уведомления закрывали не глядя
+      if (seenIds === null) seenIds = new Set(list.map(n => n.id));
+      else {
+        const fresh = freshOnes(seenIds, list);
+        for (const n of list) seenIds.add(n.id);
+        if (fresh.length && freshSink) freshSink(fresh);
+      }
       set({ personal: list, ...recompute(list), loading: false });
     } catch {
       set({ loading: false });

@@ -12,7 +12,7 @@ export interface AssistantAction {
   label: string;
   kind: 'tour' | 'export-excel' | 'export-word' | 'navigate' | 'ask'
       | 'focus-tag' | 'find-duplicates' | 'create-note' | 'open-section'
-      | 'focus-equipment' | 'prompt-rename-tag' | 'cancel-input';
+      | 'focus-equipment' | 'prompt-rename-tag' | 'cancel-input' | 'where-used';
   tourId?: string;
   route?: string;
   query?: string;
@@ -20,6 +20,9 @@ export interface AssistantAction {
   code?: string;    // для find-duplicates / prompt-rename-tag (текущий код)
   noteTitle?: string; // для create-note
   componentId?: string; // для focus-equipment: какой элемент открыть
+  /** Для where-used: вид объекта и его номер — панель связей открывает разговор */
+  usageKind?: string;
+  usageId?: string;
   specKey?: string;     // для focus-equipment: какую характеристику подсветить
   danger?: boolean;     // акцент опасного действия
 }

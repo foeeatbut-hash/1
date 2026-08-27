@@ -16,7 +16,13 @@ import AssistantPanel from './AssistantPanel';
 import NotificationsPanel from './NotificationsPanel';
 import RightRail from './RightRail';
 import ShareLayer from './ShareLayer';
-import CommandPalette from './CommandPalette';
+import CommandBar from './CommandBar';
+import { useReminderStore, onReminder } from '../store/reminderStore';
+import { useShellNotifyStore, toastOf } from '../store/shellNotifyStore';
+import { useWindowStore } from '../store/windowStore';
+import { onFreshNotifications } from '../store/notificationStore';
+import { shouldPopup, shouldSound, playNotifSound } from '../lib/notifPrefs';
+import NotifyToasts from './shell/NotifyToasts';
 import InsightDrawer from './insight/InsightDrawer';
 import FluxLogo from './FluxLogo';
 import { useNotificationStore } from '../store/notificationStore';
@@ -57,6 +63,29 @@ export default function Layout() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'F1') return;
       e.preventDefault();
+
+      /**
+       * В оконной оболочке справка открывается окном и встаёт в правую
+       * половину стола — рядом с тем, про что она. Раньше F1 подменял содержимое
+       * панели: раздел, про который спрашивают, при этом закрывался собой же, и
+       * читать инструкцию приходилось по памяти о том, что было на экране.
+       */
+      if (useStore.getState().shell === 'windows') {
+        const st = useWindowStore.getState();
+        const shown = st.windows.filter((w) => !w.minimized && w.desk === st.desk && w.path !== '/handbook');
+        const top = shown.length ? shown.reduce((a, b) => (b.z > a.z ? b : a)) : null;
+        const path = top?.path || '/';
+        st.open(`/handbook?for=${encodeURIComponent(path)}`);
+        // Ставим справку в правую половину, а раздел — в левую: половина на
+        // половину и есть «рядом». Уже стоявшее окно не двигаем второй раз
+        const win = useWindowStore.getState().windows
+          .filter((w) => w.path === '/handbook' && w.desk === st.desk)
+          .reduce<any>((a, b) => (!a || b.z > a.z ? b : a), null);
+        if (win) useWindowStore.getState().putInShare(win.id, { x: 0.5, y: 0, w: 0.5, h: 1 });
+        if (top) useWindowStore.getState().putInShare(top.id, { x: 0, y: 0, w: 0.5, h: 1 });
+        return;
+      }
+
       const path = wsActivePath || '/';
       if (path === '/handbook') return; // уже здесь — не мешаем читать
       // Панель хранит адрес раздела отдельно от пути: сначала кладём адрес с
@@ -94,6 +123,57 @@ export default function Layout() {
     const railed = shell === 'menu';
     document.documentElement.style.setProperty('--flux-rail-w', railed ? (sidebarCompact ? '56px' : '96px') : '0px');
   }, [sidebarCompact, shell]);
+
+  /**
+   * Напоминания, поставленные строкой «Спросить» («/напомни завтра в 9 …»).
+   * Часы заводятся здесь, потому что Layout открыт всегда: заведи их в панели
+   * помощника — и напоминание не пришло бы, пока панель закрыта, то есть
+   * почти никогда.
+   */
+  React.useEffect(() => {
+    const st = useReminderStore.getState();
+    const show = (r: { id: string; text: string; href?: string }) => {
+      useShellNotifyStore.getState().push({
+        id: r.id, title: 'Напоминание', body: r.text, route: r.href, source: 'reminder',
+      });
+    };
+    onReminder(show);
+    // Просроченные показываем сразу при запуске: программа могла быть закрыта
+    for (const r of st.takeDue()) show(r);
+    st.start();
+    return () => useReminderStore.getState().stop();
+  }, []);
+
+  /**
+   * Новое уведомление всплывает карточкой над панелью задач — с «Открыть» и
+   * «Отложить». Показываем только то, что пришло впервые (см. notifCenter), и
+   * только если человек не приглушил поток и не выключил эту категорию в
+   * настройках: тихий режим обязан молчать, иначе он ничего не значит.
+   */
+  React.useEffect(() => {
+    onFreshNotifications((list) => {
+      const push = useShellNotifyStore.getState().push;
+      for (const n of list) {
+        if (!shouldPopup(n.category)) continue;
+        push(toastOf(n));
+        if (shouldSound(n.category)) { try { playNotifSound(n.category); } catch (_) { /* без звука */ } }
+      }
+    });
+  }, []);
+
+  /**
+   * Отложенное возвращается само. Раз в минуту: отложить можно на четверть
+   * часа и дольше, и чаще проверять нечего
+   */
+  React.useEffect(() => {
+    const t = setInterval(() => {
+      const due = useShellNotifyStore.getState().releaseDue();
+      if (!due.length) return;
+      const back = useNotificationStore.getState().personal.filter((n) => due.includes(n.id));
+      for (const n of back) useShellNotifyStore.getState().push(toastOf(n));
+    }, 60000);
+    return () => clearInterval(t);
+  }, []);
 
   /**
    * Уведомления опрашиваются, пока программа открыта. Опрос жил в правом
@@ -711,8 +791,9 @@ export default function Layout() {
 
       {/* Связи проекта и общий поиск — поверх всего: их зовут из любого места */}
       <InsightDrawer />
-      <CommandPalette />
+      <CommandBar />
 
+      <NotifyToasts onOpen={(route) => navigate(route)} />
       <ToastProvider />
       <ModalProvider />
       <ShareLayer />
