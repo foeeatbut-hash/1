@@ -18,7 +18,10 @@ import RightRail from './RightRail';
 import ShareLayer from './ShareLayer';
 import CommandBar from './CommandBar';
 import { useReminderStore, onReminder } from '../store/reminderStore';
-import { useToastStore } from '../store/toastStore';
+import { useShellNotifyStore, toastOf } from '../store/shellNotifyStore';
+import { onFreshNotifications } from '../store/notificationStore';
+import { shouldPopup, shouldSound, playNotifSound } from '../lib/notifPrefs';
+import NotifyToasts from './shell/NotifyToasts';
 import InsightDrawer from './insight/InsightDrawer';
 import FluxLogo from './FluxLogo';
 import { useNotificationStore } from '../store/notificationStore';
@@ -105,15 +108,47 @@ export default function Layout() {
    */
   React.useEffect(() => {
     const st = useReminderStore.getState();
-    onReminder((r) => {
-      useToastStore.getState().addToast(`Напоминание: ${r.text}`, 'info', r.href ? () => navigate(r.href!) : undefined);
-    });
+    const show = (r: { id: string; text: string; href?: string }) => {
+      useShellNotifyStore.getState().push({
+        id: r.id, title: 'Напоминание', body: r.text, route: r.href, source: 'reminder',
+      });
+    };
+    onReminder(show);
     // Просроченные показываем сразу при запуске: программа могла быть закрыта
-    for (const r of st.takeDue()) {
-      useToastStore.getState().addToast(`Напоминание: ${r.text}`, 'info', r.href ? () => navigate(r.href!) : undefined);
-    }
+    for (const r of st.takeDue()) show(r);
     st.start();
     return () => useReminderStore.getState().stop();
+  }, []);
+
+  /**
+   * Новое уведомление всплывает карточкой над панелью задач — с «Открыть» и
+   * «Отложить». Показываем только то, что пришло впервые (см. notifCenter), и
+   * только если человек не приглушил поток и не выключил эту категорию в
+   * настройках: тихий режим обязан молчать, иначе он ничего не значит.
+   */
+  React.useEffect(() => {
+    onFreshNotifications((list) => {
+      const push = useShellNotifyStore.getState().push;
+      for (const n of list) {
+        if (!shouldPopup(n.category)) continue;
+        push(toastOf(n));
+        if (shouldSound(n.category)) { try { playNotifSound(n.category); } catch (_) { /* без звука */ } }
+      }
+    });
+  }, []);
+
+  /**
+   * Отложенное возвращается само. Раз в минуту: отложить можно на четверть
+   * часа и дольше, и чаще проверять нечего
+   */
+  React.useEffect(() => {
+    const t = setInterval(() => {
+      const due = useShellNotifyStore.getState().releaseDue();
+      if (!due.length) return;
+      const back = useNotificationStore.getState().personal.filter((n) => due.includes(n.id));
+      for (const n of back) useShellNotifyStore.getState().push(toastOf(n));
+    }, 60000);
+    return () => clearInterval(t);
   }, []);
 
   /**
@@ -734,6 +769,7 @@ export default function Layout() {
       <InsightDrawer />
       <CommandBar />
 
+      <NotifyToasts onOpen={(route) => navigate(route)} />
       <ToastProvider />
       <ModalProvider />
       <ShareLayer />
