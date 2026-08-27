@@ -13,6 +13,7 @@ import {
   initialRect, moveRect, resizeRect, snapRect, toggleMaximize, raise, topWindow,
   refit, tile, type Area, type Edge, type SnapZone, type WinState,
 } from '../lib/windows';
+import { shareRect } from '../lib/layouts';
 import { sectionForPath } from '../workspace/sections';
 
 const KEY = 'flux_windows';
@@ -56,6 +57,8 @@ interface WindowState {
   applySnap: (id: string, zone: SnapZone) => void;
   tileAll: () => void;
   minimizeAll: () => void;
+  /** Поставить окно в готовую долю экрана; прежний размер запоминается */
+  putInShare: (id: string, share: { x: number; y: number; w: number; h: number }) => void;
 }
 
 let seq = 0;
@@ -202,6 +205,22 @@ export const useWindowStore = create<WindowState>((set, get) => {
         };
       }));
       set({ snapping: null });
+    },
+
+    putInShare: (id, share) => {
+      const area = get().area;
+      const rect = shareRect(share, area);
+      update((list) => list.map((w) => {
+        if (w.id !== id) return w;
+        return {
+          ...w, ...rect,
+          maximized: false,
+          // Прежний размер запоминаем: «Вернуть размер» возвращает именно его,
+          // а не выдуманный. Уже стоявшее в доле окно не затирает свою память
+          restore: w.restore || { x: w.x, y: w.y, w: w.w, h: w.h },
+        };
+      }));
+      get().focus(id);
     },
 
     tileAll: () => update((list) => tile(list, get().area)),
