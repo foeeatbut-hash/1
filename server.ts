@@ -32,6 +32,7 @@ import { registerMailLinkRoutes } from './server/routes/mailLink.js';
 import { watchAll as watchAllMail, stopAll as stopMailWatch } from './server/mail/idle.js';
 import { registerInsightRoutes } from './server/routes/insight.js';
 import { registerAssistantRoutes } from './server/routes/assistant.js';
+import { registerTranslateRoutes } from './server/routes/translate.js';
 import { registerEquipmentUndoRoutes } from './server/routes/equipmentUndo.js';
 import { registerUserRoutes, seedRoles, backfillNameParts } from './server/routes/users.js';
 import { initBackups } from './server/backup.js';
@@ -405,6 +406,50 @@ function ensureSchemaColumns(dbPath: string) {
         "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`);
       db.exec('CREATE INDEX IF NOT EXISTS "DocRegisterItemRevision_itemId_idx" ON "DocRegisterItemRevision"("itemId")');
+
+      // Перевод: глоссарий, память переводов, связь русской и английской версий
+      db.exec(`CREATE TABLE IF NOT EXISTS "TermEntry" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "projectId" TEXT,
+        "ru" TEXT NOT NULL DEFAULT '',
+        "en" TEXT NOT NULL DEFAULT '',
+        "zh" TEXT NOT NULL DEFAULT '',
+        "note" TEXT NOT NULL DEFAULT '',
+        "source" TEXT NOT NULL DEFAULT 'hand',
+        "locked" BOOLEAN NOT NULL DEFAULT false,
+        "authorId" TEXT,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS "TermEntry_projectId_idx" ON "TermEntry"("projectId")');
+      db.exec(`CREATE TABLE IF NOT EXISTS "TmUnit" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "projectId" TEXT,
+        "fromLang" TEXT NOT NULL DEFAULT 'ru',
+        "toLang" TEXT NOT NULL DEFAULT 'en',
+        "srcKey" TEXT NOT NULL DEFAULT '',
+        "src" TEXT NOT NULL DEFAULT '',
+        "dst" TEXT NOT NULL DEFAULT '',
+        "origin" TEXT NOT NULL DEFAULT 'hand',
+        "docId" TEXT,
+        "authorId" TEXT,
+        "usedCount" INTEGER NOT NULL DEFAULT 0,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS "TmUnit_lang_key_idx" ON "TmUnit"("fromLang", "toLang", "srcKey")');
+      db.exec('CREATE INDEX IF NOT EXISTS "TmUnit_projectId_idx" ON "TmUnit"("projectId")');
+      db.exec(`CREATE TABLE IF NOT EXISTS "TransLink" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "projectId" TEXT NOT NULL,
+        "sourceDocId" TEXT NOT NULL,
+        "targetDocId" TEXT NOT NULL DEFAULT '',
+        "mode" TEXT NOT NULL DEFAULT 'file',
+        "fingerprint" TEXT NOT NULL DEFAULT '',
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS "TransLink_sourceDocId_idx" ON "TransLink"("sourceDocId")');
       // Новые колонки существующих таблиц ВДР (для баз, созданных ранней версией)
       const regCols = db.prepare('PRAGMA table_info("DocRegister")').all() as Array<{ name: string }>;
       const regAdd: Array<[string, string]> = [
@@ -2119,6 +2164,7 @@ registerDesktopRoutes(app);
 registerPdfMarkupRoutes(app);
 registerInsightRoutes(app);
 registerAssistantRoutes(app);
+registerTranslateRoutes(app);
 registerEquipmentUndoRoutes(app);
 
 

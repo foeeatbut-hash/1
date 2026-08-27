@@ -703,3 +703,60 @@ model MailActivity {
 
   @@index([accountId, threadKey])
 }
+
+
+// ── Перевод: глоссарий, память, связь версий документа ──
+// Дизайн: docs/translator-design.md. Переводит не программа, а прошлый труд
+// инженера: подтверждённые пары копятся здесь и переживают любую ревизию.
+
+// Термин глоссария. projectId пуст — термин общий для всех проектов.
+model TermEntry {
+  id        String   @id @default(uuid())
+  projectId String?
+  ru        String   @default("")
+  en        String   @default("")
+  zh        String   @default("")
+  note      String   @default("") // «по требованию заказчика» и прочие пометки
+  source    String   @default("hand") // hand | vdr | standard | pack | import
+  locked    Boolean  @default(false) // менять нельзя: согласовано с заказчиком
+  authorId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+}
+
+// Память переводов: подтверждённый перевод одного сегмента.
+model TmUnit {
+  id        String   @id @default(uuid())
+  projectId String?
+  fromLang  String   @default("ru")
+  toLang    String   @default("en")
+  srcKey    String   @default("") // нормализованный ключ поиска
+  src       String   @default("")
+  dst       String   @default("")
+  origin    String   @default("hand") // hand | doc | vdr | mail | pack
+  docId     String? // документ, из которого пришла пара
+  authorId  String?
+  usedCount Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([fromLang, toLang, srcKey])
+  @@index([projectId])
+}
+
+// Английская версия документа и её связь с русским исходником.
+model TransLink {
+  id          String   @id @default(uuid())
+  projectId   String
+  sourceDocId String
+  targetDocId String   @default("")
+  mode        String   @default("file") // file | column | lines | sheet
+  fingerprint String   @default("") // отпечаток русского текста на момент перевода
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([sourceDocId])
+}

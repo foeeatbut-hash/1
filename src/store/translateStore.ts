@@ -1,0 +1,228 @@
+/**
+ * Общий переводчик программы.
+ *
+ * Одно хранилище на всё: и полоса над письмом, и английская версия ведомости, и
+ * всплывающее окошко над выделенным текстом переводят одним и тем же способом.
+ * Иначе неминуемо разошлись бы: письмо переводилось бы одними словами, документ
+ * — другими, и заказчик получил бы два разных названия одного узла.
+ *
+ * Словарь и память тянутся с сервера один раз и держатся собранными индексами:
+ * перестраивать их на каждую строку ведомости значит подвесить сверку на
+ * тысяче строк.
+ */
+import { create } from 'zustand';
+import type { Lang, Segment, TermPair, TmEntry } from '../translate/types';
+import { buildIndex, type TermIndex } from '../translate/glossary';
+import { buildTm, EMPTY_TM, type TmIndex } from '../translate/tm';
+import { translateSegment, translateText } from '../translate/engine';
+import { checkEndpoint, askModel } from '../translate/model';
+
+export interface TermRow extends TermPair {
+  id: string;
+  projectId: string | null;
+  source: string;
+  locked: boolean;
+}
+
+export interface MemoryRow {
+  id: string;
+  src: string;
+  dst: string;
+  fromLang: Lang;
+  toLang: Lang;
+  origin: string;
+  updatedAt?: string;
+}
+
+/** Подключённый владельцем локальный движок; пусто — движка нет */
+export interface ModelSettings {
+  url: string;
+  key: string;
+  /** Спрашивать движок там, где своего перевода не хватило */
+  enabled: boolean;
+}
+
+const MODEL_KEY = 'flux_translate_model';
+
+const loadModel = (): ModelSettings => {
+  try {
+    const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(MODEL_KEY);
+    const p = raw ? JSON.parse(raw) : null;
+    if (p && typeof p === 'object') {
+      return { url: String(p.url || ''), key: String(p.key || ''), enabled: Boolean(p.enabled) };
+    }
+  } catch (_) { /* приватный режим */ }
+  return { url: '', key: '', enabled: false };
+};
+
+interface TranslateState {
+  ready: boolean;
+  loading: boolean;
+  projectId: string;
+  terms: TermRow[];
+  memory: MemoryRow[];
+  model: ModelSettings;
+  /** Собранные индексы по направлениям: 'ru>en' и т.д. */
+  termIndex: Record<string, TermIndex>;
+  tmIndex: Record<string, TmIndex>;
+
+  load: (projectId: string, force?: boolean) => Promise<void>;
+  setModel: (m: Partial<ModelSettings>) => void;
+  /** Перевести одну строку — тем же способом, что и всё остальное */
+  one: (text: string, from: Lang, to: Lang) => Segment;
+  many: (text: string, from: Lang, to: Lang) => Segment[];
+  /** Спросить локальный движок; null, если он не подключён или не ответил */
+  viaModel: (texts: string[], from: Lang, to: Lang) => Promise<string[] | null>;
+  remember: (units: { src: string; dst: string; from: Lang; to: Lang; docId?: string }[]) => Promise<number>;
+  saveTerm: (t: Partial<TermRow>) => Promise<TermRow | null>;
+  removeTerm: (id: string) => Promise<void>;
+  removeMemory: (id: string) => Promise<void>;
+  seed: () => Promise<{ added: number }>;
+}
+
+const dirKey = (from: Lang, to: Lang) => `${from}>${to}`;
+const DIRS: [Lang, Lang][] = [['ru', 'en'], ['en', 'ru'], ['zh', 'ru']];
+
+function buildAll(terms: TermRow[], memory: MemoryRow[]) {
+  const termIndex: Record<string, TermIndex> = {};
+  const tmIndex: Record<string, TmIndex> = {};
+  const pairs: TermPair[] = terms.map((t) => ({ ru: t.ru, en: t.en, zh: t.zh, note: t.note }));
+  const units: TmEntry[] = memory.map((m) => ({
+    src: m.src, dst: m.dst, from: m.fromLang, to: m.toLang,
+  }));
+  for (const [from, to] of DIRS) {
+    termIndex[dirKey(from, to)] = buildIndex(pairs, from, to);
+    tmIndex[dirKey(from, to)] = buildTm(units, from, to);
+  }
+  return { termIndex, tmIndex };
+}
+
+export const useTranslateStore = create<TranslateState>((set, get) => ({
+  ready: false,
+  loading: false,
+  projectId: '',
+  terms: [],
+  memory: [],
+  model: loadModel(),
+  termIndex: {},
+  tmIndex: {},
+
+  load: async (projectId, force) => {
+    const st = get();
+    if (st.loading) return;
+    if (st.ready && st.projectId === projectId && !force) return;
+    set({ loading: true });
+    try {
+      const [tRes, mRes] = await Promise.all([
+        fetch(`/api/translate/terms?projectId=${encodeURIComponent(projectId)}`),
+        fetch(`/api/translate/memory?projectId=${encodeURIComponent(projectId)}&from=ru&to=en&limit=20000`),
+      ]);
+      const tJson = tRes.ok ? await tRes.json() : { items: [] };
+      const mJson = mRes.ok ? await mRes.json() : { items: [] };
+      const terms: TermRow[] = (tJson.items || []).map((t: any) => ({
+        id: t.id, ru: t.ru || '', en: t.en || '', zh: t.zh || '', note: t.note || '',
+        projectId: t.projectId || null, source: t.source || 'hand', locked: Boolean(t.locked),
+      }));
+      const memory: MemoryRow[] = (mJson.items || []).map((m: any) => ({
+        id: m.id, src: m.src || '', dst: m.dst || '',
+        fromLang: (m.fromLang || 'ru') as Lang, toLang: (m.toLang || 'en') as Lang,
+        origin: m.origin || 'hand', updatedAt: m.updatedAt,
+      }));
+      // Память записана в одну сторону, а нужна в обе: перевод письма ищет тот
+      // же сегмент задом наперёд, и заставлять инженера заводить пару дважды
+      // было бы издевательством
+      const both: MemoryRow[] = [...memory];
+      for (const m of memory) {
+        both.push({ ...m, id: `${m.id}~`, src: m.dst, dst: m.src, fromLang: m.toLang, toLang: m.fromLang });
+      }
+      set({ terms, memory, projectId, ready: true, loading: false, ...buildAll(terms, both) });
+    } catch (_) {
+      set({ loading: false, ready: true });
+    }
+  },
+
+  setModel: (m) => {
+    const next = { ...get().model, ...m };
+    set({ model: next });
+    try { localStorage.setItem(MODEL_KEY, JSON.stringify(next)); } catch (_) { /* приватный режим */ }
+  },
+
+  one: (text, from, to) => {
+    const st = get();
+    const key = dirKey(from, to);
+    return translateSegment(text, {
+      from, to, terms: st.termIndex[key], tm: st.tmIndex[key] || EMPTY_TM,
+    });
+  },
+
+  many: (text, from, to) => {
+    const st = get();
+    const key = dirKey(from, to);
+    return translateText(text, {
+      from, to, terms: st.termIndex[key], tm: st.tmIndex[key] || EMPTY_TM,
+    });
+  },
+
+  viaModel: async (texts, from, to) => {
+    const { model } = get();
+    if (!model.enabled || !checkEndpoint(model.url).ok) return null;
+    return askModel({ url: model.url, key: model.key }, texts, from, to);
+  },
+
+  remember: async (units) => {
+    if (!units.length) return 0;
+    try {
+      const res = await fetch('/api/translate/memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: get().projectId, units }),
+      });
+      if (!res.ok) return 0;
+      const data = await res.json();
+      await get().load(get().projectId, true);
+      return (data.added || 0) + (data.updated || 0);
+    } catch (_) { return 0; }
+  },
+
+  saveTerm: async (t) => {
+    try {
+      const res = await fetch('/api/translate/terms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...t, projectId: get().projectId }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      await get().load(get().projectId, true);
+      return data.item as TermRow;
+    } catch (_) { return null; }
+  },
+
+  removeTerm: async (id) => {
+    try {
+      await fetch(`/api/translate/terms/${id}`, { method: 'DELETE' });
+      await get().load(get().projectId, true);
+    } catch (_) { /* уже удалён */ }
+  },
+
+  removeMemory: async (id) => {
+    try {
+      await fetch(`/api/translate/memory/${id.replace(/~$/, '')}`, { method: 'DELETE' });
+      await get().load(get().projectId, true);
+    } catch (_) { /* уже удалена */ }
+  },
+
+  seed: async () => {
+    try {
+      const res = await fetch('/api/translate/seed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: get().projectId }),
+      });
+      if (!res.ok) return { added: 0 };
+      const data = await res.json();
+      await get().load(get().projectId, true);
+      return { added: data.added || 0 };
+    } catch (_) { return { added: 0 }; }
+  },
+}));
