@@ -13,6 +13,7 @@ import {
   initialRect, moveRect, resizeRect, snapRect, toggleMaximize, raise, topWindow,
   refit, tile, type Area, type Edge, type SnapZone, type WinState,
 } from '../lib/windows';
+import { sectionForPath } from '../workspace/sections';
 
 const KEY = 'flux_windows';
 
@@ -23,9 +24,25 @@ interface WindowState {
   /** Куда прилипнет окно, если отпустить прямо сейчас — рисуется подсветкой */
   snapping: SnapZone;
 
+  /** Заголовки окон: раздел сообщает, как его сейчас зовут (см. lib/paneTitle) */
+  titles: Record<string, string>;
+  /** Окно под курсором в списке на панели задач — подсвечивается на столе */
+  peeked: string | null;
+
   setArea: (area: Area) => void;
-  /** Открыть раздел окном или поднять и развернуть уже открытое */
-  open: (path: string) => void;
+  /**
+   * Открыть адрес окном.
+   *
+   * Адрес, а не раздел: `/constructor?doc=42` и `/constructor?doc=43` — два
+   * окна. Уже открытый адрес поднимается вместо второго окна того же.
+   */
+  open: (href: string) => void;
+  /** Ещё одно окно того же раздела: Ctrl+N и «Открыть в новом окне» */
+  openAnother: (href: string) => void;
+  /** Живое окно ушло на другой адрес — запомнить, иначе окно потеряет себя */
+  setHref: (id: string, href: string) => void;
+  setTitle: (id: string, title: string) => void;
+  setPeeked: (id: string | null) => void;
   close: (id: string) => void;
   focus: (id: string) => void;
   /** Нажали кнопку раздела на панели: свернуть, если это верхнее окно */
@@ -58,6 +75,9 @@ function restored(): WinState[] {
     return parsed.filter((w: any) => w && typeof w.id === 'string' && typeof w.path === 'string')
       .map((w: any): WinState => ({
         id: w.id, path: w.path,
+        // Окна прошлых версий записаны без адреса: считаем адресом сам раздел.
+        // Человек увидит привычные окна, просто без открытого документа
+        href: typeof w.href === 'string' && w.href ? w.href : w.path,
         x: Number(w.x) || 0, y: Number(w.y) || 0,
         w: Number(w.w) || 720, h: Number(w.h) || 480,
         z: Number(w.z) || 1,
@@ -76,6 +96,8 @@ export const useWindowStore = create<WindowState>((set, get) => {
 
   return {
     windows: restored(),
+    titles: {},
+    peeked: null,
     area: { w: 1280, h: 720 },
     snapping: null,
 
@@ -86,30 +108,68 @@ export const useWindowStore = create<WindowState>((set, get) => {
       set({ area, windows: refit(get().windows, area) });
     },
 
-    open: (path) => {
-      const { windows, area } = get();
-      const found = windows.find((w) => w.path === path);
+    open: (href) => {
+      const { windows } = get();
+      const path = pathOf(href);
+      // Единичный раздел занимает одно окно и просто переезжает на новый адрес:
+      // второе окно Почты не даёт ничего, кроме двух счётчиков непрочитанного
+      const multi = !!sectionForPath(path).multi;
+      const found = multi
+        ? windows.find((w) => w.href === href)
+        : windows.find((w) => w.path === path);
       if (found) {
-        update((list) => raise(list.map((w) => (w.id === found.id ? { ...w, minimized: false } : w)), found.id));
+        update((list) => raise(
+          list.map((w) => (w.id === found.id ? { ...w, href, minimized: false } : w)),
+          found.id,
+        ));
         return;
       }
-      const z = windows.reduce((m, w) => Math.max(m, w.z), 0) + 1;
-      const rect = initialRect(area, windows.length);
-      update((list) => [...list, { id: newId(), path, ...rect, z, minimized: false, maximized: false, restore: null }]);
+      get().openAnother(href);
     },
 
-    close: (id) => update((list) => list.filter((w) => w.id !== id)),
+    openAnother: (href) => {
+      const { windows, area } = get();
+      const z = windows.reduce((m, w) => Math.max(m, w.z), 0) + 1;
+      const rect = initialRect(area, windows.length);
+      update((list) => [...list, {
+        id: newId(), path: pathOf(href), href, ...rect,
+        z, minimized: false, maximized: false, restore: null,
+      }]);
+    },
+
+    setHref: (id, href) => {
+      const w = get().windows.find((x) => x.id === id);
+      if (!w || w.href === href) return;
+      update((list) => list.map((x) => (x.id === id ? { ...x, href, path: pathOf(href) } : x)));
+    },
+
+    setPeeked: (id) => { if (get().peeked !== id) set({ peeked: id }); },
+
+    setTitle: (id, title) => {
+      const cur = get().titles[id] || '';
+      if (cur === title) return;
+      set({ titles: { ...get().titles, [id]: title } });
+    },
+
+    close: (id) => {
+      update((list) => list.filter((w) => w.id !== id));
+      const { [id]: gone, ...rest } = get().titles;
+      if (gone !== undefined) set({ titles: rest });
+    },
     focus: (id) => update((list) => raise(list.map((w) => (w.id === id ? { ...w, minimized: false } : w)), id)),
 
     // Повторное нажатие по кнопке верхнего окна сворачивает его — так же
-    // ведёт себя панель задач в системе, и на это рассчитывают
+    // ведёт себя панель задач в системе, и на это рассчитывают.
+    // Окон у раздела может быть несколько: берём верхнее из них
     toggle: (path) => {
       const { windows } = get();
-      const found = windows.find((w) => w.path === path);
-      if (!found) { get().open(path); return; }
+      const mine = windows.filter((w) => w.path === path);
+      if (!mine.length) { get().open(path); return; }
+      const front = mine.reduce((a, b) => (b.z > a.z ? b : a));
       const top = topWindow(windows);
-      if (top && top.id === found.id) update((list) => list.map((w) => (w.id === found.id ? { ...w, minimized: true } : w)));
-      else get().focus(found.id);
+      if (top && top.id === front.id && !front.minimized) {
+        update((list) => list.map((w) => (w.id === front.id ? { ...w, minimized: true } : w)));
+      } else get().focus(front.id);
     },
 
     minimize: (id) => update((list) => list.map((w) => (w.id === id ? { ...w, minimized: true } : w))),
@@ -149,12 +209,19 @@ export const useWindowStore = create<WindowState>((set, get) => {
   };
 });
 
+/** Раздел адреса: всё до знака вопроса */
+const pathOf = (href: string): string => href.split('?')[0].split('#')[0] || '/';
+
 /** Пути открытых окон в порядке появления — панели задач больше ничего не нужно */
 export const openPaths = (list: WinState[]): string[] => {
   const seen: string[] = [];
   for (const w of list) if (!seen.includes(w.path)) seen.push(w.path);
   return seen;
 };
+
+/** Окна одного раздела сверху вниз: панель задач показывает их стопкой */
+export const windowsOf = (list: WinState[], path: string): WinState[] =>
+  list.filter((w) => w.path === path).sort((a, b) => b.z - a.z);
 
 /** Раздел верхнего окна: его кнопка на панели показывается активной */
 export const activeWindowPath = (list: WinState[]): string => topWindow(list)?.path || '';

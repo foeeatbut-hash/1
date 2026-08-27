@@ -11,7 +11,16 @@ export interface Rect { x: number; y: number; w: number; h: number }
 
 export interface WinState extends Rect {
   id: string;
+  /** Раздел: по нему берутся значок, права и правила раздела */
   path: string;
+  /**
+   * Полный адрес окна вместе с параметрами: `/constructor?doc=42`.
+   *
+   * Именно он отличает одно окно от другого. Раздела для этого мало: два
+   * документа Конструктора — это два окна одной программы, а не одно окно,
+   * в котором второй документ вытесняет первый.
+   */
+  href: string;
   /** Порядок наложения: больше — выше */
   z: number;
   minimized: boolean;

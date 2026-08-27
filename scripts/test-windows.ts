@@ -20,7 +20,7 @@ const check = (name: string, cond: boolean, got?: unknown) => {
 
 const AREA = { w: 1400, h: 800 };
 const win = (over: Partial<WinState> = {}): WinState => ({
-  id: 'w1', path: '/registry', z: 1, minimized: false, maximized: false, restore: null,
+  id: 'w1', path: '/registry', href: '/registry', z: 1, minimized: false, maximized: false, restore: null,
   x: 200, y: 100, w: 800, h: 500, ...over,
 });
 const inside = (r: Rect, a = AREA) => r.w >= MIN_W && r.h >= MIN_H && r.x + r.w > 0 && r.x < a.w && r.y >= 0;

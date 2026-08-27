@@ -20,10 +20,11 @@ import { useNavigate } from 'react-router-dom';
 import { useNotificationStore } from '../store/notificationStore';
 import { useAssistantStore } from '../store/assistantStore';
 import { useMailStore } from '../store/mailStore';
-import { useWindowStore, openPaths, activeWindowPath } from '../store/windowStore';
+import { useWindowStore, openPaths, activeWindowPath, windowsOf } from '../store/windowStore';
 import { buildTaskbar, clockLabel, deadlineLabel, badgeLabel, trayFit } from '../lib/taskbar';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import StartMenu from './StartMenu';
+import TaskbarPeek from './TaskbarPeek';
 import { WorkspaceRailControls } from './Workspace';
 
 /** Минута — самый крупный шаг, который видно на часах без секунд */
@@ -67,6 +68,20 @@ export default function Taskbar() {
   const [menu, setMenu] = React.useState<{ x: number; y: number; path: string } | null>(null);
   const [userMenu, setUserMenu] = React.useState<{ x: number; y: number } | null>(null);
   const [startOpen, setStartOpen] = React.useState(false);
+  // Наведение раскрывает список окон программы. 400 мс — столько же, сколько
+  // ждёт всплывающая подсказка: быстрое движение мимо кнопки ничего не открывает
+  const [peek, setPeek] = React.useState<{ path: string; left: number } | null>(null);
+  const peekTimer = React.useRef<any>(null);
+  const armPeek = (path: string, el: HTMLElement) => {
+    clearTimeout(peekTimer.current);
+    peekTimer.current = setTimeout(() => {
+      const row = rowRef.current?.getBoundingClientRect();
+      const btn = el.getBoundingClientRect();
+      setPeek({ path, left: Math.max(0, btn.left - (row?.left || 0) + (row ? rowRef.current!.scrollLeft : 0)) });
+    }, 400);
+  };
+  const disarmPeek = () => { clearTimeout(peekTimer.current); };
+  React.useEffect(() => () => clearTimeout(peekTimer.current), []);
   const rowRef = React.useRef<HTMLDivElement>(null);
   const barRef = React.useRef<HTMLDivElement>(null);
   const [width, setWidth] = React.useState(0);
@@ -136,9 +151,27 @@ export default function Taskbar() {
 
   const iconOf = (path: string) => SECTIONS.find((s) => s.path === path)?.icon;
 
+  const countOfWindows = React.useCallback(
+    (path: string) => (windowed ? windowsOf(windows, path).length : 0),
+    [windowed, windows],
+  );
+  /** Нажали по кнопке со стопкой: список окон открывается сразу, без задержки */
+  const armPeekNow = (path: string, el: HTMLElement) => {
+    const row = rowRef.current?.getBoundingClientRect();
+    const btn = el.getBoundingClientRect();
+    setPeek({ path, left: Math.max(0, btn.left - (row?.left || 0) + (rowRef.current?.scrollLeft || 0)) });
+  };
+
   const menuItems: MenuItem[] = menu ? [
     { label: 'Открыть', onClick: () => openSection(menu.path) },
     { label: 'Открыть в отдельном окне', onClick: () => openSectionWindow(menu.path) },
+    ...(windowed && countOfWindows(menu.path) > 0 ? [{
+      label: countOfWindows(menu.path) > 1 ? `Закрыть все окна (${countOfWindows(menu.path)})` : 'Закрыть окно',
+      onClick: () => {
+        const st = useWindowStore.getState();
+        for (const w of windowsOf(st.windows, menu.path)) st.close(w.id);
+      },
+    }] : []),
   ] : [];
 
   // Всё, что жило в подвале левого меню: без этого спрятать меню было бы нельзя
@@ -220,7 +253,22 @@ export default function Taskbar() {
             <button
               key={b.path}
               type="button"
-              onClick={() => openSection(b.path)}
+              onClick={(e) => {
+                // Окон несколько — выбирают из списка, а не наугад поднимают
+                if (windowed && countOfWindows(b.path) > 1) {
+                  armPeekNow(b.path, e.currentTarget as HTMLElement);
+                  return;
+                }
+                openSection(b.path);
+              }}
+              onMouseEnter={(e) => { if (windowed) armPeek(b.path, e.currentTarget as HTMLElement); }}
+              onMouseLeave={disarmPeek}
+              onAuxClick={(e) => {
+                // Средним — ещё одно окно той же программы, привычка из браузера
+                if (e.button !== 1 || !windowed) return;
+                e.preventDefault();
+                openSectionWindow(b.path);
+              }}
               onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, path: b.path }); }}
               title={b.title}
               aria-current={b.active ? 'true' : undefined}
@@ -235,6 +283,13 @@ export default function Taskbar() {
             >
               {Icon && <Icon className="w-[18px] h-[18px] shrink-0" />}
               {view.labels && <span>{b.title}</span>}
+              {windowed && countOfWindows(b.path) > 1 && (
+                <span className="shrink-0 px-1 h-[16px] min-w-[16px] rounded bg-slate-100 dark:bg-slate-850
+                                 text-[10px] font-mono text-slate-500 dark:text-slate-400 tabular-nums
+                                 flex items-center justify-center" title="Окон этой программы">
+                  {countOfWindows(b.path)}
+                </span>
+              )}
               {b.badge > 0 && (
                 <span className="shrink-0 px-1.5 h-[18px] min-w-[18px] rounded-full bg-rose-600 text-white
                                  text-2xs font-bold tabular-nums flex items-center justify-center">
@@ -363,6 +418,9 @@ export default function Taskbar() {
         />
       </div>
 
+      {peek && windowed && (
+        <TaskbarPeek path={peek.path} left={peek.left + 12} onClose={() => setPeek(null)} />
+      )}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
       {userMenu && <ContextMenu x={userMenu.x} y={userMenu.y} items={userItems} onClose={() => setUserMenu(null)} />}
     </div>

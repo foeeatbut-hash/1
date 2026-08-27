@@ -18,6 +18,7 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { sectionForPath } from '../workspace/sections';
 import { useStore } from '../store/store';
 import SectionErrorBoundary from './SectionErrorBoundary';
+import { PaneContext } from '../lib/paneTitle';
 
 export const asHref = (l: Location | { pathname: string; search?: string; hash?: string }) =>
   `${l.pathname}${l.search || ''}${l.hash || ''}`;
@@ -33,6 +34,7 @@ export function makeLocation(to: To, state: any = null): Location {
 export default function SectionFrame({
   paneId,
   path,
+  href,
   isLive,
   visible,
   liveLocation,
@@ -40,6 +42,13 @@ export default function SectionFrame({
 }: {
   paneId: string;
   path: string;
+  /**
+   * Адрес этого экземпляра, если он известен раме (у окон — да).
+   *
+   * Нужен потому, что окно опознаётся адресом: только что открытое окно
+   * обязано сразу показать свой документ, а не библиотеку раздела.
+   */
+  href?: string;
   isLive: boolean;
   visible: boolean;
   liveLocation: Location;
@@ -50,27 +59,60 @@ export default function SectionFrame({
   const setFrozenHref = useWorkspaceStore((s) => s.setFrozenHref);
   const closeInPane = useWorkspaceStore((s) => s.closeInPane);
   const initialHref = useWorkspaceStore.getState().frozenHrefs[`${paneId}::${path}`];
-  const [frozenLoc, setFrozenLoc] = React.useState<Location>(() => makeLocation(initialHref || path));
+  const [frozenLoc, setFrozenLoc] = React.useState<Location>(() => makeLocation(href || initialHref || path));
+
+  /**
+   * Рама сказала, что у этого экземпляра другой адрес, — принимаем.
+   *
+   * Так единичный раздел переезжает на новый документ в том же окне: окон у
+   * него не бывает двух, и открыть письмо ему больше негде.
+   */
+  React.useEffect(() => {
+    if (href && href !== asHref(frozenLoc)) setFrozenLoc(makeLocation(href));
+  }, [href]);
 
   // Пока раздел живой — запоминаем его location, чтобы при возврате открыть там же
   React.useEffect(() => {
     if (isLive && liveLocation.pathname === path) {
+      // Окно принимает только собственный переход. Чужой адрес ему сейчас
+      // показывают на один кадр, пока оболочка решает, какое окно его откроет;
+      // запомнив его, окно забрало бы себе чужой документ — и два окна начали
+      // бы спорить автосохранением за одну книгу
+      const from = (liveLocation.state as any)?.__pane;
+      if (paneId.startsWith('win:') && from !== paneId) return;
       setFrozenLoc(liveLocation);
       setFrozenHref(paneId, path, asHref(liveLocation));
     }
   }, [isLive, liveLocation, path, paneId, setFrozenHref]);
 
-  const location = isLive ? liveLocation : frozenLoc;
+  /**
+   * Живой экземпляр обычно показывает общий адрес программы. Но в оболочке окон
+   * общий адрес на мгновение бывает чужим — это тот кадр, в котором оболочка
+   * ещё не открыла нужное окно. Показывать в этот момент чужой документ нельзя:
+   * движок таблицы успевает загрузить книгу, и человек видит мигание.
+   */
+  const foreign = paneId.startsWith('win:')
+    && !!href
+    && asHref(liveLocation) !== href
+    && (liveLocation.state as any)?.__pane !== paneId;
+  const location = isLive && !foreign ? liveLocation : frozenLoc;
 
   const navigator = React.useMemo(
     () => ({
       createHref: (to: To) => (typeof to === 'string' ? to : asHref({ pathname: to.pathname || '/', search: to.search, hash: to.hash })),
       encodeLocation: (to: To) => makeLocation(to),
       go: () => {},
-      push: (to: To, state?: any) => (isLive ? globalNavigate(to, { state }) : setFrozenLoc(makeLocation(to, state))),
-      replace: (to: To, state?: any) => (isLive ? globalNavigate(to, { state, replace: true }) : setFrozenLoc(makeLocation(to, state))),
+      // Кто перешёл — важно оболочке: переход внутри окна оставляет человека в
+      // этом же окне, а тот же адрес, пришедший снаружи (значок стола, ссылка,
+      // помощник), открывает своё окно. По самому адресу это неразличимо
+      push: (to: To, state?: any) => (isLive
+        ? globalNavigate(to, { state: { ...(state || {}), __pane: paneId } })
+        : setFrozenLoc(makeLocation(to, state))),
+      replace: (to: To, state?: any) => (isLive
+        ? globalNavigate(to, { state: { ...(state || {}), __pane: paneId }, replace: true })
+        : setFrozenLoc(makeLocation(to, state))),
     }),
-    [isLive, globalNavigate],
+    [isLive, globalNavigate, paneId],
   );
 
   if (def.adminOnly && user?.role !== 'ADMIN') {
@@ -93,6 +135,7 @@ export default function SectionFrame({
       style={{ display: visible ? 'block' : 'none' }}
       aria-hidden={!visible}
     >
+      <PaneContext.Provider value={paneId}>
       <UNSAFE_NavigationContext.Provider value={navContext}>
         <UNSAFE_LocationContext.Provider value={locContext}>
           {/* Граница внутри панели: сбой одного раздела не должен уносить
@@ -104,6 +147,7 @@ export default function SectionFrame({
           </SectionErrorBoundary>
         </UNSAFE_LocationContext.Provider>
       </UNSAFE_NavigationContext.Provider>
+      </PaneContext.Provider>
     </div>
   );
 }

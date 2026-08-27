@@ -42,6 +42,12 @@ function WindowFrame({
   const def = sectionForPath(win.path);
   const Icon = SECTIONS.find((s) => s.path === win.path)?.icon as any;
   const st = useWindowStore;
+  // Имя окну даёт содержимое: «Ведомость В-1», а не «Конструктор». Нет
+  // открытого документа — остаётся имя программы
+  const title = useWindowStore((s) => s.titles[win.id]) || def.title;
+  // На это окно навели в списке на панели задач — обводим, чтобы было понятно,
+  // какое из трёх поднимется
+  const peeked = useWindowStore((s) => s.peeked === win.id);
 
   /**
    * Перетаскивание и размер на указателе, а не на мыши: одним кодом работают
@@ -89,13 +95,15 @@ function WindowFrame({
   return (
     <div
       role="dialog"
-      aria-label={def.title}
+      aria-label={title}
       onPointerDownCapture={() => { if (!isTop) st.getState().focus(win.id); }}
       style={{ left: win.x, top: win.y, width: win.w, height: win.h, zIndex: 10 + win.z, display: win.minimized ? 'none' : undefined }}
-      className={`absolute flex flex-col rounded-xl overflow-hidden bg-white dark:bg-dark-bg border ${
-        isTop
-          ? 'border-emerald-500/70 shadow-2xl'
-          : 'border-slate-200 dark:border-dark-border shadow-lg'
+      className={`absolute flex flex-col rounded-xl overflow-hidden bg-white dark:bg-dark-bg border transition-shadow ${
+        peeked
+          ? 'border-emerald-500 shadow-2xl ring-2 ring-emerald-500/40'
+          : isTop
+            ? 'border-emerald-500/70 shadow-2xl'
+            : 'border-slate-200 dark:border-dark-border shadow-lg'
       }`}
     >
       <div
@@ -108,7 +116,8 @@ function WindowFrame({
         }`}
       >
         {Icon && <Icon className={`w-4 h-4 shrink-0 ${isTop ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-400'}`} />}
-        <span className="flex-1 min-w-0 truncate text-xs font-semibold text-slate-800 dark:text-slate-150">{def.title}</span>
+        <span className="flex-1 min-w-0 truncate text-xs font-semibold text-slate-800 dark:text-slate-150"
+          title={title === def.title ? title : `${title} · ${def.title}`}>{title}</span>
         <button type="button" title="Свернуть" aria-label="Свернуть"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => st.getState().minimize(win.id)}
@@ -134,6 +143,7 @@ function WindowFrame({
         <SectionFrame
           paneId={`win:${win.id}`}
           path={win.path}
+          href={win.href}
           visible
           isLive={isTop}
           liveLocation={liveLocation}
@@ -189,14 +199,39 @@ export default function WindowsLayer() {
    * без неё не работают ни ссылка на документ, ни кнопка «назад».
    */
   React.useEffect(() => {
-    if (!topWin || location.pathname === topWin.path) return;
+    if (!topWin) return;
+    const here = asHref(location);
+    if (here === topWin.href) return;
     const remembered = useWorkspaceStore.getState().frozenHrefs[`win:${topWin.id}::${topWin.path}`];
-    navigate(remembered || topWin.path);
-  }, [topWin?.id, topWin?.path]);
+    navigate(remembered || topWin.href);
+  }, [topWin?.id, topWin?.href]);
 
-  // Обратная сторона той же связи: адрес пришёл извне (ссылка, помощник,
-  // двойное нажатие по документу на столе) — поднимаем нужное окно
+  /**
+   * Живое окно ушло на другой адрес (открыли документ из библиотеки, зашли в
+   * папку) — окно обязано это запомнить. Иначе оно потеряет себя: следующее
+   * открытие того же документа заведёт ещё одно окно рядом.
+   */
   React.useEffect(() => {
+    if (!topWin) return;
+    const here = asHref(location);
+    // Только собственный переход окна. Тот же адрес, пришедший снаружи, — это
+    // просьба открыть документ, и решать её должно следующее правило: иначе
+    // окно молча забирало бы себе чужой адрес, и второе окно не появлялось
+    if ((location.state as any)?.__pane !== `win:${topWin.id}`) return;
+    if (here.split('?')[0] !== topWin.path) return;
+    useWindowStore.getState().setHref(topWin.id, here);
+  }, [location, topWin?.id]);
+
+  /**
+   * Обратная сторона той же связи: адрес пришёл извне (ссылка, помощник,
+   * двойное нажатие по документу на столе) — поднимаем нужное окно.
+   *
+   * Именно layout-эффект, а не обычный: решение принимается до показа кадра.
+   * Обычный эффект успевал показать чужой адрес в прежнем верхнем окне — и то
+   * запоминало его себе. Два окна оказывались на одном документе и начинали
+   * спорить автосохранением.
+   */
+  React.useLayoutEffect(() => {
     if (!isKnownSection(location.pathname)) return;
     // «/» — начальный адрес программы, а не просьба открыть Главную. Открывали
     // бы — поверх пустого стола всплывало бы окно, которого не просили, и
@@ -205,11 +240,15 @@ export default function WindowsLayer() {
     // и с панели задач — там нажатие сказано вслух
     if (location.pathname === '/') return;
     const st = useWindowStore.getState();
+    const here = asHref(location);
     const cur = st.windows.filter((w) => !w.minimized);
     const now = cur.length ? cur.reduce((a, b) => (b.z > a.z ? b : a)) : null;
-    // Адрес запоминает сам SectionFrame живого окна — здесь только поднять окно
-    if (now && now.path === location.pathname) return;
-    st.open(location.pathname);
+    // Переход внутри самого окна и по тому же разделу — это оно и перешло:
+    // человек открыл документ из библиотеки Конструктора и остался в своём
+    // окне. Адрес запоминает следующий эффект, открывать нечего
+    const from = (location.state as any)?.__pane;
+    if (now && from === `win:${now.id}` && now.path === location.pathname) return;
+    st.open(here);
   }, [location]);
 
   /**
@@ -220,7 +259,8 @@ export default function WindowsLayer() {
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const act = deskAction(e, { typing: isTyping(document.activeElement as any), hasSelection: false });
-      if (act !== 'nextWindow' && act !== 'prevWindow' && act !== 'closeWindow' && act !== 'minimizeAll') return;
+      if (act !== 'nextWindow' && act !== 'prevWindow' && act !== 'closeWindow'
+        && act !== 'minimizeAll' && act !== 'newWindow') return;
       const st = useWindowStore.getState();
       if (!st.windows.length) return;
       e.preventDefault();
@@ -229,6 +269,11 @@ export default function WindowsLayer() {
         (a, b) => (!a || b.z > a.z ? b : a), null,
       );
       if (act === 'closeWindow') { if (cur) st.close(cur.id); return; }
+      if (act === 'newWindow') {
+        // Ещё одно окно той же программы: у единичных разделов второго не бывает
+        if (cur && sectionForPath(cur.path).multi) st.openAnother(cur.href);
+        return;
+      }
       const next = nextInCycle(st.windows, cur?.id || null, act === 'prevWindow');
       if (next) st.focus(next.id);
     };

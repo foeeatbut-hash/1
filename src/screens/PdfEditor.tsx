@@ -21,6 +21,7 @@ import { pdfRibbon, MARKUP_COLORS } from '../lib/ribbonPdf';
 import { openPdf } from '../import/pdfShared';
 import { useToastStore } from '../store/toastStore';
 import { useModalStore } from '../store/modalStore';
+import { useWindowTitle } from '../lib/paneTitle';
 
 const { openPrompt, openConfirm } = useModalStore.getState();
 
@@ -73,6 +74,9 @@ export default function PdfEditor() {
 
   const tabs = React.useMemo(() => pdfRibbon(), []);
   const revision = String(file?.revision || '1');
+
+  // Имя окна — имя чертежа с ревизией: их открывают по нескольку сразу
+  useWindowTitle(file?.name ? `${file.name} · ред. ${revision}` : '');
 
   // ── Загрузка файла и его пометок ──
   useEffect(() => {

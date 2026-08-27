@@ -17,6 +17,8 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import EquipmentImportPreview from '../components/EquipmentImportPreview';
 import { countOf } from '../lib/plural';
 import { openInProject, useProjectNames } from '../lib/projectScope';
+import { useWindowTitle } from '../lib/paneTitle';
+import FilePreview from '../components/explorer/FilePreview';
 import {
   SEC_SHARED, TRASH_ID, SMART_RECENT, SMART_UNTAGGED, SMART_DUPES,
   isSmartId, personalSecId, isSectionId, parseSection,
@@ -440,6 +442,9 @@ export default function Explorer() {
     const folder = folders.find(f => f.id === currentFolderId);
     return folder ? itemSection(folder) : null;
   }, [currentFolderId, folders, itemSection]);
+
+  // Имя окна — имя открытой папки: два окна Проводника иначе неразличимы
+  useWindowTitle(folders.find(f => f.id === currentFolderId)?.name || '');
 
   const handleNavigateUp = () => {
     if (!currentFolderId) return;
@@ -1068,8 +1073,7 @@ export default function Explorer() {
     if (isFolder) { navigateToRef.current(id); return; }
     const f = allCurrentItemsRef.current?.find((x: any) => x.id === id);
     // Файл из чужого проекта: имя видно, содержимое — после переключения.
-    // Особенно важно для документа Конструктора: он собирается из тегов
-    // своего проекта и в чужом просто не соберётся
+    // Документ Конструктора в чужом проекте просто не соберётся
     const owner = projectOfRef.current(f);
     if (owner && owner !== useStore.getState().activeProject?.id) {
       openInProject({
@@ -1824,29 +1828,9 @@ export default function Explorer() {
                   );
                 }
 
-                const isImage = item.type === 'IMAGE' || item.name.match(/\.(jpeg|jpg|gif|png|webp)$/i);
-                const isPdf = item.type === 'PDF' || item.name.match(/\.(pdf)$/i);
-                const isText = item.type === 'TXT' || item.name.match(/\.(txt|md|json|csv)$/i);
-
                 return (
                   <div className="p-4 flex flex-col">
-                     <div className="flex-1 flex items-center justify-center min-h-[240px] max-h-[300px] bg-white dark:bg-dark-panel border border-slate-200 dark:border-dark-border rounded mb-4 overflow-hidden relative ">
-                        {isImage && item.content ? (
-                          <img src={item.content} alt={item.name} className="max-w-full max-h-full object-contain" />
-                        ) : isText && item.content ? (
-                          // Текст декодируем как UTF-8 в <pre> — iframe с data:text
-                          // без charset давал кракозябры на кириллице
-                          <pre className="w-full h-full overflow-auto text-left text-xs leading-relaxed p-3 text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words font-mono">{decodeTextContent(item.content)}</pre>
-                        ) : isPdf && item.content ? (
-                          // B5: пустой sandbox ломал встроенный PDF-вьюер
-                          <iframe src={item.content} className="w-full h-full border-0 bg-white dark:bg-dark-panel" title={item.name} sandbox="allow-scripts allow-same-origin" />
-                        ) : (
-                          <div className="text-center text-slate-400 flex flex-col items-center">
-                             {getFileIcon(item, "w-12 h-12 mb-2")}
-                             <span className="text-xs">{item.type} Файл</span>
-                          </div>
-                        )}
-                     </div>
+                     <FilePreview item={item} icon={getFileIcon(item, 'w-12 h-12 mb-2')} />
                      
                      <h3 className="font-semibold text-slate-800 dark:text-dark-text-main mb-2 break-words text-sm">{item.name}</h3>
                      

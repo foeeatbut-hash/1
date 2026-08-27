@@ -10,6 +10,7 @@ import DocVersionsPanel from '../components/DocVersionsPanel';
 import DataWizard from '../components/DataWizard';
 import type { CatalogData, WizardResult } from '../lib/constructorTypes';
 import EditorFrame from '../components/ribbon/EditorFrame';
+import { useWindowTitle } from '../lib/paneTitle';
 import { sheetRibbon, SHEET_TEXT_COLORS, SHEET_FILL_COLORS } from '../lib/ribbonSheet';
 import { editorFileMenu } from '../lib/ribbonFile';
 import { dataService } from '../services/dataService';
@@ -1006,6 +1007,10 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   };
 
   const isAuthor = !doc?.createdById || doc?.createdById === user?.id || user?.role === 'ADMIN';
+
+  // Как зовут это окно: имя книги, а не «Конструктор» — их может быть открыто
+  // несколько, и различать их по названию программы нечем
+  useWindowTitle(doc?.name || '');
 
   // ── Лента: состояние, значения органов и разбор команд ──
   const tabs = useMemo(() => sheetRibbon(), []);

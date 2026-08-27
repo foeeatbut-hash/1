@@ -21,6 +21,7 @@ import {
   patchParagraphs, patchDocumentStyle, readParagraphStyle, readZoom, type EngineCtx,
 } from '../lib/docEngine';
 import EditorFrame from '../components/ribbon/EditorFrame';
+import { useWindowTitle } from '../lib/paneTitle';
 import { docRibbon, DOC_TEXT_COLORS, DOC_MARK_COLORS } from '../lib/ribbonDoc';
 import { editorFileMenu } from '../lib/ribbonFile';
 
@@ -648,6 +649,9 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   };
 
   const isAuthor = !doc?.createdById || doc?.createdById === user?.id || user?.role === 'ADMIN';
+
+  // Имя окна — имя документа: два документа рядом иначе неразличимы
+  useWindowTitle(doc?.name || '');
 
   // ── Лента: состояние вкладок, значения органов и разбор команд ──
   const tabs = React.useMemo(() => docRibbon(), []);
