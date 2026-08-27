@@ -11,40 +11,41 @@ datasource db {
 }
 
 model User {
-  id               String        @id @default(uuid())
-  symbol           String        @unique // Табельный номер сотрудника, используемый как логин
-  password         String        @default("password") // Пароль доступа
-  name             String        // ФИО сотрудника
-  lastName         String        @default("") // Фамилия — храним по частям, в именительном падеже
-  firstName        String        @default("") // Имя
-  middleName       String        @default("") // Отчество
-  gender           String        @default("") // "M" | "F" — нужен для склонения и поздравления
-  birthDate        DateTime?     // День рождения: поздравление на главном экране
-  role             String        @default("ENGINEER_VENT") // "ADMIN", "MANAGER", "ENGINEER_VENT", "ENGINEER_AUTO"
-  isActive         Boolean       @default(true) // Профиль включен администратором
-  validUntil       DateTime?     // Срок действия профиля; null = бессрочно
-  permissions      String?       // JSON персональных прав: {"project.create":{"enabled":true,"until":null}}
-  signatureImage   String?       // Подпись сотрудника: PNG в виде data-URL, фон уже убран
-  signatureHeightMm Int          @default(8) // Высота подписи в документе, мм — не в точках: иначе она зависит от разрешения скана
-  createdAt        DateTime      @default(now())
-  createdFiles     FileNode[]    @relation("FileCreator")
-  updatedFiles     FileNode[]    @relation("FileUpdater")
-  sentMessages     ChatMessage[] @relation("SentMessages")
-  receivedMessages ChatMessage[] @relation("ReceivedMessages")
-  chatGroups       ChatGroup[]   @relation("GroupMembers")
+  id                String        @id @default(uuid())
+  symbol            String        @unique // Табельный номер сотрудника, используемый как логин
+  password          String        @default("password") // Пароль доступа
+  name              String // ФИО сотрудника
+  lastName          String        @default("") // Фамилия — храним по частям, в именительном падеже
+  firstName         String        @default("") // Имя
+  middleName        String        @default("") // Отчество
+  gender            String        @default("") // "M" | "F" — нужен для склонения и поздравления
+  birthDate         DateTime? // День рождения: поздравление на главном экране
+  role              String        @default("ENGINEER_VENT") // "ADMIN", "MANAGER", "ENGINEER_VENT", "ENGINEER_AUTO"
+  isActive          Boolean       @default(true) // Профиль включен администратором
+  validUntil        DateTime? // Срок действия профиля; null = бессрочно
+  permissions       String? // JSON персональных прав: {"project.create":{"enabled":true,"until":null}}
+  signatureImage    String? // Подпись сотрудника: PNG в виде data-URL, фон уже убран
+  signatureHeightMm Int           @default(8) // Высота подписи в документе, мм — не в точках: иначе она зависит от разрешения скана
+  createdAt         DateTime      @default(now())
+  createdFiles      FileNode[]    @relation("FileCreator")
+  updatedFiles      FileNode[]    @relation("FileUpdater")
+  pdfMarkups        PdfMarkup[]   @relation("MarkupAuthor")
+  sentMessages      ChatMessage[] @relation("SentMessages")
+  receivedMessages  ChatMessage[] @relation("ReceivedMessages")
+  chatGroups        ChatGroup[]   @relation("GroupMembers")
 }
 
 model Project {
-  id           String        @id @default(uuid())
-  name         String
-  code         String        @default("") // Код проекта
-  customer     String        @default("") // Заказчик
-  contractor   String        @default("") // Подрядчик
-  description  String        @default("") // Примечание
-  info         String        @default("")
-  status       String        @default("ACTIVE")
-  createdAt    DateTime      @default(now())
-  
+  id          String   @id @default(uuid())
+  name        String
+  code        String   @default("") // Код проекта
+  customer    String   @default("") // Заказчик
+  contractor  String   @default("") // Подрядчик
+  description String   @default("") // Примечание
+  info        String   @default("")
+  status      String   @default("ACTIVE")
+  createdAt   DateTime @default(now())
+
   folders          Folder[]
   tags             Tag[]
   dictionaries     Dictionary[]
@@ -62,22 +63,23 @@ model ConstructorDoc {
   id          String    @id @default(uuid())
   projectId   String
   name        String    @default("Без названия")
-  kind        String    @default("DOC")    // "DOC" | "TEMPLATE"
+  kind        String    @default("DOC") // "DOC" | "TEMPLATE"
   scope       String    @default("SHARED") // "SHARED" | "PERSONAL"
-  ownerId     String?   // владелец личного документа (= createdById)
-  named       Boolean   @default(false)    // имя дано человеком (гасит диалог при закрытии)
+  ownerId     String? // владелец личного документа (= createdById)
+  named       Boolean   @default(false) // имя дано человеком (гасит диалог при закрытии)
   description String    @default("")
-  workbook    String    @default("")       // JSON-снапшот книги
-  bindings    String    @default("[]")     // JSON: умные блоки
-  settings    String    @default("{}")     // JSON: печать/ориентация и т.п.
+  workbook    String    @default("") // JSON-снапшот книги
+  bindings    String    @default("[]") // JSON: умные блоки
+  settings    String    @default("{}") // JSON: печать/ориентация и т.п.
   createdById String?
   updatedById String?
   deletedAt   DateTime? // корзина (мягкое удаление)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  versions    ConstructorDocVersion[]
+  project  Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions ConstructorDocVersion[]
+
   @@index([projectId, kind])
 }
 
@@ -86,49 +88,50 @@ model ConstructorDoc {
 model ConstructorDocVersion {
   id        String   @id @default(uuid())
   docId     String
-  version   Int      // порядковый номер в документе
+  version   Int // порядковый номер в документе
   workbook  String   @default("")
   bindings  String   @default("[]")
   comment   String   @default("") // «перед обновлением данных», «ручное сохранение»…
   authorId  String?
   createdAt DateTime @default(now())
 
-  doc       ConstructorDoc @relation(fields: [docId], references: [id], onDelete: Cascade)
+  doc ConstructorDoc @relation(fields: [docId], references: [id], onDelete: Cascade)
+
   @@index([docId, version])
 }
-
 
 // ── ВДР (Vendor Document Register): реестр документации поставщика ──
 // Дизайн: docs/vdr-docflow-design.md §1. Реестр первичен: строка живёт и без
 // документа; документ Конструктора привязывается через docId.
 model DocRegister {
-  id          String   @id @default(uuid())
-  projectId   String
-  name        String   @default("ВДР")
-  vendor      String   @default("")
-  contractor  String   @default("")
-  owner       String   @default("")
-  poNumber    String   @default("")
-  standardId  String?  // применённый стандарт документооборота (DocStandard)
-  ownerProjectNo      String @default("")
-  contractorProjectNo String @default("")
-  materialRequisition String @default("")
-  equipmentTitle      String @default("")
-  contractorDocNo     String @default("") // номер самого ВДР у трёх сторон
-  ownerDocNo          String @default("")
-  vendorDocNo         String @default("")
-  revision            String @default("A")  // текущая ревизия самого ВДР
-  revisions           String @default("[]") // история ревизий ВДР (JSON)
-  preparedBy          String @default("")
-  checkedBy           String @default("")
-  approvedBy          String @default("")
-  columnsConfig       String @default("[]") // JSON: колонки реестра (импортированные + свои)
-  managerId   String?  // ответственный менеджер (получает «документ готов»)
-  createdById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                  String   @id @default(uuid())
+  projectId           String
+  name                String   @default("ВДР")
+  vendor              String   @default("")
+  contractor          String   @default("")
+  owner               String   @default("")
+  poNumber            String   @default("")
+  standardId          String? // применённый стандарт документооборота (DocStandard)
+  ownerProjectNo      String   @default("")
+  contractorProjectNo String   @default("")
+  materialRequisition String   @default("")
+  equipmentTitle      String   @default("")
+  contractorDocNo     String   @default("") // номер самого ВДР у трёх сторон
+  ownerDocNo          String   @default("")
+  vendorDocNo         String   @default("")
+  revision            String   @default("A") // текущая ревизия самого ВДР
+  revisions           String   @default("[]") // история ревизий ВДР (JSON)
+  preparedBy          String   @default("")
+  checkedBy           String   @default("")
+  approvedBy          String   @default("")
+  columnsConfig       String   @default("[]") // JSON: колонки реестра (импортированные + свои)
+  managerId           String? // ответственный менеджер (получает «документ готов»)
+  createdById         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-  items       DocRegisterItem[]
+  items DocRegisterItem[]
+
   @@index([projectId])
 }
 
@@ -148,9 +151,9 @@ model DocRegisterItem {
   language       String    @default("")
   equipmentTags  String    @default("[]") // JSON: идентификаторы тегов
   status         String    @default("DRAFT") // DRAFT | READY | REMARKS | ACCEPTED
-  docId          String?   // ConstructorDoc сформированного документа
-  fileNodeId     String?   // файл замечаний в Проводнике
-  assigneeId     String?   // инженер-исполнитель (получает «замечания»)
+  docId          String? // ConstructorDoc сформированного документа
+  fileNodeId     String? // файл замечаний в Проводнике
+  assigneeId     String? // инженер-исполнитель (получает «замечания»)
   remarks        String    @default("")
   reviewCode     String    @default("") // код рассмотрения заказчика (A/B/C/D/Q…)
   dueDate        DateTime? // срок следующей ревизии (по коду и дедлайнам стандарта)
@@ -159,11 +162,11 @@ model DocRegisterItem {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  register       DocRegister @relation(fields: [registerId], references: [id], onDelete: Cascade)
+  register DocRegister @relation(fields: [registerId], references: [id], onDelete: Cascade)
+
   @@index([registerId])
   @@index([projectId, status])
 }
-
 
 // ── Стандарт документооборота — ГЛОБАЛЬНЫЙ шаблон программы ──
 // Профиль заказчика/проекта: коды рассмотрения с дедлайнами, причины выпуска,
@@ -194,14 +197,13 @@ model DocRegisterItemRevision {
   @@index([itemId])
 }
 
-
 model Dictionary {
-  id        String   @id @default(uuid())
+  id        String           @id @default(uuid())
   projectId String
   name      String
   items     DictionaryItem[]
-  
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 model DictionaryItem {
@@ -213,32 +215,32 @@ model DictionaryItem {
   parent       DictionaryItem?  @relation("HierarchicalItems", fields: [parentId], references: [id], onDelete: Cascade)
   children     DictionaryItem[] @relation("HierarchicalItems")
 
-  dictionary   Dictionary @relation(fields: [dictionaryId], references: [id], onDelete: Cascade)
+  dictionary Dictionary @relation(fields: [dictionaryId], references: [id], onDelete: Cascade)
 }
 
 model TagTemplate {
-  id         String   @id @default(uuid())
-  projectId  String   @unique
+  id         String @id @default(uuid())
+  projectId  String @unique
   schemaJson String
 
-  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 model Folder {
-  id          String   @id @default(uuid())
-  name        String
-  projectId   String
-  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  scope       String   @default("SHARED") // "SHARED" — общий раздел, "PERSONAL" — личный раздел пользователя
-  ownerId     String?  // Владелец личной папки (User.id); null для общих
-  system      Boolean  @default(false) // Системная папка (напр. «Конструктор»): нельзя удалить/переименовать
+  id        String  @id @default(uuid())
+  name      String
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scope     String  @default("SHARED") // "SHARED" — общий раздел, "PERSONAL" — личный раздел пользователя
+  ownerId   String? // Владелец личной папки (User.id); null для общих
+  system    Boolean @default(false) // Системная папка (напр. «Конструктор»): нельзя удалить/переименовать
 
-  parentId    String?
-  parent      Folder?  @relation("FolderToFolder", fields: [parentId], references: [id], onDelete: Cascade)
-  children    Folder[] @relation("FolderToFolder")
+  parentId String?
+  parent   Folder?  @relation("FolderToFolder", fields: [parentId], references: [id], onDelete: Cascade)
+  children Folder[] @relation("FolderToFolder")
 
   files       FileNode[]
-  updatedAt   DateTime @default(now()) @updatedAt
+  updatedAt   DateTime   @default(now()) @updatedAt
   deletedAt   DateTime? // корзина: папка скрыта, но восстановима
   deletedById String?
 }
@@ -253,7 +255,7 @@ model FileNode {
   statusCode  String   @default("D")
   revision    String   @default("1")
   scope       String   @default("SHARED") // "SHARED" | "PERSONAL" (для файлов в корне раздела)
-  ownerId     String?  // Владелец личного файла (User.id); null для общих
+  ownerId     String? // Владелец личного файла (User.id); null для общих
   createdAt   DateTime @default(now())
   createdById String?
   createdBy   User?    @relation("FileCreator", fields: [createdById], references: [id])
@@ -261,133 +263,171 @@ model FileNode {
   updatedBy   User?    @relation("FileUpdater", fields: [updatedById], references: [id])
   updatedAt   DateTime @default(now()) @updatedAt
   content     String?
-  refId       String?  // Ссылка на сущность программы (type="CONSTRUCTOR" → ConstructorDoc.id)
+  refId       String? // Ссылка на сущность программы (type="CONSTRUCTOR" → ConstructorDoc.id)
 
-  folderId    String?
-  folder      Folder?   @relation(fields: [folderId], references: [id], onDelete: Cascade)
-  
-  mainTags        Tag[]    @relation("FileMainTags")
-  additionalTags  Tag[]    @relation("FileAdditionalTags")
-  deletedAt   DateTime? // корзина: файл скрыт, но восстановим
-  deletedById String?
+  folderId String?
+  folder   Folder? @relation(fields: [folderId], references: [id], onDelete: Cascade)
+
+  markups        PdfMarkup[]
+  mainTags       Tag[]       @relation("FileMainTags")
+  additionalTags Tag[]       @relation("FileAdditionalTags")
+  deletedAt      DateTime? // корзина: файл скрыт, но восстановим
+  deletedById    String?
+}
+
+/// Пометка на чертеже ПДФ.
+///
+/// Живёт рядом с файлом, а не внутри него. Чертёж поставщика ценен тем, что он
+/// не изменён: облака и замечания — записи проекта, а не правка присланного
+/// документа. Отсюда всё остальное: пометка знает автора, время и ревизию, на
+/// которой поставлена; по ней собирается письмо поставщику; при новой ревизии
+/// старые пометки видно отдельно, и сразу ясно, что учтено, а что нет.
+///
+/// Координаты — доли страницы (0..1), а не точки: чертёж A1 и его же скан в
+/// другом разрешении дают одно и то же место.
+model PdfMarkup {
+  id          String    @id @default(uuid())
+  fileId      String
+  file        FileNode  @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  /// Ревизия чертежа на момент постановки пометки
+  revision    String    @default("1")
+  page        Int       @default(1)
+  /// CLOUD | ARROW | RECT | NOTE | STAMP | PEN
+  kind        String    @default("CLOUD")
+  x           Float     @default(0)
+  y           Float     @default(0)
+  w           Float     @default(0)
+  h           Float     @default(0)
+  color       String    @default("#be123c")
+  strokeWidth Int       @default(2)
+  text        String?
+  /// OPEN | DONE | REJECTED — учтено ли замечание
+  state       String    @default("OPEN")
+  createdAt   DateTime  @default(now())
+  createdById String?
+  createdBy   User?     @relation("MarkupAuthor", fields: [createdById], references: [id])
+  updatedAt   DateTime  @default(now()) @updatedAt
+  deletedAt   DateTime?
+
+  @@index([fileId, revision])
 }
 
 model Equipment {
-  id          String   @id @default(uuid())
-  type        String   // "VALVE", "FAN", "AHU", "CONTROL_PANEL"
+  id          String  @id @default(uuid())
+  type        String // "VALVE", "FAN", "AHU", "CONTROL_PANEL"
   description String?
   tags        Tag[]
 }
 
 model Tag {
-  id           String      @id @default(uuid())
-  identifier   String      // e.g. AHU-2
-  brand        String?     // Марка
-  department   String?
-  wbs          String?
-  fluid        String?
-  projectId    String
-  equipmentId  String?
-  metadata     String?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime?   @updatedAt // для индикатора «данные изменились» в Конструкторе
+  id          String    @id @default(uuid())
+  identifier  String // e.g. AHU-2
+  brand       String? // Марка
+  department  String?
+  wbs         String?
+  fluid       String?
+  projectId   String
+  equipmentId String?
+  metadata    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime? @updatedAt // для индикатора «данные изменились» в Конструкторе
 
-  project      Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  equipment    Equipment?  @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
-  mainFiles        FileNode[]  @relation("FileMainTags")
-  additionalFiles  FileNode[]  @relation("FileAdditionalTags")
+  project           Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  equipment         Equipment?         @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
+  mainFiles         FileNode[]         @relation("FileMainTags")
+  additionalFiles   FileNode[]         @relation("FileAdditionalTags")
   componentElements ComponentElement[]
 }
 
 model EquipmentSystem {
-  id            String          @id @default(uuid())
-  name          String          // e.g. "у1"
-  projectId     String
-  category      String          @default("AHU") // Возможные значения: "AHU", "FAN", "VALVE", "CURTAIN"
-  fileName      String?         // Added to keep different imported files separate
-  project       Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  monoblocks    Monoblock[]
-  createdAt     DateTime        @default(now())
+  id         String      @id @default(uuid())
+  name       String // e.g. "у1"
+  projectId  String
+  category   String      @default("AHU") // Возможные значения: "AHU", "FAN", "VALVE", "CURTAIN"
+  fileName   String? // Added to keep different imported files separate
+  project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  monoblocks Monoblock[]
+  createdAt  DateTime    @default(now())
 }
 
 model Monoblock {
-  id                String             @id @default(uuid())
-  name              String             // e.g. "мн1"
-  systemId          String
-  system            EquipmentSystem    @relation(fields: [systemId], references: [id], onDelete: Cascade)
-  components        ComponentElement[]
-  createdAt         DateTime           @default(now())
+  id         String             @id @default(uuid())
+  name       String // e.g. "мн1"
+  systemId   String
+  system     EquipmentSystem    @relation(fields: [systemId], references: [id], onDelete: Cascade)
+  components ComponentElement[]
+  createdAt  DateTime           @default(now())
 }
 
 model ComponentElement {
-  id            String             @id @default(uuid())
-  name          String             // e.g. "бл2.1"
-  itemCode      String             // Stable unique business code (e.g., "бл2.1")
-  monoblockId   String
-  monoblock     Monoblock          @relation(fields: [monoblockId], references: [id], onDelete: Cascade)
-  specs         String?            // JSON: { groups: [{title, params:[{key,value,unit}]}] }
-  equipType     String             @default("ПРОЧЕЕ") // КЛАПАН/ФИЛЬТР/НАГРЕВАТЕЛЬ/...
-  overrides     String?            // JSON: ручные переопределения значений { "группа|ключ": "значение" }
-  paramConflicts String?           // JSON: конфликтные параметры последней ревизии [{group,key,oldValue,newValue}]
-  tags          Tag[]
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @default(now())
-  status        String             @default("OK")
-  hasConflict   Boolean            @default(false)
-  conflictType  String?            // "ORPHANED_TAG", "TYPE_MISMATCH"
-  conflictLog   String?
-  version       Int                @default(1)
-  history       EquipmentHistory[]
-  chatMessages  ChatMessage[]      @relation("LinkedElement")
+  id             String             @id @default(uuid())
+  name           String // e.g. "бл2.1"
+  itemCode       String // Stable unique business code (e.g., "бл2.1")
+  monoblockId    String
+  monoblock      Monoblock          @relation(fields: [monoblockId], references: [id], onDelete: Cascade)
+  specs          String? // JSON: { groups: [{title, params:[{key,value,unit}]}] }
+  equipType      String             @default("ПРОЧЕЕ") // КЛАПАН/ФИЛЬТР/НАГРЕВАТЕЛЬ/...
+  overrides      String? // JSON: ручные переопределения значений { "группа|ключ": "значение" }
+  paramConflicts String? // JSON: конфликтные параметры последней ревизии [{group,key,oldValue,newValue}]
+  tags           Tag[]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @default(now())
+  status         String             @default("OK")
+  hasConflict    Boolean            @default(false)
+  conflictType   String? // "ORPHANED_TAG", "TYPE_MISMATCH"
+  conflictLog    String?
+  version        Int                @default(1)
+  history        EquipmentHistory[]
+  chatMessages   ChatMessage[]      @relation("LinkedElement")
 }
 
 model EquipmentHistory {
-  id          String           @id @default(uuid())
-  elementId   String
-  element     ComponentElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
-  version     Int
-  changedAt   DateTime         @default(now())
-  oldSpecs    String?
-  newSpecs    String?
-  changeType  String           // "UPDATE", "DELETE", "CREATE"
+  id         String           @id @default(uuid())
+  elementId  String
+  element    ComponentElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+  version    Int
+  changedAt  DateTime         @default(now())
+  oldSpecs   String?
+  newSpecs   String?
+  changeType String // "UPDATE", "DELETE", "CREATE"
   // Партия импорта: по ней отменяется весь ввоз расчёта целиком, а не
   // поэлементно. Пусто у записей, сделанных вручную и до этой правки.
-  batchId     String?
+  batchId    String?
 }
 
 model UserNote {
   id          String   @id @default(uuid())
   title       String   @default("Новая заметка")
-  ownerId     String?  // Владелец заметки; null — заметка из версий до личного блокнота
-  content     String   // Хранение HTML-строки или JSON-дерева Rich-text редактора
+  ownerId     String? // Владелец заметки; null — заметка из версий до личного блокнота
+  content     String // Хранение HTML-строки или JSON-дерева Rich-text редактора
   color       String   @default("bg-amber-50 dark:bg-amber-950/20 border-amber-200") // Набор в разделе «Блокнот»: amber, rose, emerald, slate
-  equipmentId String?  // Опциональная привязка к тегу/оборудованию
-  groupName   String?  // Пользовательская группа заметок в блокноте
+  equipmentId String? // Опциональная привязка к тегу/оборудованию
+  groupName   String? // Пользовательская группа заметок в блокноте
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
 
 model SystemChangeLog {
   id          String   @id @default(uuid())
-  userName    String   // Кто изменил (например, "Главный Администратор")
-  userSymbol  String   // Символ/ID (например, "RaupovKhKh")
-  description String   // Что изменено ("Обновлены спецификации вентилятора по тегу AHU-2")
-  targetRoute String   // Маршрут/параметры для сквозного перехода (например, "/equipment?tag=AHU-2")
+  userName    String // Кто изменил (например, "Главный Администратор")
+  userSymbol  String // Символ/ID (например, "RaupovKhKh")
+  description String // Что изменено ("Обновлены спецификации вентилятора по тегу AHU-2")
+  targetRoute String // Маршрут/параметры для сквозного перехода (например, "/equipment?tag=AHU-2")
   createdAt   DateTime @default(now())
 }
 
 model ChatGroup {
-  id        String        @id @default(uuid())
-  name      String
-  type      String        @default("PROJECT") // "DIRECT" | "PROJECT" | "CUSTOM" | "CHANNEL"
-  description String      @default("")
-  color     String        @default("indigo")
-  ownerId   String?       // владелец группы/канала
-  projectId String?
-  project   Project?      @relation("ProjectGroups", fields: [projectId], references: [id], onDelete: Cascade)
-  members   User[]        @relation("GroupMembers")
-  messages  ChatMessage[] @relation("GroupMessages")
-  createdAt DateTime      @default(now())
+  id          String        @id @default(uuid())
+  name        String
+  type        String        @default("PROJECT") // "DIRECT" | "PROJECT" | "CUSTOM" | "CHANNEL"
+  description String        @default("")
+  color       String        @default("indigo")
+  ownerId     String? // владелец группы/канала
+  projectId   String?
+  project     Project?      @relation("ProjectGroups", fields: [projectId], references: [id], onDelete: Cascade)
+  members     User[]        @relation("GroupMembers")
+  messages    ChatMessage[] @relation("GroupMessages")
+  createdAt   DateTime      @default(now())
 }
 
 model ChatMessage {
@@ -405,13 +445,13 @@ model ChatMessage {
   linkedProjectId String?
   linkedProject   Project?          @relation("LinkedProject", fields: [linkedProjectId], references: [id], onDelete: SetNull)
   attachments     ChatAttachment[]
-  replyToId       String?           // Ответ на сообщение (цитата)
+  replyToId       String? // Ответ на сообщение (цитата)
   replyTo         ChatMessage?      @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
   replies         ChatMessage[]     @relation("MessageReplies")
-  editedAt        DateTime?         // Когда сообщение было отредактировано
-  reactions       String?           // JSON: { "👍": ["userId", ...], ... }
+  editedAt        DateTime? // Когда сообщение было отредактировано
+  reactions       String? // JSON: { "👍": ["userId", ...], ... }
   pinned          Boolean           @default(false)
-  forwardedFrom   String?           // имя исходного отправителя при пересылке
+  forwardedFrom   String? // имя исходного отправителя при пересылке
 }
 
 model ChatAttachment {
@@ -425,10 +465,10 @@ model ChatAttachment {
 
 model AppSetting {
   id        String   @id @default(uuid())
-  key       String   // напр. equip_visibility, equip_conflict_mode, equip_categories
-  userId    String?  // null = глобальная (админ) настройка; иначе персональная
-  value     String   // JSON
-  updatedAt DateTime @updatedAt @default(now())
+  key       String // напр. equip_visibility, equip_conflict_mode, equip_categories
+  userId    String? // null = глобальная (админ) настройка; иначе персональная
+  value     String // JSON
+  updatedAt DateTime @default(now()) @updatedAt
 
   @@unique([key, userId])
 }
@@ -443,7 +483,7 @@ model AppUpdate {
 
 model Notification {
   id          String   @id @default(uuid())
-  userId      String   // адресат (личные уведомления)
+  userId      String // адресат (личные уведомления)
   category    String   @default("СИСТЕМА") // СИСТЕМА | ОБОРУДОВАНИЕ | ЧАТ | ПРОЕКТЫ | ДОСТУП
   title       String
   body        String   @default("")
@@ -454,7 +494,6 @@ model Notification {
   @@index([userId, isRead])
 }
 
-
 // Роль сотрудника. Раньше роли были зашиты в коде четырьмя строками; теперь
 // их заводит администратор в настройках, и они видны везде, где показывается
 // сотрудник. level = 1 — главный администратор: только он управляет ролями
@@ -463,25 +502,24 @@ model Notification {
 model Role {
   id          String   @id @default(uuid())
   code        String   @unique // ADMIN, MANAGER, ENGINEER_VENT… и пользовательские
-  name        String   // «Инженер ОВиК»
+  name        String // «Инженер ОВиК»
   description String   @default("")
   color       String   @default("slate") // цвет значка роли
-  icon        String   @default("user")  // имя значка lucide
-  level       Int      @default(50)      // 1 = главный администратор
+  icon        String   @default("user") // имя значка lucide
+  level       Int      @default(50) // 1 = главный администратор
   isSystem    Boolean  @default(false)
-  permissions String   @default("{}")    // права по умолчанию при назначении роли
+  permissions String   @default("{}") // права по умолчанию при назначении роли
   sortOrder   Int      @default(100)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
-
 
 // С кем сотрудник поделился своей заметкой. Блокнот личный, но заметку
 // можно открыть коллегам: на просмотр или на совместную правку.
 model NoteShare {
   id        String   @id @default(uuid())
   noteId    String
-  userId    String   // кому открыт доступ
+  userId    String // кому открыт доступ
   canEdit   Boolean  @default(false)
   createdAt DateTime @default(now())
 
@@ -489,17 +527,16 @@ model NoteShare {
   @@index([userId])
 }
 
-
 // Формула документа: именованное значение, которое подставляется в титул.
 // В документе стоит плашка с названием, а как оно превращается в значение —
 // решает эта запись. Формулы принадлежат проекту: личная формула означала бы,
 // что у коллеги тот же титул соберётся иначе.
 model DocFormula {
   id          String   @id @default(uuid())
-  projectId   String                       // Проект-владелец
-  name        String                       // То, что видно в документе
-  kind        String                       // value | text | compose | expr | signature
-  config      String   @default("{}")      // JSON настройки: формат даты, части сборки и т.д.
+  projectId   String // Проект-владелец
+  name        String // То, что видно в документе
+  kind        String // value | text | compose | expr | signature
+  config      String   @default("{}") // JSON настройки: формат даты, части сборки и т.д.
   sortOrder   Int      @default(0)
   createdById String?
   createdAt   DateTime @default(now())
@@ -519,84 +556,84 @@ model DocFormula {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model MailAccount {
-  id           String    @id @default(uuid())
+  id          String    @id @default(uuid())
   // Кому принадлежит ящик. PERSONAL — личный, ownerId заполнен, настраивает
   // сам сотрудник и может завести несколько. SHARED — общая почта компании,
   // ownerId пуст, настраивается один раз и видна всем.
-  scope        String    @default("PERSONAL")  // PERSONAL | SHARED
-  ownerId      String    @default("")          // User.id для личного; пусто для общего
-  label        String    @default("")          // Как назвать ящик в списке слева
-  sortOrder    Int       @default(100)         // Порядок в списке ящиков
-  email        String                          // Обратный адрес
-  displayName  String    @default("")          // Имя в поле «От кого»
-  imapHost     String
-  imapPort     Int       @default(993)
-  imapSecure   Boolean   @default(true)
-  smtpHost     String
-  smtpPort     Int       @default(465)
-  smtpSecure   Boolean   @default(true)
-  login        String                          // Обычно совпадает с email, но не всегда
-  secret       String                    // Пароль под AES-256-GCM; наружу не отдаётся
-  secretNonce  String    @default("")
-  syncDays     Int       @default(90)          // На сколько дней вглубь тянуть при первом входе
-  active       Boolean   @default(true)
-  lastSyncAt   DateTime?
-  lastError    String  @default("")      // Последняя ошибка связи — видна в разделе
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  scope       String    @default("PERSONAL") // PERSONAL | SHARED
+  ownerId     String    @default("") // User.id для личного; пусто для общего
+  label       String    @default("") // Как назвать ящик в списке слева
+  sortOrder   Int       @default(100) // Порядок в списке ящиков
+  email       String // Обратный адрес
+  displayName String    @default("") // Имя в поле «От кого»
+  imapHost    String
+  imapPort    Int       @default(993)
+  imapSecure  Boolean   @default(true)
+  smtpHost    String
+  smtpPort    Int       @default(465)
+  smtpSecure  Boolean   @default(true)
+  login       String // Обычно совпадает с email, но не всегда
+  secret      String // Пароль под AES-256-GCM; наружу не отдаётся
+  secretNonce String    @default("")
+  syncDays    Int       @default(90) // На сколько дней вглубь тянуть при первом входе
+  active      Boolean   @default(true)
+  lastSyncAt  DateTime?
+  lastError   String    @default("") // Последняя ошибка связи — видна в разделе
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([ownerId])
   @@index([scope])
 }
 
 model MailFolder {
-  id           String    @id @default(uuid())
-  accountId    String
-  path         String                          // Путь IMAP как есть: "INBOX", "[Gmail]/Drafts"
-  name         String                          // Как показываем человеку
-  kind         String    @default("CUSTOM")    // INBOX SENT DRAFTS TRASH SPAM ARCHIVE CUSTOM
+  id          String    @id @default(uuid())
+  accountId   String
+  path        String // Путь IMAP как есть: "INBOX", "[Gmail]/Drafts"
+  name        String // Как показываем человеку
+  kind        String    @default("CUSTOM") // INBOX SENT DRAFTS TRASH SPAM ARCHIVE CUSTOM
   // Метка поколения папки. Сервер сменил её — все сохранённые uid указывают
   // на другие письма, и папку надо перечитать целиком.
-  uidValidity  String    @default("")
-  lastUid      Int       @default(0)
-  unread       Int       @default(0)
-  total        Int       @default(0)
-  sortOrder    Int       @default(100)
-  syncedAt     DateTime?
+  uidValidity String    @default("")
+  lastUid     Int       @default(0)
+  unread      Int       @default(0)
+  total       Int       @default(0)
+  sortOrder   Int       @default(100)
+  syncedAt    DateTime?
 
   @@unique([accountId, path])
   @@index([accountId])
 }
 
 model MailMessage {
-  id           String    @id @default(uuid())
-  accountId    String
-  folderId     String
-  uid          Int                             // Номер письма в папке
-  messageId    String    @default("")          // Message-ID из заголовка
-  inReplyTo    String    @default("")          // In-Reply-To
-  refs         String  @default("")      // References, через пробел
-  threadKey    String    @default("")          // Корень цепочки — считаем сами
-  fromName     String  @default("")
-  fromAddr     String    @default("")
-  toAddrs      String  @default("")      // «Имя <адрес>» через запятую
-  ccAddrs      String  @default("")
-  subject      String  @default("")
-  snippet      String  @default("")      // Первые ~200 знаков для списка
-  sentAt       DateTime
-  size         Int       @default(0)
-  seen         Boolean   @default(false)
-  flagged      Boolean   @default(false)
-  answered     Boolean   @default(false)
-  draft        Boolean   @default(false)
-  hasFiles     Boolean   @default(false)
+  id         String    @id @default(uuid())
+  accountId  String
+  folderId   String
+  uid        Int // Номер письма в папке
+  messageId  String    @default("") // Message-ID из заголовка
+  inReplyTo  String    @default("") // In-Reply-To
+  refs       String    @default("") // References, через пробел
+  threadKey  String    @default("") // Корень цепочки — считаем сами
+  fromName   String    @default("")
+  fromAddr   String    @default("")
+  toAddrs    String    @default("") // «Имя <адрес>» через запятую
+  ccAddrs    String    @default("")
+  subject    String    @default("")
+  snippet    String    @default("") // Первые ~200 знаков для списка
+  sentAt     DateTime
+  size       Int       @default(0)
+  seen       Boolean   @default(false)
+  flagged    Boolean   @default(false)
+  answered   Boolean   @default(false)
+  draft      Boolean   @default(false)
+  hasFiles   Boolean   @default(false)
   // Тема, отправитель и фрагмент одной строкой в нижнем регистре.
   // LIKE в SQLite приводит к нижнему регистру только латиницу, поэтому
   // искать по-русски без заранее приведённого поля нельзя.
-  searchText   String  @default("")
-  bodyText     String?                   // Тянется при открытии
-  bodyHtml     String?
-  bodyAt       DateTime?
+  searchText String    @default("")
+  bodyText   String? // Тянется при открытии
+  bodyHtml   String?
+  bodyAt     DateTime?
 
   @@unique([folderId, uid])
   @@index([accountId, threadKey])
@@ -605,33 +642,33 @@ model MailMessage {
 }
 
 model MailAttachment {
-  id           String    @id @default(uuid())
-  messageId    String                          // MailMessage.id
-  partId       String    @default("")          // Часть письма в терминах IMAP
-  fileName     String  @default("")
-  filePath     String  @default("")      // Файл на диске, как вложения Чата
-  size         Int       @default(0)
-  mimeType     String    @default("")
-  contentId    String    @default("")          // Для картинок внутри письма
-  inline       Boolean   @default(false)
+  id        String  @id @default(uuid())
+  messageId String // MailMessage.id
+  partId    String  @default("") // Часть письма в терминах IMAP
+  fileName  String  @default("")
+  filePath  String  @default("") // Файл на диске, как вложения Чата
+  size      Int     @default(0)
+  mimeType  String  @default("")
+  contentId String  @default("") // Для картинок внутри письма
+  inline    Boolean @default(false)
 
   @@index([messageId])
 }
 
 model MailDraft {
-  id           String    @id @default(uuid())
-  accountId    String
-  ownerId      String
-  toAddrs      String  @default("")
-  ccAddrs      String  @default("")
-  bccAddrs     String  @default("")
-  subject      String  @default("")
-  bodyHtml     String  @default("")
-  inReplyToId  String    @default("")          // MailMessage.id, если это ответ
-  mode         String    @default("NEW")       // NEW | REPLY | REPLY_ALL | FORWARD
-  files        String  @default("[]")    // JSON: приложенные файлы
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id          String   @id @default(uuid())
+  accountId   String
+  ownerId     String
+  toAddrs     String   @default("")
+  ccAddrs     String   @default("")
+  bccAddrs    String   @default("")
+  subject     String   @default("")
+  bodyHtml    String   @default("")
+  inReplyToId String   @default("") // MailMessage.id, если это ответ
+  mode        String   @default("NEW") // NEW | REPLY | REPLY_ALL | FORWARD
+  files       String   @default("[]") // JSON: приложенные файлы
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([ownerId])
 }
@@ -641,14 +678,14 @@ model MailDraft {
 // стоять на всех ящиках (accountId пуст) или только на выбранном — с общей
 // почты человек подписывается иначе, чем со своей.
 model MailSignature {
-  id           String    @id @default(uuid())
-  ownerId      String                          // Чья подпись (User.id)
-  accountId    String    @default("")          // Пусто — годится для всех ящиков
-  name         String    @default("Подпись")   // Как называется в списке
-  html         String    @default("")          // Разметка подписи
-  isDefault    Boolean   @default(false)       // Подставлять в новое письмо
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id        String   @id @default(uuid())
+  ownerId   String // Чья подпись (User.id)
+  accountId String   @default("") // Пусто — годится для всех ящиков
+  name      String   @default("Подпись") // Как называется в списке
+  html      String   @default("") // Разметка подписи
+  isDefault Boolean  @default(false) // Подставлять в новое письмо
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([ownerId])
 }
@@ -657,14 +694,14 @@ model MailSignature {
 // вложения; при отправке вставляются в письмо частями с Content-ID, иначе
 // почтовые службы вырежут ссылку на наш сервер.
 model MailSignatureImage {
-  id           String    @id @default(uuid())
-  ownerId      String
-  fileName     String    @default("")
-  filePath     String    @default("")
-  mimeType     String    @default("")
-  size         Int       @default(0)
-  width        Int       @default(0)           // Ширина показа в письме, px
-  createdAt    DateTime  @default(now())
+  id        String   @id @default(uuid())
+  ownerId   String
+  fileName  String   @default("")
+  filePath  String   @default("")
+  mimeType  String   @default("")
+  size      Int      @default(0)
+  width     Int      @default(0) // Ширина показа в письме, px
+  createdAt DateTime @default(now())
 
   @@index([ownerId])
 }
@@ -674,13 +711,13 @@ model MailSignatureImage {
 // у девяти остальных оно перестанет быть непрочитанным. Для общей почты это
 // неверно — «я это видел» у каждого своё, поэтому храним отметку у себя.
 model MailSeenLocal {
-  id           String    @id @default(uuid())
-  accountId    String
-  userId       String
+  id        String   @id @default(uuid())
+  accountId String
+  userId    String
   // Message-ID письма, а не наш id: он переживает пересинхронизацию папки
   // и смену uidValidity, после которых наши строки создаются заново.
-  msgKey       String
-  seenAt       DateTime  @default(now())
+  msgKey    String
+  seenAt    DateTime @default(now())
 
   @@unique([accountId, userId, msgKey])
   @@index([accountId, userId])
@@ -689,17 +726,17 @@ model MailSeenLocal {
 // Состояние переписки в общем ящике: кто взял в работу и кто ответил.
 // Ключ — цепочка, а не письмо: в работу берут разговор целиком.
 model MailThreadState {
-  id             String    @id @default(uuid())
-  accountId      String
-  threadKey      String
-  status         String    @default("NEW")     // NEW | IN_PROGRESS | ANSWERED | CLOSED
-  claimedById    String    @default("")
-  claimedByName  String    @default("")
-  claimedAt      DateTime?
-  repliedById    String    @default("")
-  repliedByName  String    @default("")
-  repliedAt      DateTime?
-  updatedAt      DateTime  @updatedAt
+  id            String    @id @default(uuid())
+  accountId     String
+  threadKey     String
+  status        String    @default("NEW") // NEW | IN_PROGRESS | ANSWERED | CLOSED
+  claimedById   String    @default("")
+  claimedByName String    @default("")
+  claimedAt     DateTime?
+  repliedById   String    @default("")
+  repliedByName String    @default("")
+  repliedAt     DateTime?
+  updatedAt     DateTime  @updatedAt
 
   @@unique([accountId, threadKey])
   @@index([accountId, status])
@@ -707,14 +744,14 @@ model MailThreadState {
 
 // Лента действий по переписке — чтобы девять остальных видели, что произошло.
 model MailActivity {
-  id           String    @id @default(uuid())
-  accountId    String
-  threadKey    String
-  userId       String    @default("")
-  userName     String    @default("")
-  kind         String    @default("NOTE")      // CLAIMED RELEASED REPLIED FORWARDED STATUS NOTE
-  note         String    @default("")
-  createdAt    DateTime  @default(now())
+  id        String   @id @default(uuid())
+  accountId String
+  threadKey String
+  userId    String   @default("")
+  userName  String   @default("")
+  kind      String   @default("NOTE") // CLAIMED RELEASED REPLIED FORWARDED STATUS NOTE
+  note      String   @default("")
+  createdAt DateTime @default(now())
 
   @@index([accountId, threadKey])
 }

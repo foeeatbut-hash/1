@@ -3,10 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import { ENV_CONFIG, getAuthToken } from '../config/env';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
-import {
-  ArrowLeft, Loader2, Download, FolderOpen, Printer, History, X, FileText, Database, StickyNote, Stamp,
-  Share2, LayoutTemplate,
-} from 'lucide-react';
+import { Loader2, FileText, StickyNote } from 'lucide-react';
 import TitlePanel, { fetchTitlePageHtml, buildPageTemplates, fetchRevisionsSheetHtml, TitleSettings } from './TitlePanel';
 import { useModalStore } from '../store/modalStore';
 import {
@@ -17,10 +14,15 @@ import { emptyDocSnapshot, normalizeDocSnapshot } from '../lib/docSnapshot';
 import DocRuler from '../components/DocRuler';
 import ParagraphSpacingMenu from '../components/ParagraphSpacingMenu';
 import PageSetupDialog from '../components/PageSetupDialog';
+import DocVersionsPanel from '../components/DocVersionsPanel';
+import DataFieldsPanel from '../components/DataFieldsPanel';
 import { describeParagraph, type RulerModel } from '../lib/docStyle';
 import {
   patchParagraphs, patchDocumentStyle, readParagraphStyle, readZoom, type EngineCtx,
 } from '../lib/docEngine';
+import EditorFrame from '../components/ribbon/EditorFrame';
+import { docRibbon, DOC_TEXT_COLORS, DOC_MARK_COLORS } from '../lib/ribbonDoc';
+import { editorFileMenu } from '../lib/ribbonFile';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm } = useModalStore.getState();
@@ -65,129 +67,6 @@ function snapshotToPlainText(snap: any): string {
 // (scripts/test-doc-export.ts). Прежняя версия лежала здесь и незаметно теряла
 // шрифт абзаца, выравнивание и поля страницы.
 
-// ── Панель «Данные»: вставка живых значений проекта в текст ──
-// Значения берутся из тех же серверных функций, что и формулы таблиц
-// (/api/constructor/fn), тег/параметр — по вводу пользователя.
-function DataFieldsPanel({ projectId, projectName, userName, onInsert, onClose }: {
-  projectId: string; projectName: string; userName: string;
-  onInsert: (text: string) => void; onClose: () => void;
-}) {
-  const [tab, setTab] = useState<'project' | 'tag' | 'now'>('project');
-  const [tagId, setTagId] = useState('');
-  const [tagField, setTagField] = useState('brand');
-  const [paramGroup, setParamGroup] = useState('');
-  const [paramKey, setParamKey] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const callFn = async (fn: string, args: string[]): Promise<string> => {
-    try {
-      const r = await fetch('/api/constructor/fn', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId, calls: [{ fn, args }] }),
-      });
-      if (!r.ok) return '';
-      const v = (await r.json()).results?.[0];
-      return v == null || v === '#ОШИБКА' ? '' : String(v);
-    } catch (_) { return ''; }
-  };
-
-  const insertProject = async (field: string) => {
-    setBusy(true);
-    const v = await callFn('project', [field]);
-    setBusy(false);
-    onInsert(v || `{Проект.${field}}`);
-  };
-  const insertTagField = async () => {
-    if (!tagId.trim()) return;
-    setBusy(true);
-    const v = await callFn('tag', [tagId.trim(), tagField]);
-    setBusy(false);
-    onInsert(v || `{Тег ${tagId}: ${tagField}}`);
-  };
-  const insertParam = async () => {
-    if (!tagId.trim() || !paramKey.trim()) return;
-    setBusy(true);
-    const v = await callFn('param', [tagId.trim(), paramGroup.trim(), paramKey.trim()]);
-    setBusy(false);
-    onInsert(v || `{Параметр ${tagId}: ${paramKey}}`);
-  };
-
-  return (
-    <div className="absolute right-4 top-14 z-40 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-800">
-        <span className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-1.5"><Database className="w-4 h-4 text-sky-600" /> Вставить данные</span>
-        <button type="button" title="Закрыть панель вставки данных" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
-      </div>
-      <div className="flex border-b border-slate-100 dark:border-slate-850">
-        {([['project', 'Проект'], ['tag', 'Тег'], ['now', 'Дата/автор']] as const).map(([id, label]) => (
-          <button type="button" key={id} onClick={() => setTab(id)}
-            className={`flex-1 px-2 py-2 text-xs font-bold cursor-pointer ${tab === id ? 'bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-400 border-b-2 border-sky-500' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
-            {label}
-          </button>
-        ))}
-      </div>
-      <div className="p-4 space-y-2.5 max-h-96 overflow-auto">
-        {tab === 'project' && (
-          <>
-            <p className="text-xs text-slate-400">Проект: <b>{projectName || '—'}</b></p>
-            {[['name', 'Название'], ['code', 'Код проекта'], ['customer', 'Заказчик'], ['contractor', 'Подрядчик'], ['description', 'Описание']].map(([f, label]) => (
-              <button type="button" key={f} disabled={busy} onClick={() => insertProject(f)}
-                className="w-full text-left px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/20 text-sm text-slate-700 dark:text-slate-300 cursor-pointer disabled:opacity-50">
-                {label}
-              </button>
-            ))}
-          </>
-        )}
-        {tab === 'tag' && (
-          <>
-            <label className="block text-xs font-bold text-slate-500 uppercase">Обозначение тега</label>
-            <input value={tagId} onChange={e => setTagId(e.target.value)} placeholder="напр. AHU-01"
-              className="w-full px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-sky-500" />
-            <label className="block text-xs font-bold text-slate-500 uppercase mt-2">Поле тега</label>
-            <div className="flex gap-2">
-              <select value={tagField} onChange={e => setTagField(e.target.value)}
-                className="flex-1 min-w-0 px-2 py-1.5 text-sm border border-slate-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950 text-slate-800 dark:text-white">
-                <option value="brand">Марка</option>
-                <option value="department">Отдел</option>
-                <option value="fluid">Среда</option>
-                <option value="wbs">WBS</option>
-              </select>
-              <button type="button" disabled={busy || !tagId.trim()} onClick={insertTagField}
-                className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 disabled:opacity-40 text-white text-xs font-bold cursor-pointer">Вставить</button>
-            </div>
-            <div className="pt-2 mt-1 border-t border-slate-100 dark:border-slate-850">
-              <label className="block text-xs font-bold text-slate-500 uppercase">Параметр оборудования по тегу</label>
-              <input value={paramGroup} onChange={e => setParamGroup(e.target.value)} placeholder="группа (напр. Габариты)"
-                className="w-full mt-1 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-sky-500" />
-              <div className="flex gap-2 mt-1.5">
-                <input value={paramKey} onChange={e => setParamKey(e.target.value)} placeholder="параметр (напр. Высота)"
-                  className="flex-1 min-w-0 px-2.5 py-1.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-sky-500" />
-                <button type="button" disabled={busy || !tagId.trim() || !paramKey.trim()} onClick={insertParam}
-                  className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 disabled:opacity-40 text-white text-xs font-bold cursor-pointer">Вставить</button>
-              </div>
-            </div>
-          </>
-        )}
-        {tab === 'now' && (
-          <>
-            <button type="button" onClick={() => onInsert(new Date().toLocaleDateString('ru-RU'))}
-              className="w-full text-left px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/20 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
-              Сегодняшняя дата ({new Date().toLocaleDateString('ru-RU')})
-            </button>
-            <button type="button" onClick={() => onInsert(new Date().toLocaleString('ru-RU'))}
-              className="w-full text-left px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/20 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
-              Дата и время
-            </button>
-            <button type="button" onClick={() => onInsert(userName)}
-              className="w-full text-left px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/20 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
-              Автор ({userName})
-            </button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
 
 export default function TextDocEditor({ docId, onClose }: { docId: string; onClose: () => void }) {
   const user = useStore(s => s.user);
@@ -204,6 +83,12 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versions, setVersions] = useState<{ id: string; version: number; comment: string; createdAt: string }[]>([]);
   const [reloadTick, setReloadTick] = useState(0);
+  // Родная панель движка: её видно только по просьбе. Настройка переживает
+  // закрытие документа — человек включил её не на один раз
+  const [nativePanel, setNativePanel] = useState(() => {
+    try { return localStorage.getItem('flux_doc_native') === '1'; } catch (_) { return false; }
+  });
+  const [counts, setCounts] = useState({ words: 0, chars: 0 });
   const [dataOpen, setDataOpen] = useState(false); // панель «Данные» (умные поля)
   // ── Титул: присвоенный шаблон + реквизиты именно этого документа ──
   const [titleOpen, setTitleOpen] = useState(false);
@@ -344,7 +229,13 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
           presets: [
             (docsPreset as any).UniverDocsCorePreset({
               container: containerRef.current,
-              // Лента вкладками — ближе всего к ленте Ворда
+              // Своя лента рисуется поверх (components/ribbon), поэтому родную
+              // панель движка прячем: две панели с разными отступами и цветами
+              // — это два разных места для одного и того же действия. Вернуть
+              // её можно кнопкой «Панель движка» во вкладке «Вид»
+              header: nativePanel,
+              toolbar: nativePanel,
+              footer: false,
               ribbonType: 'classic',
             }),
             (linkP as any).UniverDocsHyperLinkPreset(),
@@ -509,6 +400,14 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     const bRect = box.getBoundingClientRect();
     const topPx = cRect ? Math.max(0, Math.round(cRect.top - bRect.top)) : 0;
     const centerPx = cRect ? (cRect.left - bRect.left) + cRect.width / 2 : box.clientWidth / 2;
+
+    // Слова и знаки для строки состояния: считаем здесь же — refreshRuler
+    // и так вызывается на каждую правку и на каждое движение курсора
+    try {
+      const text = snapshotToPlainText(snap);
+      const words = (text.match(/[А-Яа-яA-Za-zЁё0-9]+/g) || []).length;
+      setCounts({ words, chars: text.replace(/\s/g, '').length });
+    } catch (_) {}
 
     setRuler({
       model: {
@@ -750,122 +649,260 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
 
   const isAuthor = !doc?.createdById || doc?.createdById === user?.id || user?.role === 'ADMIN';
 
-  return (
-    <div className="h-full flex flex-col">
-      {/* Шапка: те же элементы, что у таблиц — раздел выглядит цельно */}
-      <div className="flex items-center gap-3 px-4 py-2.5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shrink-0">
-        <button type="button" onClick={handleClose} className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer">
-          <ArrowLeft className="w-4 h-4" /> Закрыть
-        </button>
-        {doc?.kind === 'NOTE'
-          ? <StickyNote className="w-4 h-4 text-amber-500 shrink-0" />
-          : <FileText className="w-4 h-4 text-sky-600 shrink-0" />}
-        <input
-          value={doc?.name || ''}
-          onChange={e => setDoc((d: any) => ({ ...d, name: e.target.value }))}
-          onBlur={e => { const v = e.target.value.trim(); if (v && doc) saveNow({ name: v }); }}
-          className="font-bold text-slate-800 dark:text-white bg-transparent border-b border-transparent hover:border-slate-300 focus:border-sky-500 focus:outline-none px-1 py-0.5 min-w-40 max-w-md"
-        />
-        {isAuthor && doc && (
-          <select
-            value={doc.scope}
-            onChange={e => saveNow({ scope: e.target.value })}
-            className="text-xs font-semibold px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300 cursor-pointer"
-            title="Общий — виден всем; Личный — только вам"
-          >
-            <option value="SHARED">Общий</option>
-            <option value="PERSONAL">Личный</option>
-          </select>
-        )}
-        <div className="flex-1" />
-        {peers.length > 0 && (
-          <div className="flex items-center mr-1" title={`В документе: ${peers.map(pp => pp.name).join(', ')}`}>
-            <div className="flex -space-x-1.5">
-              {peers.slice(0, 5).map(pp => (
-                <div key={pp.socketId}
-                  className="w-6 h-6 rounded-full flex items-center justify-center text-2xs font-black text-white ring-2 ring-white dark:ring-slate-900"
-                  style={{ background: pp.color }} title={pp.name}>
-                  {pp.name.trim().charAt(0).toUpperCase()}
-                </div>
-              ))}
-            </div>
-            <span className="ml-2 text-xs font-semibold text-sky-600 dark:text-sky-400">✏️ {peers.length + 1} в документе</span>
-          </div>
-        )}
-        <button type="button" onClick={() => setDataOpen(v => !v)}
-          title="Вставить живые данные проекта: код, заказчик, тег, дата, автор"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold cursor-pointer">
-          <Database className="w-3.5 h-3.5" /> Данные
-        </button>
-        {doc?.kind !== 'NOTE' && (
-          <button type="button" onClick={() => setTitleOpen(v => !v)}
-            title="Присвоить шаблон титульного листа — заполнится данными этого документа"
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${settings.titleTemplateId ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850'}`}>
-            <Stamp className="w-3.5 h-3.5" /> Титул
-          </button>
-        )}
-        {settings.vdrItemId && (
-          <button type="button" onClick={() => setRevDialog(true)}
-            title={`Выпустить новую ревизию (текущая: ${settings.docMeta?.revision || '—'}) — обновит ВДР, титул и лист ревизий`}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer">
-            Рев. {settings.docMeta?.revision || '—'} ↑
-          </button>
-        )}
-        <button type="button" onClick={() => { setVersionsOpen(v => !v); if (!versionsOpen) loadVersions(); }}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
-          <History className="w-3.5 h-3.5" /> История
-        </button>
-        {/* Интервалы: междустрочный, до и после абзаца, красная строка */}
-        <ParagraphSpacingMenu style={paraStyle} onApply={applyParagraph} />
-        <button type="button" onClick={openPageDialog}
-          title="Разметка страницы: формат листа, ориентация, поля — как в Ворде"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
-          <LayoutTemplate className="w-3.5 h-3.5" /> Лист
-        </button>
-        <button type="button" onClick={handlePrint} title="Печать документа" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
-          <Printer className="w-3.5 h-3.5" /> Печать
-        </button>
-        {/* Выгрузка одним меню: раньше пять кнопок в ряд забирали место у листа */}
-        <div className="relative">
-          <button type="button" onClick={() => setExportOpen(v => !v)}
-            title="Выгрузить документ: Ворд, PDF, текст, в Проводник"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
-            <Share2 className="w-3.5 h-3.5" /> Выгрузить
-          </button>
-          {exportOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setExportOpen(false)} />
-              <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden py-1">
-                {[
-                  { label: 'В Ворд (.doc)', hint: 'Откроется в Ворде: шрифты, поля и значения формул на месте', icon: FileText, run: exportWord },
-                  { label: 'В PDF', hint: 'Готовый к рассылке файл', icon: Printer, run: handlePdf },
-                  { label: 'Ворд в Проводник', hint: 'Файл появится в общей папке /shared', icon: FolderOpen, run: wordToExplorer },
-                  { label: 'Текст (.txt)', hint: 'Только текст, без оформления', icon: Download, run: exportTxt },
-                  { label: 'Текст в Проводник', hint: 'Плоский текст в общую папку', icon: FolderOpen, run: exportToExplorer },
-                ].map(it => (
-                  <button key={it.label} type="button"
-                    onClick={() => { setExportOpen(false); it.run(); }}
-                    className="w-full flex items-start gap-2.5 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">
-                    <it.icon className="w-3.5 h-3.5 mt-0.5 text-slate-400 shrink-0" />
-                    <span>
-                      <span className="block text-xs font-bold text-slate-700 dark:text-slate-300">{it.label}</span>
-                      <span className="block text-2xs text-slate-400 leading-snug">{it.hint}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-        <span className="text-xs text-slate-400 w-24 text-right">
-          {saveState === 'saving' ? 'сохраняю…' : saveState === 'saved' ? 'сохранено' : ''}
-        </span>
-      </div>
+  // ── Лента: состояние вкладок, значения органов и разбор команд ──
+  const tabs = React.useMemo(() => docRibbon(), []);
+  const [tab, setTab] = useState('Главная');
+  const [folded, setFolded] = useState(false);
+  const [fileOpen, setFileOpen] = useState(false);
+  const [showRuler, setShowRuler] = useState(true);
+  const [fontSize, setFontSize] = useState(11);
+  // Выбранный шрифт и стиль держим у себя: движок не отдаёт наружу оформление
+  // под курсором, а поле со списком обязано показывать хоть что-то честное —
+  // последнее, что человек сам выбрал
+  const [font, setFont] = useState('');
+  const [blockStyle, setBlockStyle] = useState('normal');
+  const [zoom, setZoom] = useState(100);
+  const [textColor, setTextColor] = useState(DOC_TEXT_COLORS[0]);
+  const [markColor, setMarkColor] = useState(DOC_MARK_COLORS[0]);
+  const [tablePop, setTablePop] = useState<{ x: number; y: number } | null>(null);
+  const [gridHover, setGridHover] = useState({ r: 0, c: 0 });
+  const [spacingAt, setSpacingAt] = useState<{ x: number; y: number } | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
+  /** Всплывающая панель органа встаёт под самим органом, а не «примерно там» */
+  const organRect = (id: string) => {
+    const el = rootRef.current?.querySelector(`[data-organ="${id}"]`) as HTMLElement | null;
+    const r = el?.getBoundingClientRect();
+    return r ? { x: r.left, y: r.bottom + 6 } : { x: 120, y: 150 };
+  };
+
+  /**
+   * Команда движку.
+   *
+   * Отклонение обещания гасим сами: движок отвечает обещанием, и необработанный
+   * отказ уходит в журнал как критическая ошибка программы. Сохранение —
+   * с задержкой: одно нажатие даёт несколько мутаций, и записывать надо
+   * получившееся, а не промежуточное.
+   */
+  const exec = (id: string, params?: any) => {
+    const api = univerRef.current?.univerAPI;
+    if (!api) { addToast('Редактор ещё загружается', 'error'); return; }
+    try {
+      const r = api.executeCommand(id, params);
+      if (r && typeof r.catch === 'function') r.catch(() => {});
+    } catch (_) { addToast('Не удалось выполнить команду', 'error'); }
+    setTimeout(() => { saveNow(); scheduleRulerRefresh(); }, 400);
+  };
+
+  /** Отступ абзаца слева: шаг 1,25 см — тот же, что у красной строки по ГОСТ */
+  const stepIndent = (dir: 1 | -1) => {
+    const ctx = engineCtx();
+    if (!ctx) return;
+    const cur = Number(readParagraphStyle(ctx)?.indentStart?.v || 0);
+    const next = Math.max(0, cur + dir * 36);
+    if (!patchParagraphs(ctx, { indentStart: next ? { v: next } : null })) {
+      addToast('Поставьте курсор в текст', 'error'); return;
+    }
+    refreshRuler();
+    saveNow();
+  };
+
+  /**
+   * Родная панель движка.
+   *
+   * Показать её можно только пересозданием редактора: состав рабочей области
+   * движок читает один раз при запуске. Поэтому сначала записываем документ —
+   * иначе несохранённая правка ушла бы вместе со старым экземпляром.
+   */
+  const toggleNativePanel = async () => {
+    const next = !nativePanel;
+    await saveNow();
+    try { localStorage.setItem('flux_doc_native', next ? '1' : '0'); } catch (_) {}
+    setNativePanel(next);
+    setLoading(true);
+    setReloadTick(t => t + 1);
+  };
+
+  const STYLE_CMD: Record<string, string> = {
+    normal: 'doc.command.normal-text-heading',
+    title: 'doc.command.title',
+    subtitle: 'doc.command.subtitle-heading',
+    h1: 'doc.command.h1-heading',
+    h2: 'doc.command.h2-heading',
+    h3: 'doc.command.h3-heading',
+    h4: 'doc.command.h4-heading',
+  };
+
+  /** Значение проекта в позицию курсора — теми же серверными функциями, что и формулы */
+  const insertProjectValue = async (fn: string, args: string[], fallback: string) => {
+    try {
+      const r = await fetch('/api/constructor/fn', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: activeProject?.id || 'default', calls: [{ fn, args }] }),
+      });
+      const v = r.ok ? (await r.json()).results?.[0] : null;
+      insertField(v && v !== '#ОШИБКА' ? String(v) : fallback);
+    } catch (_) { insertField(fallback); }
+  };
+
+  const runCommand = (id: string, value?: string) => {
+    const api = univerRef.current?.univerAPI;
+    switch (id) {
+      case 'doc.undo': { const r = api?.undo?.(); if (r?.catch) r.catch(() => {}); return; }
+      case 'doc.redo': { const r = api?.redo?.(); if (r?.catch) r.catch(() => {}); return; }
+      case 'doc.font': { setFont(value || ''); return exec('doc.command.set-inline-format-font-family', { value }); }
+      case 'doc.size': {
+        const next = Math.min(96, Math.max(6, fontSize + (value === '+' ? 1 : -1)));
+        setFontSize(next);
+        return exec('doc.command.set-inline-format-fontsize', { value: next });
+      }
+      case 'doc.bold': return exec('doc.command.set-inline-format-bold');
+      case 'doc.italic': return exec('doc.command.set-inline-format-italic');
+      case 'doc.underline': return exec('doc.command.set-inline-format-underline');
+      case 'doc.strike': return exec('doc.command.set-inline-format-strikethrough');
+      case 'doc.sub': return exec('doc.command.set-inline-format-subscript');
+      case 'doc.sup': return exec('doc.command.set-inline-format-superscript');
+      case 'doc.color': {
+        const c = value && value !== 'open' ? value : textColor;
+        setTextColor(c);
+        return exec('doc.command.set-inline-format-text-color', { value: c });
+      }
+      case 'doc.mark': {
+        const c = value && value !== 'open' ? value : markColor;
+        setMarkColor(c);
+        return exec('doc.command.set-inline-format-text-background-color', { value: c });
+      }
+      case 'doc.left': return exec('doc.command.align-left');
+      case 'doc.center': return exec('doc.command.align-center');
+      case 'doc.right': return exec('doc.command.align-right');
+      case 'doc.justify': return exec('doc.command.align-justify');
+      case 'doc.indent': return stepIndent(1);
+      case 'doc.outdent': return stepIndent(-1);
+      case 'doc.spacing': return setSpacingAt(spacingAt ? null : organRect('doc.spacing'));
+      case 'doc.bullets': return exec('doc.command.bullet-list');
+      case 'doc.numbers': return exec('doc.command.order-list');
+      case 'doc.checklist': return exec('doc.command.check-list');
+      case 'doc.style': { setBlockStyle(value || 'normal'); return exec(STYLE_CMD[value || 'normal'] || STYLE_CMD.normal); }
+      case 'doc.table': return setTablePop(tablePop ? null : organRect('doc.table'));
+      case 'doc.image': return exec('doc.command.insert-float-image');
+      case 'doc.link': return exec('doc.operation.show-hyper-link-edit-popup');
+      case 'doc.rule': return exec('doc.command.horizontal-line');
+      case 'doc.headerFooter': return exec('doc.command.open-header-footer-panel');
+      case 'doc.title': return setTitleOpen(v => !v);
+      case 'doc.page': return openPageDialog();
+      case 'doc.ruler': return setShowRuler(v => !v);
+      case 'doc.fields': return setDataOpen(v => !v);
+      case 'doc.today': return insertField(new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }));
+      case 'doc.author': return insertField(user?.name || user?.symbol || 'Автор');
+      case 'doc.revision': return setRevDialog(true);
+      case 'doc.versions': { setVersionsOpen(v => !v); if (!versionsOpen) loadVersions(); return; }
+      case 'doc.zoom': {
+        const next = Math.min(400, Math.max(30, zoom + (value === '+' ? 10 : -10)));
+        setZoom(next);
+        return exec('doc.command.set-zoom-ratio', { zoomRatio: next / 100 });
+      }
+      case 'doc.zoomReset': { setZoom(100); return exec('doc.command.set-zoom-ratio', { zoomRatio: 1 }); }
+      case 'doc.native': return toggleNativePanel();
+      default: return undefined;
+    }
+  };
+
+  const organState: Record<string, boolean | string> = {
+    'doc.font': font,
+    'doc.style': blockStyle,
+    'doc.size': String(fontSize),
+    'doc.zoom': `${zoom} %`,
+    'doc.color': textColor,
+    'doc.mark': markColor,
+    'doc.ruler': showRuler,
+    'doc.native': nativePanel,
+    'doc.title': !!settings.titleTemplateId,
+    'doc.fields': dataOpen,
+    'doc.versions': versionsOpen,
+  };
+  const organDisabled: Record<string, string> = {};
+  if (!settings.vdrItemId) organDisabled['doc.revision'] = 'Документ не привязан к строке ВДР — выпускать нечего';
+  if (!activeProject?.id) {
+    organDisabled['doc.fields'] = 'Проект не выбран — значения брать неоткуда';
+    organDisabled['doc.today'] = 'Проект не выбран';
+  }
+
+  const fileSections = editorFileMenu({
+    saveNow: () => { saveNow(); setFileOpen(false); },
+    saveVersion: async () => { setFileOpen(false); await makeVersion('ручное сохранение'); addToast('Версия сохранена', 'success'); },
+    versions: () => { setFileOpen(false); setVersionsOpen(true); loadVersions(); },
+    copy: async () => {
+      setFileOpen(false);
+      await saveNow();
+      const r = await fetch(`/api/constructor/docs/${docId}/duplicate`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: `${doc?.name || 'Документ'} — копия` }),
+      });
+      addToast(r.ok ? 'Копия создана' : 'Не удалось создать копию', r.ok ? 'success' : 'error');
+    },
+    template: async () => {
+      setFileOpen(false);
+      await saveNow();
+      const r = await fetch(`/api/constructor/docs/${docId}/duplicate`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'TEMPLATE', name: `${doc?.name || 'Документ'} — шаблон` }),
+      });
+      addToast(r.ok ? 'Сохранён в «Шаблоны»' : 'Не удалось сохранить шаблон', r.ok ? 'success' : 'error');
+    },
+    revision: () => { setFileOpen(false); setRevDialog(true); },
+    noRevision: settings.vdrItemId ? undefined : 'Документ не привязан к строке ВДР — выпускать нечего',
+    print: () => { setFileOpen(false); handlePrint(); },
+    pdf: () => { setFileOpen(false); handlePdf(); },
+    office: () => { setFileOpen(false); exportWord(); },
+    officeLabel: 'В Ворд (.doc)',
+    officeHint: 'Откроется в Ворде: шрифты, поля и значения полей на месте',
+    toExplorer: () => { setFileOpen(false); wordToExplorer(); },
+    plain: () => { setFileOpen(false); exportTxt(); },
+    plainLabel: 'Текст (.txt)',
+    close: () => { setFileOpen(false); handleClose(); },
+  });
+
+  const fileInfo = [
+    { label: 'Имя', value: doc?.name || '—' },
+    { label: 'Раздел', value: doc?.scope === 'PERSONAL' ? 'Личный' : 'Общий' },
+    { label: 'Ревизия', value: settings.docMeta?.revision || '—' },
+    { label: 'Проект', value: activeProject?.name || '—' },
+    { label: 'Изменён', value: doc?.updatedAt ? fmtDate(doc.updatedAt) : '—' },
+    { label: 'Слов', value: String(counts.words) },
+  ];
+
+  return (
+    <div ref={rootRef} className="h-full">
+      <EditorFrame
+        doc={{
+          icon: doc?.kind === 'NOTE'
+            ? <StickyNote className="w-3.5 h-3.5 text-amber-500" />
+            : <FileText className="w-3.5 h-3.5 text-emerald-600" />,
+          name: doc?.name || '',
+          onRename: (v) => setDoc((d: any) => ({ ...d, name: v })),
+          onClose: handleClose,
+          revision: settings.docMeta?.revision || null,
+          onRevision: settings.vdrItemId ? () => setRevDialog(true) : undefined,
+          scope: isAuthor ? (doc?.scope === 'PERSONAL' ? 'PERSONAL' : 'SHARED') : undefined,
+          onScope: isAuthor ? (v) => saveNow({ scope: v }) : undefined,
+          peers,
+          saveState,
+          menu: [
+            { label: 'Открыть в Проводнике', hint: 'Зеркало документа в общей папке', run: () => window.location.assign('#/explorer') },
+            { label: 'История версий', hint: 'Снимки и возврат к любому', run: () => { setVersionsOpen(true); loadVersions(); } },
+          ],
+        }}
+        tabs={tabs} active={tab} onActive={setTab}
+        state={organState} disabled={organDisabled} onCommand={runCommand}
+        folded={folded} onFold={setFolded}
+        file={fileSections} fileInfo={fileInfo} fileOpen={fileOpen} onFileOpen={setFileOpen}
+        statusLeft={<>{counts.words} слов · {counts.chars} знаков{settings.docMeta?.revision ? ` · ревизия ${settings.docMeta.revision}` : ''}</>}
+        statusRight={<>{zoom} %</>}
+      >
       {/* Полотно движка: страницы документа */}
-      <div className="flex-1 min-h-0 relative bg-slate-100 dark:bg-slate-950">
-        {/* Линейка над листом — в полосе между лентой движка и страницей */}
-        {!loading && ruler && (
+      <div className="absolute inset-0 bg-slate-100 dark:bg-slate-950">
+        {/* Линейка над листом — между лентой и страницей, как в Ворде */}
+        {!loading && ruler && showRuler && (
           <div className="absolute left-0 right-0 z-20 pointer-events-none" style={{ top: ruler.topPx }}>
             <div className="pointer-events-auto">
               <DocRuler
@@ -917,39 +954,15 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         />
       )}
 
-      {/* История версий */}
+      {/* История версий — тот же компонент, что у таблиц */}
       {versionsOpen && (
-        <div className="absolute right-4 top-14 z-40 w-96 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-800">
-            <span className="text-sm font-bold text-slate-800 dark:text-white">История версий</span>
-            <div className="flex items-center gap-2">
-              <button type="button"
-                onClick={async () => { await makeVersion('ручное сохранение'); await loadVersions(); addToast('Версия сохранена', 'success'); }}
-                className="text-xs font-bold px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white cursor-pointer flex items-center gap-1">
-                <History className="w-3 h-3" /> Сохранить версию
-              </button>
-              <button type="button" onClick={() => setVersionsOpen(false)} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
-            </div>
-          </div>
-          <div className="max-h-80 overflow-auto divide-y divide-slate-100 dark:divide-slate-850">
-            {versions.map(v => (
-              <div key={v.id} className="px-4 py-2.5 flex items-center gap-3">
-                <div className="w-9 h-6 shrink-0 rounded bg-slate-100 dark:bg-slate-850 flex items-center justify-center text-xs font-bold text-slate-500">в{v.version}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate">{v.comment || 'без комментария'}</div>
-                  <div className="text-2xs text-slate-400">{fmtDate(v.createdAt)}</div>
-                </div>
-                <button type="button" onClick={() => restoreVersion(v)}
-                  className="text-xs font-bold px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-sky-50 dark:hover:bg-sky-950/30 hover:text-sky-700 cursor-pointer">
-                  Восстановить
-                </button>
-              </div>
-            ))}
-            {versions.length === 0 && (
-              <div className="px-4 py-6 text-center text-xs text-slate-400">Версий пока нет. Нажмите «Сохранить версию» перед важными правками.</div>
-            )}
-          </div>
-        </div>
+        <DocVersionsPanel
+          versions={versions}
+          fmtDate={fmtDate}
+          onSave={async () => { await makeVersion('ручное сохранение'); await loadVersions(); addToast('Версия сохранена', 'success'); }}
+          onRestore={restoreVersion}
+          onClose={() => setVersionsOpen(false)}
+        />
       )}
 
       {/* Выпуск ревизии: место и описание изменения → ВДР + лист ревизий */}
@@ -1020,6 +1033,47 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
           </div>
         </div>
       )}
+
+      {/* Сетка вставки таблицы — раскрывается под своей кнопкой в ленте */}
+      {tablePop && (
+        <>
+          <div className="fixed inset-0 z-[130]" onClick={() => setTablePop(null)} />
+          <div className="fixed z-[140] p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl"
+            style={{ left: Math.min(tablePop.x, window.innerWidth - 240), top: Math.min(tablePop.y, window.innerHeight - 200) }}>
+            <div className="grid grid-cols-10 gap-0.5" onMouseLeave={() => setGridHover({ r: 0, c: 0 })}>
+              {Array.from({ length: 8 }).map((_, r) =>
+                Array.from({ length: 10 }).map((_, c) => (
+                  <div key={`${r}-${c}`}
+                    onMouseEnter={() => setGridHover({ r: r + 1, c: c + 1 })}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setTablePop(null);
+                      exec('doc.command.create-table', { rowCount: r + 1, colCount: c + 1 });
+                    }}
+                    className={`w-4 h-4 rounded-sm border cursor-pointer ${
+                      r < gridHover.r && c < gridHover.c
+                        ? 'bg-emerald-500 border-emerald-600'
+                        : 'bg-slate-100 dark:bg-slate-850 border-slate-200 dark:border-slate-800'}`} />
+                ))
+              )}
+            </div>
+            <div className="text-center text-2xs text-slate-500 dark:text-slate-400 mt-1.5 font-mono">
+              {gridHover.r > 0 ? `${gridHover.r} × ${gridHover.c}` : 'Выберите размер'}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Интервалы абзаца — та же панель, что была кнопкой в прежней шапке */}
+      {spacingAt && (
+        <>
+          <div className="fixed inset-0 z-[130]" onClick={() => setSpacingAt(null)} />
+          <div className="fixed z-[140]" style={{ left: Math.min(spacingAt.x, window.innerWidth - 280), top: spacingAt.y }}>
+            <ParagraphSpacingMenu style={paraStyle} onApply={(patch) => { setSpacingAt(null); applyParagraph(patch); }} />
+          </div>
+        </>
+      )}
+      </EditorFrame>
     </div>
   );
 }

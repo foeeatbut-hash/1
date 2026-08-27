@@ -24,6 +24,7 @@ import { registerLogRoutes } from './server/routes/logs.js';
 import { registerSettingsRoutes } from './server/routes/settings.js';
 import { registerExplorerRoutes } from './server/routes/explorer.js';
 import { registerDesktopRoutes } from './server/routes/desktop.js';
+import { registerPdfMarkupRoutes } from './server/routes/pdfMarkups.js';
 import { registerMailRoutes } from './server/routes/mail.js';
 import { registerMailSharedRoutes } from './server/routes/mailShared.js';
 import { registerMailComposeRoutes } from './server/routes/mailCompose.js';
@@ -2115,6 +2116,7 @@ app.post('/api/notifications/read', async (req: Request, res: Response) => {
 // Проводник (папки, файлы, корзина) вынесен в server/routes/explorer.ts
 registerExplorerRoutes(app);
 registerDesktopRoutes(app);
+registerPdfMarkupRoutes(app);
 registerInsightRoutes(app);
 registerAssistantRoutes(app);
 registerEquipmentUndoRoutes(app);
