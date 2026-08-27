@@ -16,7 +16,9 @@ import AssistantPanel from './AssistantPanel';
 import NotificationsPanel from './NotificationsPanel';
 import RightRail from './RightRail';
 import ShareLayer from './ShareLayer';
-import CommandPalette from './CommandPalette';
+import CommandBar from './CommandBar';
+import { useReminderStore, onReminder } from '../store/reminderStore';
+import { useToastStore } from '../store/toastStore';
 import InsightDrawer from './insight/InsightDrawer';
 import FluxLogo from './FluxLogo';
 import { useNotificationStore } from '../store/notificationStore';
@@ -94,6 +96,25 @@ export default function Layout() {
     const railed = shell === 'menu';
     document.documentElement.style.setProperty('--flux-rail-w', railed ? (sidebarCompact ? '56px' : '96px') : '0px');
   }, [sidebarCompact, shell]);
+
+  /**
+   * Напоминания, поставленные строкой «Спросить» («/напомни завтра в 9 …»).
+   * Часы заводятся здесь, потому что Layout открыт всегда: заведи их в панели
+   * помощника — и напоминание не пришло бы, пока панель закрыта, то есть
+   * почти никогда.
+   */
+  React.useEffect(() => {
+    const st = useReminderStore.getState();
+    onReminder((r) => {
+      useToastStore.getState().addToast(`Напоминание: ${r.text}`, 'info', r.href ? () => navigate(r.href!) : undefined);
+    });
+    // Просроченные показываем сразу при запуске: программа могла быть закрыта
+    for (const r of st.takeDue()) {
+      useToastStore.getState().addToast(`Напоминание: ${r.text}`, 'info', r.href ? () => navigate(r.href!) : undefined);
+    }
+    st.start();
+    return () => useReminderStore.getState().stop();
+  }, []);
 
   /**
    * Уведомления опрашиваются, пока программа открыта. Опрос жил в правом
@@ -711,7 +732,7 @@ export default function Layout() {
 
       {/* Связи проекта и общий поиск — поверх всего: их зовут из любого места */}
       <InsightDrawer />
-      <CommandPalette />
+      <CommandBar />
 
       <ToastProvider />
       <ModalProvider />
