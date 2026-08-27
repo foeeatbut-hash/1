@@ -180,13 +180,28 @@ const TABLE: Record<string, Phrase[]> = {
  * Перевести сегмент узором. Возвращает null, если ни один не подошёл, — и это
  * нормальный, самый частый исход: узоры покрывают обвязку письма, а не его суть.
  */
-export function byPhrase(text: string, from: Lang, to: Lang): string | null {
+export function byPhrase(
+  text: string,
+  from: Lang,
+  to: Lang,
+  /**
+   * Чем перевести переменную часть узора. Без этого «we kindly ask you to
+   * provide your comments» превращалось в «Просим вас provide your comments»:
+   * оборот переведён, а то, о чём просят, — нет. Именно эта половина и нужна.
+   */
+  part?: (text: string) => string,
+): string | null {
   const list = TABLE[`${from}>${to}`];
   if (!list) return null;
   for (const p of list) {
     const m = text.match(p.re);
     if (!m) continue;
-    return p.out.replace(/\{(\d)\}/g, (whole, n) => (m[Number(n)] !== undefined ? m[Number(n)].trim() : whole));
+    return p.out.replace(/\{(\d)\}/g, (whole, n) => {
+      const got = m[Number(n)];
+      if (got === undefined) return whole;
+      const inner = got.trim();
+      return part ? (part(inner) || inner) : inner;
+    });
   }
   return null;
 }

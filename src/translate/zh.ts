@@ -23,6 +23,35 @@ for (const p of CHINESE) {
 
 const HAN = /[㐀-䶿一-鿿]/;
 
+/**
+ * Знаки, которым в русской фразе нет соответствия: показатель определения 的,
+ * частицы завершённости и вежливости. По-русски они не значат ничего, и
+ * оставлять их иероглифами значит делать вид, что программа их не поняла.
+ */
+const DROP = new Set(['的', '了', '着', '呢', '吧', '啊', '吗', '地', '得']);
+
+/**
+ * Китайские знаки препинания — на привычные. Полноширинная запятая посреди
+ * русской фразы выглядит опечаткой, а не цитатой.
+ */
+const PUNCT: Record<string, string> = {
+  '，': ',', '。': '.', '、': ',', '：': ':', '；': ';', '！': '!', '？': '?',
+  '（': '(', '）': ')', '「': '«', '」': '»', '《': '«', '》': '»',
+};
+
+/**
+ * Дата по-китайски — это иероглифы «год», «месяц», «день» между числами.
+ * Разобрать её пословно значит получить «2026 год 9 месяц 12 день»: понять
+ * можно, но читать нельзя. Переводим её датой до всякого разбора.
+ */
+function foldDates(text: string): string {
+  return String(text || '')
+    .replace(/(\d{4})年(\d{1,2})月(\d{1,2})日/g,
+      (_, y, m, d) => `${String(d).padStart(2, '0')}.${String(m).padStart(2, '0')}.${y}`)
+    .replace(/(\d{1,2})月(\d{1,2})日/g,
+      (_, m, d) => `${String(d).padStart(2, '0')}.${String(m).padStart(2, '0')}`);
+}
+
 export interface ZhGloss {
   /** Подстрочник по-русски */
   text: string;
@@ -33,7 +62,7 @@ export interface ZhGloss {
 
 /** Разрезать китайский текст на известные слова и незнакомые куски. */
 export function splitZh(text: string): { word: string; ru: string }[] {
-  const s = String(text || '');
+  const s = foldDates(String(text || '')).replace(/[，。、：；！？（）「」《》]/g, (ch) => PUNCT[ch] || ch);
   const out: { word: string; ru: string }[] = [];
   let i = 0;
   while (i < s.length) {
@@ -68,6 +97,7 @@ export function glossZh(text: string): ZhGloss {
   for (const p of parts) {
     if (HAN.test(p.word)) {
       total += p.word.length;
+      if (DROP.has(p.word)) { known += p.word.length; continue; }
       if (p.ru) { known += p.word.length; words.push(p.ru); }
       else words.push(p.word);
     } else if (p.word.trim()) {

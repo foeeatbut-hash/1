@@ -127,14 +127,19 @@ export function translateSegment(src: string, opts: EngineOptions): Segment {
 
   const { masked, slots } = protect(text);
 
-  const phrase = byPhrase(masked, opts.from, opts.to);
-  if (phrase) return { src: text, dst: restore(phrase, slots), origin: 'phrase' };
-
-  if (opts.noGlossary) return { src: text, dst: '', origin: 'none' };
-
   const idx = opts.terms && opts.terms.size
     ? mergeIndexes([opts.terms, builtinTerms(opts.from, opts.to)])
     : builtinTerms(opts.from, opts.to);
+
+  // Переменную часть узора переводим словарём: «просим предоставить» — это
+  // обвязка, а весь смысл письма в том, что именно просят предоставить
+  const phrase = byPhrase(masked, opts.from, opts.to, (part) => {
+    const g = byGlossary(part, idx);
+    return g.hits ? g.text : part;
+  });
+  if (phrase) return { src: text, dst: restore(phrase, slots), origin: 'phrase' };
+
+  if (opts.noGlossary) return { src: text, dst: '', origin: 'none' };
   const g = byGlossary(masked, idx);
   if (!g.hits) return { src: text, dst: '', origin: 'none', missing: g.missing };
   return {

@@ -18,6 +18,7 @@ import { glossZh, splitZh, zhWordCount } from '../src/translate/zh';
 import { parseTmx, buildTmx } from '../src/translate/tmx';
 import { checkEndpoint, endpointUrl, askModel } from '../src/translate/model';
 import { translateSegment, translateText, joinSegments, readiness, builtinTerms } from '../src/translate/engine';
+import { findDates, deadlineOf, asksIn, codesIn, digestOf, dueLabel } from '../src/translate/mailDigest';
 import type { TermPair, TmEntry } from '../src/translate/types';
 
 let failed = 0;
@@ -217,6 +218,51 @@ console.log('Движок целиком');
   const r = readiness(segs);
   check('готовность считается по настоящим сегментам', r.total === 2, r);
   check('по словарю — не готово к отправке', r.ready === 0, r);
+}
+
+console.log('Разбор письма');
+{
+  // Четверг, 27 августа 2026
+  const NOW = new Date(2026, 7, 27, 12, 0, 0, 0);
+  const letter = [
+    'Dear Mr. Raupov,',
+    'Please find attached the data sheet 22062-PEQ-0371-E02 rev. B.',
+    'We kindly ask you to provide your comments by 12 September 2026.',
+    'Best regards, Wison',
+  ].join('\n');
+
+  const dates = findDates(letter, NOW);
+  check('дата письма найдена', dates.length === 1, dates.map((d) => d.said));
+  check('и она про сентябрь', dates[0]?.at.getMonth() === 8 && dates[0]?.at.getDate() === 12, dates[0]?.at);
+  check('и помечена сроком', dates[0]?.due === true, dates[0]);
+  const due = deadlineOf(letter, NOW);
+  check('срок письма — она же', due?.at.getDate() === 12, due);
+
+  const asks = asksIn(letter, 'en');
+  check('просьбы найдены', asks.length === 2, asks);
+  check('подпись просьбой не считается', !asks.some((a) => /Best regards/.test(a)), asks);
+
+  const codes = codesIn(letter);
+  check('номер документа найден', codes.includes('22062-PEQ-0371-E02'), codes);
+  check('ревизия найдена', codes.includes('рев. B'), codes);
+
+  check('срок словами', dueLabel(new Date(2026, 8, 12), NOW).includes('через'), dueLabel(new Date(2026, 8, 12), NOW));
+  check('завтра так и называется', dueLabel(new Date(2026, 7, 28), NOW) === 'завтра');
+  check('прошедший срок виден', dueLabel(new Date(2026, 7, 20), NOW).includes('прошёл'));
+
+  const ru = 'Просим выслать опросные листы не позднее 12.09.2026.';
+  check('русское письмо: просьба', asksIn(ru, 'ru').length === 1, asksIn(ru, 'ru'));
+  check('русское письмо: срок', deadlineOf(ru, NOW)?.at.getMonth() === 8, deadlineOf(ru, NOW));
+
+  const zh = '请在2026年9月12日之前确认收到附件。';
+  check('китайское письмо: просьба', asksIn(zh, 'zh').length === 1, asksIn(zh, 'zh'));
+  check('китайское письмо: срок', deadlineOf(zh, NOW)?.at.getDate() === 12, deadlineOf(zh, NOW));
+
+  const d = digestOf(letter, 'en', NOW);
+  check('разбор собирается целиком', d.asks.length === 2 && !!d.deadline && d.codes.length >= 2, d);
+  check('год без указания не уводит в прошлое',
+    (deadlineOf('Please reply by 5 January.', NOW)?.at.getFullYear() || 0) === 2027,
+    deadlineOf('Please reply by 5 January.', NOW)?.at.toISOString());
 }
 
 console.log('Движок по адресу владельца');

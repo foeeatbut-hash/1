@@ -32,6 +32,7 @@ import WindowsLayer from './WindowsLayer';
 import ProjectSwitcher from './ProjectSwitcher';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import { useWorkspaceStore, visiblePanes, openSectionWindow } from '../store/workspaceStore';
+import { useTranslateStore } from '../store/translateStore';
 import { useModalStore } from '../store/modalStore';
 
 // Диалоги программы вместо системных окон Windows
@@ -50,6 +51,16 @@ export default function Layout() {
     return p ? (p.stack.includes(p.active) ? p.active : p.stack[p.stack.length - 1]) : '/';
   });
   const openInActivePane = useWorkspaceStore((s) => s.openInActivePane);
+
+  /**
+   * Словарь и память переводов тянем один раз на проект, а не в каждом окне.
+   * Перевод нужен и в Почте, и в Конструкторе, и над выделенным текстом — если
+   * бы каждый грузил своё, письмо переводилось бы одними словами, а ведомость
+   * другими, и заказчик получил бы два разных названия одного узла.
+   */
+  React.useEffect(() => {
+    if (activeProject?.id) useTranslateStore.getState().load(activeProject.id);
+  }, [activeProject?.id]);
 
   /**
    * F1 — руководство по разделу, в котором человек сейчас находится.

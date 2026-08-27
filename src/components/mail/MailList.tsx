@@ -1,8 +1,11 @@
 import React from 'react';
-import { Paperclip, Star, Archive, Trash2, MailOpen, Mail as MailIcon, CornerUpLeft, UserCheck } from 'lucide-react';
+import { Paperclip, Star, Archive, Trash2, MailOpen, Mail as MailIcon, CornerUpLeft, UserCheck, Languages } from 'lucide-react';
 import type { MailThread } from '../../services/mailService';
 import { displayName, initialsOf, toneOf, type AvatarTone } from '../../lib/mailAddress';
 import { threadParticipants } from '../../lib/mailThread';
+import { useTranslateStore } from '../../store/translateStore';
+import { detectLang } from '../../translate/lang';
+import { joinSegments } from '../../translate/engine';
 
 /**
  * Список переписок.
@@ -94,6 +97,24 @@ export default function MailList({
   threads, picked, openKey, myAddr, loading, shared, meId, onClaim,
   onOpen, onPick, onStar, onSeen, onArchive, onTrash,
 }: Props) {
+  // Тема на чужом языке переводится прямо в списке — и занимает место
+  // фрагмента, а не лишнюю строку: фрагмент в таком письме всё равно на том же
+  // чужом языке, а тема по-русски отвечает на вопрос «моё ли это письмо»
+  const many = useTranslateStore((s) => s.many);
+  const termIndex = useTranslateStore((s) => s.termIndex);
+  const subjectRu = React.useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const t of threads) {
+      const subject = (t.subject || '').trim();
+      if (!subject) continue;
+      const lang = detectLang(subject);
+      if (lang !== 'en' && lang !== 'zh') continue;
+      const ru = joinSegments(many(subject, lang, 'ru')).trim();
+      if (ru && ru !== subject) map[t.threadKey] = ru;
+    }
+    return map;
+  }, [threads, many, termIndex]);
+
   if (loading && !threads.length) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-slate-400 dark:text-slate-500">
@@ -189,8 +210,14 @@ export default function MailList({
                   ${t.unread ? 'font-bold text-slate-900 dark:text-white' : 'text-slate-700 dark:text-slate-300'}`}>
                   {t.subject || '(без темы)'}
                 </span>
-                <span className="hidden @[720px]:block flex-1 min-w-0 truncate text-xs text-slate-400 dark:text-slate-500">
-                  {t.snippet ? `— ${t.snippet}` : ''}
+                <span className="hidden @[720px]:flex flex-1 min-w-0 items-baseline gap-1 truncate text-xs
+                                 text-slate-400 dark:text-slate-500">
+                  {subjectRu[t.threadKey] ? (
+                    <>
+                      <Languages className="w-3 h-3 shrink-0 self-center text-emerald-600 dark:text-emerald-400" />
+                      <span className="min-w-0 truncate">{subjectRu[t.threadKey]}</span>
+                    </>
+                  ) : (t.snippet ? `— ${t.snippet}` : '')}
                 </span>
               </div>
 
