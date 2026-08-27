@@ -4,7 +4,7 @@ import { formatName } from '../lib/docFormula';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 const SignatureEditor = React.lazy(() => import('./SignatureEditor'));
-import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen, PenLine, Mail, LifeBuoy } from 'lucide-react';
+import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen, PenLine, Mail, LifeBuoy, Languages } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ToastProvider from './ToastProvider';
 import ModalProvider from './ModalProvider';
@@ -513,6 +513,7 @@ export default function Layout() {
       { name: 'Справочник', path: '/directory', icon: BookOpen },
       { name: 'Менеджмент', path: '/management', icon: Briefcase },
       { name: 'Конструктор', path: '/constructor', icon: Table2 },
+      { name: 'Переводчик', path: '/translate', icon: Languages },
     ] },
     { label: 'Общее', items: [
       { name: 'Проводник', path: '/explorer', icon: FolderOpen },

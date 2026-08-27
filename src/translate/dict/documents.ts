@@ -10,6 +10,7 @@ import { parsePairs } from './parse';
 
 const BLOCK = `
 # ── Виды документов ──
+опросный лист на = data sheet for
 опросный лист = data sheet
 технический паспорт = technical passport
 паспорт изделия = product passport

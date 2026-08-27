@@ -7,6 +7,7 @@ import ToggleRow from '../components/settings/ToggleRow';
 import { useToastStore } from '../store/toastStore';
 import { useLogStore } from '../store/logStore';
 import NotificationSettings from '../components/NotificationSettings';
+import TranslateEngineSection from '../components/settings/TranslateEngineSection';
 import UpdaterWidget from '../components/UpdaterWidget';
 import CustomSelect from '../components/CustomSelect';
 import FluxLogo from '../components/FluxLogo';
@@ -15,7 +16,7 @@ import {
   Settings, Sun, Moon, Database, Terminal, Bell, Briefcase, Fan, DownloadCloud,
   Plus, Trash2, ChevronUp, ChevronDown, RotateCcw, Loader2, Check,
   Tag, MousePointerClick, Link2, Archive, PlayCircle, FolderOpen, FileSpreadsheet, X,
-  ShieldCheck, Lock, Pencil, Sigma
+  ShieldCheck, Lock, Pencil, Sigma, Languages
 } from 'lucide-react';
 import RoleIcon from '../components/RoleIcon';
 import FormulaManager from '../components/FormulaManager';
@@ -41,7 +42,7 @@ const { openConfirm, openAlert, openPrompt } = useModalStore.getState();
 // Windows/iOS), содержимое выбранной категории справа. Сюда перенесены
 // настройки из профиля и из отдельных разделов.
 
-type SectionId = 'general' | 'roles' | 'management' | 'docflow' | 'formulas' | 'equipment' | 'tags' | 'notifications' | 'database' | 'backup' | 'logs' | 'updates';
+type SectionId = 'general' | 'roles' | 'management' | 'docflow' | 'formulas' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'database' | 'backup' | 'logs' | 'updates';
 
 // Настройки делятся ровно так же, как остальные данные программы (см.
 // src/lib/projectScope.ts): часть общая для всей программы, часть — своя у
@@ -59,6 +60,7 @@ const SECTIONS: Array<{ id: SectionId; label: string; icon: any; desc: string; s
   // настройка одна на программу. Сами теги живут в проекте.
   { id: 'tags', label: 'Теги', icon: Tag, desc: 'Холст связей', scope: 'global' },
   { id: 'notifications', label: 'Уведомления', icon: Bell, desc: 'Какие события показывать', scope: 'global' },
+  { id: 'translate', label: 'Переводчик', icon: Languages, desc: 'Чем переводим', scope: 'global' },
   { id: 'database', label: 'База данных', icon: Database, desc: 'На этом компьютере или на сервере', scope: 'global' },
   { id: 'backup', label: 'Резервные копии', icon: Archive, desc: 'Ежедневный архив данных', scope: 'global' },
   { id: 'logs', label: 'Crash-логи', icon: Terminal, desc: 'Журналы сбоев', scope: 'global' },
@@ -165,6 +167,11 @@ export default function SettingsScreen() {
         {section === 'notifications' && (
           <SectionShell title="Уведомления" desc="Какие события показывать в панели уведомлений и как оповещать.">
             <NotificationSettings />
+          </SectionShell>
+        )}
+        {section === 'translate' && (
+          <SectionShell title="Переводчик" desc="Чем программа переводит и можно ли подключить свой движок.">
+            <TranslateEngineSection />
           </SectionShell>
         )}
         {section === 'database' && <DatabaseSection addToast={addToast} />}
