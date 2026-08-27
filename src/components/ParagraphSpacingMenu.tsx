@@ -1,42 +1,30 @@
-import React, { useState } from 'react';
-import { AlignJustify } from 'lucide-react';
+import React from 'react';
 import { describeParagraph, LINE_SPACINGS, PARA_SPACINGS, FIRST_LINE_GOST_PT } from '../lib/docStyle';
 
 /**
- * Кнопка «Интервал» с меню — междустрочный интервал, интервалы до и после
- * абзаца, красная строка.
+ * Панель интервалов — междустрочный, до и после абзаца, красная строка.
  *
- * Своя, потому что в ленте движка этого нет совсем: команды на выравнивание есть,
- * на интервалы — нет. А без 1,5 строки и красной строки 1,25 см пояснительную
- * записку по ГОСТ не сдать, и до сих пор это приходилось бы править уже в Ворде.
+ * Своя, потому что в ленте движка этого нет совсем: команды на выравнивание
+ * есть, на интервалы — нет. А без 1,5 строки и красной строки 1,25 см
+ * пояснительную записку по ГОСТ не сдать.
+ *
+ * Только содержимое, без своей кнопки: кнопка живёт на ленте (орган
+ * doc.spacing), и вторая, всплывавшая рядом с первой, заставляла нажимать
+ * «Интервал» дважды — сперва на ленте, потом в облачке над ней.
  *
  * Всё применяется к выделенным абзацам, а не ко всему документу — как в Ворде.
  * Пустой стиль абзаца показываем как «ничего не выбрано», а не как одинарный
- * интервал: иначе кнопка врёт про то, что стоит в документе.
+ * интервал: иначе панель врёт про то, что стоит в документе.
  */
 export default function ParagraphSpacingMenu({ style, onApply }: {
   /** Стиль абзаца под курсором; null — курсора в тексте нет */
   style: any;
   onApply: (patch: any) => void;
 }) {
-  const [open, setOpen] = useState(false);
-
-  // Применили — закрываем. Иначе подложка меню (она ловит щелчок мимо, чтобы
-  // закрыться) перехватывает следующее нажатие, и первый щелчок по соседней
-  // кнопке уходит в пустоту.
-  const apply = (patch: any) => { setOpen(false); onApply(patch); };
+  const apply = (patch: any) => onApply(patch);
 
   return (
-    <div className="relative">
-      <button type="button" onClick={() => setOpen(v => !v)}
-        title="Междустрочный интервал, интервалы до и после абзаца, красная строка"
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850 text-xs font-bold cursor-pointer">
-        <AlignJustify className="w-3.5 h-3.5" /> Интервал
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 z-50 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden p-3 space-y-3">
+          <div className="w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden p-3 space-y-3">
             {!style && (
               <p className="text-2xs text-amber-600 dark:text-amber-400 font-semibold">
                 Поставьте курсор в текст — интервал применяется к выделенным абзацам
@@ -97,8 +85,5 @@ export default function ParagraphSpacingMenu({ style, onApply }: {
               </button>
             </div>
           </div>
-        </>
-      )}
-    </div>
   );
 }

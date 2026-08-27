@@ -14,9 +14,11 @@ import {
   refit, tile, type Area, type Edge, type SnapZone, type WinState,
 } from '../lib/windows';
 import { shareRect } from '../lib/layouts';
+import { clampDesk, deskName, reindexWindows, safeDesks, stepDesk } from '../lib/desks';
 import { sectionForPath } from '../workspace/sections';
 
 const KEY = 'flux_windows';
+const DESKS_KEY = 'flux_desks';
 
 interface WindowState {
   windows: WinState[];
@@ -29,6 +31,10 @@ interface WindowState {
   titles: Record<string, string>;
   /** Окно под курсором в списке на панели задач — подсвечивается на столе */
   peeked: string | null;
+  /** Рабочие столы: имена в порядке следования. Пустой список — стол один */
+  desks: string[];
+  /** Какой стол показан сейчас */
+  desk: number;
 
   setArea: (area: Area) => void;
   /**
@@ -59,6 +65,12 @@ interface WindowState {
   minimizeAll: () => void;
   /** Поставить окно в готовую долю экрана; прежний размер запоминается */
   putInShare: (id: string, share: { x: number; y: number; w: number; h: number }) => void;
+  addDesk: () => void;
+  removeDesk: (index: number) => void;
+  renameDesk: (index: number, name: string) => void;
+  goToDesk: (index: number) => void;
+  /** Перенести окно на другой стол — перетаскиванием на карточку или из меню */
+  moveToDesk: (id: string, index: number) => void;
 }
 
 let seq = 0;
@@ -77,7 +89,7 @@ function restored(): WinState[] {
     // Разбираем осторожно: в хранилище могло остаться что угодно от прошлых версий
     return parsed.filter((w: any) => w && typeof w.id === 'string' && typeof w.path === 'string')
       .map((w: any): WinState => ({
-        id: w.id, path: w.path,
+        id: w.id, path: w.path, desk: Number(w.desk) || 0,
         // Окна прошлых версий записаны без адреса: считаем адресом сам раздел.
         // Человек увидит привычные окна, просто без открытого документа
         href: typeof w.href === 'string' && w.href ? w.href : w.path,
@@ -101,6 +113,8 @@ export const useWindowStore = create<WindowState>((set, get) => {
     windows: restored(),
     titles: {},
     peeked: null,
+    desks: restoredDesks(),
+    desk: 0,
     area: { w: 1280, h: 720 },
     snapping: null,
 
@@ -125,6 +139,9 @@ export const useWindowStore = create<WindowState>((set, get) => {
           list.map((w) => (w.id === found.id ? { ...w, href, minimized: false } : w)),
           found.id,
         ));
+        // Документ уже открыт, но на другом столе — уходим туда, а не заводим
+        // второе окно того же: иначе одну книгу правили бы два окна сразу
+        if (found.desk !== get().desk) set({ desk: found.desk });
         return;
       }
       get().openAnother(href);
@@ -135,7 +152,7 @@ export const useWindowStore = create<WindowState>((set, get) => {
       const z = windows.reduce((m, w) => Math.max(m, w.z), 0) + 1;
       const rect = initialRect(area, windows.length);
       update((list) => [...list, {
-        id: newId(), path: pathOf(href), href, ...rect,
+        id: newId(), path: pathOf(href), href, desk: get().desk, ...rect,
         z, minimized: false, maximized: false, restore: null,
       }]);
     },
@@ -165,11 +182,16 @@ export const useWindowStore = create<WindowState>((set, get) => {
     // ведёт себя панель задач в системе, и на это рассчитывают.
     // Окон у раздела может быть несколько: берём верхнее из них
     toggle: (path) => {
-      const { windows } = get();
-      const mine = windows.filter((w) => w.path === path);
+      const { windows, desk } = get();
+      // Свой стол вперёд: кнопка на панели показывает окна этого стола, и
+      // нажатие обязано отвечать тем же. Окно того же раздела на соседнем
+      // столе — повод перейти туда, а не молчать
+      const here = windows.filter((w) => w.path === path && w.desk === desk);
+      const mine = here.length ? here : windows.filter((w) => w.path === path);
       if (!mine.length) { get().open(path); return; }
       const front = mine.reduce((a, b) => (b.z > a.z ? b : a));
-      const top = topWindow(windows);
+      if (front.desk !== desk) { set({ desk: front.desk }); get().focus(front.id); return; }
+      const top = topWindow(windows.filter((w) => w.desk === desk));
       if (top && top.id === front.id && !front.minimized) {
         update((list) => list.map((w) => (w.id === front.id ? { ...w, minimized: true } : w)));
       } else get().focus(front.id);
@@ -223,24 +245,87 @@ export const useWindowStore = create<WindowState>((set, get) => {
       get().focus(id);
     },
 
-    tileAll: () => update((list) => tile(list, get().area)),
-    minimizeAll: () => update((list) => list.map((w) => ({ ...w, minimized: true }))),
+    tileAll: () => {
+      const here = get().desk;
+      const mine = get().windows.filter((w) => w.desk === here);
+      const placed = tile(mine, get().area);
+      update((list) => list.map((w) => placed.find((p) => p.id === w.id) || w));
+    },
+    minimizeAll: () => {
+      const here = get().desk;
+      update((list) => list.map((w) => (w.desk === here ? { ...w, minimized: true } : w)));
+    },
+
+    addDesk: () => {
+      const desks = [...get().desks, deskName(get().desks.length)];
+      persistDesks(desks);
+      set({ desks, desk: desks.length - 1 });
+    },
+
+    /** Убрать стол; окна с него переезжают на соседний (см. lib/desks) */
+    removeDesk: (index) => {
+      const { desks } = get();
+      if (desks.length <= 1 || index < 0 || index >= desks.length) return;
+      const next = desks.filter((_, i) => i !== index);
+      persistDesks(next);
+      update((list) => reindexWindows(list, index));
+      set({ desks: next, desk: clampDesk(get().desk, next.length) });
+    },
+
+    renameDesk: (index, name) => {
+      const desks = get().desks.map((d, i) => (i === index ? (name.trim() || d) : d));
+      persistDesks(desks);
+      set({ desks });
+    },
+
+    goToDesk: (index) => {
+      const { desks } = get();
+      if (index < 0 || index >= desks.length || index === get().desk) return;
+      set({ desk: index });
+    },
+
+    moveToDesk: (id, index) => {
+      if (index < 0 || index >= get().desks.length) return;
+      update((list) => list.map((w) => (w.id === id ? { ...w, desk: index } : w)));
+    },
   };
 });
+
+/** Имена столов переживают выход: раскладку заводят не на один раз */
+function restoredDesks(): string[] {
+  try {
+    const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(DESKS_KEY);
+    return safeDesks(raw ? JSON.parse(raw) : null);
+  } catch (_) { return safeDesks(null); }
+}
+const persistDesks = (desks: string[]) => {
+  try { localStorage.setItem(DESKS_KEY, JSON.stringify(desks)); } catch (_) { /* приватный режим */ }
+};
 
 /** Раздел адреса: всё до знака вопроса */
 const pathOf = (href: string): string => href.split('?')[0].split('#')[0] || '/';
 
-/** Пути открытых окон в порядке появления — панели задач больше ничего не нужно */
-export const openPaths = (list: WinState[]): string[] => {
+/**
+ * Пути открытых окон в порядке появления — панели задач больше ничего не нужно.
+ * Стол задан — считаем только его окна: панель показывает то, что видно.
+ */
+export const openPaths = (list: WinState[], desk?: number): string[] => {
   const seen: string[] = [];
-  for (const w of list) if (!seen.includes(w.path)) seen.push(w.path);
+  for (const w of list) {
+    if (desk !== undefined && w.desk !== desk) continue;
+    if (!seen.includes(w.path)) seen.push(w.path);
+  }
   return seen;
 };
 
-/** Окна одного раздела сверху вниз: панель задач показывает их стопкой */
-export const windowsOf = (list: WinState[], path: string): WinState[] =>
-  list.filter((w) => w.path === path).sort((a, b) => b.z - a.z);
+/**
+ * Окна одного раздела сверху вниз: панель задач показывает их стопкой.
+ * Стол задан, если панель показывает окна только текущего стола.
+ */
+export const windowsOf = (list: WinState[], path: string, desk?: number): WinState[] =>
+  list.filter((w) => w.path === path && (desk === undefined || w.desk === desk))
+    .sort((a, b) => b.z - a.z);
 
 /** Раздел верхнего окна: его кнопка на панели показывается активной */
-export const activeWindowPath = (list: WinState[]): string => topWindow(list)?.path || '';
+export const activeWindowPath = (list: WinState[], desk?: number): string =>
+  topWindow(desk === undefined ? list : list.filter((w) => w.desk === desk))?.path || '';

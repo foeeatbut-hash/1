@@ -24,6 +24,7 @@ import EditorFrame from '../components/ribbon/EditorFrame';
 import { useWindowTitle } from '../lib/paneTitle';
 import { docRibbon, DOC_TEXT_COLORS, DOC_MARK_COLORS } from '../lib/ribbonDoc';
 import { editorFileMenu } from '../lib/ribbonFile';
+import { useEscape } from '../lib/useEscape';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm } = useModalStore.getState();
@@ -672,6 +673,11 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   const [gridHover, setGridHover] = useState({ r: 0, c: 0 });
   const [spacingAt, setSpacingAt] = useState<{ x: number; y: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  // Всплывающие панели ленты закрываются с клавиатуры: их подложка ловит
+  // нажатие мимо, и без Esc редактор кажется зависшим
+  useEscape(!!spacingAt, () => setSpacingAt(null));
+  useEscape(!!tablePop, () => setTablePop(null));
 
   /** Всплывающая панель органа встаёт под самим органом, а не «примерно там» */
   const organRect = (id: string) => {

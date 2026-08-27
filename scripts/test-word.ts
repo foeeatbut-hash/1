@@ -180,53 +180,33 @@ const api = async (method: string, url: string, body?: any) => {
     ok('документ открыт из списка Конструктора', await openDoc());
     await page.waitForTimeout(9000);   // движок Univer грузится лениво
 
-    console.log('2. Лента как в Ворде');
-    const ribbon = await page.evaluate(() => document.body.innerText);
-    ok('вкладки ленты движка на месте', /Начало/.test(ribbon) && /Вставка/.test(ribbon), ribbon.slice(-200));
+    console.log('2. Общая лента редакторов');
+    // Панель движка спрятана целиком, вместо неё общая лента Flux (lib/ribbonDoc):
+    // вкладки свои, органы помечены data-organ. Проверяем её, а не Univer:
+    // человек нажимает на то, что видит.
+    const tabs = await page.evaluate(() =>
+      [...document.querySelectorAll('[role="tab"]')].map(b => (b.textContent || '').trim()));
+    ok('вкладки ленты на месте',
+      ['Главная', 'Вставка', 'Разметка'].every(t => tabs.includes(t)), tabs);
 
-    // Шрифт и размер живут в полях ввода: innerText их не видит.
-    // Значение по умолчанию — Arial 11: движок держит его жёстко в коде
-    // (DEFAULT_TEXT_STYLE в @univerjs/docs-ui) и documentStyle.textStyle для
-    // набора не читает. Человек выбирает шрифт в ленте — это и проверяем.
-    const fields = await page.evaluate(() =>
-      [...document.querySelectorAll('input')].map(i => (i as HTMLInputElement).value).filter(Boolean));
-    ok('в ленте есть поле шрифта', fields.some(v => /^(Arial|Times New Roman|Calibri)$/.test(v)), fields);
-    ok('в ленте есть поле размера', fields.some(v => /^\d{1,2}$/.test(v)), fields);
+    const organs = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-organ]')].map(x => (x as HTMLElement).dataset.organ));
+    ok('в ленте есть поле шрифта', organs.includes('doc.font'), organs.slice(0, 20));
+    ok('в ленте есть кегль', organs.includes('doc.size'), organs.slice(0, 20));
 
-    // Открываем список шрифтов настоящим кликом мыши: список рисуется в
-    // отдельном слое, синтетическое событие его не поднимает
-    const fontBox = await page.evaluate(() => {
-      const inp = [...document.querySelectorAll('input')]
-        .find(i => /^(Arial|Times New Roman|Calibri)$/.test((i as HTMLInputElement).value)) as HTMLInputElement | undefined;
-      if (!inp) return null;
-      const r = inp.getBoundingClientRect();
-      // По самому полю: справа от него уже кнопка цвета текста
-      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    // Список шрифтов читается прямо из поля: это обычный select, а не свой
+    // выпадающий слой, — и поэтому у него работает клавиатура и не надо
+    // угадывать, куда он раскроется
+    const fonts = await page.evaluate(() => {
+      const sel = document.querySelector('[data-organ="doc.font"]') as HTMLSelectElement | null;
+      return sel ? [...sel.options].map(o => o.textContent || '') : [];
     });
-    ok('поле шрифта видно на экране', !!fontBox, fontBox);
-    if (fontBox) {
-      await page.mouse.click(fontBox.x, fontBox.y);
-      await page.waitForTimeout(1500);
-      if (process.env.FLUX_DEBUG) {
-        await page.screenshot({ path: '/tmp/font-open.png' });
-        console.log('    отладка: li =', await page.evaluate(() => document.querySelectorAll('li').length),
-          '| Verdana в тексте =', await page.evaluate(() => /Verdana/.test(document.body.innerText)));
-      }
-      const items = await page.evaluate(() =>
-        [...document.querySelectorAll('li button, [role="option"], li')]
-          .map(x => (x.textContent || '').trim()).filter(Boolean));
-      const listShown = items.some(x => x === 'Verdana') && items.some(x => x === 'Courier New');
-      ok('список шрифтов открылся', listShown, items.slice(0, 20));
-      if (listShown) {
-        ok('в списке шрифты для русских документов',
-          items.includes('Times New Roman') && items.includes('Calibri'), items);
-        ok('китайских шрифтов больше нет',
-          !items.some(x => /SimSun|FangSong|STXingkai|Kaiti/.test(x)), items);
-        ok('чертёжный шрифт доступен', items.some(x => x.startsWith('ISOCPEUR')), items);
-      }
-      await page.keyboard.press('Escape');
-      await page.waitForTimeout(500);
-    }
+    ok('список шрифтов на месте', fonts.includes('Verdana') && fonts.includes('Courier New'), fonts.slice(0, 20));
+    ok('в списке шрифты для русских документов',
+      fonts.includes('Times New Roman') && fonts.includes('Calibri'), fonts);
+    ok('китайских шрифтов больше нет',
+      !fonts.some(x => /SimSun|FangSong|STXingkai|Kaiti/.test(x)), fonts);
+    ok('чертёжный шрифт доступен', fonts.some(x => x.startsWith('ISOCPEUR')), fonts);
 
     console.log('3. Линейка над листом');
     // Линейку рисуем после того, как движок разложил страницу, — ждём её
@@ -341,7 +321,11 @@ const api = async (method: string, url: string, body?: any) => {
     }
 
     console.log('5. Разметка страницы');
-    ok('кнопка «Лист» на месте', await clickByName('Лист', 6000));
+    // Параметры листа переехали на вкладку «Разметка»: сначала вкладка, потом
+    // орган. Так же их ищет человек — по названию вкладки, а не наугад
+    await page.getByRole('tab', { name: 'Разметка' }).first().click({ timeout: 6000 }).catch(() => {});
+    await page.waitForTimeout(600);
+    ok('кнопка параметров листа на месте', await clickByName('Параметры', 6000));
     await page.waitForTimeout(1200);
     const dlg = await page.evaluate(() => document.body.innerText);
     ok('окно разметки открылось', /Разметка страницы/.test(dlg));
@@ -366,11 +350,13 @@ const api = async (method: string, url: string, body?: any) => {
     console.log('6. Выгрузка в Ворд');
     // Перехватываем скачивание и читаем сам файл
     const dl = page.waitForEvent('download', { timeout: 20000 }).catch(() => null);
-    ok('меню выгрузки открылось', await clickByName('Выгрузить', 6000));
+    // Выгрузка живёт в «Файле» — том самом экране, что в Ворде за зелёной
+    // кнопкой слева от вкладок (lib/ribbonFile)
+    ok('экран «Файл» открылся', await clickByName('Файл', 6000));
     await page.waitForTimeout(900);
     const menu = await page.evaluate(() => document.body.innerText);
-    ok('в меню есть выгрузка в Ворд', /В Ворд \(\.doc\)/.test(menu), menu.slice(0, 400));
-    ok('и сохранение в Проводник', /Ворд в Проводник/.test(menu));
+    ok('в «Файле» есть выгрузка в Ворд', /В Ворд \(\.doc\)/.test(menu), menu.slice(0, 400));
+    ok('и сохранение в Проводник', /В Проводник/.test(menu));
     await clickByName(/В Ворд \(\.doc\)/, 6000);
 
     const download = await dl;
@@ -398,16 +384,18 @@ const api = async (method: string, url: string, body?: any) => {
     }
 
     console.log('7. Титул с формулами: получатель в Windows видит значения');
-    // Присвоенный титул виден по кнопке: она зелёная. Не зелёная — редактор не
-    // прочитал настройки, и проверять выгрузку бессмысленно
+    // Присвоенный титул виден по органу ленты: он горит зелёным. Не горит —
+    // редактор не прочитал настройки, и проверять выгрузку бессмысленно
+    await page.getByRole('tab', { name: 'Вставка' }).first().click({ timeout: 6000 }).catch(() => {});
+    await page.waitForTimeout(600);
     const titleAssigned = await page.evaluate(() => {
-      const b = [...document.querySelectorAll('button')].find(x => /Титул/.test(x.textContent || ''));
-      return b ? b.className.includes('emerald') : null;
+      const b = document.querySelector('[data-organ="doc.title"]');
+      return b ? b.className.includes('bg-emerald-50') : null;
     });
     ok('редактор увидел присвоенный титул', titleAssigned === true, titleAssigned);
 
     const dl2 = page.waitForEvent('download', { timeout: 25000 }).catch(() => null);
-    await clickByName('Выгрузить', 6000);
+    await clickByName('Файл', 6000);
     await page.waitForTimeout(900);
     await clickByName(/В Ворд \(\.doc\)/, 6000);
     const d2 = await dl2;

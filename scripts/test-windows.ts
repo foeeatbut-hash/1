@@ -10,6 +10,7 @@ import {
   raise, topWindow, refit, tile, MIN_W, MIN_H, SNAP_EDGE,
   type WinState, type Rect,
 } from '../src/lib/windows';
+import { clampDesk, deskName, reindexWindows, safeDesks, stepDesk } from '../src/lib/desks';
 
 let failed = 0;
 const check = (name: string, cond: boolean, got?: unknown) => {
@@ -20,7 +21,7 @@ const check = (name: string, cond: boolean, got?: unknown) => {
 
 const AREA = { w: 1400, h: 800 };
 const win = (over: Partial<WinState> = {}): WinState => ({
-  id: 'w1', path: '/registry', href: '/registry', z: 1, minimized: false, maximized: false, restore: null,
+  id: 'w1', path: '/registry', href: '/registry', desk: 0, z: 1, minimized: false, maximized: false, restore: null,
   x: 200, y: 100, w: 800, h: 500, ...over,
 });
 const inside = (r: Rect, a = AREA) => r.w >= MIN_W && r.h >= MIN_H && r.x + r.w > 0 && r.x < a.w && r.y >= 0;
@@ -144,6 +145,38 @@ console.log('Разложить по сетке');
   check('свёрнутое не участвует', withHidden.find((w) => w.id === 'b')!.x === 200, withHidden);
   check('одно окно занимает стол целиком', tile([win()], AREA)[0].w === AREA.w);
   check('пустой список не роняет', tile([], AREA).length === 0);
+}
+
+console.log('Рабочие столы');
+{
+  check('столов всегда хотя бы один', safeDesks(null).length === 1, safeDesks(null));
+  check('мусор из хранилища не становится столами',
+    safeDesks(['Стол 1', 7]).length === 1, safeDesks(['Стол 1', 7]));
+  check('сохранённые имена возвращаются как есть',
+    safeDesks(['Чертежи', 'Почта'])[1] === 'Почта');
+  check('новый стол назван по номеру', deskName(2) === 'Стол 3');
+
+  const list = [
+    win({ id: 'a', desk: 0 }), win({ id: 'b', desk: 1 }),
+    win({ id: 'c', desk: 2 }), win({ id: 'd', desk: 2 }),
+  ];
+  const after = reindexWindows(list, 1);
+  check('окна убранного стола переехали на предыдущий',
+    after.find((w) => w.id === 'b')!.desk === 0, after.map((w) => w.desk));
+  check('окна дальних столов перенумерованы',
+    after.filter((w) => w.desk === 1).map((w) => w.id).join('') === 'cd', after.map((w) => w.desk));
+  check('окна ближних столов не тронуты', after.find((w) => w.id === 'a')!.desk === 0);
+  const first = reindexWindows(list, 0);
+  check('после убранного первого окна остаются на первом',
+    first.every((w) => w.desk >= 0) && first.find((w) => w.id === 'a')!.desk === 0, first.map((w) => w.desk));
+  check('ни одно окно не потеряло стол', after.every((w) => Number.isInteger(w.desk) && w.desk >= 0));
+
+  check('показанный стол не уходит за список', clampDesk(5, 3) === 2, clampDesk(5, 3));
+  check('и не уходит в минус', clampDesk(-2, 3) === 0);
+  check('единственный стол всегда нулевой', clampDesk(3, 1) === 0);
+  check('соседний стол — следующий', stepDesk(0, 1, 3) === 1);
+  check('за последним столом ничего нет', stepDesk(2, 1, 3) === 2);
+  check('перед первым тоже', stepDesk(0, -1, 3) === 0);
 }
 
 if (failed) {

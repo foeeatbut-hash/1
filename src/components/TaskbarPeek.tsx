@@ -27,8 +27,11 @@ export default function TaskbarPeek({ path, left, onClose }: {
   const close = useWindowStore((s) => s.close);
   const openAnother = useWindowStore((s) => s.openAnother);
   const setPeeked = useWindowStore((s) => s.setPeeked);
+  const desk = useWindowStore((s) => s.desk);
   const def = sectionForPath(path);
-  const mine = windowsOf(windows, path);
+  // Список — про этот стол: на соседнем окна той же программы живут своей
+  // жизнью, и мешать их в одну стопку значило бы поднимать невидимое
+  const mine = windowsOf(windows, path, desk);
 
   // Подсветка на столе гаснет вместе с панелью: она принадлежит наведению,
   // а не окну

@@ -25,6 +25,7 @@ import { buildTaskbar, clockLabel, deadlineLabel, badgeLabel, trayFit } from '..
 import ContextMenu, { MenuItem } from './ContextMenu';
 import StartMenu from './StartMenu';
 import TaskbarPeek from './TaskbarPeek';
+import DeskSwitcher from './DeskSwitcher';
 import { WorkspaceRailControls } from './Workspace';
 
 /** Минута — самый крупный шаг, который видно на часах без секунд */
@@ -53,6 +54,7 @@ export default function Taskbar() {
   });
   const openInActivePane = useWorkspaceStore((s) => s.openInActivePane);
   const windows = useWindowStore((s) => s.windows);
+  const desk = useWindowStore((s) => s.desk);
   const toggleWindow = useWindowStore((s) => s.toggle);
   const minimizeAll = useWindowStore((s) => s.minimizeAll);
   const tileAll = useWindowStore((s) => s.tileAll);
@@ -122,16 +124,18 @@ export default function Taskbar() {
    * панелей; скрытая панель своих разделов не выносит, кнопка вела бы в пустоту.
    */
   const open = React.useMemo(() => {
-    if (windowed) return openPaths(windows);
+    // Только окна текущего стола: панель задач показывает то, что видно на
+    // столе, — иначе кнопка вела бы к окну, которого сейчас нет
+    if (windowed) return openPaths(windows, desk);
     const seen: string[] = [];
     for (const p of visiblePanes({ panes, layout })) {
       for (const path of p.stack) if (!seen.includes(path)) seen.push(path);
     }
     return seen;
-  }, [windowed, windows, panes, layout]);
+  }, [windowed, windows, panes, layout, desk]);
 
   // Активная кнопка — раздел верхнего окна, а не активной панели
-  const highlighted = windowed ? activeWindowPath(windows) : activePath;
+  const highlighted = windowed ? activeWindowPath(windows, desk) : activePath;
 
   const mail = React.useMemo(
     () => Object.values(unreadByAccount).reduce((a, b) => a + (b || 0), 0),
@@ -152,8 +156,8 @@ export default function Taskbar() {
   const iconOf = (path: string) => SECTIONS.find((s) => s.path === path)?.icon;
 
   const countOfWindows = React.useCallback(
-    (path: string) => (windowed ? windowsOf(windows, path).length : 0),
-    [windowed, windows],
+    (path: string) => (windowed ? windowsOf(windows, path, desk).length : 0),
+    [windowed, windows, desk],
   );
   /** Нажали по кнопке со стопкой: список окон открывается сразу, без задержки */
   const armPeekNow = (path: string, el: HTMLElement) => {
@@ -169,7 +173,7 @@ export default function Taskbar() {
       label: countOfWindows(menu.path) > 1 ? `Закрыть все окна (${countOfWindows(menu.path)})` : 'Закрыть окно',
       onClick: () => {
         const st = useWindowStore.getState();
-        for (const w of windowsOf(st.windows, menu.path)) st.close(w.id);
+        for (const w of windowsOf(st.windows, menu.path, st.desk)) st.close(w.id);
       },
     }] : []),
   ] : [];
@@ -358,6 +362,9 @@ export default function Taskbar() {
             <WorkspaceRailControls horizontal />
           </div>
         )}
+
+        {/* Столы — только там, где есть окна: в панелях делить нечего */}
+        {windowed && <DeskSwitcher />}
 
         <button
           type="button"

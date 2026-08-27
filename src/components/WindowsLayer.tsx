@@ -19,6 +19,7 @@ import { layoutsFor, otherShares, panelSpot, shareStyle, type Layout, type Share
 import SnapPanel, { PANEL_W, panelHeight } from './SnapPanel';
 import SnapAssist from './SnapAssist';
 import { deskAction, isTyping, nextInCycle } from '../lib/deskKeys';
+import { stepDesk } from '../lib/desks';
 import SectionFrame, { asHref } from './SectionFrame';
 import Desktop from './Desktop';
 
@@ -35,10 +36,12 @@ const EDGES: { edge: Edge; cls: string }[] = [
 ];
 
 function WindowFrame({
-  win, isTop, liveLocation, globalNavigate, onSnapArm, onSnapDisarm, onSnapOpen, onSnapClose,
+  win, isTop, hidden, liveLocation, globalNavigate, onSnapArm, onSnapDisarm, onSnapOpen, onSnapClose,
 }: {
   win: WinState;
   isTop: boolean;
+  /** Окно не на этом столе: остаётся живым, но не показывается */
+  hidden: boolean;
   liveLocation: ReturnType<typeof useLocation>;
   globalNavigate: ReturnType<typeof useNavigate>;
   /** Наведение на квадратик: панель долей раскроется через 400 мс */
@@ -106,7 +109,10 @@ function WindowFrame({
       aria-label={title}
       data-win={win.id}
       onPointerDownCapture={() => { if (!isTop) st.getState().focus(win.id); }}
-      style={{ left: win.x, top: win.y, width: win.w, height: win.h, zIndex: 10 + win.z, display: win.minimized ? 'none' : undefined }}
+      style={{
+        left: win.x, top: win.y, width: win.w, height: win.h, zIndex: 10 + win.z,
+        display: win.minimized || hidden ? 'none' : undefined,
+      }}
       className={`absolute flex flex-col rounded-xl overflow-hidden bg-white dark:bg-dark-bg border transition-shadow ${
         peeked
           ? 'border-emerald-500 shadow-2xl ring-2 ring-emerald-500/40'
@@ -160,7 +166,7 @@ function WindowFrame({
           paneId={`win:${win.id}`}
           path={win.path}
           href={win.href}
-          visible
+          visible={!hidden}
           isLive={isTop}
           liveLocation={liveLocation}
           globalNavigate={globalNavigate}
@@ -184,6 +190,7 @@ export default function WindowsLayer() {
   const windows = useWindowStore((s) => s.windows);
   const snapping = useWindowStore((s) => s.snapping);
   const area = useWindowStore((s) => s.area);
+  const desk = useWindowStore((s) => s.desk);
   const setArea = useWindowStore((s) => s.setArea);
   const location = useLocation();
   const navigate = useNavigate();
@@ -201,10 +208,12 @@ export default function WindowsLayer() {
     return () => ro.disconnect();
   }, [setArea]);
 
+  // На столе видны только его окна: стол — это набор окон, а не второй экран
+  const mine = React.useMemo(() => windows.filter((w) => w.desk === desk), [windows, desk]);
   const topWin = React.useMemo(() => {
-    const vis = windows.filter((w) => !w.minimized);
+    const vis = mine.filter((w) => !w.minimized);
     return vis.length ? vis.reduce((a, b) => (b.z > a.z ? b : a)) : null;
-  }, [windows]);
+  }, [mine]);
   const top = topWin?.id || null;
 
   /**
@@ -258,7 +267,7 @@ export default function WindowsLayer() {
     if (location.pathname === '/') return;
     const st = useWindowStore.getState();
     const here = asHref(location);
-    const cur = st.windows.filter((w) => !w.minimized);
+    const cur = st.windows.filter((w) => !w.minimized && w.desk === st.desk);
     const now = cur.length ? cur.reduce((a, b) => (b.z > a.z ? b : a)) : null;
     // Переход внутри самого окна и по тому же разделу — это оно и перешло:
     // человек открыл документ из библиотеки Конструктора и остался в своём
@@ -282,16 +291,15 @@ export default function WindowsLayer() {
       if (!st.windows.length) return;
       e.preventDefault();
       if (act === 'minimizeAll') { st.minimizeAll(); return; }
-      const cur = st.windows.filter((w) => !w.minimized).reduce<typeof st.windows[number] | null>(
-        (a, b) => (!a || b.z > a.z ? b : a), null,
-      );
+      const cur = st.windows.filter((w) => !w.minimized && w.desk === st.desk)
+        .reduce<typeof st.windows[number] | null>((a, b) => (!a || b.z > a.z ? b : a), null);
       if (act === 'closeWindow') { if (cur) st.close(cur.id); return; }
       if (act === 'newWindow') {
         // Ещё одно окно той же программы: у единичных разделов второго не бывает
         if (cur && sectionForPath(cur.path).multi) st.openAnother(cur.href);
         return;
       }
-      const next = nextInCycle(st.windows, cur?.id || null, act === 'prevWindow');
+      const next = nextInCycle(st.windows.filter((w) => w.desk === st.desk), cur?.id || null, act === 'prevWindow');
       if (next) st.focus(next.id);
     };
     window.addEventListener('keydown', onKey);
@@ -339,16 +347,32 @@ export default function WindowsLayer() {
     st.putInShare(id, layout.shares[index]);
     const rest = otherShares(layout, index);
     // Занимать нечем — предлагать нечего: одно окно на столе это не раскладка
-    const others = st.windows.filter((w) => w.id !== id);
+    const others = st.windows.filter((w) => w.id !== id && w.desk === st.desk);
     setAssist(others.length && rest.length ? { shares: rest, skip: [id] } : null);
   }, [snap, closeSnap]);
+
+  /**
+   * Соседний стол. Ctrl+Alt+стрелка — то же сочетание, что в системе; окна
+   * при этом не двигаются, меняется только то, какой набор показан.
+   */
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey && e.altKey) || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+      const st = useWindowStore.getState();
+      if (st.desks.length < 2) return;
+      e.preventDefault();
+      st.goToDesk(stepDesk(st.desk, e.key === 'ArrowRight' ? 1 : -1, st.desks.length));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Win+Z — панель долей у верхнего окна, как в системе
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (deskAction(e, { typing: isTyping(document.activeElement as any), hasSelection: false }) !== 'snapPanel') return;
       const st = useWindowStore.getState();
-      const cur = st.windows.filter((w) => !w.minimized)
+      const cur = st.windows.filter((w) => !w.minimized && w.desk === st.desk)
         .reduce<WinState | null>((a, b) => (!a || b.z > a.z ? b : a), null);
       if (!cur) return;
       e.preventDefault();
@@ -359,8 +383,6 @@ export default function WindowsLayer() {
     return () => window.removeEventListener('keydown', onKey);
   }, [openSnap]);
 
-  const visible = windows.filter((w) => !w.minimized).length;
-
   return (
     <div
       ref={deskRef}
@@ -370,11 +392,16 @@ export default function WindowsLayer() {
       {/* Значки живут под окнами: стол — это фон, а не ещё одно окно */}
       <Desktop />
 
+      {/* Показываем окна этого стола, но держим смонтированными все: раздел на
+          соседнем столе продолжает жить — с открытым документом, набранным и
+          ещё не сохранённым текстом, местом прокрутки. Стол переключают
+          мимоходом, и терять на этом работу нельзя */}
       {windows.map((w) => (
         <WindowFrame
           key={w.id}
           win={w}
           isTop={w.id === top}
+          hidden={w.desk !== desk}
           liveLocation={location}
           globalNavigate={navigate}
           onSnapArm={armSnap}

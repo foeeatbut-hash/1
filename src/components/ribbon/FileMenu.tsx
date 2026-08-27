@@ -10,6 +10,7 @@ import React from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { ribbonIcon } from './icons';
 import type { FileMenuSection } from '../../lib/ribbon';
+import { useEscape } from '../../lib/useEscape';
 
 export default function FileMenu({ sections, info, onClose }: {
   sections: FileMenuSection[];
@@ -17,6 +18,9 @@ export default function FileMenu({ sections, info, onClose }: {
   info?: { label: string; value: string }[];
   onClose: () => void;
 }) {
+  // Esc возвращает к документу — как из любого окна поверх него
+  useEscape(true, onClose);
+
   return (
     <div className="absolute inset-0 z-[70] flex bg-white dark:bg-slate-950">
       <div className="w-44 shrink-0 bg-emerald-600 dark:bg-emerald-700 py-3 px-2">

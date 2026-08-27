@@ -25,7 +25,8 @@ export default function SnapAssist({ shares, skip, onClose }: {
   const putInShare = useWindowStore((s) => s.putInShare);
   const [taken, setTaken] = React.useState<string[]>([]);
 
-  const free = windows.filter((w) => !skip.includes(w.id) && !taken.includes(w.id));
+  const desk = useWindowStore((s) => s.desk);
+  const free = windows.filter((w) => w.desk === desk && !skip.includes(w.id) && !taken.includes(w.id));
   const rest = shares.slice(taken.length);
 
   React.useEffect(() => {
