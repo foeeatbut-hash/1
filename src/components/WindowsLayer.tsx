@@ -15,7 +15,11 @@ import { SECTIONS, isKnownSection, sectionForPath } from '../workspace/sections'
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useWindowStore } from '../store/windowStore';
 import { snapZoneAt, type Edge, type SnapZone, type WinState } from '../lib/windows';
+import { layoutsFor, otherShares, panelSpot, shareStyle, type Layout, type Share } from '../lib/layouts';
+import SnapPanel, { PANEL_W, panelHeight } from './SnapPanel';
+import SnapAssist from './SnapAssist';
 import { deskAction, isTyping, nextInCycle } from '../lib/deskKeys';
+import { stepDesk } from '../lib/desks';
 import SectionFrame, { asHref } from './SectionFrame';
 import Desktop from './Desktop';
 
@@ -32,16 +36,29 @@ const EDGES: { edge: Edge; cls: string }[] = [
 ];
 
 function WindowFrame({
-  win, isTop, liveLocation, globalNavigate,
+  win, isTop, hidden, liveLocation, globalNavigate, onSnapArm, onSnapDisarm, onSnapOpen, onSnapClose,
 }: {
   win: WinState;
   isTop: boolean;
+  /** Окно не на этом столе: остаётся живым, но не показывается */
+  hidden: boolean;
   liveLocation: ReturnType<typeof useLocation>;
   globalNavigate: ReturnType<typeof useNavigate>;
+  /** Наведение на квадратик: панель долей раскроется через 400 мс */
+  onSnapArm: (id: string, el: HTMLElement) => void;
+  onSnapDisarm: () => void;
+  onSnapOpen: (id: string, el: HTMLElement) => void;
+  onSnapClose: () => void;
 }) {
   const def = sectionForPath(win.path);
   const Icon = SECTIONS.find((s) => s.path === win.path)?.icon as any;
   const st = useWindowStore;
+  // Имя окну даёт содержимое: «Ведомость В-1», а не «Конструктор». Нет
+  // открытого документа — остаётся имя программы
+  const title = useWindowStore((s) => s.titles[win.id]) || def.title;
+  // На это окно навели в списке на панели задач — обводим, чтобы было понятно,
+  // какое из трёх поднимется
+  const peeked = useWindowStore((s) => s.peeked === win.id);
 
   /**
    * Перетаскивание и размер на указателе, а не на мыши: одним кодом работают
@@ -89,13 +106,19 @@ function WindowFrame({
   return (
     <div
       role="dialog"
-      aria-label={def.title}
+      aria-label={title}
+      data-win={win.id}
       onPointerDownCapture={() => { if (!isTop) st.getState().focus(win.id); }}
-      style={{ left: win.x, top: win.y, width: win.w, height: win.h, zIndex: 10 + win.z, display: win.minimized ? 'none' : undefined }}
-      className={`absolute flex flex-col rounded-xl overflow-hidden bg-white dark:bg-dark-bg border ${
-        isTop
-          ? 'border-emerald-500/70 shadow-2xl'
-          : 'border-slate-200 dark:border-dark-border shadow-lg'
+      style={{
+        left: win.x, top: win.y, width: win.w, height: win.h, zIndex: 10 + win.z,
+        display: win.minimized || hidden ? 'none' : undefined,
+      }}
+      className={`absolute flex flex-col rounded-xl overflow-hidden bg-white dark:bg-dark-bg border transition-shadow ${
+        peeked
+          ? 'border-emerald-500 shadow-2xl ring-2 ring-emerald-500/40'
+          : isTop
+            ? 'border-emerald-500/70 shadow-2xl'
+            : 'border-slate-200 dark:border-dark-border shadow-lg'
       }`}
     >
       <div
@@ -108,16 +131,24 @@ function WindowFrame({
         }`}
       >
         {Icon && <Icon className={`w-4 h-4 shrink-0 ${isTop ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-400'}`} />}
-        <span className="flex-1 min-w-0 truncate text-xs font-semibold text-slate-800 dark:text-slate-150">{def.title}</span>
+        <span className="flex-1 min-w-0 truncate text-xs font-semibold text-slate-800 dark:text-slate-150"
+          title={title === def.title ? title : `${title} · ${def.title}`}>{title}</span>
         <button type="button" title="Свернуть" aria-label="Свернуть"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => st.getState().minimize(win.id)}
           className={`${btn} text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-850`}>
           <Minus className="w-3.5 h-3.5" />
         </button>
-        <button type="button" title={win.maximized ? 'Вернуть размер' : 'Развернуть'} aria-label="Развернуть"
+        {/* Квадратик: нажатие разворачивает, наведение и правая кнопка
+            раскрывают доли экрана. Привычное поведение не отнимаем */}
+        <button type="button"
+          title={win.maximized ? 'Вернуть размер' : 'Развернуть. Наведите — доли экрана'}
+          aria-label="Развернуть"
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => st.getState().maximize(win.id)}
+          onClick={() => { onSnapClose(); st.getState().maximize(win.id); }}
+          onContextMenu={(e) => { e.preventDefault(); onSnapOpen(win.id, e.currentTarget as HTMLElement); }}
+          onMouseEnter={(e) => onSnapArm(win.id, e.currentTarget as HTMLElement)}
+          onMouseLeave={onSnapDisarm}
           className={`${btn} text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-850`}>
           {win.maximized ? <Copy className="w-3.5 h-3.5" /> : <Square className="w-3 h-3" />}
         </button>
@@ -134,7 +165,8 @@ function WindowFrame({
         <SectionFrame
           paneId={`win:${win.id}`}
           path={win.path}
-          visible
+          href={win.href}
+          visible={!hidden}
           isLive={isTop}
           liveLocation={liveLocation}
           globalNavigate={globalNavigate}
@@ -157,6 +189,8 @@ function WindowFrame({
 export default function WindowsLayer() {
   const windows = useWindowStore((s) => s.windows);
   const snapping = useWindowStore((s) => s.snapping);
+  const area = useWindowStore((s) => s.area);
+  const desk = useWindowStore((s) => s.desk);
   const setArea = useWindowStore((s) => s.setArea);
   const location = useLocation();
   const navigate = useNavigate();
@@ -174,10 +208,12 @@ export default function WindowsLayer() {
     return () => ro.disconnect();
   }, [setArea]);
 
+  // На столе видны только его окна: стол — это набор окон, а не второй экран
+  const mine = React.useMemo(() => windows.filter((w) => w.desk === desk), [windows, desk]);
   const topWin = React.useMemo(() => {
-    const vis = windows.filter((w) => !w.minimized);
+    const vis = mine.filter((w) => !w.minimized);
     return vis.length ? vis.reduce((a, b) => (b.z > a.z ? b : a)) : null;
-  }, [windows]);
+  }, [mine]);
   const top = topWin?.id || null;
 
   /**
@@ -189,14 +225,39 @@ export default function WindowsLayer() {
    * без неё не работают ни ссылка на документ, ни кнопка «назад».
    */
   React.useEffect(() => {
-    if (!topWin || location.pathname === topWin.path) return;
+    if (!topWin) return;
+    const here = asHref(location);
+    if (here === topWin.href) return;
     const remembered = useWorkspaceStore.getState().frozenHrefs[`win:${topWin.id}::${topWin.path}`];
-    navigate(remembered || topWin.path);
-  }, [topWin?.id, topWin?.path]);
+    navigate(remembered || topWin.href);
+  }, [topWin?.id, topWin?.href]);
 
-  // Обратная сторона той же связи: адрес пришёл извне (ссылка, помощник,
-  // двойное нажатие по документу на столе) — поднимаем нужное окно
+  /**
+   * Живое окно ушло на другой адрес (открыли документ из библиотеки, зашли в
+   * папку) — окно обязано это запомнить. Иначе оно потеряет себя: следующее
+   * открытие того же документа заведёт ещё одно окно рядом.
+   */
   React.useEffect(() => {
+    if (!topWin) return;
+    const here = asHref(location);
+    // Только собственный переход окна. Тот же адрес, пришедший снаружи, — это
+    // просьба открыть документ, и решать её должно следующее правило: иначе
+    // окно молча забирало бы себе чужой адрес, и второе окно не появлялось
+    if ((location.state as any)?.__pane !== `win:${topWin.id}`) return;
+    if (here.split('?')[0] !== topWin.path) return;
+    useWindowStore.getState().setHref(topWin.id, here);
+  }, [location, topWin?.id]);
+
+  /**
+   * Обратная сторона той же связи: адрес пришёл извне (ссылка, помощник,
+   * двойное нажатие по документу на столе) — поднимаем нужное окно.
+   *
+   * Именно layout-эффект, а не обычный: решение принимается до показа кадра.
+   * Обычный эффект успевал показать чужой адрес в прежнем верхнем окне — и то
+   * запоминало его себе. Два окна оказывались на одном документе и начинали
+   * спорить автосохранением.
+   */
+  React.useLayoutEffect(() => {
     if (!isKnownSection(location.pathname)) return;
     // «/» — начальный адрес программы, а не просьба открыть Главную. Открывали
     // бы — поверх пустого стола всплывало бы окно, которого не просили, и
@@ -205,11 +266,15 @@ export default function WindowsLayer() {
     // и с панели задач — там нажатие сказано вслух
     if (location.pathname === '/') return;
     const st = useWindowStore.getState();
-    const cur = st.windows.filter((w) => !w.minimized);
+    const here = asHref(location);
+    const cur = st.windows.filter((w) => !w.minimized && w.desk === st.desk);
     const now = cur.length ? cur.reduce((a, b) => (b.z > a.z ? b : a)) : null;
-    // Адрес запоминает сам SectionFrame живого окна — здесь только поднять окно
-    if (now && now.path === location.pathname) return;
-    st.open(location.pathname);
+    // Переход внутри самого окна и по тому же разделу — это оно и перешло:
+    // человек открыл документ из библиотеки Конструктора и остался в своём
+    // окне. Адрес запоминает следующий эффект, открывать нечего
+    const from = (location.state as any)?.__pane;
+    if (now && from === `win:${now.id}` && now.path === location.pathname) return;
+    st.open(here);
   }, [location]);
 
   /**
@@ -220,23 +285,103 @@ export default function WindowsLayer() {
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const act = deskAction(e, { typing: isTyping(document.activeElement as any), hasSelection: false });
-      if (act !== 'nextWindow' && act !== 'prevWindow' && act !== 'closeWindow' && act !== 'minimizeAll') return;
+      if (act !== 'nextWindow' && act !== 'prevWindow' && act !== 'closeWindow'
+        && act !== 'minimizeAll' && act !== 'newWindow') return;
       const st = useWindowStore.getState();
       if (!st.windows.length) return;
       e.preventDefault();
       if (act === 'minimizeAll') { st.minimizeAll(); return; }
-      const cur = st.windows.filter((w) => !w.minimized).reduce<typeof st.windows[number] | null>(
-        (a, b) => (!a || b.z > a.z ? b : a), null,
-      );
+      const cur = st.windows.filter((w) => !w.minimized && w.desk === st.desk)
+        .reduce<typeof st.windows[number] | null>((a, b) => (!a || b.z > a.z ? b : a), null);
       if (act === 'closeWindow') { if (cur) st.close(cur.id); return; }
-      const next = nextInCycle(st.windows, cur?.id || null, act === 'prevWindow');
+      if (act === 'newWindow') {
+        // Ещё одно окно той же программы: у единичных разделов второго не бывает
+        if (cur && sectionForPath(cur.path).multi) st.openAnother(cur.href);
+        return;
+      }
+      const next = nextInCycle(st.windows.filter((w) => w.desk === st.desk), cur?.id || null, act === 'prevWindow');
       if (next) st.focus(next.id);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const visible = windows.filter((w) => !w.minimized).length;
+  // ── Доли экрана: панель у кнопки разворота ──
+  const [snap, setSnap] = React.useState<{ id: string; x: number; y: number } | null>(null);
+  const [shareHint, setShareHint] = React.useState<Share | null>(null);
+  const [assist, setAssist] = React.useState<{ shares: Share[]; skip: string[] } | null>(null);
+  const snapTimer = React.useRef<any>(null);
+
+  const openSnap = React.useCallback((id: string, el: HTMLElement) => {
+    const desk = deskRef.current?.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    if (!desk) return;
+    const st = useWindowStore.getState();
+    const count = layoutsFor(st.area).length;
+    if (!count) return; // столу тесно — предлагать нечего, и панель не открываем
+    const spot = panelSpot(
+      { x: r.left - desk.left, y: r.top - desk.top, h: r.height },
+      { w: PANEL_W, h: panelHeight(count) },
+      st.area,
+    );
+    setSnap({ id, ...spot });
+  }, []);
+  const armSnap = React.useCallback((id: string, el: HTMLElement) => {
+    clearTimeout(snapTimer.current);
+    snapTimer.current = setTimeout(() => openSnap(id, el), 400);
+  }, [openSnap]);
+  const disarmSnap = React.useCallback(() => clearTimeout(snapTimer.current), []);
+  const closeSnap = React.useCallback(() => {
+    clearTimeout(snapTimer.current);
+    setSnap(null);
+    setShareHint(null);
+  }, []);
+  React.useEffect(() => () => clearTimeout(snapTimer.current), []);
+
+  /** Выбрали долю: ставим окно и предлагаем занять оставшиеся */
+  const pickShare = React.useCallback((layout: Layout, index: number) => {
+    const id = snap?.id;
+    closeSnap();
+    if (!id) return;
+    const st = useWindowStore.getState();
+    st.putInShare(id, layout.shares[index]);
+    const rest = otherShares(layout, index);
+    // Занимать нечем — предлагать нечего: одно окно на столе это не раскладка
+    const others = st.windows.filter((w) => w.id !== id && w.desk === st.desk);
+    setAssist(others.length && rest.length ? { shares: rest, skip: [id] } : null);
+  }, [snap, closeSnap]);
+
+  /**
+   * Соседний стол. Ctrl+Alt+стрелка — то же сочетание, что в системе; окна
+   * при этом не двигаются, меняется только то, какой набор показан.
+   */
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey && e.altKey) || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+      const st = useWindowStore.getState();
+      if (st.desks.length < 2) return;
+      e.preventDefault();
+      st.goToDesk(stepDesk(st.desk, e.key === 'ArrowRight' ? 1 : -1, st.desks.length));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Win+Z — панель долей у верхнего окна, как в системе
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (deskAction(e, { typing: isTyping(document.activeElement as any), hasSelection: false }) !== 'snapPanel') return;
+      const st = useWindowStore.getState();
+      const cur = st.windows.filter((w) => !w.minimized && w.desk === st.desk)
+        .reduce<WinState | null>((a, b) => (!a || b.z > a.z ? b : a), null);
+      if (!cur) return;
+      e.preventDefault();
+      const el = deskRef.current?.querySelector(`[data-win="${cur.id}"] [aria-label="Развернуть"]`);
+      if (el) openSnap(cur.id, el as HTMLElement);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [openSnap]);
 
   return (
     <div
@@ -247,15 +392,45 @@ export default function WindowsLayer() {
       {/* Значки живут под окнами: стол — это фон, а не ещё одно окно */}
       <Desktop />
 
+      {/* Показываем окна этого стола, но держим смонтированными все: раздел на
+          соседнем столе продолжает жить — с открытым документом, набранным и
+          ещё не сохранённым текстом, местом прокрутки. Стол переключают
+          мимоходом, и терять на этом работу нельзя */}
       {windows.map((w) => (
         <WindowFrame
           key={w.id}
           win={w}
           isTop={w.id === top}
+          hidden={w.desk !== desk}
           liveLocation={location}
           globalNavigate={navigate}
+          onSnapArm={armSnap}
+          onSnapDisarm={disarmSnap}
+          onSnapOpen={openSnap}
+          onSnapClose={closeSnap}
         />
       ))}
+
+      {/* Куда встанет окно по выбранной доле — зажигаем место на столе */}
+      {shareHint && (
+        <div aria-hidden style={shareStyle(shareHint, area)}
+          className="absolute z-[59] rounded-xl border-2 border-emerald-500 bg-emerald-500/10 pointer-events-none" />
+      )}
+
+      {snap && (
+        <SnapPanel
+          area={area}
+          x={snap.x}
+          y={snap.y}
+          onPick={pickShare}
+          onHover={setShareHint}
+          onClose={closeSnap}
+        />
+      )}
+
+      {assist && (
+        <SnapAssist shares={assist.shares} skip={assist.skip} onClose={() => setAssist(null)} />
+      )}
 
       {/* Куда встанет окно, если отпустить: показываем до того, как отпустили */}
       {snapping && (

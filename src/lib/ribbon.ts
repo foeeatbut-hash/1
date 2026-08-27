@@ -104,7 +104,8 @@ export function organWidth(o: Organ): number {
     case 'label': return 36 + text;
     case 'big': return Math.max(56, 18 + text);
     case 'select': return o.width || Math.max(64, 30 + text);
-    case 'split': return ORGAN_H + 18 + text;
+    // 24 — стрелка палитры: двадцать точек цели и четыре на рамку с отступом
+    case 'split': return ORGAN_H + 24 + text;
     case 'spin': return 56 + (o.label?.length || 0) * 7;
     case 'palette': return 5 * 14 + 4 * 4 + 14;
     default: return ORGAN_H + 2;

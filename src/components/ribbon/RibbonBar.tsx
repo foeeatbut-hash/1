@@ -209,9 +209,14 @@ export default function RibbonBar({
         </button>
       </div>
 
-      {/* Лента */}
+      {/* Лента. Прокрутка, а не обрезка: у схлопывания есть предел — шесть
+          групп даже многоточиями занимают 323 точки, и в панели шириной 250
+          лента всё равно не помещается. Обрезанная по краю она теряет группы
+          без следа, прокручиваемая — не теряет ничего (так же сделаны кнопки
+          на панели задач). Полоса появляется только там, где это случилось */}
       {!folded && (
-        <div ref={barRef} className="flex items-stretch overflow-hidden border-b border-slate-200 dark:border-slate-800
+        <div ref={barRef} className="flex items-stretch overflow-x-auto overflow-y-hidden scrollbar-thin
+                                     border-b border-slate-200 dark:border-slate-800
                                      bg-slate-50 dark:bg-slate-950 py-1.5"
           style={{ height: RIBBON_H }}>
           {tab.groups.map((g) => (collapsed.has(g.name)

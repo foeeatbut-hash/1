@@ -128,7 +128,9 @@ export default function Organ({ organ: o, value, disabled, attention, onRun }: O
         </button>
         <button type="button" disabled={off} onClick={() => setPalette((v) => !v)} aria-expanded={palette}
           aria-label={`${o.label || o.hint || o.id}: выбрать`}
-          className="px-1 text-2xs text-slate-400 border-l border-slate-200 dark:border-slate-800 rounded-r-md
+          /* Двадцать точек в ширину — не украшение: в четырнадцать мышью
+             попадают через раз, а за этой стрелкой вся палитра цветов */
+          className="w-5 shrink-0 text-2xs text-slate-400 border-l border-slate-200 dark:border-slate-800 rounded-r-md
                      hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer disabled:cursor-not-allowed">▾</button>
         {palette && (
           <>

@@ -33,6 +33,7 @@ import {
   type DeskItem, type SortBy,
 } from '../lib/desktop';
 import { deskAction, isTyping } from '../lib/deskKeys';
+import { appsFor, openHref } from '../lib/fileTypes';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import DeskIcon, { titleOf } from './desktop/DeskIcon';
 import DeskList from './desktop/DeskList';
@@ -109,15 +110,10 @@ export default function Desktop() {
     // Папка стола открывается в Проводнике: второго проводника у программы нет,
     // и заводить его ради стола — значит развести два разных дерева одних папок
     if (item.kind === 'folder') return go(`/explorer?folder=${encodeURIComponent(item.id)}`);
-    if (item.refId) return go(`/constructor?doc=${encodeURIComponent(item.refId)}`);
-    // Файл без своего редактора (чертёж, бланк, картинка) открывается там, где
-    // его и смотрят, — в Проводнике, выделенным, с просмотром сбоку. Заводить
-    // ради этого второй просмотрщик значит развести два разных вида одного
-    // файла: в Проводнике он выглядел бы так, а со стола — иначе
-    if (item.folderId) {
-      return go(`/explorer?file=${encodeURIComponent(item.id)}&folder=${encodeURIComponent(item.folderId)}`);
-    }
-    go('/explorer');
+    // Чем открыть — решает общая таблица сопоставлений (lib/fileTypes), одна на
+    // стол и на Проводник. Пока их было две, чертёж со стола попадал в
+    // предпросмотр, а из Проводника — в редактор пометок
+    go(openHref(item));
   };
 
   // ── Перетаскивание значка ────────────────────────────────────────────────
@@ -242,6 +238,14 @@ export default function Desktop() {
     ]
     : [
       { label: 'Открыть', icon: <FolderOpen className="w-3.5 h-3.5" />, onClick: () => openItem(item) },
+      // «Открыть с помощью» — только там, где есть из чего выбирать: у чертежа
+      // это редактор пометок и предпросмотр Проводника. Пункт, ведущий туда же,
+      // куда и «Открыть», был бы обманом выбора
+      ...(item.kind === 'file' ? appsFor(item).slice(1).map((app) => ({
+        label: `Открыть в: ${app.name}`,
+        icon: <FolderOpen className="w-3.5 h-3.5" />,
+        onClick: () => go(app.href(item)),
+      })) : []),
       { label: 'Переименовать', icon: <Pencil className="w-3.5 h-3.5" />, onClick: () => setRenaming({ id: item.id, value: item.name }) },
       {
         label: item.shared ? 'Убрать с общего стола' : 'Положить на общий стол',

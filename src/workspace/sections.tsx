@@ -61,6 +61,15 @@ export interface SectionDef {
   /** Стоит на нижней панели всегда, даже когда не запущен */
   pinned?: boolean;
   badge?: SectionBadge;
+  /**
+   * Можно открыть несколькими окнами.
+   *
+   * Ставится там, где у раздела есть что открывать по отдельности: две папки
+   * Проводника, две ведомости, два чертежа. Незаявленное считается единичным
+   * намеренно: второе окно Почты не даёт ничего, кроме двух счётчиков
+   * непрочитанного, — а объяснять человеку, почему их два, нечем.
+   */
+  multi?: boolean;
   Component: React.LazyExoticComponent<React.ComponentType<any>>;
 }
 
@@ -71,12 +80,12 @@ export const SECTIONS: SectionDef[] = [
   { path: '/equipment', title: 'Оборудование', icon: Fan, scope: 'project', scroll: 'auto', pad: true, pinned: true, Component: Equipment },
   { path: '/directory', title: 'Справочник', icon: BookOpen, scope: 'project', scroll: 'fixed', pad: true, Component: DictionaryEditor },
   { path: '/management', title: 'Менеджмент', icon: Briefcase, scope: 'project', scroll: 'auto', pad: true, Component: ProcurementManagement },
-  { path: '/explorer', title: 'Проводник', icon: FolderOpen, scope: 'global', scroll: 'auto', pad: true, pinned: true, Component: Explorer },
-  { path: '/constructor', title: 'Конструктор', icon: Table2, scope: 'project', scroll: 'auto', pad: true, pinned: true, Component: ConstructorScreen },
+  { path: '/explorer', title: 'Проводник', icon: FolderOpen, scope: 'global', scroll: 'auto', pad: true, pinned: true, multi: true, Component: Explorer },
+  { path: '/constructor', title: 'Конструктор', icon: Table2, scope: 'project', scroll: 'auto', pad: true, pinned: true, multi: true, Component: ConstructorScreen },
   // Чертёж открывается из Проводника и живёт своим окном: у него своя лента и
   // свои пометки, и возвращаться из него надо туда, откуда пришли
-  { path: '/pdf', title: 'Чертёж', icon: FileText, scope: 'project', scroll: 'fixed', pad: false, Component: PdfEditor },
-  { path: '/notes', title: 'Блокнот', icon: NotebookPen, scope: 'global', scroll: 'auto', pad: true, Component: NotesManagement },
+  { path: '/pdf', title: 'Чертёж', icon: FileText, scope: 'project', scroll: 'fixed', pad: false, multi: true, Component: PdfEditor },
+  { path: '/notes', title: 'Блокнот', icon: NotebookPen, scope: 'global', scroll: 'auto', pad: true, multi: true, Component: NotesManagement },
   { path: '/chat', title: 'Чат', icon: MessagesSquare, scope: 'global', scroll: 'fixed', pad: true, badge: 'chat', Component: ChatManagement },
   // Почта занимает всю высоту и прокручивает списки внутри — как Чат и Теги
   { path: '/mail', title: 'Почта', icon: Mail, scope: 'global', scroll: 'fixed', pad: true, pinned: true, badge: 'mail', Component: MailScreen },

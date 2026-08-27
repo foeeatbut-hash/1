@@ -12,7 +12,8 @@
 export type DeskAction =
   | 'open' | 'rename' | 'remove' | 'properties' | 'selectAll' | 'refresh'
   | 'clearSelection' | 'toggleView'
-  | 'nextWindow' | 'prevWindow' | 'closeWindow' | 'minimizeAll' | 'start';
+  | 'nextWindow' | 'prevWindow' | 'closeWindow' | 'minimizeAll' | 'start'
+  | 'newWindow' | 'snapPanel';
 
 export interface KeyEventLike {
   key: string;
@@ -49,6 +50,16 @@ export function deskAction(e: KeyEventLike, opts: { typing: boolean; hasSelectio
   if (ctrl && e.key === 'Escape') return 'start';
 
   if (opts.typing) return null;
+
+  // Ещё одно окно той же программы — Ctrl+Shift+N, а не Ctrl+N. Голый Ctrl+N
+  // Блокнот уже занял под новую заметку, и отнимать у раздела то, чем в нём
+  // пользуются каждый день, ради оболочки неправильно
+  if (ctrl && e.shiftKey && !e.altKey && (e.key === 'n' || e.key === 'т' || e.key === 'N' || e.key === 'Т')) return 'newWindow';
+  if (e.key === 'z' || e.key === 'Z' || e.key === 'я' || e.key === 'Я') {
+    // Win+Z — как в системе. metaKey у нас уже занят под Ctrl, поэтому ловим
+    // только настоящую клавишу Win (в браузере она приходит как metaKey без ctrl)
+    if (e.metaKey && !e.ctrlKey && !e.altKey) return 'snapPanel';
+  }
 
   if (e.key === 'Escape') return 'clearSelection';
   if (ctrl && (e.key === 'a' || e.key === 'ф' || e.key === 'A' || e.key === 'Ф')) return 'selectAll';

@@ -3,13 +3,14 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import VdrItemPicker from '../components/VdrItemPicker';
+import { isPdf, isConstructorDoc, FILE_APPS } from '../lib/fileTypes';
+import ExplorerMenu from '../components/explorer/ExplorerMenu';
 import { useModalStore } from '../store/modalStore';
-import { 
-  Folder, File as FileIcon, ChevronRight, ChevronDown, Plus, Upload, 
-  Search, MoreVertical, Copy, Edit2, Trash2, FolderPlus, RefreshCw, 
-  ArrowLeft, ArrowRight, ArrowUp, Tag, Shield, PanelRight, LayoutGrid, List,
-  Download, Image as ImageIcon, FileText, FileCode, FileSpreadsheet, Info, Boxes, Scissors, ClipboardPaste,
-  Grid3X3, Clock
+import {
+  Folder, File as FileIcon, ChevronRight, ChevronDown, Plus, Upload,
+  Search, MoreVertical, Copy, Edit2, Trash2, FolderPlus,
+  ArrowLeft, ArrowRight, ArrowUp, Tag, PanelRight, LayoutGrid, List,
+  Download, Info, Boxes, Clock
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
@@ -17,6 +18,8 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import EquipmentImportPreview from '../components/EquipmentImportPreview';
 import { countOf } from '../lib/plural';
 import { openInProject, useProjectNames } from '../lib/projectScope';
+import { useWindowTitle } from '../lib/paneTitle';
+import FilePreview from '../components/explorer/FilePreview';
 import {
   SEC_SHARED, TRASH_ID, SMART_RECENT, SMART_UNTAGGED, SMART_DUPES,
   isSmartId, personalSecId, isSectionId, parseSection,
@@ -440,6 +443,9 @@ export default function Explorer() {
     const folder = folders.find(f => f.id === currentFolderId);
     return folder ? itemSection(folder) : null;
   }, [currentFolderId, folders, itemSection]);
+
+  // Имя окна — имя открытой папки: два окна Проводника иначе неразличимы
+  useWindowTitle(folders.find(f => f.id === currentFolderId)?.name || '');
 
   const handleNavigateUp = () => {
     if (!currentFolderId) return;
@@ -1068,8 +1074,7 @@ export default function Explorer() {
     if (isFolder) { navigateToRef.current(id); return; }
     const f = allCurrentItemsRef.current?.find((x: any) => x.id === id);
     // Файл из чужого проекта: имя видно, содержимое — после переключения.
-    // Особенно важно для документа Конструктора: он собирается из тегов
-    // своего проекта и в чужом просто не соберётся
+    // Документ Конструктора в чужом проекте просто не соберётся
     const owner = projectOfRef.current(f);
     if (owner && owner !== useStore.getState().activeProject?.id) {
       openInProject({
@@ -1079,10 +1084,11 @@ export default function Explorer() {
       });
       return;
     }
-    // У документа Конструктора и у чертежа свои редакторы; остальному —
-    // предпросмотр: двойной клик ВСЕГДА что-то делает (B1)
-    if (f?.type === 'CONSTRUCTOR' && f?.refId) { navigate(`/constructor?doc=${f.refId}`); return; }
-    if (f?.type === 'PDF' || /\.pdf$/i.test(f?.name || '')) { navigate(`/pdf?file=${id}`); return; }
+    // Чем открыть — решает общая таблица сопоставлений (lib/fileTypes): та же,
+    // по которой открывает значок на столе. Остальному — предпросмотр: двойной
+    // клик ВСЕГДА что-то делает (B1)
+    if (f && isConstructorDoc(f) && f.refId) { navigate(FILE_APPS.docs.href(f)); return; }
+    if (f && isPdf(f)) { navigate(FILE_APPS.pdf.href({ ...f, id })); return; }
     setSelectedIds(new Set([id]));
     setLastSelectedId(id);
     setShowPreviewPane(true);
@@ -1824,29 +1830,9 @@ export default function Explorer() {
                   );
                 }
 
-                const isImage = item.type === 'IMAGE' || item.name.match(/\.(jpeg|jpg|gif|png|webp)$/i);
-                const isPdf = item.type === 'PDF' || item.name.match(/\.(pdf)$/i);
-                const isText = item.type === 'TXT' || item.name.match(/\.(txt|md|json|csv)$/i);
-
                 return (
                   <div className="p-4 flex flex-col">
-                     <div className="flex-1 flex items-center justify-center min-h-[240px] max-h-[300px] bg-white dark:bg-dark-panel border border-slate-200 dark:border-dark-border rounded mb-4 overflow-hidden relative ">
-                        {isImage && item.content ? (
-                          <img src={item.content} alt={item.name} className="max-w-full max-h-full object-contain" />
-                        ) : isText && item.content ? (
-                          // Текст декодируем как UTF-8 в <pre> — iframe с data:text
-                          // без charset давал кракозябры на кириллице
-                          <pre className="w-full h-full overflow-auto text-left text-xs leading-relaxed p-3 text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words font-mono">{decodeTextContent(item.content)}</pre>
-                        ) : isPdf && item.content ? (
-                          // B5: пустой sandbox ломал встроенный PDF-вьюер
-                          <iframe src={item.content} className="w-full h-full border-0 bg-white dark:bg-dark-panel" title={item.name} sandbox="allow-scripts allow-same-origin" />
-                        ) : (
-                          <div className="text-center text-slate-400 flex flex-col items-center">
-                             {getFileIcon(item, "w-12 h-12 mb-2")}
-                             <span className="text-xs">{item.type} Файл</span>
-                          </div>
-                        )}
-                     </div>
+                     <FilePreview item={item} icon={getFileIcon(item, 'w-12 h-12 mb-2')} />
                      
                      <h3 className="font-semibold text-slate-800 dark:text-dark-text-main mb-2 break-words text-sm">{item.name}</h3>
                      
@@ -1934,83 +1920,51 @@ export default function Explorer() {
           {selectedIds.size > 0 && <span>выбрано: {selectedIds.size}</span>}
       </div>
 
-      {/* Context Menu */}
+      {/* Меню правой кнопки — отдельным модулем (components/explorer/ExplorerMenu) */}
       {contextMenu && (
-        <div 
-          className="fixed z-50 bg-[#F2F2F2] dark:bg-dark-panel border border-slate-300 dark:border-dark-border shadow-md py-1 min-w-[220px] text-xs text-slate-800 dark:text-dark-text-main rounded-lg"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {contextMenu.isSection ? (
-            <>
-              <MenuItem icon={<Folder />} label="Открыть" onClick={() => { navigateTo(contextMenu.targetId!); setContextMenu(null); }} />
-              <MenuItem icon={<RefreshCw />} label="Обновить" onClick={() => { fetchData(); setContextMenu(null); }} />
-              <div className="h-px bg-slate-300 dark:bg-dark-border my-1 mx-2" />
-              <div className="px-6 py-1 text-2xs text-slate-400 select-none">Встроенный раздел: нельзя удалить или переименовать</div>
-            </>
-          ) : contextMenu.isContainer ? (
-            <>
-              {/* «Создать» — как в Windows: правый клик по пустому месту */}
-              <div className="px-6 py-1 text-2xs font-bold uppercase tracking-wider text-slate-400 select-none">Создать</div>
-              <MenuItem icon={<FolderPlus />} label="Папку" onClick={() => { createFolder(); setContextMenu(null); }} />
-              <MenuItem icon={<Grid3X3 />} label="Таблицу (Excel)" onClick={() => { createConstructorDoc('DOC'); setContextMenu(null); }} />
-              <MenuItem icon={<FileText />} label="Документ (Word)" onClick={() => { createConstructorDoc('TEXT'); setContextMenu(null); }} />
-              <MenuItem icon={<FileIcon />} label="Текстовый файл (.txt)" onClick={() => { createEmptyFile("Новый документ.txt", "TXT", ""); setContextMenu(null); }} />
-              <div className="h-px bg-slate-300 dark:bg-dark-border my-1 mx-2" />
-              <MenuItem icon={<Upload />} label="Загрузить" onClick={() => { fileInputRef.current?.click(); setContextMenu(null); }} />
-              {clipboard && (
-                 <MenuItem icon={<Copy />} label="Вставить" onClick={() => { handlePaste(); setContextMenu(null); }} />
-              )}
-              <MenuItem icon={<RefreshCw />} label="Обновить" onClick={() => { fetchData(); setContextMenu(null); }} />
-            </>
-          ) : (
-            <>
-              {contextMenu.targetId && currentFolderId !== contextMenu.targetId && !contextMenu.isFile && (
-                <MenuItem icon={<Folder />} label="Открыть" onClick={() => { navigateTo(contextMenu.targetId!); setContextMenu(null); }} />
-              )}
-              {contextMenu.isFile && (
-                <>
-                  {canEditInConstructor(allCurrentItems.find(i => i.id === contextMenu.targetId)?.name || '') && (
-                    <MenuItem
-                      icon={<Grid3X3 />}
-                      label="Редактировать копию в Конструкторе"
-                      onClick={() => { editCopyInConstructor(contextMenu.targetId!); setContextMenu(null); }}
-                    />
-                  )}
-                  <MenuItem icon={<Boxes />} label="В оборудование…" onClick={() => { openImportPicker(contextMenu.targetId!); setContextMenu(null); }} />
-                  <MenuItem icon={<Grid3X3 />} label="Прикрепить к строке ВДР…" onClick={() => { setVdrAttachFileId(contextMenu.targetId!); setContextMenu(null); }} />
-                  <div className="h-px bg-slate-300 dark:bg-dark-border my-1 mx-2" />
-                  <MenuItem icon={<Download />} label="Скачать" onClick={() => { handleDownload(contextMenu.targetId!, false); setContextMenu(null); }} />
-                  <MenuItem icon={<Tag />} label="Назначить теги..." onClick={() => { handleAssignTag(contextMenu.targetId!); setContextMenu(null); }} />
-                  <MenuItem icon={<Shield />} label="Назначить отдел..." onClick={() => { handleAssignDepartment(contextMenu.targetId!); setContextMenu(null); }} />
-                  <MenuItem icon={<Info />} label="Статус документа..." onClick={() => { handleChangeStatus(contextMenu.targetId!); setContextMenu(null); }} />
-                </>
-              )}
-              <div className="h-px bg-slate-300 dark:bg-dark-border my-1 mx-2" />
-              <MenuItem icon={<Scissors />} label="Вырезать" onClick={() => { setClipboard({ ids: Array.from(selectedIds), type: 'cut' }); setContextMenu(null); }} />
-              <MenuItem icon={<Copy />} label="Копировать" onClick={() => { setClipboard({ ids: Array.from(selectedIds), type: 'copy' }); setContextMenu(null); }} />
-              {clipboard && !contextMenu.isFile && (
-                <MenuItem icon={<ClipboardPaste />} label="Вставить" onClick={() => { handlePaste(); setContextMenu(null); }} />
-              )}
-              <MenuItem icon={<Edit2 />} label="Переименовать" onClick={() => { 
-                const isF = contextMenu.isFile;
-                setRenamingId(contextMenu.targetId!); 
-                const item = isF ? files.find(f=>f.id===contextMenu.targetId) : folders.find(f=>f.id===contextMenu.targetId);
-                setRenameValue(item?.name || ''); 
-                setContextMenu(null); 
-              }} />
-              <MenuItem icon={<Info />} label="Свойства" onClick={() => {
-                const isF = contextMenu.isFile;
-                const item = isF ? files.find(f=>f.id===contextMenu.targetId) : folders.find(f=>f.id===contextMenu.targetId);
-                if (item) setPropertiesModal({ item, isFile: !!isF });
-                setContextMenu(null);
-              }} />
-              <MenuItem icon={<Trash2 />} label="Удалить" onClick={() => { 
-                handleDelete(contextMenu.targetId!, !!contextMenu.isFile); setContextMenu(null); 
-              }} />
-            </>
-          )}
-        </div>
+        <ExplorerMenu
+          menu={contextMenu}
+          target={allCurrentItems.find(i => i.id === contextMenu.targetId)}
+          currentFolderId={currentFolderId}
+          hasClipboard={!!clipboard}
+          canEditInConstructor={canEditInConstructor(allCurrentItems.find(i => i.id === contextMenu.targetId)?.name || '')}
+          onClose={() => setContextMenu(null)}
+          open={(id) => handleItemDoubleClick(id, false)}
+          openWith={(href, appId) => {
+            // Проводник — это мы сами: показываем файл в панели предпросмотра,
+            // а не уходим по адресу к себе же
+            if (appId === 'explorer') {
+              setSelectedIds(new Set([contextMenu.targetId!]));
+              setShowPreviewPane(true);
+            } else navigate(href);
+          }}
+          openFolder={navigateTo}
+          refresh={fetchData}
+          createFolder={createFolder}
+          createDoc={createConstructorDoc}
+          createTxt={() => createEmptyFile('Новый документ.txt', 'TXT', '')}
+          upload={() => fileInputRef.current?.click()}
+          paste={handlePaste}
+          editCopy={editCopyInConstructor}
+          toEquipment={openImportPicker}
+          attachVdr={setVdrAttachFileId}
+          download={(id) => handleDownload(id, false)}
+          assignTag={handleAssignTag}
+          assignDepartment={handleAssignDepartment}
+          changeStatus={handleChangeStatus}
+          cut={() => setClipboard({ ids: Array.from(selectedIds), type: 'cut' })}
+          copy={() => setClipboard({ ids: Array.from(selectedIds), type: 'copy' })}
+          rename={(id, isFile) => {
+            setRenamingId(id);
+            const item = isFile ? files.find(f => f.id === id) : folders.find(f => f.id === id);
+            setRenameValue(item?.name || '');
+          }}
+          properties={(id, isFile) => {
+            const item = isFile ? files.find(f => f.id === id) : folders.find(f => f.id === id);
+            if (item) setPropertiesModal({ item, isFile });
+          }}
+          remove={(id, isFile) => handleDelete(id, isFile)}
+        />
       )}
 
       {uploadProgress && (
@@ -2337,13 +2291,6 @@ export default function Explorer() {
 }
 
 // Subcomponents
-
-const MenuItem = ({ icon, label, onClick, className = '' }: any) => (
-  <button type="button" onClick={onClick} className={`w-full flex items-center gap-3 px-6 py-1 hover:bg-[#91C9F7] dark:hover:bg-dark-surface/80 transition-colors text-slate-800 dark:text-dark-text-main focus:outline-none ${className}`}>
-    {React.cloneElement(icon, { className: 'w-4 h-4 text-slate-600 dark:text-dark-text-muted' })}
-    <span>{label}</span>
-  </button>
-);
 
 const TreeFolder = ({ folder, allFolders, currentFolderId, onSelect, depth = 1, onDropFiles, onMoveItems }: any) => {
   const children = allFolders.filter((f: any) => f.parentId === folder.id);

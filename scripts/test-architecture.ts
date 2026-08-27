@@ -120,8 +120,9 @@ const BUDGET = 1200;
 const LEGACY: Record<string, number> = {
   'src/screens/Registry.tsx': 6071,
   'server.ts': 4296,
-  // Строки и значки уехали в components/explorer/FileItems.tsx — планка ниже
-  'src/screens/Explorer.tsx': 2371,
+  // Строки и значки уехали в components/explorer/FileItems.tsx, меню правой
+  // кнопки — в components/explorer/ExplorerMenu.tsx: планка ниже
+  'src/screens/Explorer.tsx': 2368,
   'src/screens/DictionaryEditor.tsx': 2279,
   // Пузырь сообщения уехал в components/chat/MessageBubble.tsx — планка ниже
   'src/screens/ChatManagement.tsx': 1864,
