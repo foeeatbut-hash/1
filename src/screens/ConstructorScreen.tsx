@@ -19,7 +19,8 @@ import * as XLSX from 'xlsx';
 import {
   Table2, Plus, ArrowLeft, Loader2, Download, FolderOpen, Copy, Trash2,
   RotateCcw, Lock, Users2, Search, ChevronRight, Database, X, CheckCircle2,
-  Boxes, RefreshCw, Unlink, AlertTriangle, Printer, History, FileText, ChevronDown, Braces
+  Boxes, RefreshCw, Unlink, AlertTriangle, Printer, History, FileText, ChevronDown, Braces,
+  TriangleAlert
 } from 'lucide-react';
 import TextDocEditor from './TextDocEditor';
 import TitleTemplateEditor from './TitleTemplateEditor';
@@ -27,6 +28,8 @@ import TitlePanel, { fetchTitlePageHtml, buildPageTemplates, fetchRevisionsSheet
 import { Stamp } from 'lucide-react';
 import { countOf } from '../lib/plural';
 import { useModalStore } from '../store/modalStore';
+import EnglishVersion from '../components/translate/EnglishVersion';
+import { docFingerprint } from '../translate/docPlan';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm, openPrompt } = useModalStore.getState();
@@ -140,6 +143,9 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   });
   // История версий: автоснимки перед обновлением данных + ручные + откат
   const [versionsOpen, setVersionsOpen] = useState(false);
+  // Английская версия: снимок на момент открытия сверки и отставшая пара
+  const [englishSnap, setEnglishSnap] = useState<any>(null);
+  const [stale, setStale] = useState<{ id: string; targetDocId: string } | null>(null);
   // Титул: присвоенный шаблон + реквизиты этого документа (как у Ворда)
   const [titleOpen, setTitleOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -293,6 +299,10 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         saveConflictRef.current = false;
         setSaveConflict(null);
         setSaveState('saved');
+        // Правка могла увести русский от английской версии — сверяем сразу,
+        // а не при следующем открытии: два разных документа заказчику уходят
+        // именно в тот день, когда «поправил и отправил»
+        if (snapshot) checkStale(snapshot);
         return;
       }
       const d = await res.json().catch(() => ({}));
@@ -1112,6 +1122,78 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       res.ok ? 'success' : 'error');
   };
 
+  /**
+   * Английская версия: сначала сверка, потом документ.
+   *
+   * Снимок берём один раз и отдаём диалогу: пока человек читает перевод, он же
+   * может править русский документ, и собирать английскую версию по съехавшему
+   * снимку значит выпустить документ, которого не было.
+   */
+  const openEnglish = async () => {
+    await saveNow();
+    try {
+      setEnglishSnap(JSON.parse(takeSnapshot() || '{}'));
+    } catch (_) {
+      addToast('Не удалось прочитать документ', 'error');
+    }
+  };
+
+  const createEnglish = async (mode: string, workbook: string, name: string, print: string): Promise<boolean> => {
+    try {
+      const copy = await dataService.forkDoc(docId, workbook, name);
+      await fetch('/api/translate/links', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: activeProject?.id, sourceDocId: docId, targetDocId: copy.id, mode, fingerprint: print,
+        }),
+      });
+      addToast(`Создан документ «${name}»`, 'success');
+      linkRef.current = { id: '', targetDocId: copy.id, fingerprint: print };
+      setStale(null);
+      return true;
+    } catch (e: any) {
+      addToast(e?.message || 'Не удалось создать английскую версию', 'error');
+      return false;
+    }
+  };
+
+  /**
+   * Русский документ правят, английский остаётся прежним — и заказчику уходят
+   * два разных документа. Сверяем отпечаток текста с тем, что был на момент
+   * перевода, и говорим об этом прямо в документе.
+   *
+   * Связь держим в ссылке, а не только в состоянии: сверка идёт и при каждом
+   * сохранении, а обработчик сохранения живёт дольше одной отрисовки.
+   */
+  const linkRef = useRef<{ id: string; targetDocId: string; fingerprint: string } | null>(null);
+
+  const checkStale = (snapshot?: string) => {
+    const link = linkRef.current;
+    if (!link?.targetDocId || !link.fingerprint) { setStale(null); return; }
+    try {
+      const now = docFingerprint(JSON.parse(snapshot || takeSnapshot() || '{}'));
+      setStale(now && now !== link.fingerprint ? { id: link.id, targetDocId: link.targetDocId } : null);
+    } catch (_) { /* книга ещё не собралась — сверим при следующем сохранении */ }
+  };
+
+  useEffect(() => {
+    if (loading || !docId) return;
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/translate/links?sourceDocId=${encodeURIComponent(docId)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const link = (data.items || [])[0];
+        if (!alive) return;
+        linkRef.current = link?.targetDocId
+          ? { id: link.id, targetDocId: link.targetDocId, fingerprint: link.fingerprint || '' } : null;
+        checkStale();
+      } catch (_) { /* связи может не быть — это норма */ }
+    })();
+    return () => { alive = false; };
+  }, [docId, loading, reloadTick]);
+
   const runCommand = (id: string, value?: string) => {
     const api = univerRef.current?.univerAPI;
     switch (id) {
@@ -1166,6 +1248,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       case 'sh.fillData': return fillPlaceholders();
       case 'sh.template': return saveAsTemplate();
       case 'sh.versions': { setVersionsOpen(v => !v); if (!versionsOpen) loadVersions(); return; }
+      case 'sh.english': return openEnglish();
       case 'sh.zoom': {
         const next = Math.min(400, Math.max(30, zoom + (value === '+' ? 10 : -10)));
         setZoom(next);
@@ -1368,6 +1451,35 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           onChange={(next, persist) => { setTitleSettings(next); if (persist) saveNow({ settings: JSON.stringify(next) }); }}
           onClose={() => setTitleOpen(false)}
         />
+      )}
+
+      {/* Английская версия: сверка сегментов, четыре вида двуязычия */}
+      {englishSnap && (
+        <EnglishVersion
+          snapshot={englishSnap}
+          docName={doc?.name || 'Документ'}
+          onClose={() => setEnglishSnap(null)}
+          onCreate={createEnglish}
+        />
+      )}
+
+      {/* Русский правили после перевода — английский отстал, и это надо видеть */}
+      {stale && (
+        <div className="absolute left-1/2 -translate-x-1/2 top-2 z-40 flex items-center gap-2 px-3 py-1.5 rounded-lg
+                        border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 shadow-lg">
+          <TriangleAlert className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+          <span className="text-2xs text-amber-800 dark:text-amber-300">
+            Русский изменился после перевода — английская версия отстала
+          </span>
+          <button type="button" onClick={openEnglish}
+            className="px-2 py-0.5 rounded-md text-2xs font-bold bg-amber-600 hover:bg-amber-700 text-white cursor-pointer">
+            Обновить
+          </button>
+          <button type="button" onClick={() => setStale(null)} aria-label="Скрыть"
+            className="p-0.5 rounded text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40 cursor-pointer">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
       )}
 
       {/* Панель истории версий: автоснимки и ручные, откат */}

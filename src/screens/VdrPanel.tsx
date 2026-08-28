@@ -4,10 +4,11 @@ import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import {
   FileSpreadsheet, Plus, Upload, Download, RefreshCw, Trash2, FileText, ArrowUpCircle,
-  CheckCircle2, AlertTriangle, Send, Loader2, X, Search, Settings2, Tag as TagIcon, History,
+  CheckCircle2, AlertTriangle, Send, Loader2, X, Search, Settings2, Tag as TagIcon, History, Languages,
 } from 'lucide-react';
 import { countOf } from '../lib/plural';
 import { useModalStore } from '../store/modalStore';
+import { useTranslateStore } from '../store/translateStore';
 
 // Диалоги программы вместо системных окон Windows
 const { openPrompt } = useModalStore.getState();
@@ -137,6 +138,41 @@ export default function VdrPanel() {
     else { const d = await r.json().catch(() => ({})); addToast(d.error || 'Ошибка', 'error'); }
   };
 
+  /**
+   * Заполнить пустые английские названия.
+   *
+   * Реестр сам себя учит: каждая пара, введённая инженером руками, уже лежит в
+   * памяти переводов, и следующие строки берут перевод из неё. Заполненное
+   * вручную не трогаем — согласованное с заказчиком название не должно
+   * поменяться от нажатия кнопки.
+   */
+  const fillEnglishTitles = async () => {
+    const empty = items.filter((i) => i.titleRu?.trim() && !i.titleEn?.trim());
+    if (!empty.length) { addToast('Пустых английских названий нет', 'info'); return; }
+    const one = useTranslateStore.getState().one;
+    const done: { id: string; en: string; ru: string }[] = [];
+    for (const it of empty) {
+      const seg = one(it.titleRu.trim(), 'ru', 'en');
+      if (!seg.dst.trim() || seg.origin === 'none') continue;
+      done.push({ id: it.id, en: seg.dst.trim(), ru: it.titleRu.trim() });
+    }
+    if (!done.length) {
+      addToast('Ни одного названия не удалось перевести — пополните словарь в Переводчике', 'error');
+      return;
+    }
+    for (const d of done) {
+      await fetch(`/api/vdr/items/${d.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ titleEn: d.en }),
+      });
+    }
+    await useTranslateStore.getState().remember(
+      done.map((d) => ({ src: d.ru, dst: d.en, from: 'ru' as const, to: 'en' as const })),
+    );
+    addToast(`Заполнено английских названий: ${done.length} из ${empty.length}. Прочитайте их перед выпуском`, 'success');
+    await refresh();
+  };
+
   const createDoc = async (it: Item) => {
     const r = await fetch(`/api/vdr/items/${it.id}/create-doc`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     if (!r.ok) { addToast('Не удалось создать документ', 'error'); return; }
@@ -251,6 +287,10 @@ export default function VdrPanel() {
             <button type="button" onClick={registerRevisionUp} title="Новая ревизия самого ВДР (запись в Учёт ревизий)"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
               <ArrowUpCircle className="w-3.5 h-3.5" /> Рев. ВДР
+            </button>
+            <button type="button" onClick={fillEnglishTitles} title="Заполнить пустые английские названия по памяти и словарю проекта"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
+              <Languages className="w-3.5 h-3.5" /> Англ. названия
             </button>
             <button type="button" onClick={() => setRegSettingsOpen(true)} title="Реквизиты реестра, стандарт, свои колонки"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
