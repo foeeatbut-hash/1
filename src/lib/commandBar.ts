@@ -27,7 +27,8 @@ export type BarRun =
   | { kind: 'remind'; at: number; text: string }
   | { kind: 'note'; text: string }
   | { kind: 'desk'; index: number }
-  | { kind: 'fill'; text: string };
+  | { kind: 'fill'; text: string }
+  | { kind: 'translate'; text: string };
 
 /** Группа задаёт порядок и подпись; порядок здесь — порядок в списке */
 export type BarGroup = 'команда' | 'раздел' | 'справка' | 'проект' | 'помощник';
@@ -61,6 +62,7 @@ export const SLASH: SlashCmd[] = [
   { name: 'справка', hint: 'о чём', about: 'Найти в руководстве', icon: 'book', needsRest: true },
   { name: 'напомни', hint: 'когда и о чём', about: 'Напоминание придёт уведомлением', icon: 'bell', needsRest: true },
   { name: 'заметка', hint: 'текст', about: 'Новая заметка в Блокноте', icon: 'note', needsRest: true },
+  { name: 'переведи', hint: 'текст', about: 'Перевести в Переводчике', icon: 'translate', needsRest: true },
   { name: 'стол', hint: 'номер', about: 'Перейти на рабочий стол', icon: 'desk', needsRest: true },
   { name: 'проверка', hint: '', about: 'Проверка проекта перед выпуском', icon: 'check', needsRest: false },
   { name: 'изменения', hint: '', about: 'Что изменилось в оборудовании', icon: 'history', needsRest: false },
@@ -289,6 +291,7 @@ function runOf(cmd: SlashCmd, rest: string, src: BarSource, now: number): BarRun
     case 'изменения': return { kind: 'changes' };
     case 'найди': return { kind: 'ask', query: rest };
     case 'заметка': return { kind: 'note', text: rest };
+    case 'переведи': return { kind: 'translate', text: rest };
     case 'стол': return { kind: 'desk', index: Math.max(1, Number(rest) || 1) - 1 };
     case 'открой': {
       const s = sectionByWord(rest, src.sections);

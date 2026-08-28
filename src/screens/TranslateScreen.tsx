@@ -53,6 +53,29 @@ export default function TranslateScreen() {
 
   React.useEffect(() => { if (activeProject?.id) store.load(activeProject.id); }, [activeProject?.id]);
 
+  // Текст, присланный строкой Ctrl+K или окошком над выделением. Забираем его
+  // и переводим сразу: человек уже сказал, чего хочет, — спрашивать второй раз
+  // нажатием «Перевести» незачем
+  const pending = useTranslateStore((s) => s.pending);
+  React.useEffect(() => {
+    if (!pending) return;
+    // Текст берём из самого значения, а не вторым обращением к хранилищу:
+    // в строгом режиме React прогоняет эффект дважды, и второй проход получил
+    // бы уже опустошённое поле — окно открывалось пустым
+    const text = pending;
+    store.setPending('');
+    setMode('text');
+    setSrc(text);
+    setRows([]);
+    const lang = detectLang(text);
+    if (lang !== 'und') {
+      const to: Lang = lang === 'ru' ? 'en' : 'ru';
+      setFrom('auto');
+      setTo(to);
+      setRows(store.many(text, lang, to).map((s) => ({ ...s })));
+    }
+  }, [pending]);
+
   // Язык исходника определяем сами, но выбор человека главнее: он видит текст
   const guessed: Lang = React.useMemo(() => (from === 'auto' ? detectLang(src) : (from as Lang)), [from, src]);
   // Переводить на тот же язык бессмысленно: если выбрано одно и то же,

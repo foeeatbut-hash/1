@@ -66,6 +66,14 @@ interface TranslateState {
   termIndex: Record<string, TermIndex>;
   tmIndex: Record<string, TmIndex>;
 
+  /**
+   * Текст, переданный Переводчику со стороны: из строки Ctrl+K или из
+   * всплывающего окошка над выделением. Окно программы забирает его при
+   * открытии и очищает — иначе следующий приход в раздел показал бы прошлое.
+   */
+  pending: string;
+  setPending: (text: string) => void;
+
   load: (projectId: string, force?: boolean) => Promise<void>;
   setModel: (m: Partial<ModelSettings>) => void;
   /** Перевести одну строку — тем же способом, что и всё остальное */
@@ -106,6 +114,9 @@ export const useTranslateStore = create<TranslateState>((set, get) => ({
   model: loadModel(),
   termIndex: {},
   tmIndex: {},
+  pending: '',
+
+  setPending: (text) => set({ pending: String(text || '') }),
 
   load: async (projectId, force) => {
     const st = get();

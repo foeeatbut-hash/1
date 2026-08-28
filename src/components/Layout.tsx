@@ -33,6 +33,7 @@ import ProjectSwitcher from './ProjectSwitcher';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import { useWorkspaceStore, visiblePanes, openSectionWindow } from '../store/workspaceStore';
 import { useTranslateStore } from '../store/translateStore';
+import QuickTranslate from './translate/QuickTranslate';
 import { useModalStore } from '../store/modalStore';
 
 // Диалоги программы вместо системных окон Windows
@@ -806,6 +807,11 @@ export default function Layout() {
       <CommandBar />
 
       <NotifyToasts onOpen={(route) => navigate(route)} />
+
+      {/* Alt+T над выделенным текстом — перевод рядом с ним, без ухода в
+          программу-переводчик. Живёт в оболочке, потому что выделить текст
+          можно где угодно */}
+      <QuickTranslate />
       <ToastProvider />
       <ModalProvider />
       <ShareLayer />
