@@ -1,9 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { X, Send, Paperclip, Loader2, AlertTriangle, PenLine, Minus } from 'lucide-react';
+import { X, Send, Paperclip, Loader2, AlertTriangle, PenLine, Minus, Languages } from 'lucide-react';
 import { mailService, type MailAccount, type MailSignature } from '../../services/mailService';
 import { useEscapeClose } from '../../lib/useDismiss';
 import { useToastStore } from '../../store/toastStore';
+import { useTranslateStore } from '../../store/translateStore';
+import { detectLang } from '../../translate/lang';
+import { joinSegments } from '../../translate/engine';
 
 /**
  * Окно письма: новое, ответ, ответить всем, пересылка.
@@ -55,8 +58,33 @@ export default function MailCompose({ account, mode, messageId, onClose, onSent 
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const bodyRef = useRef<HTMLDivElement>(null);
+  const [keepRu, setKeepRu] = useState(true);
+  const many = useTranslateStore((s) => s.many);
 
   useEscapeClose(true, () => { if (!sending) onClose(); });
+
+  /**
+   * Русский текст → английский, прямо в поле письма.
+   *
+   * Заказчику уходят два варианта, и второй раньше писали вручную по памяти
+   * прошлого письма — отсюда и расхождения в названиях. Здесь тот же словарь и
+   * та же память, что у документов: узел, названный в ведомости `air handling
+   * unit`, так же назовётся и в письме.
+   */
+  const toEnglish = () => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const ru = (el.innerText || '').trim();
+    if (!ru) { addToast('Сначала напишите письмо', 'error'); return; }
+    if (detectLang(ru) !== 'ru') { addToast('Письмо и так не по-русски', 'error'); return; }
+    const en = joinSegments(many(ru, 'ru', 'en')).trim();
+    if (!en) { addToast('Перевод не собрался — словарь пуст', 'error'); return; }
+    el.innerText = keepRu ? `${en}\n\n— — —\n\n${ru}` : en;
+    if (subject.trim() && detectLang(subject) === 'ru') {
+      setSubject(joinSegments(many(subject, 'ru', 'en')).trim() || subject);
+    }
+    addToast('Английский вариант подставлен — прочитайте перед отправкой', 'info');
+  };
 
   useEffect(() => {
     let alive = true;
@@ -179,6 +207,24 @@ export default function MailCompose({ account, mode, messageId, onClose, onSent 
               <div className="flex items-center gap-2">
                 <label className="shrink-0 w-16 text-xs font-semibold text-slate-500 dark:text-slate-400" htmlFor="mail-subj">Тема</label>
                 <input id="mail-subj" value={subject} onChange={(e) => setSubject(e.target.value)} disabled={sending} className={`${field} flex-1 min-w-0`} />
+              </div>
+
+              {/* Ответить заказчику по-английски. Кнопка не отправляет письмо
+                  и не подменяет его молча: перевод встаёт в поле, и его видно
+                  до отправки — иначе заказчик первым узнает, что там вышло */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={toEnglish} disabled={sending}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-2xs font-semibold
+                             text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40
+                             cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                  <Languages className="w-3.5 h-3.5" />
+                  Английский вариант
+                </button>
+                <label className="flex items-center gap-1.5 text-2xs text-slate-500 dark:text-slate-400 cursor-pointer">
+                  <input type="checkbox" checked={keepRu} onChange={(e) => setKeepRu(e.target.checked)}
+                    className="accent-emerald-600 cursor-pointer" />
+                  оставить русский ниже
+                </label>
               </div>
 
               {/* Тело письма */}

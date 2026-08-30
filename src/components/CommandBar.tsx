@@ -14,7 +14,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search, CornerDownLeft, ArrowUp, ArrowDown, ShieldCheck, History, BookOpen,
-  Bell, StickyNote, Monitor, AppWindow, MessageCircleQuestion, Slash,
+  Bell, StickyNote, Monitor, AppWindow, MessageCircleQuestion, Slash, Languages,
 } from 'lucide-react';
 import { useStore } from '../store/store';
 import { useInsightStore } from '../store/insightStore';
@@ -22,6 +22,7 @@ import { useAssistantStore } from '../store/assistantStore';
 import { useWindowStore } from '../store/windowStore';
 import { useToastStore } from '../store/toastStore';
 import { useReminderStore } from '../store/reminderStore';
+import { useTranslateStore } from '../store/translateStore';
 import { SECTIONS } from '../workspace/sections';
 import { fetchSearch, type SearchHit } from '../lib/insight';
 import { search as searchHandbook } from '../handbook/registry';
@@ -45,6 +46,7 @@ function ItemIcon({ icon }: { icon: string }) {
     case 'book': return <BookOpen className={cls} />;
     case 'bell': return <Bell className={cls} />;
     case 'note': return <StickyNote className={cls} />;
+    case 'translate': return <Languages className={cls} />;
     case 'desk': return <Monitor className={cls} />;
     case 'check': return <ShieldCheck className={cls} />;
     case 'history': return <History className={cls} />;
@@ -162,6 +164,14 @@ export default function CommandBar() {
       case 'check': close(); openCheck(); return;
       case 'changes': close(); openChanges(); return;
       case 'note': close(); navigate(`/notes?new=${encodeURIComponent(r.text || 'Новая заметка')}`); return;
+      case 'translate': {
+        // Строка отдаёт текст Переводчику, а не переводит сама: перевод нужен
+        // рядом с правкой, происхождением и памятью, а в одну строку это не влезет
+        close();
+        useTranslateStore.getState().setPending(r.text);
+        useWindowStore.getState().open('/translate');
+        return;
+      }
       case 'desk': close(); useWindowStore.getState().goToDesk(r.index); return;
       case 'remind': {
         close();

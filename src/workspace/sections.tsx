@@ -9,7 +9,7 @@
  *  - pad: нужен ли внешний отступ p-6 (у таблиц/чатов свой лэйаут)
  */
 import React, { lazy } from 'react';
-import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, Table2, NotebookPen, MessagesSquare, Wand2, Settings, ClipboardList, Users, LifeBuoy, Mail, FileText, MessageCircleQuestion } from 'lucide-react';
+import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, Table2, NotebookPen, MessagesSquare, Wand2, Settings, ClipboardList, Users, LifeBuoy, Mail, FileText, MessageCircleQuestion, Languages } from 'lucide-react';
 
 const Dashboard = lazy(() => import('../screens/Dashboard'));
 const Explorer = lazy(() => import('../screens/Explorer'));
@@ -29,6 +29,7 @@ const ConstructorScreen = lazy(() => import('../screens/ConstructorScreen'));
 const Handbook = lazy(() => import('../screens/Handbook'));
 const PdfEditor = lazy(() => import('../screens/PdfEditor'));
 const AssistantScreen = lazy(() => import('../screens/AssistantScreen'));
+const TranslateScreen = lazy(() => import('../screens/TranslateScreen'));
 
 /**
  * Область данных раздела — см. src/lib/projectScope.ts.
@@ -90,6 +91,10 @@ export const SECTIONS: SectionDef[] = [
   // столе. Спросить на секунду по-прежнему можно панелью (Ctrl+K), но
   // разговаривать про открытую ведомость удобнее рядом с ней, а не поверх
   { path: '/assistant', title: 'Помощник', icon: MessageCircleQuestion, scope: 'project', scroll: 'fixed', pad: false, Component: AssistantScreen },
+  // Переводчик — программа с окном по той же причине, что и помощник: перевод
+  // идёт рядом с ведомостью, а не поверх неё. Область проектная: словарь и
+  // память принадлежат проекту, у соседнего заказчика свои названия
+  { path: '/translate', title: 'Переводчик', icon: Languages, scope: 'project', scroll: 'fixed', pad: false, Component: TranslateScreen },
   { path: '/notes', title: 'Блокнот', icon: NotebookPen, scope: 'global', scroll: 'auto', pad: true, multi: true, Component: NotesManagement },
   { path: '/chat', title: 'Чат', icon: MessagesSquare, scope: 'global', scroll: 'fixed', pad: true, badge: 'chat', Component: ChatManagement },
   // Почта занимает всю высоту и прокручивает списки внутри — как Чат и Теги

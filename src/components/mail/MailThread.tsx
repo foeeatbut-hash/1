@@ -14,6 +14,13 @@ import { useStore } from '../../store/store';
 import { useEscapeClose } from '../../lib/useDismiss';
 import { sanitizeMailHtml, mailFrameDoc, textToHtml, highlightMentions } from '../../lib/mailHtml';
 import MailMentions from './MailMentions';
+import {
+  LetterFrame, TranslateBar, DigestCard, alwaysFor, setAlwaysFor, digestOf, type LetterView,
+} from './LetterTranslate';
+import { translateHtml, htmlToText } from '../../lib/translateHtml';
+import { detectLang } from '../../translate/lang';
+import { joinSegments } from '../../translate/engine';
+import { useTranslateStore } from '../../store/translateStore';
 
 /**
  * Открытая переписка: письма по порядку, последнее раскрыто.
@@ -62,8 +69,8 @@ function Letter({
 }) {
   const [body, setBody] = useState<BodyState>({ text: '', html: '', error: '', loading: false });
   const [showRemote, setShowRemote] = useState(false);
-  const [height, setHeight] = useState(120);
-  const frameRef = useRef<HTMLIFrameElement>(null);
+  // Высоту письма меряет сама рамка (components/mail/LetterTranslate): рамок
+  // бывает две — оригинал и перевод рядом, — и общая переменная им не подходит
 
   // Тело запрашиваем один раз на письмо. Признак «уже просили» держим в ref, а
   // не в состоянии: состояние в зависимостях эффекта означало бы, что эффект
@@ -133,16 +140,44 @@ function Letter({
     [prepared.html, phrases, showRemote, dark],
   );
 
-  // Высоту письма узнаём у самого документа: iframe своей высоты не имеет,
-  // и без замера письмо показалось бы в окошке с прокруткой внутри прокрутки
-  const measure = () => {
-    try {
-      const doc = frameRef.current?.contentDocument;
-      if (!doc?.body) return;
-      const h = Math.max(doc.body.scrollHeight, doc.documentElement?.scrollHeight || 0);
-      if (h > 0) setHeight(Math.min(h + 8, 20000));
-    } catch (_) { /* песочница не пустила — оставляем прежнюю высоту */ }
-  };
+  // ── Перевод письма ──
+  // Язык считаем по тексту, а не по заголовкам: заголовок Content-Language
+  // ставит почтовый клиент отправителя, и в письме от китайского поставщика он
+  // сплошь и рядом английский
+  const letterText = useMemo(
+    () => (body.text || htmlToText(body.html)).trim(),
+    [body.text, body.html],
+  );
+  const letterLang = useMemo(() => detectLang(letterText), [letterText]);
+  const foreign = letterLang === 'en' || letterLang === 'zh';
+  const [view, setView] = useState<LetterView>('orig');
+  const [always, setAlways] = useState(false);
+  const [digestOpen, setDigestOpen] = useState(false);
+  const termIndex = useTranslateStore((s) => s.termIndex);
+  const tmIndex = useTranslateStore((s) => s.tmIndex);
+  const many = useTranslateStore((s) => s.many);
+
+  // Выбор «всегда для этого отправителя» переводит письмо сразу, не спрашивая
+  useEffect(() => {
+    const on = alwaysFor(msg.fromAddr);
+    setAlways(on);
+    if (foreign && on) setView('ru');
+  }, [msg.fromAddr, foreign]);
+
+  const ruDoc = useMemo(() => {
+    if (!foreign || view === 'orig' || !prepared.html) return '';
+    const html = translateHtml(prepared.html, (t) => joinSegments(many(t, letterLang, 'ru')) || t);
+    return mailFrameDoc(html, { allowRemoteImages: showRemote, dark });
+  }, [foreign, view, prepared.html, letterLang, showRemote, dark, many, termIndex, tmIndex]);
+
+  const digest = useMemo(
+    () => (foreign && digestOpen ? digestOf(letterText, letterLang) : null),
+    [foreign, digestOpen, letterText, letterLang],
+  );
+  const asks = useMemo(
+    () => (digest ? digest.asks.map((s) => ({ src: s, ru: joinSegments(many(s, letterLang, 'ru')) })) : []),
+    [digest, many, letterLang],
+  );
 
   const visible = files.filter((f) => !f.inline);
   const sender = { name: msg.fromName, addr: msg.fromAddr };
@@ -213,19 +248,30 @@ function Letter({
             </div>
           )}
 
-          {srcDoc && (
-            <iframe
-              ref={frameRef}
-              title={`Письмо: ${msg.subject || 'без темы'}`}
-              srcDoc={srcDoc}
-              onLoad={measure}
-              // Песочница без allow-scripts и без allow-same-origin: выполнить
-              // в ней нечего, и до наших данных из неё не дотянуться
-              sandbox=""
-              referrerPolicy="no-referrer"
-              className="w-full block border-0 bg-white dark:bg-slate-950"
-              style={{ height }}
+          {foreign && srcDoc && (
+            <TranslateBar
+              lang={letterLang} view={view} onView={setView} addr={msg.fromAddr}
+              always={always}
+              onAlways={(v) => { setAlways(v); setAlwaysFor(msg.fromAddr, v); if (v) setView('ru'); }}
+              digestOpen={digestOpen} onDigest={() => setDigestOpen((x) => !x)}
             />
+          )}
+
+          {digest && <DigestCard digest={digest} asks={asks} />}
+
+          {srcDoc && view !== 'both' && (
+            <LetterFrame
+              srcDoc={view === 'ru' && ruDoc ? ruDoc : srcDoc}
+              title={`Письмо: ${msg.subject || 'без темы'}`}
+            />
+          )}
+
+          {srcDoc && view === 'both' && (
+            <div className="grid grid-cols-1 @[760px]:grid-cols-2 divide-y @[760px]:divide-y-0 @[760px]:divide-x
+                            divide-slate-100 dark:divide-slate-850">
+              <LetterFrame srcDoc={srcDoc} title="Письмо: оригинал" />
+              <LetterFrame srcDoc={ruDoc || srcDoc} title="Письмо: перевод" />
+            </div>
           )}
 
           {!body.loading && !body.error && !srcDoc && (

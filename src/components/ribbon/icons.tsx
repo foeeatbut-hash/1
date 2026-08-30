@@ -23,6 +23,7 @@ import {
   Circle, StickyNote, MessageSquare, Ruler as MeasureIcon, Crop, Files, Mail,
   ArrowDownWideNarrow, Sun, ZoomIn, Printer, Save, FolderOpen, Info, Braces,
   SquareStack, Link, Unlink, ChevronDown, MoreHorizontal, Lock, Sheet, ChartColumn,
+  Languages, ArrowLeftRight, BookMarked,
 } from 'lucide-react';
 
 type IconCmp = React.ComponentType<{ className?: string }>;
@@ -59,6 +60,7 @@ const MAP: Record<string, IconCmp> = {
   print: Printer, save: Save, folder: FolderOpen, info: Info, formula: Braces,
   template: SquareStack, anchor: Link, more: MoreHorizontal, down: ChevronDown,
   lock: Lock, sheet: Sheet, chart: ChartColumn,
+  languages: Languages, swap: ArrowLeftRight, terms: BookMarked,
 };
 
 /** Есть ли такое имя значка — для проверки состава лент */

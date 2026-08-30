@@ -4,7 +4,7 @@ import { formatName } from '../lib/docFormula';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 const SignatureEditor = React.lazy(() => import('./SignatureEditor'));
-import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen, PenLine, Mail, LifeBuoy } from 'lucide-react';
+import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen, PenLine, Mail, LifeBuoy, Languages } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ToastProvider from './ToastProvider';
 import ModalProvider from './ModalProvider';
@@ -32,6 +32,8 @@ import WindowsLayer from './WindowsLayer';
 import ProjectSwitcher from './ProjectSwitcher';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import { useWorkspaceStore, visiblePanes, openSectionWindow } from '../store/workspaceStore';
+import { useTranslateStore } from '../store/translateStore';
+import QuickTranslate from './translate/QuickTranslate';
 import { useModalStore } from '../store/modalStore';
 
 // Диалоги программы вместо системных окон Windows
@@ -50,6 +52,16 @@ export default function Layout() {
     return p ? (p.stack.includes(p.active) ? p.active : p.stack[p.stack.length - 1]) : '/';
   });
   const openInActivePane = useWorkspaceStore((s) => s.openInActivePane);
+
+  /**
+   * Словарь и память переводов тянем один раз на проект, а не в каждом окне.
+   * Перевод нужен и в Почте, и в Конструкторе, и над выделенным текстом — если
+   * бы каждый грузил своё, письмо переводилось бы одними словами, а ведомость
+   * другими, и заказчик получил бы два разных названия одного узла.
+   */
+  React.useEffect(() => {
+    if (activeProject?.id) useTranslateStore.getState().load(activeProject.id);
+  }, [activeProject?.id]);
 
   /**
    * F1 — руководство по разделу, в котором человек сейчас находится.
@@ -513,6 +525,7 @@ export default function Layout() {
       { name: 'Справочник', path: '/directory', icon: BookOpen },
       { name: 'Менеджмент', path: '/management', icon: Briefcase },
       { name: 'Конструктор', path: '/constructor', icon: Table2 },
+      { name: 'Переводчик', path: '/translate', icon: Languages },
     ] },
     { label: 'Общее', items: [
       { name: 'Проводник', path: '/explorer', icon: FolderOpen },
@@ -794,6 +807,11 @@ export default function Layout() {
       <CommandBar />
 
       <NotifyToasts onOpen={(route) => navigate(route)} />
+
+      {/* Alt+T над выделенным текстом — перевод рядом с ним, без ухода в
+          программу-переводчик. Живёт в оболочке, потому что выделить текст
+          можно где угодно */}
+      <QuickTranslate />
       <ToastProvider />
       <ModalProvider />
       <ShareLayer />
