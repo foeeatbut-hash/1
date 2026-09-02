@@ -173,4 +173,128 @@ export function registerAssistantRoutes(app: Express): void {
     }
   });
 
+  // ── История разговоров ───────────────────────────────────────────────────
+  //
+  // Разговор — личная переписка. Правило одно и без исключений: человек видит
+  // только свои разговоры, и администратор тоже. Поэтому владелец не приходит
+  // из тела запроса и не выбирается — он всегда берётся из входа, а каждый
+  // запрос к отдельному разговору сверяет владельца ещё раз. Без второй сверки
+  // достаточно было бы подставить чужой идентификатор в адрес.
+  //
+  // Так же сказано и в интерфейсе: без этой строчки спрашивать будут с
+  // оглядкой, а помощник, которому не задают вопросов, бесполезен.
+
+  const meIdOf = (req: Request): string => String((req as any).authUser?.id || '');
+
+  // Таблицы для PostgreSQL и MariaDB (в SQLite их строит server.ts)
+  let ensured = false;
+  const ensureTables = async (): Promise<void> => {
+    if (ensured) return;
+    const prisma = getPrisma();
+    try {
+      await prisma.assistantChat.count();
+      ensured = true;
+    } catch (_) {
+      try {
+        await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "AssistantChat" (
+          "id" TEXT NOT NULL PRIMARY KEY,
+          "ownerId" TEXT NOT NULL,
+          "projectId" TEXT NOT NULL DEFAULT '',
+          "title" TEXT NOT NULL DEFAULT '',
+          "preview" TEXT NOT NULL DEFAULT '',
+          "messages" TEXT NOT NULL,
+          "search" TEXT NOT NULL,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`);
+        await prisma.$executeRawUnsafe(
+          `CREATE INDEX IF NOT EXISTS "AssistantChat_owner_project_idx" ON "AssistantChat"("ownerId", "projectId")`);
+        ensured = true;
+      } catch (e) {
+        console.warn('[Помощник] Не удалось создать таблицу разговоров:', e);
+      }
+    }
+  };
+
+  /** Список разговоров: только свои, свежие сверху, без тел реплик */
+  app.get('/api/assistant/chats', async (req: Request, res: Response) => {
+    try {
+      await ensureTables();
+      const me = meIdOf(req);
+      if (!me) return res.json({ chats: [] });
+      const projectId = String(req.query.projectId || '');
+      const q = String(req.query.q || '').trim().toLowerCase();
+      const rows = await getPrisma().assistantChat.findMany({
+        where: {
+          ownerId: me,
+          ...(projectId ? { projectId } : {}),
+          // Поиск идёт по всем репликам: нужное слово чаще во второй, а имя
+          // разговора — только первая фраза
+          ...(q ? { search: { contains: q } } : {}),
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 200,
+        select: { id: true, title: true, preview: true, projectId: true, createdAt: true, updatedAt: true },
+      });
+      res.json({ chats: rows });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /** Один разговор целиком — только свой */
+  app.get('/api/assistant/chats/:id', async (req: Request, res: Response) => {
+    try {
+      await ensureTables();
+      const me = meIdOf(req);
+      const row = await getPrisma().assistantChat.findUnique({ where: { id: req.params.id } });
+      if (!row || row.ownerId !== me) return res.status(404).json({ error: 'Разговор не найден' });
+      res.json({ chat: row });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * Записать разговор. Один адрес и на создание, и на обновление: разговор
+   * заводится в окне помощника и сохраняется по ходу дела, а не кнопкой, —
+   * поэтому клиент присылает свой идентификатор и не ждёт ответа, чтобы
+   * продолжить писать.
+   */
+  app.put('/api/assistant/chats/:id', async (req: Request, res: Response) => {
+    try {
+      await ensureTables();
+      const me = meIdOf(req);
+      if (!me) return res.status(401).json({ error: 'Нужен вход' });
+      const id = String(req.params.id);
+      const title = String(req.body?.title || '').slice(0, 200);
+      const preview = String(req.body?.preview || '').slice(0, 200);
+      const messages = String(req.body?.messages || '[]');
+      const search = String(req.body?.search || '').slice(0, 8000);
+      const projectId = String(req.body?.projectId || '');
+
+      const existing = await getPrisma().assistantChat.findUnique({ where: { id } });
+      if (existing && existing.ownerId !== me) return res.status(403).json({ error: 'Чужой разговор' });
+      const chat = existing
+        ? await getPrisma().assistantChat.update({ where: { id }, data: { title, preview, messages, search, projectId } })
+        : await getPrisma().assistantChat.create({ data: { id, ownerId: me, projectId, title, preview, messages, search } });
+      res.json({ chat: { id: chat.id, title: chat.title, updatedAt: chat.updatedAt } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/assistant/chats/:id', async (req: Request, res: Response) => {
+    try {
+      await ensureTables();
+      const me = meIdOf(req);
+      const row = await getPrisma().assistantChat.findUnique({ where: { id: req.params.id } });
+      if (!row || row.ownerId !== me) return res.status(404).json({ error: 'Разговор не найден' });
+      await getPrisma().assistantChat.delete({ where: { id: row.id } });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
 }

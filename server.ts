@@ -480,6 +480,18 @@ function ensureSchemaColumns(dbPath: string) {
       )`);
       db.exec('CREATE UNIQUE INDEX IF NOT EXISTS "ProjectMember_project_user_key" ON "ProjectMember"("projectId", "userId")');
       db.exec('CREATE INDEX IF NOT EXISTS "ProjectMember_userId_idx" ON "ProjectMember"("userId")');
+      db.exec(`CREATE TABLE IF NOT EXISTS "AssistantChat" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "ownerId" TEXT NOT NULL,
+        "projectId" TEXT NOT NULL DEFAULT '',
+        "title" TEXT NOT NULL DEFAULT '',
+        "preview" TEXT NOT NULL DEFAULT '',
+        "messages" TEXT NOT NULL DEFAULT '[]',
+        "search" TEXT NOT NULL DEFAULT '',
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS "AssistantChat_owner_project_idx" ON "AssistantChat"("ownerId", "projectId")');
       db.exec('CREATE INDEX IF NOT EXISTS "TmUnit_lang_key_idx" ON "TmUnit"("fromLang", "toLang", "srcKey")');
       db.exec('CREATE INDEX IF NOT EXISTS "TmUnit_projectId_idx" ON "TmUnit"("projectId")');
       db.exec(`CREATE TABLE IF NOT EXISTS "TransLink" (
