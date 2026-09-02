@@ -50,9 +50,13 @@ type SectionId = 'general' | 'roles' | 'management' | 'docflow' | 'formulas' | '
 // «Формулы документа», настроенные вчера, сегодня в другом проекте пустые.
 type SettingScope = 'global' | 'project';
 
-const SECTIONS: Array<{ id: SectionId; label: string; icon: any; desc: string; scope: SettingScope }> = [
+const SECTIONS: Array<{ id: SectionId; label: string; icon: any; desc: string; scope: SettingScope; topOnly?: boolean }> = [
   { id: 'general', label: 'Общие', icon: Settings, desc: 'Тема и плотность', scope: 'global' },
-  { id: 'roles', label: 'Роли сотрудников', icon: ShieldCheck, desc: 'Кто кем работает', scope: 'global' },
+  // Роли и доступ — дело одного главного администратора. Остальные не видят
+  // этот лист вовсе: серая кнопка рассказывает о существовании двери, в
+  // которую всё равно не войти, а отказ приходил уже от сервера — то есть
+  // человек нажимал и получал ошибку
+  { id: 'roles', label: 'Роли сотрудников', icon: ShieldCheck, desc: 'Кто кем работает', scope: 'global', topOnly: true },
   { id: 'management', label: 'Менеджмент', icon: Briefcase, desc: 'Этапы закупки', scope: 'global' },
   { id: 'docflow', label: 'Документооборот', icon: FileSpreadsheet, desc: 'Стандарты ВДР', scope: 'global' },
   { id: 'equipment', label: 'Оборудование', icon: Fan, desc: 'Категории оборудования', scope: 'global' },
@@ -98,6 +102,16 @@ export default function SettingsScreen() {
   };
 
   const isAdmin = user?.role === 'ADMIN';
+  // Главный администратор — уровень 1 (lib/roles). Роли и доступ доступны
+  // только ему, и список настроек это учитывает, а не показывает всем
+  const topAdmin = isTopAdmin(user);
+
+  // Раздел могли открыть по адресу — тот, кому он не положен, попадает
+  // в «Общие», а не в пустую страницу с отказом
+  React.useEffect(() => {
+    const def = SECTIONS.find(s => s.id === section);
+    if (def?.topOnly && !topAdmin) setSection('general');
+  }, [section, topAdmin]);
 
   return (
     <motion.div
@@ -124,7 +138,7 @@ export default function SettingsScreen() {
             <div className="hidden @[700px]:block px-3 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 select-none">{g.label}</div>
             <div className="@[700px]:hidden mx-2 mb-1 border-t border-slate-200 dark:border-slate-800" />
           </div>
-          {SECTIONS.filter(s => s.scope === g.scope).map(s => {
+          {SECTIONS.filter(s => s.scope === g.scope && (!s.topOnly || topAdmin)).map(s => {
             const Icon = s.icon;
             const active = section === s.id;
             return (

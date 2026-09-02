@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from 'express';
+import { defaultPermissions } from '../../src/lib/permissions';
 import { getPrisma, notifyUser } from '../context.js';
 
 // Сотрудники, роли и личные настройки уведомлений.
@@ -269,7 +270,13 @@ app.post('/api/users', async (req: Request, res: Response) => {
         password: hashPassword(String(password || 'password')),
         isActive: typeof isActive === 'boolean' ? isActive : true,
         validUntil: validUntil ? new Date(validUntil) : null,
-        permissions: permissions ? (typeof permissions === 'string' ? permissions : JSON.stringify(permissions)) : null,
+        // По умолчанию сотруднику доступно всё, кроме управления проектами
+        // (src/lib/permissions.ts): начинать с нуля значило, что новый человек
+        // первый день не может ничего и ходит к администратору за каждой
+        // галочкой
+        permissions: permissions
+          ? (typeof permissions === 'string' ? permissions : JSON.stringify(permissions))
+          : JSON.stringify(defaultPermissions()),
       }
     });
     const { password: _pw, ...safeNewUser } = newUser as any;
