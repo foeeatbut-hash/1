@@ -119,7 +119,8 @@ console.log('6. Размер файлов не растёт (храповик)')
 const BUDGET = 1200;
 const LEGACY: Record<string, number> = {
   'src/screens/Registry.tsx': 6071,
-  'server.ts': 4296,
+  // Комната документа уехала в server/collab.ts — планка ниже
+  'server.ts': 4291,
   // Строки и значки уехали в components/explorer/FileItems.tsx, меню правой
   // кнопки — в components/explorer/ExplorerMenu.tsx: планка ниже
   'src/screens/Explorer.tsx': 2368,

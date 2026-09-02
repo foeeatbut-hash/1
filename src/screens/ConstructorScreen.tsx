@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { io, Socket } from 'socket.io-client';
-import { ENV_CONFIG, getAuthToken } from '../config/env';
 import { useStore } from '../store/store';
 import { PLACEHOLDERS, placeholderToken, fillSnapshot, countTokens } from '../lib/docPlaceholders';
 import { type ConflictChoice } from '../lib/docConflict';
+import { useDocRoom } from '../components/collab/useDocRoom';
 import SaveConflictDialog from '../components/SaveConflictDialog';
 import DocVersionsPanel from '../components/DocVersionsPanel';
 import DataWizard from '../components/DataWizard';
@@ -117,14 +116,21 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   const [nameDialog, setNameDialog] = useState<null | { suggestion: string }>(null);
   const suggestionRef = useRef<string>('');
 
-  // ── Совместное редактирование (часть IV, MVP): комната документа ──
-  // presence (кто в файле + их выделения, как в онлайн-Excel) и репликация
-  // мутаций движка. Эхо гасится флагом fromCollab (родной механизм Univer).
-  interface Peer { socketId: string; userId: string; name: string; color: string; selection: any }
-  const collabSocketRef = useRef<Socket | null>(null);
+  // ── Совместное редактирование: комната документа (useDocRoom) ──
+  // Кто в файле и где стоит его курсор (как в онлайн-Экселе) плюс рассылка
+  // мутаций движка. Эхо гасится флагом fromCollab — родной механизм Univer.
   const applyingRemoteRef = useRef(false);
   const lastSelSentRef = useRef('');
-  const [peers, setPeers] = useState<Peer[]>([]);
+  /**
+   * Правил ли этот человек книгу с прошлой записи.
+   *
+   * Сравнивать снимки для этого нельзя: снимок движка меняется и сам по себе —
+   * от применённой чужой операции, от приведения книги к порядку при открытии.
+   * Окно, вернувшееся из офлайна, из-за такой разницы объявляло столкновение
+   * человеку, который ничего не набирал (поймано scripts/test-collab-live.ts).
+   * А вот СВОЮ мутацию окно знает точно: именно её оно и рассылает в комнату.
+   */
+  const myEditRef = useRef(false);
   const [peerRects, setPeerRects] = useState<{ key: string; name: string; color: string; left: number; top: number; width: number; height: number }[]>([]);
 
   // ── Умные блоки ──
@@ -272,6 +278,9 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
 
   const saveNow = async (extra?: Record<string, any>, force = false) => {
     if (saveConflictRef.current && !force) return;
+    // Связи с комнатой нет, а в документе кто-то есть: пока чужие правки до
+    // меня не доходят, писать свою книгу целиком — значит класть её поверх них
+    if (roomRef.current?.hold.current && !force) return;
     const snapshot = takeSnapshot();
     const bindingsChanged = bindingsDirtyRef.current;
     if (!snapshot && !extra && !bindingsChanged) return;
@@ -289,11 +298,14 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         }),
       });
       if (res.ok) {
-        if (snapshot) lastSavedRef.current = snapshot;
+        if (snapshot) { lastSavedRef.current = snapshot; myEditRef.current = false; }
         if (bindingsChanged) bindingsDirtyRef.current = false;
         const d = await res.json();
         setDoc(d.doc);
         baseRef.current = d.doc?.updatedAt || baseRef.current;
+        // Участникам комнаты: документ записан, время у него теперь такое.
+        // Они получили мою правку операциями и отставшими не являются
+        roomRef.current?.send('constructor:saved', { docId, at: baseRef.current });
         saveConflictRef.current = false;
         setSaveConflict(null);
         setSaveState('saved');
@@ -315,6 +327,34 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       setSaveState('idle');
     } catch (_) { setSaveState('idle'); }
   };
+
+  /**
+   * Комната документа. Что делать после возвращения связи, решает
+   * collab.afterReconnect: перечитывать документ можно только тогда, когда
+   * терять нечего, а при своей несохранённой правке — запись, и столкновение
+   * объявит сервер, разобрав его тем же окном, что и всегда.
+   */
+  const room = useDocRoom({
+    docId,
+    ready: !loading,
+    applyOp: (op) => {
+      applyingRemoteRef.current = true;
+      try {
+        // fromCollab: движок не рассылает эхо и не кладёт чужое в мой undo
+        univerRef.current?.univerAPI?.executeCommand(op.id, op.params, { fromCollab: true } as any);
+      } catch (_) { console.warn('[Constructor] Не применилась чужая операция:', op.id); }
+      finally { setTimeout(() => { applyingRemoteRef.current = false; }, 0); }
+    },
+    isDirty: () => myEditRef.current,
+    onResync: () => { lastSavedRef.current = ''; setLoading(true); setReloadTick(t => t + 1); },
+    onResolve: () => { void saveNow(); },
+    onNote: (text) => addToast(text, 'info'),
+    onPeerSaved: (at) => { baseRef.current = at; },
+  });
+  // Слушатели движка живут дольше отрисовки и берут комнату из ссылки
+  const roomRef = useRef(room);
+  roomRef.current = room;
+  const peers = room.peers;
 
   /**
    * Три выхода, и ни один не теряет молча: копия сохраняет обе работы, «своё»
@@ -469,6 +509,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         });
         lastSavedRef.current = loaded.workbook || '';
         baseRef.current = loaded.updatedAt || '';
+        myEditRef.current = false;      // книга прочитана заново — своих правок нет
 
         // ── Формульные функции с данными проекта (часть I §7, MVP) ──
         // Асинхронные: движок сам ждёт ответа сервера; повторные вызовы с теми же
@@ -530,31 +571,6 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
             'Свод по установке: =УСТАНОВКА("у1","элементы"). Поля: элементы, моноблоки, категория');
         } catch (e) { console.warn('[Constructor] Регистрация функций пропущена:', e); }
 
-        // ── Коллаборация: комната документа ──
-        const sock = io(ENV_CONFIG.socketUrl, {
-          auth: { token: getAuthToken() },
-          transports: ['websocket', 'polling'],
-          reconnectionDelay: 800,
-          reconnectionDelayMax: 4000,
-        });
-        collabSocketRef.current = sock;
-        sock.on('connect', () => sock.emit('constructor:join', { docId }));
-        sock.on('constructor:presence', ({ peers: roster }: any) => {
-          setPeers((roster || []).filter((pp: any) => pp.socketId !== sock.id));
-        });
-        sock.on('constructor:selection', ({ socketId, selection }: any) => {
-          setPeers(prev => prev.map(pp => pp.socketId === socketId ? { ...pp, selection } : pp));
-        });
-        sock.on('constructor:op', ({ op }: any) => {
-          if (!op?.id) return;
-          applyingRemoteRef.current = true;
-          try {
-            // fromCollab: движок не рассылает эхо и не кладёт чужое в мой undo
-            univerAPI.executeCommand(op.id, op.params, { fromCollab: true } as any);
-          } catch (e) { console.warn('[Constructor] Не применилась чужая операция:', op.id); }
-          finally { setTimeout(() => { applyingRemoteRef.current = false; }, 0); }
-        });
-
         // Мои мутации → остальным участникам (операции вроде выделения не шлём)
         let selTimer: any = null;
         const cmdDisposer = univerAPI.onCommandExecuted((command: any, options: any) => {
@@ -566,7 +582,8 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           if (command?.type !== 2) return; // 2 = CommandType.MUTATION
           const cmdId = String(command.id || '');
           if (!cmdId.startsWith('sheet.mutation.')) return;
-          collabSocketRef.current?.emit('constructor:op', { docId, op: { id: cmdId, params: command.params } });
+          myEditRef.current = true;
+          roomRef.current.send('constructor:op', { docId, op: { id: cmdId, params: command.params } });
         });
         (univerRef.current as any).cmdDisposer = cmdDisposer;
 
@@ -598,7 +615,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         const selStr = JSON.stringify(sel);
         if (selStr !== lastSelSentRef.current) {
           lastSelSentRef.current = selStr;
-          collabSocketRef.current?.emit('constructor:selection', { docId, selection: sel });
+          roomRef.current.send('constructor:selection', { docId, selection: sel });
         }
       } catch (_) {}
     }, 350);
@@ -608,11 +625,6 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       disposed = true;
       clearInterval(timer);
       try { (univerRef.current as any)?.cmdDisposer?.dispose?.(); } catch (_) {}
-      try {
-        collabSocketRef.current?.emit('constructor:leave', { docId });
-        collabSocketRef.current?.disconnect();
-      } catch (_) {}
-      collabSocketRef.current = null;
       try { univerRef.current?.univer?.dispose?.(); } catch (_) {}
       univerRef.current = null;
     };
@@ -637,7 +649,9 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         const mySheet = ws.getSheetId();
         const rects: typeof peerRects = [];
         for (const pp of peers) {
-          const sel = pp.selection;
+          // Вид выделения знает редактор, а не комната: у таблицы это лист и
+          // клетка, у текста будет позиция в потоке
+          const sel = pp.selection as { sheetId: string; row: number; col: number } | null;
           if (!sel || sel.sheetId !== mySheet) continue;
           try {
             const cellRect = ws.getRange(sel.row, sel.col).getCellRect();
@@ -1324,6 +1338,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           scope: isAuthor ? (doc?.scope === 'PERSONAL' ? 'PERSONAL' : 'SHARED') : undefined,
           onScope: isAuthor ? (v) => saveNow({ scope: v }) : undefined,
           peers,
+          link: room.note,
           saveState: saveConflict ? 'conflict' : saveState,
           menu: [
             { label: 'История версий', hint: 'Снимки и возврат к любому', run: () => { setVersionsOpen(true); loadVersions(); } },

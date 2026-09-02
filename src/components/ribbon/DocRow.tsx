@@ -7,8 +7,9 @@
  * человек, перешедший из таблицы в чертёж, ничего не ищет заново.
  */
 import React, { useState } from 'react';
-import { ArrowLeft, MoreHorizontal } from 'lucide-react';
+import { ArrowLeft, MoreHorizontal, WifiOff } from 'lucide-react';
 import { DOC_ROW_H } from '../../lib/ribbon';
+import { initial, peersLabel, extraPeers, MAX_AVATARS, type Peer } from '../../lib/collab';
 
 export interface DocRowMenuItem {
   label: string;
@@ -16,7 +17,8 @@ export interface DocRowMenuItem {
   run: () => void;
 }
 
-export interface DocRowPeer { socketId: string; name: string; color: string }
+/** Участник в шапке — тот же, что в комнате документа (src/lib/collab.ts) */
+export type DocRowPeer = Peer;
 
 export interface DocRowProps {
   icon: React.ReactNode;
@@ -34,6 +36,12 @@ export interface DocRowProps {
   tag?: string | null;
   onTag?: () => void;
   peers?: DocRowPeer[];
+  /**
+   * Что со связью, если с ней плохо (текст готовит collab.linkNote). Пусто —
+   * связь есть. Молчать об обрыве нельзя: человек продолжает печатать, считая,
+   * что коллеги это видят, — а они не видят.
+   */
+  link?: string;
   /** «сохранено» / «сохраняю…» / «не сохранено — разберите правку» */
   saveState: 'saved' | 'saving' | 'idle' | 'conflict';
   menu?: DocRowMenuItem[];
@@ -107,18 +115,32 @@ export default function DocRow(p: DocRowProps) {
       <div className="flex-1 min-w-2" />
 
       {!!p.peers?.length && (
-        <div className="flex items-center shrink-0" title={`В документе: ${p.peers.map((x) => x.name).join(', ')}`}>
+        <div className="flex items-center shrink-0" title={peersLabel(p.peers)}>
           <div className="flex -space-x-1.5">
-            {p.peers.slice(0, 5).map((x) => (
+            {p.peers.slice(0, MAX_AVATARS).map((x) => (
               <div key={x.socketId} title={x.name}
                 className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-black text-white
                            ring-2 ring-white dark:ring-slate-900"
                 style={{ background: x.color }}>
-                {x.name.trim().charAt(0).toUpperCase()}
+                {initial(x.name)}
               </div>
             ))}
           </div>
+          {/* Шестой и дальше — числом: пять кружков помещаются, восемь съедают
+              имя документа, а «кто ещё» отвечает и число */}
+          {extraPeers(p.peers) > 0 && (
+            <span className="ml-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 tabular-nums">
+              +{extraPeers(p.peers)}
+            </span>
+          )}
         </div>
+      )}
+      {!!p.link && (
+        <span title="Пока связи нет, ваши правки не уходят коллегам, а их правки не приходят вам"
+          className="shrink-0 flex items-center gap-1 text-[10px] font-semibold
+                     text-amber-600 dark:text-amber-400">
+          <WifiOff className="w-3 h-3" /> {p.link}
+        </span>
       )}
       <span className={`shrink-0 text-[10px] ${p.saveState === 'conflict'
         ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'text-slate-400 dark:text-slate-455'}`}>
