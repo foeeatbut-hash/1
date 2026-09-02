@@ -29,6 +29,7 @@ import { useNotificationStore } from '../store/notificationStore';
 import Workspace from './Workspace';
 import Taskbar from './Taskbar';
 import WindowsLayer from './WindowsLayer';
+import { BAR_H } from '../lib/metrics';
 import ProjectSwitcher from './ProjectSwitcher';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import { useWorkspaceStore, visiblePanes, openSectionWindow } from '../store/workspaceStore';
@@ -207,7 +208,7 @@ export default function Layout() {
    * подниматься над панелью, иначе она их накрывает.
    */
   React.useEffect(() => {
-    document.documentElement.style.setProperty('--flux-taskbar-h', shell === 'menu' ? '0px' : '52px');
+    document.documentElement.style.setProperty('--flux-taskbar-h', shell === 'menu' ? '0px' : `${BAR_H}px`);
   }, [shell]);
   // На Главной (/) в режиме одного окна левой панели нет; иначе она закреплена
   const sidebarHidden = shell !== 'menu' || (wsLayout === 'single' && wsActivePath === '/');

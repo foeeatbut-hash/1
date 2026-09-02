@@ -13,6 +13,7 @@
  * Счёт (когда вернуть, тихо ли сейчас, что показывать) — в src/lib/notifCenter.
  */
 import React, { useEffect, useMemo, useState } from 'react';
+import { Z } from '../lib/layers';
 import { useNavigate } from 'react-router-dom';
 import { Bell, BellOff, X, Globe, UserCircle, Clock, ExternalLink, CheckCheck } from 'lucide-react';
 import { useStore } from '../store/store';
@@ -77,12 +78,14 @@ export default function NotificationsPanel() {
   const quietNow = isQuiet(quiet);
 
   return (
-    /* Как и у помощника: широкое окно — раздвигает, узкое — ложится поверх,
-       не отбирая ширину у раздела. Отступ справа на ширину рельса. */
-    <aside className={`${panelOpen ? 'w-[360px] opacity-100' : 'w-0 opacity-0 pointer-events-none'} shrink-0 h-full
+    /* Всегда поверх содержимого и никогда — вместо него. Раньше на широком
+       окне панель становилась обычным соседом и отжимала раздел вместе с
+       нижней панелью: панель задач меняла ширину от того, что кто-то открыл
+       уведомления. Опора не двигается — на то она и опора. */
+    <aside style={{ zIndex: Z.tray }} className={`${panelOpen ? 'w-[360px] opacity-100' : 'w-0 opacity-0 pointer-events-none'} shrink-0 h-full
                        bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col
                        transition-ui duration-300 overflow-hidden absolute top-0 bottom-0 right-[var(--flux-rail-w)]
-                       z-50 shadow-2xl xl:static xl:right-auto xl:z-auto xl:shadow-none`}>
+                       shadow-2xl`}>
       <div className="w-[360px] h-full flex flex-col shrink-0">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800
                         bg-gradient-to-r from-amber-500/10 to-transparent shrink-0">

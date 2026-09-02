@@ -8,7 +8,7 @@
  */
 import {
   buildTaskbar, badgeCount, clockLabel, dateLabel, deadlineLabel, badgeLabel,
-  LABELS_UNTIL, TIDY_FROM, trayFit, type TaskbarSource,
+  fitButtons, LABELS_UNTIL, TIDY_FROM, trayFit, type TaskbarSource,
 } from '../src/lib/taskbar';
 import { SECTIONS } from '../src/workspace/sections';
 
@@ -88,6 +88,35 @@ console.log('Сжатие');
   check('на пороге предлагается прибраться', v.tidy === true);
   const less = buildTaskbar(S, { open: open.slice(0, TIDY_FROM - 1), activePath: '/', counts: NONE });
   check('до порога не предлагается', less.tidy === false);
+}
+
+console.log('Переполнение');
+{
+  // Полоса кнопок не прокручивается: хвост уходит под кнопку «ещё». Раньше
+  // здесь была прокрутка, и на краю панели вырастал скроллбар во всю её высоту
+  const many = Array.from({ length: 14 }, (_, i) => ({ path: `/p${i}`, title: `Раздел ${i}`, pinned: true }));
+  const v = buildTaskbar(many, { open: [], activePath: '/', counts: NONE, width: 400 });
+  check('видимых меньше, чем всего', v.visible.length < v.buttons.length, [v.visible.length, v.buttons.length]);
+  check('ничего не потеряно', v.visible.length + v.hidden.length === v.buttons.length);
+  check('порядок сохранён', v.visible[0].path === '/p0' && v.hidden[v.hidden.length - 1].path === '/p13');
+
+  // Главное: при любой ширине и любом числе кнопок ряд помещается в полосу
+  for (const width of [640, 800, 1024, 1366, 1600, 1920, 2560]) {
+    for (const n of [0, 1, 3, 6, 9, 12, 20]) {
+      const src = Array.from({ length: n }, (_, i) => ({ path: `/x${i}`, title: 'Оборудование', pinned: true }));
+      const view = buildTaskbar(src, { open: [], activePath: '/', counts: NONE, width });
+      const each = view.visible.map((b) => 44 + (view.labels ? b.title.length * 8 : 0));
+      const sum = each.reduce((a, b) => a + b, 0) + (view.hidden.length ? 44 : 0);
+      check(`ряд помещается: ${n} кнопок при ${width}`, sum <= width || n === 0, [sum, width]);
+    }
+  }
+  check('пустая полоса ничего не сворачивает', fitButtons([], 0, true) === 0);
+  check('без измеренной ширины помещается всё', fitButtons(['Теги', 'Почта'], 0, true) === 2);
+  check('в узкую полосу не влезает ничего', fitButtons(['Оборудование', 'Проводник'], 60, true) === 0);
+  const roomy = buildTaskbar(S, { open: [], activePath: '/', counts: NONE, width: 1600 });
+  check('когда всё влезает, свёрнутых нет', roomy.hidden.length === 0);
+  const unmeasured = buildTaskbar(S, { open: [], activePath: '/', counts: NONE });
+  check('ширина не измерена — ничего не сворачиваем', unmeasured.hidden.length === 0);
 }
 
 console.log('Счётчики');

@@ -15,21 +15,22 @@ import {
 } from 'lucide-react';
 import { SECTIONS } from '../../workspace/sections';
 import { FILE_STATUSES, statusOf } from '../explorer/FileItems';
-import { CELL_W, CELL_H, isSystemKind, type DeskItem } from '../../lib/desktop';
+import { isSystemKind, type DeskItem } from '../../lib/desktop';
+import { deskMetric, type DeskMetric } from '../../lib/metrics';
 
-const ICON = 'w-9 h-9';
-
-function Glyph({ item }: { item: DeskItem }) {
+function Glyph({ item, size }: { item: DeskItem; size: number }) {
   if (item.kind === 'app') {
     const Icon = SECTIONS.find((s) => s.path === item.path)?.icon as any;
-    return Icon ? <Icon className={`${ICON} text-emerald-600 dark:text-emerald-400`} /> : <Shapes className={ICON} />;
+    return Icon
+      ? <Icon size={size} className="text-emerald-600 dark:text-emerald-400" />
+      : <Shapes size={size} />;
   }
-  if (item.kind === 'bin') return <Trash2 className={`${ICON} text-slate-500 dark:text-slate-400`} />;
-  if (item.kind === 'folder') return <Folder className={`${ICON} text-amber-500 fill-amber-200`} />;
-  if (item.kind === 'note') return <StickyNote className={`${ICON} text-amber-500`} />;
-  if (item.kind === 'text') return <FileText className={`${ICON} text-emerald-600`} />;
-  if (item.kind === 'doc') return <FileSpreadsheet className={`${ICON} text-emerald-600`} />;
-  return <FileIcon className={`${ICON} text-slate-400`} />;
+  if (item.kind === 'bin') return <Trash2 size={size} className="text-slate-500 dark:text-slate-400" />;
+  if (item.kind === 'folder') return <Folder size={size} className="text-amber-500 fill-amber-200" />;
+  if (item.kind === 'note') return <StickyNote size={size} className="text-amber-500" />;
+  if (item.kind === 'text') return <FileText size={size} className="text-emerald-600" />;
+  if (item.kind === 'doc') return <FileSpreadsheet size={size} className="text-emerald-600" />;
+  return <FileIcon size={size} className="text-slate-400" />;
 }
 
 export const titleOf = (item: DeskItem): string =>
@@ -48,7 +49,7 @@ export function hintOf(item: DeskItem): string {
 }
 
 export default function DeskIcon({
-  item, x, y, selected, dragged, renaming, badge,
+  item, x, y, selected, dragged, renaming, badge, metric = deskMetric(),
   onRenameChange, onRenameCommit, onRenameCancel, ...rest
 }: {
   item: DeskItem;
@@ -56,6 +57,8 @@ export default function DeskIcon({
   selected: boolean;
   dragged: boolean;
   renaming: string | null;
+  /** Размер клетки и значка: крупные, обычные или мелкие */
+  metric?: DeskMetric;
   /** Число на значке — сейчас только у корзины */
   badge?: number;
   onRenameChange: (v: string) => void;
@@ -67,6 +70,9 @@ export default function DeskIcon({
 >) {
   const st = statusOf(item.status);
   const showStatus = !isSystemKind(item.kind) && item.kind !== 'folder';
+  // Мелкие значки живут без строки ревизии: в клетку 60×68 она не встаёт, а
+  // подпись важнее — без неё значок перестаёт быть значком документа
+  const showRevision = showStatus && metric.icon >= 32;
   /**
    * Поле переименования само решает, чем кончилось: Enter — сохранить, Escape —
    * отменить. Без этой отметки уход фокуса, который случается сразу после
@@ -78,14 +84,14 @@ export default function DeskIcon({
   return (
     <div
       {...rest}
-      style={{ left: x, top: y, width: CELL_W, height: CELL_H, zIndex: dragged ? 5 : 1 }}
+      style={{ left: x, top: y, width: metric.w, height: metric.h, zIndex: dragged ? 5 : 1 }}
       title={hintOf(item)}
       className={`absolute flex flex-col items-center gap-1 pt-2 px-1 rounded-lg cursor-default
                   ${dragged ? 'opacity-70' : ''}
                   ${selected ? 'bg-emerald-500/15 ring-1 ring-emerald-500/50' : 'hover:bg-slate-500/10'}`}
     >
       <span className="relative shrink-0">
-        <Glyph item={item} />
+        <Glyph item={item} size={metric.icon} />
 
         {/* Метка общего доступа: без неё «положил на стол» и «выложил всем»
             неразличимы, а это разные поступки */}
@@ -136,9 +142,10 @@ export default function DeskIcon({
         />
       ) : (
         <span
+          style={{ fontSize: metric.label }}
           /* Две строки и обрыв: «Ведомость оборудования системы В-1» не должна
              наезжать на соседний значок */
-          className={`w-full text-center text-2xs leading-tight line-clamp-2 break-words ${
+          className={`w-full text-center leading-tight line-clamp-2 break-words ${
             selected ? 'text-emerald-900 dark:text-emerald-100 font-semibold' : 'text-slate-700 dark:text-slate-150'
           }`}
         >
@@ -149,7 +156,7 @@ export default function DeskIcon({
       {/* Ревизия под подписью: инженер спрашивает «какая версия» чаще, чем
           «как называется». Место под неё занято всегда, чтобы подписи соседних
           значков стояли на одной линии */}
-      {showStatus && renaming === null && (
+      {showRevision && renaming === null && (
         <span className="text-2xs font-mono leading-none text-slate-400 dark:text-slate-500">
           {item.tag ? `${item.tag} · ` : ''}ред. {item.revision || '1'}
         </span>

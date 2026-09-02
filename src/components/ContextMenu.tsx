@@ -1,14 +1,96 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Check, ChevronRight } from 'lucide-react';
+import { Z } from '../lib/layers';
 
-// Простое контекстное меню (ПКМ) в стиле Windows: портал поверх всего,
-// закрывается по клику вне, Escape и прокрутке.
+/**
+ * Контекстное меню (ПКМ) в стиле системы: портал поверх всего, закрывается по
+ * нажатию мимо, Escape и прокрутке.
+ *
+ * Умеет подменю и разделители — и это не украшение. Список в полтора десятка
+ * строк читается медленнее, чем короткий список с раскрытиями: глаз ищет
+ * строку среди семи, а не среди пятнадцати. Правило одно на всю программу —
+ * верхний уровень не длиннее семи пунктов, остальное уходит в подменю
+ * (см. docs/os-design.md, §4.4).
+ */
 export interface MenuItem {
   label: string;
   icon?: React.ReactNode;
   danger?: boolean;
   disabled?: boolean;
-  onClick: () => void;
+  /** Отметка «выбрано» — как в системном меню «Вид» */
+  checked?: boolean;
+  /** Черта перед пунктом: отделяет опасное и разное по смыслу */
+  separated?: boolean;
+  /** Подменю; тогда onClick не нужен */
+  items?: MenuItem[];
+  onClick?: () => void;
+}
+
+/** Высота строки и запас на рамку — по ним меню решает, куда ему открыться */
+const ROW = 30;
+const FRAME = 16;
+const MIN_W = 224;
+
+function Rows({ items, onClose, depth }: { items: MenuItem[]; onClose: () => void; depth: number }) {
+  const [open, setOpen] = useState<number | null>(null);
+  const timer = useRef<any>(null);
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  return (
+    <>
+      {items.map((it, i) => {
+        const hasSub = !!it.items?.length;
+        return (
+          <div key={i} className="relative">
+            {it.separated && <div className="my-1 h-px bg-slate-200 dark:bg-slate-700" aria-hidden />}
+            <button
+              type="button"
+              disabled={it.disabled}
+              aria-haspopup={hasSub || undefined}
+              aria-expanded={hasSub ? open === i : undefined}
+              onMouseEnter={() => {
+                clearTimeout(timer.current);
+                // Подменю ждёт четверть секунды: движение мыши наискось через
+                // соседний пункт не должно открывать чужой список
+                if (hasSub) timer.current = setTimeout(() => setOpen(i), 220);
+                else setOpen(null);
+              }}
+              onMouseLeave={() => clearTimeout(timer.current)}
+              onClick={() => {
+                if (hasSub) { setOpen(open === i ? null : i); return; }
+                onClose();
+                it.onClick?.();
+              }}
+              className={`w-full flex items-center gap-2.5 px-3.5 py-1.5 text-left text-xs font-semibold
+                          cursor-pointer disabled:opacity-40 disabled:cursor-default ${
+                it.danger
+                  ? 'text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30'
+                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+              } ${open === i ? 'bg-slate-100 dark:bg-slate-800' : ''}`}
+            >
+              <span className="w-4 h-4 flex items-center justify-center shrink-0">
+                {it.checked ? <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> : it.icon}
+              </span>
+              <span className="flex-1 truncate">{it.label}</span>
+              {hasSub && <ChevronRight className="w-3.5 h-3.5 shrink-0 text-slate-400" />}
+            </button>
+
+            {hasSub && open === i && (
+              <div
+                onMouseEnter={() => clearTimeout(timer.current)}
+                className="absolute top-[-6px] left-full ml-0.5 min-w-52 py-1.5 rounded-xl select-none
+                           bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl"
+                style={{ zIndex: Z.modal + depth + 1 }}
+              >
+                <Rows items={it.items!} onClose={onClose} depth={depth + 1} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
 }
 
 export default function ContextMenu({ x, y, items, onClose }: {
@@ -34,16 +116,23 @@ export default function ContextMenu({ x, y, items, onClose }: {
     };
   }, [onClose]);
 
-  // Не выезжаем за края окна
+  // Не выезжаем за края окна. Подменю раскрывается вправо, поэтому справа
+  // оставляем место и под него: меню, упёршееся в край, открыло бы список
+  // за экраном
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 9999;
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 9999;
+  const deep = items.some((i) => i.items?.length);
   const style: React.CSSProperties = {
-    left: Math.min(x, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 230),
-    top: Math.min(y, (typeof window !== 'undefined' ? window.innerHeight : 9999) - items.length * 34 - 16),
+    left: Math.max(4, Math.min(x, vw - MIN_W - (deep ? MIN_W : 0))),
+    top: Math.max(4, Math.min(y, vh - items.length * ROW - FRAME)),
+    zIndex: Z.modal,
   };
 
   return createPortal(
     <div
       ref={ref}
-      className="fixed z-[95] min-w-52 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl select-none"
+      className="fixed min-w-56 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700
+                 rounded-xl shadow-2xl select-none"
       style={style}
       onContextMenu={(e) => e.preventDefault()}
       /* Меню — портал в body, но события React пускает по дереву компонентов, а
@@ -54,21 +143,7 @@ export default function ContextMenu({ x, y, items, onClose }: {
       onPointerDown={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      {items.map((it, i) => (
-        <button type="button"
-          key={i}
-          disabled={it.disabled}
-          onClick={() => { onClose(); it.onClick(); }}
-          className={`w-full flex items-center gap-2.5 px-3.5 py-1.5 text-left text-xs font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-default ${
-            it.danger
-              ? 'text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30'
-              : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-          }`}
-        >
-          {it.icon && <span className="w-4 h-4 flex items-center justify-center shrink-0">{it.icon}</span>}
-          {it.label}
-        </button>
-      ))}
+      <Rows items={items} onClose={onClose} depth={0} />
     </div>,
     document.body,
   );

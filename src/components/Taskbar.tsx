@@ -23,7 +23,10 @@ import { isQuiet, untilLabel } from '../lib/notifCenter';
 import { useAssistantStore } from '../store/assistantStore';
 import { useMailStore } from '../store/mailStore';
 import { useWindowStore, openPaths, activeWindowPath, windowsOf } from '../store/windowStore';
+import { useDesktopStore } from '../store/desktopStore';
 import { buildTaskbar, clockLabel, deadlineLabel, badgeLabel, trayFit } from '../lib/taskbar';
+import { BAR_H, BAR_BTN, BAR_ICON, BAR_EDGE, CHIP_H, RUN_MARK } from '../lib/metrics';
+import { Z } from '../lib/layers';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import StartMenu from './StartMenu';
 import TaskbarPeek from './TaskbarPeek';
@@ -91,6 +94,9 @@ export default function Taskbar() {
   React.useEffect(() => () => clearTimeout(peekTimer.current), []);
   const rowRef = React.useRef<HTMLDivElement>(null);
   const barRef = React.useRef<HTMLDivElement>(null);
+  const startRef = React.useRef<HTMLButtonElement>(null);
+  // Список свёрнутых кнопок: открывается тем же меню, что и правая кнопка
+  const [moreMenu, setMoreMenu] = React.useState<{ x: number; y: number } | null>(null);
   const [width, setWidth] = React.useState(0);
   const [barWidth, setBarWidth] = React.useState(0);
 
@@ -147,15 +153,29 @@ export default function Taskbar() {
     [unreadByAccount],
   );
 
+  /**
+   * Что закреплено — личный список сотрудника, а не свойство раздела. Реестр
+   * (`pinned` в sections.tsx) остаётся составом по умолчанию для новичка;
+   * дальше человек закрепляет и открепляет сам, и панель наконец перестаёт
+   * быть одинаковой у всех.
+   */
+  const barPins = useDesktopStore((s) => s.bar);
+  const pinBar = useDesktopStore((s) => s.pinBar);
+  const unpinBar = useDesktopStore((s) => s.unpinBar);
+  const sources = React.useMemo(
+    () => SECTIONS.map((s) => ({ ...s, pinned: barPins.includes(s.path) })),
+    [barPins],
+  );
+
   const view = React.useMemo(
-    () => buildTaskbar(SECTIONS, {
+    () => buildTaskbar(sources, {
       open,
       activePath: highlighted,
       counts: { mail, chat: chatUnread },
       isAdmin: user?.role === 'ADMIN',
       width,
     }),
-    [open, highlighted, mail, chatUnread, user?.role, width],
+    [sources, open, highlighted, mail, chatUnread, user?.role, width],
   );
 
   const iconOf = (path: string) => SECTIONS.find((s) => s.path === path)?.icon;
@@ -174,6 +194,9 @@ export default function Taskbar() {
   const menuItems: MenuItem[] = menu ? [
     { label: 'Открыть', onClick: () => openSection(menu.path) },
     { label: 'Открыть в отдельном окне', onClick: () => openSectionWindow(menu.path) },
+    barPins.includes(menu.path)
+      ? { label: 'Открепить от панели', separated: true, onClick: () => unpinBar(menu.path) }
+      : { label: 'Закрепить на панели', separated: true, onClick: () => pinBar(menu.path) },
     ...(windowed && countOfWindows(menu.path) > 0 ? [{
       label: countOfWindows(menu.path) > 1 ? `Закрыть все окна (${countOfWindows(menu.path)})` : 'Закрыть окно',
       onClick: () => {
@@ -212,7 +235,7 @@ export default function Taskbar() {
   };
 
   const trayBtn = (active: boolean) =>
-    `relative w-10 h-9 rounded-[10px] cursor-pointer flex items-center justify-center transition-colors ${
+    `relative rounded-[10px] cursor-pointer flex items-center justify-center transition-colors ${
       active
         ? 'bg-emerald-600 text-white'
         : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-850'
@@ -226,37 +249,63 @@ export default function Taskbar() {
       ref={barRef}
       role="toolbar"
       aria-label="Панель задач"
-      /* 52 точки: кнопка 36 плюс по 8 сверху и снизу. Ниже 48 — мажешь мимо,
-         выше 56 — панель начинает есть экран */
+      /* Высота, рост кнопки и размер значка — общая мера оболочки
+         (src/lib/metrics.ts): панель обязана быть того же роста, что и ряд
+         значков в системе, иначе программа рядом с ней выглядит увеличенной */
       /* Справа без отступа: последняя в ряду полоска «показать стол» обязана
          доходить до самого края окна, иначе угол экрана перестаёт быть целью */
-      className="relative z-30 h-[52px] shrink-0 flex items-center gap-1.5 pl-3
+      style={{ height: BAR_H, zIndex: Z.taskbar }}
+      className="relative shrink-0 flex items-center gap-1 pl-2
                  bg-white dark:bg-dark-surface border-t border-slate-200 dark:border-dark-border"
     >
       {startOpen && <StartMenu onClose={() => setStartOpen(false)} />}
 
       {/* Пуск — единственная кнопка с заливкой на всей панели, чтобы её
-          находили не глядя */}
+          находили не глядя. Слова на ней нет: в ряду значков подпись — это
+          единственная надпись на всей панели, и она же занимает место кнопки
+          программы. Имя остаётся там, где его читают не глазами: в подсказке
+          и в aria-label */}
       <button
         type="button"
+        ref={startRef}
         onClick={() => setStartOpen((v) => !v)}
         aria-expanded={startOpen}
-        title="Пуск — все разделы и поиск"
-        className="flex items-center gap-2 h-9 px-4 rounded-[10px] shrink-0 cursor-pointer
-                   bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition-colors"
+        aria-label="Пуск"
+        title="Пуск — все программы и поиск"
+        style={{ width: BAR_BTN + 8, height: BAR_BTN }}
+        className="flex items-center justify-center rounded-[10px] shrink-0 cursor-pointer
+                   bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
       >
-        <LayoutGrid className="w-[18px] h-[18px] shrink-0" />
-        <span>Пуск</span>
+        <LayoutGrid size={BAR_ICON + 2} className="shrink-0" />
       </button>
 
-      <div className="w-3 shrink-0" />
+      <div className="w-2 shrink-0" />
 
-      {/* Прокрутка видимая, а не убранная: при полутора десятках открытых
-          разделов кнопки не помещаются ни при каких подписях, и обрезать их
-          по краю — значит потерять их без следа. Так же сделаны вкладки
-          внутри панели (см. Workspace) */}
-      <div ref={rowRef} className="flex-1 min-w-0 flex items-center gap-1.5 overflow-x-auto scrollbar-thin">
-        {view.buttons.map((b) => {
+      {/* Полоса кнопок не прокручивается. Прокрутка здесь давала скроллбар во
+          всю высоту панели у самого её края — и это при том, что кнопки всё
+          равно уезжали за край. Что не поместилось, сворачивается в кнопку
+          «ещё» справа: список свёрнутого открывается по нажатию, и ни одна
+          программа не пропадает без следа */}
+      <div
+        ref={rowRef}
+        /* Программу можно принести сюда из Пуска — это и есть «закрепить на
+           панели». Без этого закрепление оставалось настройкой в параметрах,
+           то есть местом, куда за ним не ходят */
+        onDragOver={(e) => {
+          if (!e.dataTransfer.types.includes('text/plain')) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          try {
+            const data = JSON.parse(e.dataTransfer.getData('text/plain') || 'null');
+            if (data?.type === 'app_pin' && typeof data.path === 'string') pinBar(data.path);
+          } catch (_) { /* принесли не программу */ }
+        }}
+        className="flex-1 min-w-0 flex items-center gap-1 overflow-hidden"
+      >
+        {view.visible.map((b) => {
           const Icon = iconOf(b.path) as any;
           return (
             <button
@@ -281,8 +330,9 @@ export default function Taskbar() {
               onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, path: b.path }); }}
               title={b.title}
               aria-current={b.active ? 'true' : undefined}
-              className={`relative h-9 px-3 rounded-[10px] shrink-0 cursor-pointer flex items-center gap-2
-                          text-sm whitespace-nowrap transition-colors border ${
+              style={{ height: BAR_BTN }}
+              className={`relative px-2.5 rounded-[10px] shrink-0 cursor-pointer flex items-center gap-2
+                          text-xs whitespace-nowrap transition-colors border ${
                 b.active
                   ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-semibold border-transparent'
                   : b.running
@@ -290,18 +340,22 @@ export default function Taskbar() {
                     : 'border-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850'
               }`}
             >
-              {Icon && <Icon className="w-[18px] h-[18px] shrink-0" />}
+              {Icon && <Icon size={BAR_ICON} className="shrink-0" />}
               {view.labels && <span>{b.title}</span>}
               {windowed && countOfWindows(b.path) > 1 && (
-                <span className="shrink-0 px-1 h-[16px] min-w-[16px] rounded bg-slate-100 dark:bg-slate-850
-                                 text-[10px] font-mono text-slate-500 dark:text-slate-400 tabular-nums
-                                 flex items-center justify-center" title="Окон этой программы">
+                <span
+                  style={{ height: CHIP_H, minWidth: CHIP_H }}
+                  className="shrink-0 px-1 rounded bg-slate-100 dark:bg-slate-850
+                             text-2xs font-mono text-slate-500 dark:text-slate-400 tabular-nums
+                             flex items-center justify-center" title="Окон этой программы">
                   {countOfWindows(b.path)}
                 </span>
               )}
               {b.badge > 0 && (
-                <span className="shrink-0 px-1.5 h-[18px] min-w-[18px] rounded-full bg-rose-600 text-white
-                                 text-2xs font-bold tabular-nums flex items-center justify-center">
+                <span
+                  style={{ height: CHIP_H, minWidth: CHIP_H }}
+                  className="shrink-0 px-1.5 rounded-full bg-rose-600 text-white
+                             text-2xs font-bold tabular-nums flex items-center justify-center">
                   {badgeLabel(b.badge)}
                 </span>
               )}
@@ -310,7 +364,8 @@ export default function Taskbar() {
               {b.running && (
                 <span
                   aria-hidden
-                  className={`absolute bottom-[-6px] h-[3px] rounded-sm bg-emerald-600 dark:bg-emerald-400 ${
+                  style={{ height: RUN_MARK, bottom: -5 }}
+                  className={`absolute rounded-sm bg-emerald-600 dark:bg-emerald-400 ${
                     b.active ? 'left-[16%] right-[16%]' : 'left-[24%] right-[24%]'
                   }`}
                 />
@@ -320,6 +375,21 @@ export default function Taskbar() {
         })}
       </div>
 
+      {view.hidden.length > 0 && (
+        <button
+          type="button"
+          onClick={(e) => setMoreMenu({ x: e.clientX, y: e.clientY })}
+          title={`Ещё ${view.hidden.length}: не поместились на панель`}
+          aria-label={`Ещё ${view.hidden.length} программ`}
+          style={{ height: BAR_BTN }}
+          className="shrink-0 px-2 rounded-[10px] cursor-pointer text-xs font-bold tabular-nums
+                     text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-dark-border
+                     hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors"
+        >
+          »{view.hidden.length}
+        </button>
+      )}
+
       {view.tidy && fit.hint && (
         <span className="shrink-0 flex items-center gap-1.5 text-2xs text-amber-700 dark:text-amber-400 px-2 whitespace-nowrap">
           открыто много —
@@ -328,7 +398,8 @@ export default function Taskbar() {
           <button
             type="button"
             onClick={() => (windowed ? tileAll() : openSection('/'))}
-            className="h-7 px-2 rounded-lg cursor-pointer font-semibold
+            style={{ height: BAR_BTN - 6 }}
+            className="px-2 rounded-lg cursor-pointer font-semibold
                        border border-amber-300 dark:border-amber-800
                        hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors"
           >
@@ -345,8 +416,8 @@ export default function Taskbar() {
             type="button"
             onClick={() => openSection('/projects')}
             title={`Проект «${activeProject.name}» — сменить`}
-            style={{ maxWidth: fit.projectMax }}
-            className="flex items-center gap-2 h-9 px-3 rounded-[10px] cursor-pointer
+            style={{ maxWidth: fit.projectMax, height: BAR_BTN }}
+            className="flex items-center gap-2 px-2.5 rounded-[10px] cursor-pointer
                        border border-slate-200 dark:border-dark-border text-sm
                        text-slate-700 dark:text-slate-150 hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors"
           >
@@ -376,18 +447,20 @@ export default function Taskbar() {
           onClick={openAssistant}
           title="Помощник: вопросы по проекту"
           data-tour="assistant-btn"
+          style={{ width: BAR_BTN, height: BAR_BTN }}
           className={trayBtn(assistantOpen)}
         >
-          <MessageCircleQuestion className="w-[19px] h-[19px]" />
+          <MessageCircleQuestion size={BAR_ICON + 2} />
         </button>
 
         <button
           type="button"
           onClick={openHandbook}
           title="Руководство по этому разделу (F1)"
+          style={{ width: BAR_BTN, height: BAR_BTN }}
           className={trayBtn(false)}
         >
-          <LifeBuoy className="w-[19px] h-[19px]" />
+          <LifeBuoy size={BAR_ICON + 2} />
         </button>
 
         <button
@@ -397,9 +470,10 @@ export default function Taskbar() {
             ? `Тихий режим ${untilLabel(quiet!)} — уведомления копятся, но не всплывают`
             : notifUnread > 0 ? `Уведомления: ${notifUnread} непрочитанных` : 'Уведомления'}
           data-tour="notif-btn"
+          style={{ width: BAR_BTN, height: BAR_BTN }}
           className={trayBtn(notifOpen)}
         >
-          {isQuiet(quiet) ? <BellOff className="w-[19px] h-[19px]" /> : <Bell className="w-[19px] h-[19px]" />}
+          {isQuiet(quiet) ? <BellOff size={BAR_ICON + 2} /> : <Bell size={BAR_ICON + 2} />}
           {notifUnread > 0 && (
             <span aria-hidden className={`absolute top-1.5 right-2 w-2 h-2 rounded-full ${chatUnread > 0 ? 'bg-emerald-500' : 'bg-rose-600'}`} />
           )}
@@ -409,7 +483,8 @@ export default function Taskbar() {
           type="button"
           onClick={(e) => setUserMenu({ x: e.clientX, y: e.clientY })}
           title={user?.name || 'Профиль'}
-          className="w-9 h-9 rounded-full cursor-pointer flex items-center justify-center shrink-0
+          style={{ width: BAR_BTN, height: BAR_BTN }}
+          className="rounded-full cursor-pointer flex items-center justify-center shrink-0
                      bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400
                      text-2xs font-bold hover:bg-emerald-100 dark:hover:bg-emerald-950/70 transition-colors"
         >
@@ -426,7 +501,8 @@ export default function Taskbar() {
           /* Во всю высоту панели и вплотную к краю окна: в угол экрана мышь
              упирается и попадает не глядя — тем полоска и берёт, а не
              размером. Отступы сверху и снизу этот угол отрезали */
-          className="w-3 self-stretch ml-1 cursor-pointer
+          style={{ width: BAR_EDGE }}
+          className="self-stretch ml-1 cursor-pointer
                      border-l border-slate-200 dark:border-dark-border
                      hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors"
         />
@@ -434,6 +510,17 @@ export default function Taskbar() {
 
       {peek && windowed && (
         <TaskbarPeek path={peek.path} left={peek.left + 12} onClose={() => setPeek(null)} />
+      )}
+      {moreMenu && (
+        <ContextMenu
+          x={moreMenu.x}
+          y={moreMenu.y}
+          items={view.hidden.map((b) => ({
+            label: b.badge > 0 ? `${b.title} · ${badgeLabel(b.badge)}` : b.title,
+            onClick: () => openSection(b.path),
+          }))}
+          onClose={() => setMoreMenu(null)}
+        />
       )}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
       {userMenu && <ContextMenu x={userMenu.x} y={userMenu.y} items={userItems} onClose={() => setUserMenu(null)} />}

@@ -20,13 +20,24 @@
 import { create } from 'zustand';
 import { dataService } from '../services/dataService';
 import { arrange, layout, place, withApps, type Cell, type DeskItem, type DeskKind, type SortBy } from '../lib/desktop';
+import { deskMetric, DESK_DEFAULT, type DeskScale } from '../lib/metrics';
 
 const CELLS_KEY = 'flux_desk_cells';
 const APPS_KEY = 'flux_desk_apps';
+const BAR_KEY = 'flux_bar_apps';
 const SORT_KEY = 'flux_desk_sort';
+const SCALE_KEY = 'flux_desk_scale';
 
 /** Разделы, которые лежат на столе у нового сотрудника */
 const DEFAULT_APPS = ['/explorer', '/registry', '/equipment', '/constructor'];
+
+/**
+ * Что закреплено на панели задач у нового сотрудника. Дальше это его дело:
+ * закрепление — привычка человека, а не свойство раздела. Пока список жил
+ * в реестре разделов (`pinned` в sections.tsx), он был одинаков у всех, и
+ * открепить лишнее было нельзя вовсе.
+ */
+const DEFAULT_BAR = ['/registry', '/equipment', '/explorer', '/constructor', '/mail'];
 
 const read = <T,>(key: string, fallback: T): T => {
   try {
@@ -49,6 +60,13 @@ interface DesktopState {
   apps: string[];
   cells: Record<string, Cell>;
   sortBy: SortBy;
+  /**
+   * Размер значков — личная настройка, как в системе: за одним столом сидят и
+   * с двадцати семи дюймов, и с ноутбука, и мелкие значки для второго не
+   * причуда, а единственный способ уместить стол.
+   */
+  scale: DeskScale;
+  setScale: (scale: DeskScale) => void;
   selected: string[];
   loading: boolean;
   error: string;
@@ -62,6 +80,10 @@ interface DesktopState {
   arrangeBy: (by: SortBy, area: { w: number; h: number }) => void;
   pinApp: (path: string) => void;
   unpinApp: (path: string) => void;
+  /** Закреплённые на панели задач — личный список этого сотрудника */
+  bar: string[];
+  pinBar: (path: string) => void;
+  unpinBar: (path: string) => void;
   createFolder: (projectId: string, scope: 'SHARED' | 'PERSONAL') => Promise<void>;
   createDoc: (projectId: string, kind: 'DOC' | 'TEXT' | 'NOTE', scope: 'SHARED' | 'PERSONAL') => Promise<string | null>;
   rename: (id: string, name: string, projectId: string) => Promise<void>;
@@ -85,8 +107,10 @@ const newName = (kind: string): string => {
 export const useDesktopStore = create<DesktopState>((set, get) => ({
   items: [],
   apps: read<string[]>(APPS_KEY, DEFAULT_APPS),
+  bar: read<string[]>(BAR_KEY, DEFAULT_BAR),
   cells: read<Record<string, Cell>>(CELLS_KEY, {}),
   sortBy: read<SortBy>(SORT_KEY, 'name'),
+  scale: read<DeskScale>(SCALE_KEY, DESK_DEFAULT),
   selected: [],
   loading: false,
   error: '',
@@ -133,19 +157,26 @@ export const useDesktopStore = create<DesktopState>((set, get) => ({
   select: (ids) => set({ selected: ids }),
 
   setCell: (id, cell, area) => {
-    const { items, apps, cells } = get();
+    const { items, apps, cells, scale } = get();
     const all = withApps(items, apps);
-    const placed = layout(all, cells, area).cells;
+    const placed = layout(all, cells, area, deskMetric(scale)).cells;
     const next = place(cells, id, cell, placed);
     write(CELLS_KEY, next);
     set({ cells: next });
   },
 
   arrangeBy: (by, area) => {
-    const next = arrange(withApps(get().items, get().apps), by, area);
+    const next = arrange(withApps(get().items, get().apps), by, area, deskMetric(get().scale));
     write(CELLS_KEY, next);
     write(SORT_KEY, by);
     set({ cells: next, sortBy: by });
+  },
+
+  // Места значков не сбрасываем: клетка остаётся та же, меняется её размер.
+  // Что не влезло в новую сетку, разложит layout — и объявит, если стол мал
+  setScale: (scale) => {
+    write(SCALE_KEY, scale);
+    set({ scale });
   },
 
   pinApp: (path) => {
@@ -159,6 +190,19 @@ export const useDesktopStore = create<DesktopState>((set, get) => ({
     const apps = get().apps.filter((p) => p !== path);
     write(APPS_KEY, apps);
     set({ apps });
+  },
+
+  pinBar: (path) => {
+    if (get().bar.includes(path)) return;
+    const bar = [...get().bar, path];
+    write(BAR_KEY, bar);
+    set({ bar });
+  },
+
+  unpinBar: (path) => {
+    const bar = get().bar.filter((p) => p !== path);
+    write(BAR_KEY, bar);
+    set({ bar });
   },
 
   createFolder: async (projectId, scope) => {
