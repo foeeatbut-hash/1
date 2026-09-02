@@ -4,7 +4,7 @@ import { formatName } from '../lib/docFormula';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 const SignatureEditor = React.lazy(() => import('./SignatureEditor'));
-import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen, PenLine, Mail, LifeBuoy, Languages } from 'lucide-react';
+import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen, PenLine, Mail, LifeBuoy, Languages, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ToastProvider from './ToastProvider';
 import ModalProvider from './ModalProvider';
@@ -20,6 +20,8 @@ import CommandBar from './CommandBar';
 import { useReminderStore, onReminder } from '../store/reminderStore';
 import { useShellNotifyStore, toastOf } from '../store/shellNotifyStore';
 import { shouldNotifySystem, notifyText, badgeCount } from '../lib/systemNotify';
+import { OPEN_URL_EVENT } from '../lib/openLink';
+import { useBrowserStore } from '../store/browserStore';
 import { isQuiet } from '../lib/notifCenter';
 import { useWindowStore } from '../store/windowStore';
 import { onFreshNotifications } from '../store/notificationStore';
@@ -34,7 +36,7 @@ import WindowsLayer from './WindowsLayer';
 import { BAR_H } from '../lib/metrics';
 import ProjectSwitcher from './ProjectSwitcher';
 import ContextMenu, { MenuItem } from './ContextMenu';
-import { useWorkspaceStore, visiblePanes, openSectionWindow } from '../store/workspaceStore';
+import { useWorkspaceStore, visiblePanes, openSectionWindow, rememberSectionUse } from '../store/workspaceStore';
 import { useTranslateStore } from '../store/translateStore';
 import QuickTranslate from './translate/QuickTranslate';
 import { useModalStore } from '../store/modalStore';
@@ -268,6 +270,23 @@ export default function Layout() {
   const sidebarHidden = shell !== 'menu' || (wsLayout === 'single' && wsActivePath === '/');
   const chatUnread = useNotificationStore((s) => s.chatUnread);
   const notifUnread = useNotificationStore((s) => s.unread);
+
+  /**
+   * Ссылка откуда угодно открывается вкладкой браузера, а не выбрасывает
+   * человека в Windows: вернуться оттуда можно только через панель задач,
+   * потеряв место.
+   */
+  React.useEffect(() => {
+    const onOpen = (e: Event) => {
+      const url = String((e as CustomEvent).detail || '');
+      if (!url) return;
+      useBrowserStore.getState().setPending(url);
+      rememberSectionUse('/browser');
+      navigate('/browser');
+    };
+    window.addEventListener(OPEN_URL_EVENT, onOpen as EventListener);
+    return () => window.removeEventListener(OPEN_URL_EVENT, onOpen as EventListener);
+  }, [navigate]);
 
   /** Число на значке программы в панели Windows — то же, что в трее Flux */
   React.useEffect(() => {
@@ -595,6 +614,7 @@ export default function Layout() {
       { name: 'Блокнот', path: '/notes', icon: NotebookPen },
       { name: 'Чат', path: '/chat', icon: MessagesSquare },
       { name: 'Почта', path: '/mail', icon: Mail },
+      { name: 'Браузер', path: '/browser', icon: Globe },
       ...(user && user.role === 'ADMIN' ? [{ name: 'Сотрудники', path: '/users', icon: Users }] : []),
       { name: 'Руководство', path: '/handbook', icon: LifeBuoy },
     ] },

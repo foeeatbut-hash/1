@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, Menu, Notification, nativeImage, utilityPr
 import path from 'path';
 import { licenseStatus, activateLicense } from './license';
 import { setupCapture } from './capture';
+import { setupBrowser, disposeBrowserFor } from './browser';
 import { TRAY_ICON_PNG } from './trayIcon';
 
 const additionalData = { myKey: 'pdm-system' };
@@ -75,6 +76,10 @@ function createWindow() {
   // Страховка: если ready-to-show не пришёл (страница зависла/упала) — всё равно показываем
   setTimeout(revealMainWindow, 10000);
 
+  // Окно ушло — уносим его вкладки браузера: иначе страницы останутся жить
+  // процессами, которых уже никто не видит
+  mainWindow.on('closed', () => { try { disposeBrowserFor(mainWindow!.id); } catch (_) {} });
+
   // Сообщаем рендереру об изменении состояния разворота окна
   mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximized-changed', true));
   mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximized-changed', false));
@@ -83,6 +88,9 @@ function createWindow() {
 app.whenReady().then(() => {
   // Убираем стандартное меню File/Edit/View/Window
   Menu.setApplicationMenu(null);
+
+  // Браузер внутри программы: вкладки страницами того же движка
+  setupBrowser();
 
   const fs = require('fs');
   const path = require('path');

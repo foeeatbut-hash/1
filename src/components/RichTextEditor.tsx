@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { openLink } from '../lib/openLink';
 import { createPortal } from 'react-dom';
 import { Check, ExternalLink, Pencil, Unlink, Rows3, Columns3, Trash2, Tag as TagIcon, Database } from 'lucide-react';
 import RibbonBar from './ribbon/RibbonBar';
@@ -29,15 +30,9 @@ const PROJECT_FIELDS = [
   { key: 'stage', label: 'Стадия' },
 ];
 
-// Открытие внешней ссылки: в Electron — через системный браузер, в вебе — новая вкладка
-function openExternal(url: string) {
-  const win = window as any;
-  if (win.electron?.ipcRenderer?.invoke) {
-    win.electron.ipcRenderer.invoke('shell:open-external', url).catch(() => window.open(url, '_blank'));
-  } else {
-    window.open(url, '_blank', 'noopener');
-  }
-}
+// Ссылка открывается вкладкой браузера программы (lib/openLink): один способ
+// на всю программу, а не свой у каждого редактора
+const openExternal = (url: string) => openLink(url);
 
 // Стили чек-бокса чек-листа — инлайновые, чтобы сохранялись в HTML заметки и в экспорте
 const CLBOX_BASE = 'display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:4px;border:1.5px solid #94a3b8;margin-right:8px;cursor:pointer;font-size:11px;line-height:1;user-select:none;vertical-align:-3px;flex:none;';

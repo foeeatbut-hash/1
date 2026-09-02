@@ -64,6 +64,41 @@ contextBridge.exposeInMainWorld('electron', {
     },
   },
 
+  // Браузер внутри программы: страницы живут отдельными процессами, окно
+  // рисует React, а границы страницы приезжают отсюда числами
+  browser: {
+    newTab: (url: string) => ipcRenderer.invoke('browser:new-tab', url),
+    show: (id: string) => ipcRenderer.invoke('browser:show', id),
+    hide: () => ipcRenderer.invoke('browser:hide'),
+    closeTab: (id: string) => ipcRenderer.invoke('browser:close-tab', id),
+    setBounds: (b: { x: number; y: number; width: number; height: number }) =>
+      ipcRenderer.invoke('browser:bounds', b),
+    go: (id: string, url: string) => ipcRenderer.invoke('browser:go', { id, url }),
+    action: (id: string, action: string) => ipcRenderer.invoke('browser:action', { id, action }),
+    state: (id: string) => ipcRenderer.invoke('browser:state', id),
+    selection: (id: string) => ipcRenderer.invoke('browser:selection', id),
+    onState: (callback: (s: any) => void) => {
+      const sub = (_e: any, s: any) => callback(s);
+      ipcRenderer.on('browser:state', sub);
+      return () => ipcRenderer.removeListener('browser:state', sub);
+    },
+    onOpened: (callback: (p: { id: string; url: string }) => void) => {
+      const sub = (_e: any, p: any) => callback(p);
+      ipcRenderer.on('browser:opened', sub);
+      return () => ipcRenderer.removeListener('browser:opened', sub);
+    },
+    onFailed: (callback: (p: { id: string; code: number; desc: string; url: string }) => void) => {
+      const sub = (_e: any, p: any) => callback(p);
+      ipcRenderer.on('browser:failed', sub);
+      return () => ipcRenderer.removeListener('browser:failed', sub);
+    },
+    onDownload: (callback: (p: { name: string; size: number }) => void) => {
+      const sub = (_e: any, p: any) => callback(p);
+      ipcRenderer.on('browser:download', sub);
+      return () => ipcRenderer.removeListener('browser:download', sub);
+    },
+  },
+
   // Уведомления системы: показываются, когда окно свёрнуто или не в фокусе
   notify: {
     system: (payload: { title: string; body: string; route?: string }) =>
