@@ -136,11 +136,9 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   // создаётся раньше самой функции. Держим её в ссылке: слушатель живёт всё
   // время жизни книги, а функция пересоздаётся на каждой отрисовке
   const cellStateFnRef = useRef<() => void>(() => {});
-  // Родная панель движка: настройка переживает закрытие книги — включают её
-  // не на один раз. Объявлена до создания движка: он читает её при запуске
-  const [nativePanel, setNativePanel] = useState(() => {
-    try { return localStorage.getItem('flux_sheet_native') === '1'; } catch (_) { return false; }
-  });
+  // Отбор по столбцам: кнопка ленты должна отвечать, включён он или нет,
+  // иначе «Фильтр» превращается в кнопку с непредсказуемым действием
+  const [filterOn, setFilterOn] = useState(false);
   // История версий: автоснимки перед обновлением данных + ручные + откат
   const [versionsOpen, setVersionsOpen] = useState(false);
   // Английская версия: снимок на момент открытия сверки и отставшая пара
@@ -444,12 +442,13 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           presets: [
             (corePreset as any).UniverSheetsCorePreset({
               container: containerRef.current,
-              // Родную панель движка прячем: ленту рисует Flux (components/
-              // ribbon), и две панели с разными отступами означали бы два
-              // места для одного действия. Строка формул и ярлычки листов
-              // остаются — без них таблица не таблица. Вернуть родную ленту
-              // можно кнопкой «Панель движка» во вкладке «Вид»
-              toolbar: nativePanel,
+              // Родной панели движка нет вовсе: ленту рисует Flux
+              // (components/ribbon). Две панели с разными отступами — это два
+              // места для одного действия; переключатель между ними держали
+              // только ради фильтра, сортировки, условного вида и поиска — они
+              // переехали в ленту, во вкладку «Главная». Строка формул и
+              // ярлычки листов остаются: без них таблица не таблица
+              toolbar: false,
             }),
             (filterP as any).UniverSheetsFilterPreset(),
             (sortP as any).UniverSheetsSortPreset(),
@@ -1097,20 +1096,6 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   };
   cellStateFnRef.current = refreshCellState;
 
-  /**
-   * Родная панель движка: показать её можно только пересозданием редактора —
-   * состав рабочей области движок читает один раз при запуске. Пишем книгу
-   * до пересоздания, иначе несохранённая правка ушла бы вместе с ним.
-   */
-  const toggleNativePanel = async () => {
-    const next = !nativePanel;
-    await saveNow();
-    try { localStorage.setItem('flux_sheet_native', next ? '1' : '0'); } catch (_) {}
-    setNativePanel(next);
-    setLoading(true);
-    setReloadTick(t => t + 1);
-  };
-
   /** Книга как шаблон: структура и блоки без данных — для других проектов */
   const saveAsTemplate = async () => {
     await saveNow();
@@ -1258,7 +1243,13 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       case 'sh.freeze': return exec('sheet.command.set-selection-frozen');
       case 'sh.unfreeze': return exec('sheet.command.cancel-frozen');
       case 'sh.grid': { setGridOn(v => !v); return exec('sheet.command.toggle-gridlines'); }
-      case 'sh.native': return toggleNativePanel();
+      // Раньше это было доступно только из родной панели движка — из-за них
+      // её и держали. Идентификаторы команд взяты из самих пакетов движка
+      case 'sh.find': return exec('ui.operation.open-find-dialog');
+      case 'sh.filter': { setFilterOn(v => !v); return exec('sheet.command.smart-toggle-filter'); }
+      case 'sh.sortAsc': return exec('sheet.command.sort-range-asc');
+      case 'sh.sortDesc': return exec('sheet.command.sort-range-desc');
+      case 'sh.cond': return exec('sheet.operation.open.conditional.formatting.panel');
       default: return undefined;
     }
   };
@@ -1280,7 +1271,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
     'sh.blocks': blocksOpen,
     'sh.placeholders': phOpen,
     'sh.versions': versionsOpen,
-    'sh.native': nativePanel,
+    'sh.filter': filterOn,
   };
   const organDisabled: Record<string, string> = {};
   if (!bindingsRef.current.blocks.length) {

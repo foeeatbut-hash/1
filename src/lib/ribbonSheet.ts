@@ -104,6 +104,25 @@ export function sheetRibbon(): RibbonTab[] {
           weight: 50,
           organs: [
             { id: 'sh.clear', kind: 'label', label: 'Очистить', icon: 'eraser', hint: 'Содержимое выделенных ячеек' },
+            { id: 'sh.find', kind: 'label', label: 'Найти', icon: 'find', keys: 'Ctrl+F',
+              hint: 'Поиск и замена по книге' },
+          ],
+        },
+        {
+          // Было только в родной панели движка, из-за чего её и держали.
+          // Отбор и сортировка нужны на каждой ведомости, а условный вид —
+          // тому, кто ищет глазами просроченные строки
+          name: 'отбор',
+          weight: 45,
+          organs: [
+            { id: 'sh.filter', kind: 'label', label: 'Фильтр', icon: 'filter', toggle: true,
+              hint: 'Фильтр по столбцам выделенного диапазона' },
+            { id: 'sh.sortAsc', kind: 'label', label: 'А→Я', icon: 'sort',
+              hint: 'Сортировать выделенное по возрастанию' },
+            { id: 'sh.sortDesc', kind: 'label', label: 'Я→А', icon: 'sort',
+              hint: 'Сортировать выделенное по убыванию' },
+            { id: 'sh.cond', kind: 'label', label: 'Условный вид', icon: 'fill',
+              hint: 'Подсветить ячейки по условию: правила движка' },
           ],
         },
       ],
@@ -195,14 +214,6 @@ export function sheetRibbon(): RibbonTab[] {
             { id: 'sh.freeze', kind: 'label', label: 'Области', icon: 'lock', hint: 'Закрепить строки и столбцы до выделенной ячейки' },
             { id: 'sh.unfreeze', kind: 'label', label: 'Снять', icon: 'reject', hint: 'Убрать закрепление' },
             { id: 'sh.grid', kind: 'icon', icon: 'borders', hint: 'Показывать сетку', toggle: true },
-          ],
-        },
-        {
-          name: 'панели',
-          weight: 40,
-          organs: [
-            { id: 'sh.native', kind: 'label', label: 'Панель движка', icon: 'more', toggle: true,
-              hint: 'Родная лента движка со всем, чего пока нет в нашей. Книга перечитается' },
           ],
         },
       ],

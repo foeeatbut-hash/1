@@ -58,7 +58,7 @@ const SECTIONS: Array<{ id: SectionId; label: string; icon: any; desc: string; s
   { id: 'equipment', label: 'Оборудование', icon: Fan, desc: 'Категории оборудования', scope: 'global' },
   // «Теги» здесь — про способ соединять теги на холсте, а не про сами теги:
   // настройка одна на программу. Сами теги живут в проекте.
-  { id: 'tags', label: 'Теги', icon: Tag, desc: 'Холст связей', scope: 'global' },
+  { id: 'tags', label: 'Теги', icon: Tag, desc: 'Схема связей', scope: 'global' },
   { id: 'notifications', label: 'Уведомления', icon: Bell, desc: 'Какие события показывать', scope: 'global' },
   { id: 'translate', label: 'Переводчик', icon: Languages, desc: 'Чем переводим', scope: 'global' },
   { id: 'database', label: 'База данных', icon: Database, desc: 'На этом компьютере или на сервере', scope: 'global' },
@@ -781,7 +781,7 @@ function LinkModeChooser({ value, onChange, clickDesc, dragDesc }: {
   );
 }
 
-// ── Раздел «Теги»: подразделы «Холст» и «Дерево» ────────────────────────────
+// ── Раздел «Теги»: подразделы «Схема» и «Дерево» ─────────────────────────────
 function TagsSection({ addToast }: any) {
   const [canvasMode, setCanvasMode] = useState<'click' | 'drag'>('click');
   const [treeMode, setTreeMode] = useState<'click' | 'drag'>('click');
@@ -809,7 +809,7 @@ function TagsSection({ addToast }: any) {
     <SectionShell title="Теги" desc="Настройки раздела «Теги»: способ создания связей на холсте и в дереве.">
       <div className="space-y-5">
         <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Холст · подключение связей</div>
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Схема · подключение связей</div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Как соединять теги на холсте.</p>
           <LinkModeChooser
             value={canvasMode}

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
+import { usePresenceStore, presenceLabel } from '../store/presenceStore';
 import { useChatStore, ChatMessage } from '../store/chatStore';
 import { useShareStore } from '../store/shareStore';
 import { useNotificationStore } from '../store/notificationStore';
@@ -420,6 +421,14 @@ export default function ChatManagement() {
 
   const activePeer = users.find(u => u.id === activeReceiverId);
   const activeGroup = groups.find(g => g.id === activeGroupId);
+
+  // Кто сейчас в сети. Список общий на всю программу и приходит сокетом;
+  // администратор в нём наравне со всеми — скрытое присутствие начальства
+  // означало бы, что одни видят, кому можно писать, а другие пишут в пустоту
+  const onlineIds = usePresenceStore(s => s.online);
+  const lastSeenMap = usePresenceStore(s => s.lastSeen);
+  const peerOnline = !!activePeer && onlineIds.includes(activePeer.id);
+  const peerSeen = activePeer ? (lastSeenMap[activePeer.id] ?? null) : null;
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -908,8 +917,20 @@ export default function ChatManagement() {
                         : 'hover:bg-slate-100/70 dark:hover:bg-slate-800/50 border border-transparent'
                     }`}
                   >
-                    <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-850 flex items-center justify-center text-xs font-bold text-emerald-750 dark:text-emerald-400 shrink-0 border border-slate-300 dark:border-slate-700">
-                      {u.name.charAt(0)}
+                    <div className="relative shrink-0">
+                      <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-850 flex items-center justify-center text-xs font-bold text-emerald-750 dark:text-emerald-400 border border-slate-300 dark:border-slate-700">
+                        {u.name.charAt(0)}
+                      </div>
+                      {/* Точка «в сети» на самом значке, а не строкой рядом:
+                          её видно боковым зрением, не читая */}
+                      {onlineIds.includes(u.id) && (
+                        <span
+                          aria-label="В сети"
+                          title="В сети"
+                          className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500
+                                     border-2 border-slate-50 dark:border-slate-900"
+                        />
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
@@ -945,15 +966,31 @@ export default function ChatManagement() {
               <div className="flex items-center gap-3">
                 {activeType === 'DIRECT' && activePeer ? (
                   <>
-                    <div className="w-9 h-9 rounded-full bg-emerald-100 dark:bg-emerald-950/45 flex items-center justify-center text-sm font-bold text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900">
-                      {activePeer.name.charAt(0)}
+                    <div className="relative">
+                      <div className="w-9 h-9 rounded-full bg-emerald-100 dark:bg-emerald-950/45 flex items-center justify-center text-sm font-bold text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900">
+                        {activePeer.name.charAt(0)}
+                      </div>
+                      {peerOnline && (
+                        <span
+                          aria-label="В сети"
+                          className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500
+                                     border-2 border-white dark:border-slate-900"
+                        />
+                      )}
                     </div>
                     <div>
                       <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 leading-tight">
                         {activePeer.name}
                       </h3>
-                      <p className="text-xs text-slate-400 leading-snug mt-0.5">
-                        Табельный номер: {activePeer.symbol} • {activePeer.role}
+                      {/* «В сети» стоит первым: прежде чем писать, человек
+                          решает, ждать ли ответа сейчас */}
+                      <p className="text-xs leading-snug mt-0.5">
+                        <span className={peerOnline
+                          ? 'text-emerald-600 dark:text-emerald-400 font-semibold'
+                          : 'text-slate-400'}>
+                          {presenceLabel(peerOnline, peerSeen)}
+                        </span>
+                        <span className="text-slate-400"> • Таб. {activePeer.symbol} • {activePeer.role}</span>
                       </p>
                     </div>
                   </>

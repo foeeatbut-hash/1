@@ -9,12 +9,11 @@
  *  - pad: нужен ли внешний отступ p-6 (у таблиц/чатов свой лэйаут)
  */
 import React, { lazy } from 'react';
-import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, Table2, NotebookPen, MessagesSquare, Wand2, Settings, ClipboardList, Users, LifeBuoy, Mail, FileText, MessageCircleQuestion, Languages } from 'lucide-react';
+import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, Table2, NotebookPen, MessagesSquare, Settings, ClipboardList, Users, LifeBuoy, Mail, FileText, MessageCircleQuestion, Languages } from 'lucide-react';
 
 const Dashboard = lazy(() => import('../screens/Dashboard'));
 const Explorer = lazy(() => import('../screens/Explorer'));
 const Registry = lazy(() => import('../screens/Registry'));
-const UniversalGenerator = lazy(() => import('../screens/UniversalGenerator'));
 const DictionaryEditor = lazy(() => import('../screens/DictionaryEditor'));
 const Equipment = lazy(() => import('../screens/Equipment'));
 const UsersManagement = lazy(() => import('../screens/UsersManagement'));
@@ -99,7 +98,6 @@ export const SECTIONS: SectionDef[] = [
   { path: '/chat', title: 'Чат', icon: MessagesSquare, scope: 'global', scroll: 'fixed', pad: true, badge: 'chat', Component: ChatManagement },
   // Почта занимает всю высоту и прокручивает списки внутри — как Чат и Теги
   { path: '/mail', title: 'Почта', icon: Mail, scope: 'global', scroll: 'fixed', pad: true, pinned: true, badge: 'mail', Component: MailScreen },
-  { path: '/generator', title: 'Генератор', icon: Wand2, scope: 'project', scroll: 'auto', pad: true, Component: UniversalGenerator },
   { path: '/settings', title: 'Настройки', icon: Settings, scope: 'mixed', scroll: 'auto', pad: true, Component: SettingsScreen },
   { path: '/handbook', title: 'Руководство', icon: LifeBuoy, scope: 'global', scroll: 'fixed', pad: true, Component: Handbook },
   { path: '/logs', title: 'Журнал', icon: ClipboardList, scope: 'global', scroll: 'auto', pad: true, Component: LogsManagement },

@@ -127,7 +127,7 @@ export default function Dashboard() {
   const sections = useMemo(() => {
     const uses = sectionUses();
     const list = SECTIONS
-      .filter((s) => s.path !== '/' && s.path !== '/logs' && s.path !== '/generator')
+      .filter((s) => s.path !== '/' && s.path !== '/logs')
       .filter((s) => !s.adminOnly || user?.role === 'ADMIN');
     return [...list].sort((a, b) => (uses[b.path] || 0) - (uses[a.path] || 0));
   }, [user?.role, loading, panes]);

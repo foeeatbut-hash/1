@@ -7,6 +7,7 @@ import { FEATURES, parsePermissions, PermMap } from '../lib/permissions';
 import { Check } from 'lucide-react';
 import NameFields, { NameValue, EMPTY_NAME } from '../components/NameFields';
 import { Role, loadRoles, roleByCode, roleColorClass, isTopAdmin } from '../lib/roles';
+import { usePresenceStore, presenceLabel } from '../store/presenceStore';
 import { fullNameOf } from '../lib/declension';
 import RoleIcon from '../components/RoleIcon';
 import { motion, AnimatePresence } from 'motion/react';
@@ -38,6 +39,8 @@ export default function UsersManagement() {
   const { addToast } = useToastStore();
   
   const [usersList, setUsersList] = useState<User[]>([]);
+  // Кто в сети — общий список программы (store/presenceStore)
+  const onlineIds = usePresenceStore(s => s.online);
   /**
    * Отбор в списке. Раньше его не было вовсе: тридцать сотрудников искали
    * прокруткой, а вопросы «у кого истекает доступ» и «кто ещё без подписи»
@@ -526,8 +529,20 @@ export default function UsersManagement() {
                       каждой ширине */}
                   <td className="flux-cell w-full max-w-0">
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <span className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-2xs font-extrabold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-900/50">
-                        {initialsOf(emp)}
+                      <span className="relative shrink-0">
+                        <span className="w-8 h-8 flex rounded-full items-center justify-center text-2xs font-extrabold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-900/50">
+                          {initialsOf(emp)}
+                        </span>
+                        {/* «В сети» — то же самое, что в чате, и по тому же
+                            правилу: администратор виден наравне со всеми */}
+                        {onlineIds.includes(emp.id) && (
+                          <span
+                            aria-label="В сети"
+                            title={presenceLabel(true, null)}
+                            className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500
+                                       border-2 border-white dark:border-dark-surface"
+                          />
+                        )}
                       </span>
                       <span className="min-w-0">
                         <span className="block font-semibold text-slate-900 dark:text-white truncate" title={emp.name}>

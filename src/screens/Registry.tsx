@@ -2797,7 +2797,7 @@ export default function Registry() {
           <div className="flex flex-wrap bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800">
             <button type="button"
               onClick={() => setActiveTab('board')}
-              title="Интерактивный граф (Dynamo)"
+              title="Схема связей между тегами"
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
                 activeTab === 'board' 
                   ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
@@ -2805,7 +2805,7 @@ export default function Registry() {
               }`}
             >
               <Network className="w-3.5 h-3.5" />
-              <span className="hidden @[760px]:inline">Интерактивный граф (Dynamo)</span>
+              <span className="hidden @[760px]:inline">Схема</span>
             </button>
             <button type="button"
               onClick={() => setActiveTab('tree')}

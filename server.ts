@@ -1025,6 +1025,19 @@ const emitRoster = (docId: string) => {
   io.to(`constructor:${docId}`).emit('constructor:presence', { docId, peers: roster });
 };
 
+// ── Кто сейчас в сети ────────────────────────────────────────────────────────
+// Один сотрудник — несколько вкладок и окон, поэтому считаем сокеты, а не
+// людей: закрытая вкладка не должна гасить человека, у которого открыто ещё
+// три. «Не в сети» объявляется, когда ушёл последний его сокет.
+//
+// Правило одно для всех: администратор виден так же, как остальные. Скрытое
+// присутствие начальника — это не приватность, а неравенство, из-за которого
+// в чате пишут в пустоту, не понимая, дошло ли.
+const online = new Map<string, Set<string>>();
+const lastSeen = new Map<string, number>();
+
+const rosterOnline = () => Array.from(online.keys());
+
 io.on('connection', (socket) => {
   console.log(`[Socket] client connected: ${socket.id}`);
 
@@ -1033,6 +1046,24 @@ io.on('connection', (socket) => {
   // приходил на каждую машину в сети
   const uid = (socket as any).userId;
   if (uid) socket.join(`user:${uid}`);
+
+  if (uid) {
+    const was = online.get(uid);
+    if (was) was.add(socket.id);
+    else {
+      online.set(uid, new Set([socket.id]));
+      // Появился — сказать всем. Себе тоже: своя точка «в сети» подтверждает,
+      // что связь есть, и отличает «никто не отвечает» от «я отключён»
+      io.emit('presence:online', { userId: uid });
+    }
+  }
+
+  // Пришедшему — весь список сразу: без него человек до первого чужого входа
+  // видел бы всех офлайн
+  socket.emit('presence:list', { online: rosterOnline(), lastSeen: Object.fromEntries(lastSeen) });
+  socket.on('presence:list', () => {
+    socket.emit('presence:list', { online: rosterOnline(), lastSeen: Object.fromEntries(lastSeen) });
+  });
 
   socket.on('tag:linked', (data) => {
     socket.broadcast.emit('tag:linked', data);
@@ -1087,6 +1118,16 @@ io.on('connection', (socket) => {
     for (const docId of joinedDocs) {
       docPresence.get(docId)?.delete(socket.id);
       emitRoster(docId);
+    }
+    if (uid) {
+      const set = online.get(uid);
+      set?.delete(socket.id);
+      if (set && set.size === 0) {
+        online.delete(uid);
+        const at = Date.now();
+        lastSeen.set(uid, at);
+        io.emit('presence:offline', { userId: uid, at });
+      }
     }
   });
 });

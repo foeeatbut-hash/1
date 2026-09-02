@@ -9,7 +9,7 @@ import ProjectFormModal from '../components/ProjectFormModal';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Plus, Search, Folder, Calendar, Trash2, Edit3, 
-  Save, FileText, CheckCircle2, RefreshCw, AlertCircle, Info, ArrowLeft, Layers
+  Save, FileText, CheckCircle2, RefreshCw, Info, ArrowLeft, Layers
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -422,16 +422,10 @@ export default function ProjectsManagement() {
                     </div>
                   </div>
 
-                  {/* Reminder Banner */}
-                  <div className="bg-emerald-50/50 dark:bg-emerald-995/10 border border-emerald-100 dark:border-emerald-900/40 rounded-xl p-4 flex items-start gap-3">
-                    <AlertCircle className="w-4 h-4 text-emerald-650 shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="text-xs font-bold text-emerald-800 dark:text-emerald-400">Как работать с проектом?</h4>
-                      <p className="text-xs text-emerald-700/90 dark:text-emerald-400/80 mt-1 leading-relaxed">
-                        Поставьте галочку у нужного проекта слева в списке или нажмите "Отметить галочкой" вверху. Это переключит фокус MAX на данные выбранного проекта в Проводнике, Списке Тегов и Оборудовании!
-                      </p>
-                    </div>
-                  </div>
+                  {/* Объяснение «как работать с проектом» отсюда убрано: оно
+                      платило собой каждый день, а помогало один раз. Всё, что
+                      в нём было, есть в Руководстве (кнопка «?» и F1) — а тут
+                      человеку нужен сам проект */}
                 </div>
               )}
             </div>
@@ -441,7 +435,7 @@ export default function ProjectsManagement() {
             <Layers className="w-12 h-12 text-slate-300 dark:text-slate-700 mb-3" />
             <h3 className="text-md font-bold text-slate-850 dark:text-white">Проект не выбран</h3>
             <p className="text-xs text-center max-w-sm mt-1 opacity-75">
-              Создайте новый технологический проект или выберите существующий из левой панели, чтобы ознакомиться с деталями или переключить текущий рабочий контекст.
+              Выберите проект слева или создайте новый.
             </p>
           </div>
         )}

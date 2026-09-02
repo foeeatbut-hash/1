@@ -85,11 +85,6 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versions, setVersions] = useState<{ id: string; version: number; comment: string; createdAt: string }[]>([]);
   const [reloadTick, setReloadTick] = useState(0);
-  // Родная панель движка: её видно только по просьбе. Настройка переживает
-  // закрытие документа — человек включил её не на один раз
-  const [nativePanel, setNativePanel] = useState(() => {
-    try { return localStorage.getItem('flux_doc_native') === '1'; } catch (_) { return false; }
-  });
   const [counts, setCounts] = useState({ words: 0, chars: 0 });
   const [dataOpen, setDataOpen] = useState(false); // панель «Данные» (умные поля)
   // ── Титул: присвоенный шаблон + реквизиты именно этого документа ──
@@ -231,12 +226,11 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
           presets: [
             (docsPreset as any).UniverDocsCorePreset({
               container: containerRef.current,
-              // Своя лента рисуется поверх (components/ribbon), поэтому родную
-              // панель движка прячем: две панели с разными отступами и цветами
-              // — это два разных места для одного и того же действия. Вернуть
-              // её можно кнопкой «Панель движка» во вкладке «Вид»
-              header: nativePanel,
-              toolbar: nativePanel,
+              // Своя лента рисуется поверх (components/ribbon), родной панели
+              // движка нет вовсе: две панели с разными отступами и цветами —
+              // это два разных места для одного и того же действия
+              header: false,
+              toolbar: false,
               footer: false,
               ribbonType: 'classic',
             }),
@@ -717,22 +711,6 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     saveNow();
   };
 
-  /**
-   * Родная панель движка.
-   *
-   * Показать её можно только пересозданием редактора: состав рабочей области
-   * движок читает один раз при запуске. Поэтому сначала записываем документ —
-   * иначе несохранённая правка ушла бы вместе со старым экземпляром.
-   */
-  const toggleNativePanel = async () => {
-    const next = !nativePanel;
-    await saveNow();
-    try { localStorage.setItem('flux_doc_native', next ? '1' : '0'); } catch (_) {}
-    setNativePanel(next);
-    setLoading(true);
-    setReloadTick(t => t + 1);
-  };
-
   const STYLE_CMD: Record<string, string> = {
     normal: 'doc.command.normal-text-heading',
     title: 'doc.command.title',
@@ -812,7 +790,6 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         return exec('doc.command.set-zoom-ratio', { zoomRatio: next / 100 });
       }
       case 'doc.zoomReset': { setZoom(100); return exec('doc.command.set-zoom-ratio', { zoomRatio: 1 }); }
-      case 'doc.native': return toggleNativePanel();
       default: return undefined;
     }
   };
@@ -825,7 +802,6 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     'doc.color': textColor,
     'doc.mark': markColor,
     'doc.ruler': showRuler,
-    'doc.native': nativePanel,
     'doc.title': !!settings.titleTemplateId,
     'doc.fields': dataOpen,
     'doc.versions': versionsOpen,
