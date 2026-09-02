@@ -72,16 +72,77 @@ export function stemRu(word: string): string {
   return w;
 }
 
-/** То же для английского: множественное число и причастия */
+/**
+ * То же для английского: множественное число и причастия.
+ *
+ * Отрезаем по кругу, пока слово меняется, но не больше трёх раз. Один проход
+ * даёт разные основы одному слову: «processing» теряет «ing» и становится
+ * «process», а «process» теряет «s» и становится «proces» — и в словаре они
+ * уже не встречаются. Круг делает огрубление устойчивым: оба приходят к
+ * «proces». Три — потому что дальше слова не сокращаются, а рассыпаются.
+ */
 export function stemEn(word: string): string {
-  const w = word.toLowerCase();
-  if (w.length < 5) return w;
-  for (const end of ['ies', 'ing', 'ed', 'es', 's']) {
-    if (w.length - end.length >= 3 && w.endsWith(end)) {
-      return end === 'ies' ? `${w.slice(0, -3)}y` : w.slice(0, -end.length);
+  let w = word.toLowerCase();
+  for (let pass = 0; pass < 3; pass++) {
+    if (w.length < 5) return w;
+    let cut = '';
+    for (const end of ['ies', 'ing', 'ed', 'es', 's']) {
+      if (w.length - end.length >= 3 && w.endsWith(end)) { cut = end; break; }
     }
+    if (!cut) return w;
+    w = cut === 'ies' ? `${w.slice(0, -3)}y` : w.slice(0, -cut.length);
+    if (cut === 'ies') return w;
   }
   return w;
+}
+
+/**
+ * Формы неправильных глаголов: форма → начальная форма.
+ *
+ * Список нужен не для спряжения, а для отбора при сборке словаря: в открытых
+ * данных такая форма нередко стоит отдельной статьёй со своим значением, и это
+ * значение почти всегда не то. Здесь только формы, отличные от начальной, —
+ * «read» и «cut» в списке не нужны.
+ */
+const EN_IRREGULAR: Record<string, string> = {
+  found: 'find', bound: 'bind', ground: 'grind', wound: 'wind',
+  left: 'leave', felt: 'feel', fell: 'fall', felled: 'fell',
+  meant: 'mean', kept: 'keep', slept: 'sleep', swept: 'sweep', wept: 'weep', crept: 'creep',
+  dealt: 'deal', built: 'build', spent: 'spend', sent: 'send', lent: 'lend', bent: 'bend',
+  held: 'hold', sold: 'sell', told: 'tell', fed: 'feed', led: 'lead', bled: 'bleed',
+  made: 'make', took: 'take', taken: 'take', gave: 'give', given: 'give',
+  saw: 'see', seen: 'see', went: 'go', gone: 'go', came: 'come',
+  ran: 'run', rang: 'ring', rung: 'ring', sang: 'sing', sung: 'sing',
+  drove: 'drive', driven: 'drive', rose: 'rise', risen: 'rise',
+  bore: 'bear', borne: 'bear', broke: 'break', broken: 'break',
+  chose: 'choose', chosen: 'choose', froze: 'freeze', frozen: 'freeze',
+  spoke: 'speak', spoken: 'speak', stole: 'steal', stolen: 'steal',
+  wore: 'wear', worn: 'wear', tore: 'tear', torn: 'tear',
+  threw: 'throw', thrown: 'throw', grew: 'grow', grown: 'grow',
+  blew: 'blow', blown: 'blow', drew: 'draw', drawn: 'draw',
+  flew: 'fly', flown: 'fly', knew: 'know', known: 'know',
+  wrote: 'write', written: 'write', drank: 'drink', drunk: 'drink',
+  began: 'begin', begun: 'begin', swam: 'swim', swum: 'swim',
+  lay: 'lie', lain: 'lie', laid: 'lay', paid: 'pay', said: 'say',
+  bought: 'buy', brought: 'bring', caught: 'catch', taught: 'teach',
+  fought: 'fight', sought: 'seek', thought: 'think', sank: 'sink', sunk: 'sink',
+  stuck: 'stick', struck: 'strike', hung: 'hang', dug: 'dig', shot: 'shoot',
+  lost: 'lose', met: 'meet', sat: 'sit', stood: 'stand', understood: 'understand',
+  wrought: 'work', shone: 'shine', shown: 'show', sewn: 'sew',
+};
+
+/**
+ * Английское слово — форма неправильного глагола, а не самостоятельное слово.
+ *
+ * Нужно при сборке словаря: «found» в чужих данных встречается как «основать»,
+ * и точное совпадение с ним побеждало бы поиск по основе, где «found» — это
+ * «найти». В письме второе вероятнее в разы, поэтому такую пару в точный
+ * список не берём, оставляя её только огрублённому поиску.
+ */
+export function isIrregularForm(word: string): boolean {
+  const w = word.toLowerCase();
+  const base = EN_IRREGULAR[w];
+  return !!base && base !== w;
 }
 
 export function stemOf(word: string, lang: Lang): string {
@@ -117,7 +178,11 @@ export function buildIndex(pairs: TermPair[], from: Lang, to: Lang): TermIndex {
     if (!src || !dst) continue;
     const key = phraseKey(src);
     if (!key) continue;
-    if (!idx.exact.has(key)) { idx.exact.set(key, dst); idx.size++; }
+    const single = key.indexOf(' ') < 0;
+    if (!(from === 'en' && single && isIrregularForm(key)) && !idx.exact.has(key)) {
+      idx.exact.set(key, dst);
+      idx.size++;
+    }
     const words = key.split(' ');
     if (words.length > idx.maxWords) idx.maxWords = words.length;
     const loose = words.map((w) => stemOf(w, from)).join(' ');

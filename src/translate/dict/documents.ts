@@ -17,6 +17,7 @@ const BLOCK = `
 руководство по эксплуатации = operation manual
 инструкция по монтажу = installation instruction
 руководство по монтажу и эксплуатации = installation and operation manual
+чертёж = drawing
 габаритный чертёж = general arrangement drawing
 сборочный чертёж = assembly drawing
 монтажный чертёж = installation drawing
