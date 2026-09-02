@@ -112,6 +112,14 @@ contextBridge.exposeInMainWorld('electron', {
     },
   },
 
+  // Журналы: папка на рабочем столе, файл на день
+  logs: {
+    append: (p: { level?: string; where?: string; text?: string }) => ipcRenderer.invoke('logs:append', p),
+    today: () => ipcRenderer.invoke('logs:today'),
+    folder: () => ipcRenderer.invoke('logs:folder'),
+    openFolder: () => ipcRenderer.invoke('logs:open-folder'),
+  },
+
   // Автозапуск вместе с Windows: состояние читаем у системы, а не помним своё
   startup: {
     get: () => ipcRenderer.invoke('startup:get'),

@@ -13,7 +13,7 @@
  */
 import React, { Component, ReactNode, ErrorInfo } from 'react';
 import { RotateCcw, X, AlertTriangle } from 'lucide-react';
-import { useLogStore } from '../store/logStore';
+import { writeCrash } from '../lib/crashLog';
 
 interface Props {
   /** Название раздела — попадает в журнал и в текст сообщения */
@@ -37,15 +37,14 @@ export default class SectionErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    // Пишем в журнал программы, а не в консоль: инженер может прислать выгрузку
-    try {
-      useLogStore.getState().addLog(
-        'ERROR',
-        `Раздел: ${this.props.title}`,
-        `Сбой раздела «${this.props.title}»: ${error.message}`,
-        `${error.stack || ''}\n${info.componentStack || ''}`,
-      );
-    } catch (_) {}
+    // Сбой уходит и в журнал программы, и в файл на рабочем столе. Раньше он
+    // оставался только здесь, и человек, которому предлагали «прислать логи»,
+    // отдавал файл, в котором этого сбоя не было вовсе
+    writeCrash(
+      `Раздел: ${this.props.title}`,
+      `Сбой раздела «${this.props.title}»: ${error.message}`,
+      `${error.stack || ''}\n${info.componentStack || ''}`,
+    );
   }
 
   private retry = () => {

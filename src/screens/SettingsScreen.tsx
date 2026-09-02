@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
 import SectionShell from '../components/settings/SectionShell';
+import LogsSection from '../components/settings/LogsSection';
 import BrowserSection from '../components/settings/BrowserSection';
 import GeneralSection from '../components/settings/GeneralSection';
 import ToggleRow from '../components/settings/ToggleRow';
@@ -196,7 +197,7 @@ export default function SettingsScreen() {
         )}
         {section === 'database' && <DatabaseSection addToast={addToast} />}
         {section === 'backup' && <BackupSection isAdmin={isAdmin} addToast={addToast} />}
-        {section === 'logs' && <CrashLogsSection addLog={addLog} />}
+        {section === 'logs' && <LogsSection addLog={addLog} />}
         {section === 'updates' && (
           <SectionShell title="Обновления" desc="Текущая версия программы и установка обновлений.">
             <div className="max-w-md"><UpdaterWidget /></div>
@@ -1014,62 +1015,6 @@ function DatabaseSection({ addToast }: any) {
             <p className="text-xs text-slate-500 dark:text-slate-400">Достраивает недостающие таблицы и колонки после обновления программы.</p>
           </div>
         )}
-      </div>
-    </SectionShell>
-  );
-}
-
-// ── Crash-логи ─────────────────────────────────────────────────────────────────
-function CrashLogsSection({ addLog }: any) {
-  const [crashLogDir, setCrashLogDir] = useState('');
-
-  useEffect(() => {
-    fetch(`${ENV_CONFIG.apiUrl}/db/config`).then(r => r.json()).then((config: any) => {
-      setCrashLogDir(config.crash_log_dir || '');
-    }).catch(() => {});
-  }, []);
-
-  const save = async (dir: string) => {
-    try {
-      const resp = await fetch(`${ENV_CONFIG.apiUrl}/config/logs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ crash_log_dir: dir })
-      });
-      const data = await resp.json();
-      if (data.success) {
-        setCrashLogDir(data.crash_log_dir || '');
-        addLog('INFO', 'Система', `Папка для crash-логов изменена: ${data.crash_log_dir || 'по умолчанию (AppData/pdm-app/logs)'}`);
-      }
-    } catch (err: any) {
-      addLog('ERROR', 'Система', `Не удалось сохранить папку crash-логов: ${err.message}`);
-    }
-  };
-
-  const pickDir = async () => {
-    const win = window as any;
-    if (!win.electron?.ipcRenderer?.invoke) {
-      void openAlert('Доступно только в программе', 'Выбрать папку можно в установленном приложении Flux — в браузере эта возможность недоступна.');
-      return;
-    }
-    try {
-      const dirPath = await win.electron.ipcRenderer.invoke('dialog:openDirectory');
-      if (dirPath) await save(String(dirPath));
-    } catch (err: any) {
-      addLog('ERROR', 'Система', `Ошибка выбора папки: ${err.message}`);
-    }
-  };
-
-  return (
-    <SectionShell title="Crash-логи" desc="Папка, куда пишутся аварийные журналы.">
-      <div className="max-w-lg space-y-2">
-        <p className="font-mono text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 p-2.5 border border-slate-200 dark:border-slate-800 rounded-lg select-all break-all">
-          {crashLogDir || 'AppData/pdm-app/logs (по умолчанию)'}
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" onClick={pickDir} className="py-2 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">Выбрать папку…</button>
-          <button type="button" onClick={() => save('')} className="py-2 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">По умолчанию</button>
-        </div>
       </div>
     </SectionShell>
   );

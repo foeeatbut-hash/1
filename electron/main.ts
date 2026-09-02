@@ -3,6 +3,7 @@ import path from 'path';
 import { licenseStatus, activateLicense } from './license';
 import { setupCapture } from './capture';
 import { setupBrowser, disposeBrowserFor } from './browser';
+import { setupLogs, appendLog } from './logs';
 import { TRAY_ICON_PNG } from './trayIcon';
 
 const additionalData = { myKey: 'pdm-system' };
@@ -91,6 +92,9 @@ app.whenReady().then(() => {
 
   // Браузер внутри программы: вкладки страницами того же движка
   setupBrowser();
+
+  // Журналы: папка на рабочем столе, файл на день, уборка старше месяца
+  setupLogs();
 
   const fs = require('fs');
   const path = require('path');
