@@ -3166,9 +3166,21 @@ app.get('/chat_files/:id/:name', async (req: Request, res: Response) => {
 });
 
 // Search ComponentElement by tag string
+/**
+ * Куда ведёт тег, отправленный в чат.
+ *
+ * Раньше искали только среди элементов оборудования — и тег, который есть в
+ * реестре, но ещё не привязан к позиции, объявлялся «не зарегистрированным в
+ * базе». Человек видел ошибку про несуществующий тег, глядя на тег, который
+ * сам же и завёл час назад.
+ *
+ * Ищем в обоих местах и говорим, что нашли: элемент — открывать в
+ * «Оборудовании», тег — в «Тегах». Не нашли ни там ни там — так и отвечаем,
+ * не выдумывая причину.
+ */
 app.get('/api/chat/search-element', async (req: Request, res: Response) => {
   try {
-    const { tag } = req.query;
+    const { tag, projectId } = req.query;
     if (!tag) {
       return res.status(400).json({ error: 'tag is required' });
     }
@@ -3187,7 +3199,21 @@ app.get('/api/chat/search-element', async (req: Request, res: Response) => {
         monoblock: { include: { system: true } }
       }
     });
-    res.json({ element });
+
+    // Тег реестра ищем и в текущем проекте, и вне его: тег из соседнего
+    // проекта — это не «не найден», это другой разговор, и сказать о нём надо
+    // прямо, а не отправлять человека искать самому
+    const pid = projectId ? String(projectId) : '';
+    const tagRow = await prisma.tag.findFirst({
+      where: { identifier: cleanTag, ...(pid ? { projectId: pid } : {}) },
+      select: { id: true, identifier: true, projectId: true },
+    });
+    const elsewhere = tagRow || !pid ? null : await prisma.tag.findFirst({
+      where: { identifier: cleanTag },
+      select: { id: true, identifier: true, projectId: true, project: { select: { name: true } } },
+    });
+
+    res.json({ element, tag: tagRow, elsewhere });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

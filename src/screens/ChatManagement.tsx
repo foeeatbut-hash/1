@@ -648,25 +648,37 @@ export default function ChatManagement() {
     window.setTimeout(() => el.classList.remove('flux-hb-flash'), 2000);
   };
 
-  // TAG CLICK RESOLVER: Finds component element by Tag name and triggers navigation+highlight in Equipment Tree
+  /**
+   * Тег, отправленный в чат, ведёт к самой вещи, а не в раздел «вообще».
+   *
+   * Здесь чинились сразу две вещи. Раздел «Оборудование» открывался по адресу
+   * `?elementId=`, а ждёт он `?element=` — параметр молча пропадал, и человек
+   * попадал в раздел, где сам искал позицию глазами. А тег, который есть в
+   * реестре, но ещё не привязан к оборудованию, объявлялся «не
+   * зарегистрированным в базе»: сообщение об ошибке про тег, заведённый час
+   * назад тем же человеком.
+   */
   const handleTagClick = async (tag: string) => {
     try {
-      addToast(`Инженерный запрос тега #${tag}...`, 'info');
-      let foundElement: any = null;
-      const res = await fetch(`/api/chat/search-element?tag=${encodeURIComponent(tag)}`);
-      if (res.ok) {
-        const data = await res.json();
-        foundElement = data.element;
-      }
+      const pid = activeProject?.id || '';
+      const res = await fetch(`/api/chat/search-element?tag=${encodeURIComponent(tag)}${pid ? `&projectId=${encodeURIComponent(pid)}` : ''}`);
+      const data = res.ok ? await res.json() : {};
 
-      if (foundElement) {
-        addToast(`Открытие элемента в дереве связей: ${foundElement.name}`, 'success');
-        navigate(`/equipment?elementId=${foundElement.id}`);
-      } else {
-        addToast(`Тег #${tag} не зарегистрирован в базе MAX проекта.`, 'error');
+      if (data.element) {
+        navigate(`/equipment?element=${encodeURIComponent(data.element.id)}`);
+        return;
       }
+      if (data.tag) {
+        navigate(`/registry?focus=${encodeURIComponent(data.tag.id)}`);
+        return;
+      }
+      if (data.elsewhere) {
+        addToast(`Тег ${tag} — из проекта «${data.elsewhere.project?.name || 'другого'}». Переключите проект, чтобы открыть его.`, 'info');
+        return;
+      }
+      addToast(`Тег ${tag} в этом проекте не найден — возможно, он ещё не заведён.`, 'info');
     } catch (err: any) {
-      addToast('Ошибка поиска инженерного тега: ' + err.message, 'error');
+      addToast('Не удалось найти тег: ' + err.message, 'error');
     }
   };
 
