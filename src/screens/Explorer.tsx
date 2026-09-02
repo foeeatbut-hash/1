@@ -5,6 +5,7 @@ import { useToastStore } from '../store/toastStore';
 import VdrItemPicker from '../components/VdrItemPicker';
 import { isPdf, isConstructorDoc, FILE_APPS } from '../lib/fileTypes';
 import ExplorerMenu from '../components/explorer/ExplorerMenu';
+import { useInsightStore } from '../store/insightStore';
 import { useModalStore } from '../store/modalStore';
 import {
   Folder, File as FileIcon, ChevronRight, ChevronDown, Plus, Upload,
@@ -1963,6 +1964,9 @@ export default function Explorer() {
             const item = isFile ? files.find(f => f.id === id) : folders.find(f => f.id === id);
             if (item) setPropertiesModal({ item, isFile });
           }}
+          /* Папка своей карточки связей не имеет: связи есть у документа, а
+             не у места, где он лежит */
+          links={(id) => useInsightStore.getState().openWhere('file', id)}
           remove={(id, isFile) => handleDelete(id, isFile)}
         />
       )}

@@ -21,10 +21,11 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   FolderPlus, Table, Type, StickyNote, Users, Lock, RefreshCw, ArrowDownAZ, Clock, Shapes,
-  Pencil, Trash2, FolderOpen, PinOff, Info, LayoutGrid, List,
+  Pencil, Trash2, FolderOpen, PinOff, Info, LayoutGrid, List, Link2,
 } from 'lucide-react';
 import { useStore } from '../store/store';
 import { useDesktopStore } from '../store/desktopStore';
+import { useInsightStore } from '../store/insightStore';
 import { rememberSectionUse } from '../store/workspaceStore';
 import { useModalStore } from '../store/modalStore';
 import { useToastStore } from '../store/toastStore';
@@ -55,6 +56,7 @@ export default function Desktop() {
   // Клетка и значок — одного размера у всех, кто их рисует: сетка, значок и
   // расчёт попадания при переносе
   const metric = deskMetric(scale);
+  const openWhere = useInsightStore((s) => s.openWhere);
   const openConfirm = useModalStore((s) => s.openConfirm);
   const addToast = useToastStore((s) => s.addToast);
 
@@ -257,8 +259,19 @@ export default function Desktop() {
         disabled: item.shared && !canPersonal,
         onClick: () => doShare(item),
       },
+      {
+        // Одна вещь целиком: где встречается тег этого документа, в каких
+        // строках ВДР он выпускается, каким письмом его отправляли. Раньше
+        // это открывалось только из помощника и проверки проекта — то есть
+        // почти никогда
+        label: 'Карточка связей',
+        icon: <Link2 className="w-3.5 h-3.5" />,
+        onClick: () => (item.kind === 'doc' && item.refId
+          ? openWhere('doc', item.refId)
+          : openWhere('file', item.id)),
+      },
       { label: 'Свойства', icon: <Info className="w-3.5 h-3.5" />, onClick: () => setProps(item.id) },
-      { label: 'Убрать со стола', icon: <Trash2 className="w-3.5 h-3.5" />, danger: true, onClick: () => doRemove(item) },
+      { label: 'Убрать со стола', separated: true, icon: <Trash2 className="w-3.5 h-3.5" />, danger: true, onClick: () => doRemove(item) },
     ];
 
   /**

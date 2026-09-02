@@ -3915,7 +3915,7 @@ export default function Registry() {
             )}
             <button type="button" onClick={() => { openWhereUsed('tag', cardMenu.tagId); setCardMenu(null); }}
               className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-150 cursor-pointer">
-              <Network className="w-3.5 h-3.5 text-emerald-600" /> Где используется
+              <Network className="w-3.5 h-3.5 text-emerald-600" /> Карточка связей
             </button>
             <button type="button"
               onClick={() => {
@@ -3993,7 +3993,7 @@ export default function Registry() {
               </button>
             )}
             <button type="button" onClick={() => { openWhereUsed('tag', cardPanel.tagId); setCardPanel(null); }}
-              title="Где используется: оборудование, документы, файлы, ВДР"
+              title="Карточка связей: оборудование, документы, файлы, ВДР"
               className="p-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-600 cursor-pointer">
               <Network className="w-4 h-4" />
             </button>

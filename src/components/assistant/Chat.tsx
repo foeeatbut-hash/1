@@ -292,7 +292,7 @@ export default function Chat({ compact }: { compact?: boolean }) {
           {attached && (
             <>
               <button type="button" onClick={() => askAbout(attached.id)}
-                title="Где используется"
+                title="Карточка связей"
                 className="p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer">
                 <Link2 className="w-3 h-3" />
               </button>

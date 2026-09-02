@@ -834,7 +834,7 @@ function BlockCard(props: any) {
           {/* Связи элемента: в каких документах, файлах и строках ВДР он
               встречается. Рядом с историей не случайно — оба вопроса задают
               перед тем, как что-то в элементе поменять. */}
-          <button type="button" onClick={() => openWhereUsed('element', comp.id)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" title="Где используется: теги, документы, обсуждения"><Network className="w-4 h-4" /></button>
+          <button type="button" onClick={() => openWhereUsed('element', comp.id)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" title="Карточка связей: теги, документы, обсуждения"><Network className="w-4 h-4" /></button>
         </div>
       </div>
 

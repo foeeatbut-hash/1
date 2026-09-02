@@ -18,7 +18,7 @@ import ChangeListView from './ChangeListView';
  */
 
 const HEAD: Record<InsightMode, { icon: React.ComponentType<{ className?: string }>; title: string; hint: string }> = {
-  where: { icon: Link2, title: 'Где используется', hint: 'Все места, где встречается объект' },
+  where: { icon: Link2, title: 'Карточка связей', hint: 'Вся вещь целиком: где встречается и с чем связана' },
   check: { icon: ShieldCheck, title: 'Проверка проекта', hint: 'Что стоит поправить до выпуска' },
   changes: { icon: History, title: 'Что изменилось', hint: 'Характеристики оборудования: было и стало' },
 };
@@ -66,7 +66,7 @@ export default function InsightDrawer() {
           </div>
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-bold text-slate-900 dark:text-white truncate">
-              {mode === 'where' ? 'Где используется' : title}
+              {mode === 'where' ? 'Карточка связей' : title}
             </h2>
             <p className="text-2xs text-slate-400 dark:text-slate-500 truncate">{hint}</p>
           </div>

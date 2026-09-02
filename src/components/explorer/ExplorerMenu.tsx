@@ -11,7 +11,7 @@
 import React from 'react';
 import {
   Folder, FolderOpen, FolderPlus, File as FileIcon, FileText, Grid3X3, Upload, RefreshCw,
-  Copy, ClipboardPaste, Scissors, Download, Tag, Shield, Info, Boxes, Edit2, Trash2,
+  Copy, ClipboardPaste, Scissors, Download, Tag, Shield, Info, Boxes, Edit2, Trash2, Link2,
 } from 'lucide-react';
 import { appsFor, type FileLike } from '../../lib/fileTypes';
 
@@ -56,6 +56,8 @@ export interface ExplorerMenuProps {
   copy: () => void;
   rename: (id: string, isFile: boolean) => void;
   properties: (id: string, isFile: boolean) => void;
+  /** Карточка связей: где эта вещь встречается во всём проекте */
+  links: (id: string, isFile: boolean) => void;
   remove: (id: string, isFile: boolean) => void;
 }
 
@@ -140,6 +142,7 @@ export default function ExplorerMenu(p: ExplorerMenuProps) {
             <Item icon={<ClipboardPaste />} label="Вставить" onClick={() => { p.paste(); p.onClose(); }} />
           )}
           <Item icon={<Edit2 />} label="Переименовать" onClick={() => { p.rename(id, isFile); p.onClose(); }} />
+          <Item icon={<Link2 />} label="Карточка связей" onClick={() => { p.links(id, isFile); p.onClose(); }} />
           <Item icon={<Info />} label="Свойства" onClick={() => { p.properties(id, isFile); p.onClose(); }} />
           <Item icon={<Trash2 />} label="Удалить" onClick={() => { p.remove(id, isFile); p.onClose(); }} />
         </>
