@@ -855,3 +855,20 @@ model CalGuest {
   @@unique([eventId, userId])
   @@index([userId])
 }
+
+// Кто работает над проектом.
+//
+// Единственное настоящее ограничение доступа в программе: нет записи — нет
+// проекта. Он не в списке, не в переключателе, не в поиске; его файлы не
+// отдаются, письма не показываются, теги не находятся. Всё остальное
+// («тридцать галочек прав») убрано намеренно — см. docs/os-design.md §22.
+model ProjectMember {
+  id        String   @id @default(uuid())
+  projectId String
+  userId    String
+  addedBy   String   @default("")
+  addedAt   DateTime @default(now())
+
+  @@unique([projectId, userId])
+  @@index([userId])
+}

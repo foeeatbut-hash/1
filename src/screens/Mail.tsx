@@ -197,25 +197,56 @@ export default function Mail() {
   // Курсор не должен уезжать за конец списка после удаления писем
   useEffect(() => { setCursor((c) => Math.min(c, Math.max(0, threads.length - 1))); }, [threads.length]);
 
-  // ── Нет ни одного ящика ────────────────────────────────────────────────────
+  /**
+   * Ящика ещё нет.
+   *
+   * Раньше здесь была карточка посреди пустого экрана, и человек не видел ни
+   * устройства почты, ни того, что он получит. Теперь видно саму программу:
+   * папки, поиск, место письма — всё на местах и ждёт писем. Так понятнее и
+   * честнее: работать тут есть чем, не хватает только ящика.
+   */
   if (!accounts.length) {
     return (
-      <div ref={rootRef} className="h-full flex items-center justify-center p-6">
-        <div className="blank">
-          <MailIcon className="w-12 h-12 text-slate-300 dark:text-slate-700 mb-3" />
-          <p className="blank-title">Почта не подключена</p>
-          <p className="blank-text">
-            Подключите свой ящик по IMAP — Яндекс, Mail.ru, Gmail или почту вашей организации.
-            Настройки серверов подставим сами, от вас нужны адрес и пароль.
-          </p>
-          <button
-            type="button"
-            onClick={() => setForm({ open: true, account: null })}
-            className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-semibold shadow-md cursor-pointer"
-          >
-            <Plus className="w-4 h-4" /> Подключить почту
-          </button>
+      <div ref={rootRef} className="h-full flex min-h-0 bg-white dark:bg-slate-900">
+        <aside className="w-48 shrink-0 flex flex-col gap-0.5 p-2 border-r border-slate-200 dark:border-slate-800">
+          {['Входящие', 'Отправленные', 'Черновики', 'Архив', 'Корзина'].map((f, i) => (
+            <span key={f}
+              className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs
+                          ${i === 0 ? 'bg-slate-100 dark:bg-slate-850 text-slate-600 dark:text-slate-300 font-semibold'
+                            : 'text-slate-400 dark:text-slate-500'}`}>
+              <MailIcon className="w-3.5 h-3.5 shrink-0" /> {f}
+            </span>
+          ))}
+          <span className="mt-auto text-2xs text-slate-400 dark:text-slate-500 px-2 leading-relaxed">
+            Ящики подключаются в параметрах — там же общая почта компании.
+          </span>
+        </aside>
+
+        <div className="flex-1 min-w-0 flex flex-col">
+          <header className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-slate-800">
+            <span className="text-sm font-bold text-slate-800 dark:text-slate-100">Входящие</span>
+            <span className="flex-1" />
+            <span className="text-2xs text-slate-400">поиск, фильтры и перевод писем уже здесь</span>
+          </header>
+
+          <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 p-8 text-center">
+            <MailIcon className="w-10 h-10 text-slate-300 dark:text-slate-700" />
+            <p className="text-sm font-bold text-slate-800 dark:text-slate-100">Ящик не подключён</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm leading-relaxed">
+              Письма появятся здесь, как только вы добавите ящик. Всё остальное — папки, поиск,
+              перевод писем, разбор сроков и встреч — уже работает и ждёт писем.
+            </p>
+            <button
+              type="button"
+              onClick={() => setForm({ open: true, account: null })}
+              className="mt-1 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600
+                         text-white text-sm font-semibold shadow-md cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Добавить ящик
+            </button>
+          </div>
         </div>
+
         {form.open && (
           <MailAccountForm
             account={form.account}

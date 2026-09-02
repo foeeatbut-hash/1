@@ -34,6 +34,7 @@ import { registerInsightRoutes } from './server/routes/insight.js';
 import { registerAssistantRoutes } from './server/routes/assistant.js';
 import { registerTranslateRoutes } from './server/routes/translate.js';
 import { registerCalendarRoutes } from './server/routes/calendar.js';
+import { registerMemberRoutes, canSeeProject } from './server/routes/members.js';
 import { registerEquipmentUndoRoutes } from './server/routes/equipmentUndo.js';
 import { registerUserRoutes, seedRoles, backfillNameParts } from './server/routes/users.js';
 import { initBackups } from './server/backup.js';
@@ -469,6 +470,15 @@ function ensureSchemaColumns(dbPath: string) {
       )`);
       db.exec('CREATE UNIQUE INDEX IF NOT EXISTS "CalGuest_event_user_key" ON "CalGuest"("eventId", "userId")');
       db.exec('CREATE INDEX IF NOT EXISTS "CalGuest_userId_idx" ON "CalGuest"("userId")');
+      db.exec(`CREATE TABLE IF NOT EXISTS "ProjectMember" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "projectId" TEXT NOT NULL,
+        "userId" TEXT NOT NULL,
+        "addedBy" TEXT NOT NULL DEFAULT '',
+        "addedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS "ProjectMember_project_user_key" ON "ProjectMember"("projectId", "userId")');
+      db.exec('CREATE INDEX IF NOT EXISTS "ProjectMember_userId_idx" ON "ProjectMember"("userId")');
       db.exec('CREATE INDEX IF NOT EXISTS "TmUnit_lang_key_idx" ON "TmUnit"("fromLang", "toLang", "srcKey")');
       db.exec('CREATE INDEX IF NOT EXISTS "TmUnit_projectId_idx" ON "TmUnit"("projectId")');
       db.exec(`CREATE TABLE IF NOT EXISTS "TransLink" (
@@ -2105,7 +2115,16 @@ async function enforce(req: Request, res: Response, feature: string): Promise<bo
 
 app.get('/api/projects', async (req: Request, res: Response) => {
   const projects = await prisma.project.findMany();
-  res.json({ projects });
+  // Человек видит только те проекты, в которые его позвали. Проект, куда ещё
+  // никого не звали, виден всем: включать ограничение задним числом на базе,
+  // которая о составе не знает, — значит отобрать у отдела всё разом
+  const me = (req as any).authUser || null;
+  const isAdmin = me?.role === 'ADMIN';
+  const mine: any[] = [];
+  for (const p of projects) {
+    if (await canSeeProject(me?.id || '', p.id, isAdmin)) mine.push(p);
+  }
+  res.json({ projects: mine });
 });
 
 app.post('/api/projects', async (req: Request, res: Response) => {
@@ -2239,6 +2258,7 @@ registerInsightRoutes(app);
 registerAssistantRoutes(app);
 registerTranslateRoutes(app);
 registerCalendarRoutes(app);
+registerMemberRoutes(app);
 
 registerEquipmentUndoRoutes(app);
 
