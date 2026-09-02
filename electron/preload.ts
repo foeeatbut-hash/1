@@ -64,6 +64,19 @@ contextBridge.exposeInMainWorld('electron', {
     },
   },
 
+  // Уведомления системы: показываются, когда окно свёрнуто или не в фокусе
+  notify: {
+    system: (payload: { title: string; body: string; route?: string }) =>
+      ipcRenderer.invoke('notify:system', payload),
+    badge: (count: number) => ipcRenderer.invoke('notify:badge', count),
+    windowState: () => ipcRenderer.invoke('notify:window-state'),
+    onOpen: (callback: (route: string) => void) => {
+      const subscription = (_event: any, route: string) => callback(route);
+      ipcRenderer.on('notify:open', subscription);
+      return () => ipcRenderer.removeListener('notify:open', subscription);
+    },
+  },
+
   // Автозапуск вместе с Windows: состояние читаем у системы, а не помним своё
   startup: {
     get: () => ipcRenderer.invoke('startup:get'),

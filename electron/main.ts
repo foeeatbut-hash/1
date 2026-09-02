@@ -1,7 +1,8 @@
-import { app, BrowserWindow, ipcMain, Menu, utilityProcess } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, Notification, nativeImage, utilityProcess } from 'electron';
 import path from 'path';
 import { licenseStatus, activateLicense } from './license';
 import { setupCapture } from './capture';
+import { TRAY_ICON_PNG } from './trayIcon';
 
 const additionalData = { myKey: 'pdm-system' };
 const gotTheLock = app.requestSingleInstanceLock(additionalData);
@@ -310,6 +311,53 @@ app.whenReady().then(() => {
    * системой, чтобы уведомления приходили с утра, а не с первого открытия
    * окна.
    */
+  /**
+   * Уведомление на рабочий стол Windows.
+   *
+   * Показывается только тогда, когда об этом просит окно: решение «сейчас
+   * человек смотрит не сюда» принимает рендерер (src/lib/systemNotify.ts) —
+   * он один знает и про тихий режим, и про настройки категорий.
+   *
+   * Нажатие возвращает окно и открывает то самое место: уведомление, после
+   * которого приходится искать, о чём оно было, только отнимает время.
+   */
+  ipcMain.handle('notify:system', (_event, payload: { title: string; body: string; route?: string }) => {
+    try {
+      if (!Notification.isSupported()) return false;
+      const n = new Notification({
+        title: String(payload?.title || 'Flux'),
+        body: String(payload?.body || ''),
+        icon: nativeImage.createFromDataURL(`data:image/png;base64,${TRAY_ICON_PNG}`),
+        silent: false,
+      });
+      n.on('click', () => {
+        if (!mainWindow) return;
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+        if (payload?.route) mainWindow.webContents.send('notify:open', payload.route);
+      });
+      n.show();
+      return true;
+    } catch (_) { return false; }
+  });
+
+  /** Столько же, сколько в трее самой программы: два разных числа хуже одного */
+  ipcMain.handle('notify:badge', (_event, count: number) => {
+    try {
+      const n = Math.max(0, Math.floor(Number(count) || 0));
+      app.setBadgeCount(n);
+      mainWindow?.setOverlayIcon?.(null, n ? `${n} непрочитанных` : '');
+      return true;
+    } catch (_) { return false; }
+  });
+
+  /** Свёрнуто ли окно и в фокусе ли оно — по этому рендерер и решает */
+  ipcMain.handle('notify:window-state', () => ({
+    minimized: !!mainWindow?.isMinimized(),
+    focused: !!mainWindow?.isFocused(),
+  }));
+
   ipcMain.handle('startup:get', () => {
     try {
       const s = app.getLoginItemSettings();

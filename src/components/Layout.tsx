@@ -19,6 +19,8 @@ import ShareLayer from './ShareLayer';
 import CommandBar from './CommandBar';
 import { useReminderStore, onReminder } from '../store/reminderStore';
 import { useShellNotifyStore, toastOf } from '../store/shellNotifyStore';
+import { shouldNotifySystem, notifyText, badgeCount } from '../lib/systemNotify';
+import { isQuiet } from '../lib/notifCenter';
 import { useWindowStore } from '../store/windowStore';
 import { onFreshNotifications } from '../store/notificationStore';
 import { shouldPopup, shouldSound, playNotifSound } from '../lib/notifPrefs';
@@ -39,6 +41,41 @@ import { useModalStore } from '../store/modalStore';
 
 // Диалоги программы вместо системных окон Windows
 const { openAlert } = useModalStore.getState();
+
+/**
+ * Состояние окна: свёрнуто ли и в фокусе ли оно. В браузере окна нет —
+ * считаем, что человек смотрит сюда, и наружу ничего не шлём.
+ */
+async function windowState(): Promise<{ minimized: boolean; focused: boolean }> {
+  const api = (window as any).electron?.notify;
+  if (!api?.windowState) return { minimized: false, focused: true };
+  try {
+    const s = await api.windowState();
+    return { minimized: !!s?.minimized, focused: !!s?.focused };
+  } catch (_) { return { minimized: false, focused: true }; }
+}
+
+/**
+ * Уведомление на рабочий стол Windows. Решение «показывать ли» принимает
+ * чистое правило (lib/systemNotify), а не это место: тихий режим, настройки
+ * категории и состояние окна должны считаться в одном месте и проверяться.
+ */
+async function notifySystem(
+  n: { title?: string; body?: string; targetRoute?: string; category?: string },
+  win: { minimized: boolean; focused: boolean },
+): Promise<void> {
+  const api = (window as any).electron?.notify;
+  const ok = shouldNotifySystem({
+    minimized: win.minimized,
+    focused: win.focused,
+    quiet: isQuiet(useShellNotifyStore.getState().quiet),
+    allowed: shouldPopup(n.category),
+    desktop: !!api?.system,
+  });
+  if (!ok) return;
+  const text = notifyText(n.title || 'Flux', n.body || '');
+  try { await api.system({ ...text, route: n.targetRoute || '' }); } catch (_) { /* система отказала */ }
+}
 
 export default function Layout() {
   const { user, setUser, activeProject, theme, toggleTheme, syncStatus, sidebarCompact, toggleSidebarCompact, shell } = useStore();
@@ -164,15 +201,32 @@ export default function Layout() {
    * настройках: тихий режим обязан молчать, иначе он ничего не значит.
    */
   React.useEffect(() => {
-    onFreshNotifications((list) => {
+    onFreshNotifications(async (list) => {
       const push = useShellNotifyStore.getState().push;
+      // Состояние окна спрашиваем один раз на пачку: между двумя уведомлениями
+      // одной пачки человек к окну не вернётся
+      const win = await windowState();
       for (const n of list) {
         if (!shouldPopup(n.category)) continue;
         push(toastOf(n));
         if (shouldSound(n.category)) { try { playNotifSound(n.category); } catch (_) { /* без звука */ } }
+        // …и на рабочий стол Windows, если человек смотрит не сюда
+        void notifySystem(n, win);
       }
     });
   }, []);
+
+  /**
+   * Нажатие по уведомлению Windows возвращает окно и открывает то самое место.
+   * Уведомление, после которого приходится вспоминать, о чём оно было, только
+   * отнимает время.
+   */
+  React.useEffect(() => {
+    const api = (window as any).electron?.notify;
+    if (!api?.onOpen) return;
+    return api.onOpen((route: string) => { if (route) navigate(route); });
+  }, [navigate]);
+
 
   /**
    * Отложенное возвращается само. Раз в минуту: отложить можно на четверть
@@ -213,6 +267,14 @@ export default function Layout() {
   // На Главной (/) в режиме одного окна левой панели нет; иначе она закреплена
   const sidebarHidden = shell !== 'menu' || (wsLayout === 'single' && wsActivePath === '/');
   const chatUnread = useNotificationStore((s) => s.chatUnread);
+  const notifUnread = useNotificationStore((s) => s.unread);
+
+  /** Число на значке программы в панели Windows — то же, что в трее Flux */
+  React.useEffect(() => {
+    const api = (window as any).electron?.notify;
+    if (!api?.badge) return;
+    api.badge(badgeCount(notifUnread)).catch(() => {});
+  }, [notifUnread]);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   // Окно своей подписи: открывается из профиля
   const [signOpen, setSignOpen] = useState(false);

@@ -19,6 +19,7 @@ import LicenseGate from './screens/LicenseGate';
 import ActionLogWidget from './components/ActionLogWidget';
 import AssistantSpotlight from './components/AssistantSpotlight';
 import { setAssistantNavigator, setAssistantProjectGetter, useAssistantStore } from './store/assistantStore';
+import { Z } from './lib/layers';
 
 function ScreenLoader() {
   return (
@@ -28,13 +29,38 @@ function ScreenLoader() {
   );
 }
 
-// Кастомная полоса заголовка для Electron (frame:false): без надписи,
-// слева компактный логотип MAX, справа красивые кнопки свернуть/развернуть/закрыть.
+/**
+ * Управление окном Flux — подвижная панелька сверху по центру.
+ *
+ * Раньше это была полоса во всю ширину, и её крестик стоял в правом верхнем
+ * углу — там же, где крестик окна программы внутри Flux. Между «закрыть
+ * ведомость» и «закрыть Flux с несохранённой ведомостью» было двадцать точек
+ * по диагонали, и промах стоил дорого.
+ *
+ * Теперь панелька висит по центру верхнего края, как у удалённого рабочего
+ * стола Windows: всплывает, когда курсор подходит к кромке, и уезжает через
+ * полторы секунды после ухода. Её можно приколоть кнопкой и подвинуть вдоль
+ * края — место запоминается. Между двумя крестиками теперь весь экран.
+ *
+ * Полоса больше не занимает высоту: панелька плавает поверх, и разделу
+ * достаются те 36 точек, которые она отнимала.
+ */
 function ElectronTitleBar() {
   const location = useLocation();
   const isElectron = typeof window !== 'undefined' && !!(window as any).electron;
   const wc = isElectron ? (window as any).electron?.windowControls : null;
   const [maximized, setMaximized] = React.useState(false);
+  const [near, setNear] = React.useState(false);
+  const [pinned, setPinned] = React.useState(() => {
+    try { return localStorage.getItem('flux_frame_pin') === '1'; } catch (_) { return false; }
+  });
+  const [x, setX] = React.useState<number | null>(() => {
+    try {
+      const raw = localStorage.getItem('flux_frame_x');
+      return raw === null ? null : Number(raw);
+    } catch (_) { return null; }
+  });
+  const hideTimer = React.useRef<any>(null);
 
   React.useEffect(() => {
     if (!wc) return;
@@ -43,48 +69,136 @@ function ElectronTitleBar() {
     return () => { off && off(); };
   }, [wc]);
 
+  // Всплывает от близости курсора к верхней кромке. Полторы секунды на уход —
+  // столько же, сколько у удалённого стола: за меньшее панелька успевает
+  // исчезнуть из-под руки, тянущейся к её кнопке
+  React.useEffect(() => {
+    if (!isElectron) return;
+    const onMove = (e: MouseEvent) => {
+      if (e.clientY <= 8) {
+        clearTimeout(hideTimer.current);
+        setNear(true);
+        return;
+      }
+      if (e.clientY > 64) {
+        clearTimeout(hideTimer.current);
+        hideTimer.current = setTimeout(() => setNear(false), 1500);
+      }
+    };
+    window.addEventListener('mousemove', onMove);
+    return () => { window.removeEventListener('mousemove', onMove); clearTimeout(hideTimer.current); };
+  }, [isElectron]);
+
+  // Окно стало у́же — панельку надо пересчитать, иначе приколотая уедет за край
+  const [, bump] = React.useReducer((n: number) => n + 1, 0);
+  React.useEffect(() => {
+    const onResize = () => bump();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   // Отдельные окна рисуют себя сами: у стикера своя шапка, у пульта захвата
   // её нет вовсе — он и так 306×150 без рамок
   if (!isElectron || location.pathname === '/sticker' || location.pathname === '/capture') return null;
 
-  const btn = "w-11 h-9 flex items-center justify-center text-slate-400 hover:text-white transition-colors cursor-pointer";
+  const WIDTH = 168;
+  const left = Math.round(
+    x === null ? Math.max(8, (window.innerWidth - WIDTH) / 2) : Math.min(Math.max(8, x), Math.max(8, window.innerWidth - WIDTH - 8)),
+  );
+  const visible = pinned || near;
+
+  // Панельку тянут за насечку слева — вдоль верхнего края. Само окно двигают
+  // за её середину: это область перетаскивания окна (WebkitAppRegion)
+  const startSlide = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const dx = e.clientX - left;
+    const onMove = (ev: PointerEvent) => setX(ev.clientX - dx);
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      const next = ev.clientX - dx;
+      setX(next);
+      try { localStorage.setItem('flux_frame_x', String(Math.round(next))); } catch (_) { /* приватный режим */ }
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  const flipPin = () => {
+    const next = !pinned;
+    setPinned(next);
+    try { localStorage.setItem('flux_frame_pin', next ? '1' : '0'); } catch (_) { /* приватный режим */ }
+  };
+
+  const btn = 'w-9 h-7 flex items-center justify-center text-slate-300 hover:text-white transition-colors cursor-pointer';
   const noDrag = { WebkitAppRegion: 'no-drag' } as React.CSSProperties;
 
   return (
-    <div
-      // z-[60] — выше стартовой заставки (#boot-splash, z-50): кнопки окна
-      // доступны во время запуска сервера; фон у них одинаковый (#0f172a)
-      className="relative z-[60] h-9 shrink-0 flex items-center justify-between bg-slate-900 border-b border-slate-800 select-none"
-      style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-      onDoubleClick={() => wc?.maximize?.()}
-    >
-      {/* Компактный логотип слева, без названия */}
-      <div className="flex items-center gap-2 pl-3">
-        <div className="w-5 h-5 rounded-md bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-sm">
-          <span className="text-2xs font-black text-white tracking-tight">M</span>
+    <>
+      {/* Полоска-приманка у самой кромки: мышь упирается в край экрана и
+          вызывает панельку, не целясь */}
+      <div
+        aria-hidden
+        onMouseEnter={() => { clearTimeout(hideTimer.current); setNear(true); }}
+        style={{ zIndex: Z.frame, left, width: WIDTH }}
+        className="fixed top-0 h-2"
+      />
+
+      <div
+        role="toolbar"
+        aria-label="Управление окном Flux"
+        style={{
+          zIndex: Z.frame,
+          left,
+          top: visible ? 6 : -40,
+          width: WIDTH,
+          transition: 'top 160ms ease',
+          WebkitAppRegion: 'drag',
+        } as React.CSSProperties}
+        onMouseEnter={() => { clearTimeout(hideTimer.current); setNear(true); }}
+        onDoubleClick={() => wc?.maximize?.()}
+        className="fixed h-8 flex items-center gap-0.5 pl-1 pr-1 rounded-xl select-none
+                   bg-slate-900/95 border border-slate-700 shadow-2xl backdrop-blur-sm"
+      >
+        <button
+          type="button"
+          onPointerDown={startSlide}
+          onClick={flipPin}
+          title={pinned ? 'Открепить — панелька будет прятаться' : 'Приколоть панельку; потяните, чтобы сдвинуть'}
+          aria-label="Приколоть или сдвинуть панельку"
+          style={noDrag}
+          className={`w-7 h-7 flex items-center justify-center cursor-grab active:cursor-grabbing rounded-lg
+                      ${pinned ? 'text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" stroke="currentColor" strokeWidth="1.4">
+            <line x1="2" y1="4" x2="10" y2="4" /><line x1="2" y1="8" x2="10" y2="8" />
+          </svg>
+        </button>
+
+        <span className="text-2xs font-bold text-slate-400 px-1 tracking-wide">Flux</span>
+        <span className="flex-1" />
+
+        <div className="flex items-center" style={noDrag}>
+          <button type="button" onClick={() => wc?.minimize?.()} className={`${btn} hover:bg-slate-800 rounded-lg`} title="Свернуть" style={noDrag}>
+            <svg width="11" height="11" viewBox="0 0 11 11"><rect x="1" y="5" width="9" height="1.1" fill="currentColor" /></svg>
+          </button>
+          <button type="button" onClick={() => wc?.maximize?.()} className={`${btn} hover:bg-slate-800 rounded-lg`} title={maximized ? 'Восстановить' : 'Развернуть'} style={noDrag}>
+            {maximized ? (
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.1">
+                <rect x="2.4" y="1.2" width="6.4" height="6.4" rx="1" />
+                <rect x="1.2" y="3.4" width="6.4" height="6.4" rx="1" fill="#0f172a" />
+              </svg>
+            ) : (
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.1"><rect x="1.4" y="1.4" width="8.2" height="8.2" rx="1.2" /></svg>
+            )}
+          </button>
+          <button type="button" onClick={() => wc?.close?.()} className={`${btn} hover:bg-rose-600 rounded-lg`} title="Закрыть Flux" style={noDrag}>
+            <svg width="11" height="11" viewBox="0 0 11 11" stroke="currentColor" strokeWidth="1.2"><line x1="1.5" y1="1.5" x2="9.5" y2="9.5" /><line x1="9.5" y1="1.5" x2="1.5" y2="9.5" /></svg>
+          </button>
         </div>
       </div>
-
-      {/* Кнопки управления окном */}
-      <div className="flex items-stretch h-full" style={noDrag}>
-        <button type="button" onClick={() => wc?.minimize?.()} className={`${btn} hover:bg-slate-800`} title="Свернуть" style={noDrag}>
-          <svg width="11" height="11" viewBox="0 0 11 11"><rect x="1" y="5" width="9" height="1.1" fill="currentColor" /></svg>
-        </button>
-        <button type="button" onClick={() => wc?.maximize?.()} className={`${btn} hover:bg-slate-800`} title={maximized ? 'Восстановить' : 'Развернуть'} style={noDrag}>
-          {maximized ? (
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.1">
-              <rect x="2.4" y="1.2" width="6.4" height="6.4" rx="1" />
-              <rect x="1.2" y="3.4" width="6.4" height="6.4" rx="1" fill="#0f172a" />
-            </svg>
-          ) : (
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.1"><rect x="1.4" y="1.4" width="8.2" height="8.2" rx="1.2" /></svg>
-          )}
-        </button>
-        <button type="button" onClick={() => wc?.close?.()} className={`${btn} hover:bg-rose-600 rounded-tr-none`} title="Закрыть" style={noDrag}>
-          <svg width="11" height="11" viewBox="0 0 11 11" stroke="currentColor" strokeWidth="1.2"><line x1="1.5" y1="1.5" x2="9.5" y2="9.5" /><line x1="9.5" y1="1.5" x2="1.5" y2="9.5" /></svg>
-        </button>
-      </div>
-    </div>
+    </>
   );
 }
 
