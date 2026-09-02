@@ -32,6 +32,7 @@ import StartMenu from './StartMenu';
 import TaskbarPeek from './TaskbarPeek';
 import DeskSwitcher from './DeskSwitcher';
 import ProjectSwitcher from './ProjectSwitcher';
+import ClockPanel from './calendar/ClockPanel';
 import { WorkspaceRailControls } from './Workspace';
 
 /** Минута — самый крупный шаг, который видно на часах без секунд */
@@ -98,6 +99,8 @@ export default function Taskbar() {
   const startRef = React.useRef<HTMLButtonElement>(null);
   // Список свёрнутых кнопок: открывается тем же меню, что и правая кнопка
   const [moreMenu, setMoreMenu] = React.useState<{ x: number; y: number } | null>(null);
+  // Панель календаря по часам — такая же панель трея, как уведомления
+  const [clockOpen, setClockOpen] = React.useState(false);
   const [width, setWidth] = React.useState(0);
   const [barWidth, setBarWidth] = React.useState(0);
 
@@ -425,10 +428,21 @@ export default function Taskbar() {
           />
         )}
 
-        <div className="flex flex-col items-end leading-tight px-3 tabular-nums select-none">
+        {/* Часы нажимаются: человек смотрит на них не чтобы узнать время, а
+            чтобы понять, что сегодня. Раньше нажатие не делало ничего */}
+        <button
+          type="button"
+          onClick={() => { setNotifOpen(false); setClockOpen((v) => !v); }}
+          aria-expanded={clockOpen}
+          title="Календарь: что сегодня и что впереди"
+          className={`flex flex-col items-end leading-tight px-3 tabular-nums select-none rounded-[10px]
+                      cursor-pointer transition-colors ${clockOpen
+            ? 'bg-emerald-50 dark:bg-emerald-950/40'
+            : 'hover:bg-slate-100 dark:hover:bg-slate-850'}`}
+        >
           <b className="text-sm font-semibold text-slate-800 dark:text-slate-150">{clockLabel(now)}</b>
           <span className="text-2xs text-slate-500 dark:text-slate-400">{deadlineLabel(null, now)}</span>
-        </div>
+        </button>
 
         {/* Раскладка панелей — только там, где панели и есть: в оконной
             оболочке раскладку задают сами окна */}
@@ -506,6 +520,8 @@ export default function Taskbar() {
                      hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors"
         />
       </div>
+
+      {clockOpen && <ClockPanel onClose={() => setClockOpen(false)} />}
 
       {peek && windowed && (
         <TaskbarPeek path={peek.path} left={peek.left + 12} onClose={() => setPeek(null)} />

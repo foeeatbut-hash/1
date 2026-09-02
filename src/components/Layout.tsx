@@ -4,7 +4,7 @@ import { formatName } from '../lib/docFormula';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 const SignatureEditor = React.lazy(() => import('./SignatureEditor'));
-import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen, PenLine, Mail, LifeBuoy, Languages, Globe } from 'lucide-react';
+import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen, PenLine, Mail, LifeBuoy, Languages, Globe, CalendarDays } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ToastProvider from './ToastProvider';
 import ModalProvider from './ModalProvider';
@@ -22,6 +22,8 @@ import { useShellNotifyStore, toastOf } from '../store/shellNotifyStore';
 import { shouldNotifySystem, notifyText, badgeCount } from '../lib/systemNotify';
 import { OPEN_URL_EVENT } from '../lib/openLink';
 import { useBrowserStore } from '../store/browserStore';
+import { useCalendarStore } from '../store/calendarStore';
+import { occurrences, isDue, untilLabel, MINUTE, HOUR } from '../lib/calendar';
 import { isQuiet } from '../lib/notifCenter';
 import { useWindowStore } from '../store/windowStore';
 import { onFreshNotifications } from '../store/notificationStore';
@@ -101,6 +103,15 @@ export default function Layout() {
    */
   React.useEffect(() => {
     if (activeProject?.id) useTranslateStore.getState().load(activeProject.id);
+  }, [activeProject?.id]);
+
+  /**
+   * Календарь читается оболочкой, а не только своим разделом: напоминания
+   * должны приходить, пока человек работает в ведомости, — то есть тогда,
+   * когда календарь закрыт. Раздел, открывшись, перечитает его сам.
+   */
+  React.useEffect(() => {
+    void useCalendarStore.getState().load(activeProject?.id || '');
   }, [activeProject?.id]);
 
   /**
@@ -270,6 +281,50 @@ export default function Layout() {
   const sidebarHidden = shell !== 'menu' || (wsLayout === 'single' && wsActivePath === '/');
   const chatUnread = useNotificationStore((s) => s.chatUnread);
   const notifUnread = useNotificationStore((s) => s.unread);
+
+  /**
+   * Напоминания календаря.
+   *
+   * Часы заводятся здесь, а не в самом календаре: раздел закрыт почти всегда, и
+   * напоминание из него не пришло бы никогда. Раз в полминуты — чаще незачем,
+   * самый короткий срок напоминания пять минут.
+   *
+   * Одно напоминание звонит один раз: ключ помнит и событие, и его появление,
+   * иначе еженедельная планёрка звонила бы каждые тридцать секунд.
+   */
+  React.useEffect(() => {
+    const tick = async () => {
+      const cal = useCalendarStore.getState();
+      const now = Date.now();
+      const list = occurrences(cal.visible(), now - 10 * MINUTE, now + 2 * HOUR);
+      const win = await windowState();
+      for (const o of list) {
+        const remind = o.event.remindMin;
+        if (!isDue(o.startsAt, remind, now)) continue;
+        const key = `${o.event.id}@${o.startsAt}`;
+        if (cal.fired.includes(key)) continue;
+        cal.markFired(key);
+        useShellNotifyStore.getState().push({
+          id: key,
+          title: o.event.title,
+          body: `${untilLabel(o.startsAt, now)}${o.event.guests.length ? ` · ${o.event.guests.length} чел.` : ''}`,
+          route: '/calendar',
+          source: 'reminder',
+          category: 'СИСТЕМА',
+          action: o.event.joinUrl ? { label: 'Подключиться', url: o.event.joinUrl } : undefined,
+        });
+        // …и на рабочий стол Windows, если человек смотрит не сюда: встреча
+        // через пять минут — ровно тот случай, ради которого это и делалось
+        void notifySystem(
+          { title: o.event.title, body: untilLabel(o.startsAt, now), targetRoute: '/calendar', category: 'СИСТЕМА' },
+          win,
+        );
+      }
+    };
+    void tick();
+    const t = setInterval(() => void tick(), 30_000);
+    return () => clearInterval(t);
+  }, []);
 
   /**
    * Ссылка откуда угодно открывается вкладкой браузера, а не выбрасывает
@@ -615,6 +670,7 @@ export default function Layout() {
       { name: 'Чат', path: '/chat', icon: MessagesSquare },
       { name: 'Почта', path: '/mail', icon: Mail },
       { name: 'Браузер', path: '/browser', icon: Globe },
+      { name: 'Календарь', path: '/calendar', icon: CalendarDays },
       ...(user && user.role === 'ADMIN' ? [{ name: 'Сотрудники', path: '/users', icon: Users }] : []),
       { name: 'Руководство', path: '/handbook', icon: LifeBuoy },
     ] },

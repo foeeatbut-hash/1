@@ -760,3 +760,47 @@ model TransLink {
   @@index([projectId])
   @@index([sourceDocId])
 }
+
+// ── Календарь ────────────────────────────────────────────────────────────────
+// Событие: встреча, личное напоминание или заметка на времени.
+//
+// Сроков ВДР здесь нет и не будет: они собираются из реестра на лету
+// (src/lib/calendar.ts, deadlineEvent). Запись срока в эту таблицу означала бы
+// второй источник правды о сроке, и он разошёлся бы с реестром в первую же
+// неделю — а разойдясь, солгал бы обеим сторонам.
+model CalEvent {
+  id          String     @id @default(uuid())
+  projectId   String? // личное событие живёт без проекта
+  kind        String     @default("meeting") // meeting | reminder | note
+  title       String     @default("")
+  description String     @default("")
+  startsAt    DateTime
+  endsAt      DateTime
+  allDay      Boolean    @default(false)
+  rrule       String     @default("") // повтор по RFC 5545, подмножество
+  place       String     @default("")
+  joinUrl     String     @default("") // ссылка на встречу: Телемост, МТС Линк, Teams
+  createdBy   String     @default("")
+  source      String     @default("hand") // hand | mail | assistant
+  sourceId    String     @default("") // письмо, из которого родилось событие
+  visibility  String     @default("project") // project | private
+  remindMin   Int        @default(0) // за сколько минут напомнить; 0 — не напоминать
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  guests      CalGuest[]
+
+  @@index([projectId, startsAt])
+  @@index([createdBy])
+}
+
+// Участник встречи и его ответ.
+model CalGuest {
+  id      String   @id @default(uuid())
+  eventId String
+  userId  String
+  state   String   @default("invited") // invited | yes | no | maybe
+  event   CalEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([userId])
+}

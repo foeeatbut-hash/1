@@ -33,6 +33,7 @@ import { watchAll as watchAllMail, stopAll as stopMailWatch } from './server/mai
 import { registerInsightRoutes } from './server/routes/insight.js';
 import { registerAssistantRoutes } from './server/routes/assistant.js';
 import { registerTranslateRoutes } from './server/routes/translate.js';
+import { registerCalendarRoutes } from './server/routes/calendar.js';
 import { registerEquipmentUndoRoutes } from './server/routes/equipmentUndo.js';
 import { registerUserRoutes, seedRoles, backfillNameParts } from './server/routes/users.js';
 import { initBackups } from './server/backup.js';
@@ -437,6 +438,37 @@ function ensureSchemaColumns(dbPath: string) {
         "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`);
+      db.exec(`CREATE TABLE IF NOT EXISTS "CalEvent" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "projectId" TEXT,
+        "kind" TEXT NOT NULL DEFAULT 'meeting',
+        "title" TEXT NOT NULL DEFAULT '',
+        "description" TEXT NOT NULL DEFAULT '',
+        "startsAt" DATETIME NOT NULL,
+        "endsAt" DATETIME NOT NULL,
+        "allDay" BOOLEAN NOT NULL DEFAULT false,
+        "rrule" TEXT NOT NULL DEFAULT '',
+        "place" TEXT NOT NULL DEFAULT '',
+        "joinUrl" TEXT NOT NULL DEFAULT '',
+        "createdBy" TEXT NOT NULL DEFAULT '',
+        "source" TEXT NOT NULL DEFAULT 'hand',
+        "sourceId" TEXT NOT NULL DEFAULT '',
+        "visibility" TEXT NOT NULL DEFAULT 'project',
+        "remindMin" INTEGER NOT NULL DEFAULT 0,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS "CalEvent_project_start_idx" ON "CalEvent"("projectId", "startsAt")');
+      db.exec('CREATE INDEX IF NOT EXISTS "CalEvent_createdBy_idx" ON "CalEvent"("createdBy")');
+      db.exec(`CREATE TABLE IF NOT EXISTS "CalGuest" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "eventId" TEXT NOT NULL,
+        "userId" TEXT NOT NULL,
+        "state" TEXT NOT NULL DEFAULT 'invited',
+        CONSTRAINT "CalGuest_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "CalEvent"("id") ON DELETE CASCADE
+      )`);
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS "CalGuest_event_user_key" ON "CalGuest"("eventId", "userId")');
+      db.exec('CREATE INDEX IF NOT EXISTS "CalGuest_userId_idx" ON "CalGuest"("userId")');
       db.exec('CREATE INDEX IF NOT EXISTS "TmUnit_lang_key_idx" ON "TmUnit"("fromLang", "toLang", "srcKey")');
       db.exec('CREATE INDEX IF NOT EXISTS "TmUnit_projectId_idx" ON "TmUnit"("projectId")');
       db.exec(`CREATE TABLE IF NOT EXISTS "TransLink" (
@@ -2206,6 +2238,8 @@ registerPdfMarkupRoutes(app);
 registerInsightRoutes(app);
 registerAssistantRoutes(app);
 registerTranslateRoutes(app);
+registerCalendarRoutes(app);
+
 registerEquipmentUndoRoutes(app);
 
 

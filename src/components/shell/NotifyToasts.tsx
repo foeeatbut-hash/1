@@ -11,9 +11,10 @@
  */
 import React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Bell, X, Clock, ExternalLink, MessageSquare, Mail, FileText, ShieldAlert } from 'lucide-react';
+import { Bell, X, Clock, ExternalLink, MessageSquare, Mail, FileText, ShieldAlert, Video } from 'lucide-react';
 import { useShellNotifyStore } from '../../store/shellNotifyStore';
 import { SNOOZE_CHOICES } from '../../lib/notifCenter';
+import { openLink } from '../../lib/openLink';
 
 /** Значок по категории: тот же смысл, что у кнопки программы на панели задач */
 function CategoryIcon({ category, source }: { category?: string; source: string }) {
@@ -95,6 +96,13 @@ export default function NotifyToasts({ onOpen }: { onOpen: (route: string) => vo
               </div>
             ) : (
               <div className="flex items-center gap-1 px-2 pb-2">
+                {t.action && (
+                  <button type="button" onClick={() => { openLink(t.action!.url); dismiss(t.id); }}
+                    className="flex items-center gap-1 px-2 py-1 rounded-md text-2xs font-bold text-white
+                               bg-emerald-600 hover:bg-emerald-700 cursor-pointer">
+                    <Video className="w-3 h-3" /> {t.action.label}
+                  </button>
+                )}
                 {t.route && (
                   <button type="button" onClick={() => { onOpen(t.route!); dismiss(t.id); }}
                     className="flex items-center gap-1 px-2 py-1 rounded-md text-2xs font-semibold
