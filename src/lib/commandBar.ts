@@ -28,7 +28,8 @@ export type BarRun =
   | { kind: 'note'; text: string }
   | { kind: 'desk'; index: number }
   | { kind: 'fill'; text: string }
-  | { kind: 'translate'; text: string };
+  | { kind: 'translate'; text: string }
+  | { kind: 'meeting'; at: number; title: string };
 
 /** Группа задаёт порядок и подпись; порядок здесь — порядок в списке */
 export type BarGroup = 'команда' | 'раздел' | 'справка' | 'проект' | 'помощник';
@@ -61,6 +62,7 @@ export const SLASH: SlashCmd[] = [
   { name: 'найди', hint: 'что искать', about: 'Искать по проекту', icon: 'search', needsRest: true },
   { name: 'справка', hint: 'о чём', about: 'Найти в руководстве', icon: 'book', needsRest: true },
   { name: 'напомни', hint: 'когда и о чём', about: 'Напоминание придёт уведомлением', icon: 'bell', needsRest: true },
+  { name: 'встреча', hint: 'когда и о чём', about: 'Откроется окно события — останется позвать людей', icon: 'calendar', needsRest: true },
   { name: 'заметка', hint: 'текст', about: 'Новая заметка в Блокноте', icon: 'note', needsRest: true },
   { name: 'переведи', hint: 'текст', about: 'Перевести в Переводчике', icon: 'translate', needsRest: true },
   { name: 'стол', hint: 'номер', about: 'Перейти на рабочий стол', icon: 'desk', needsRest: true },
@@ -311,6 +313,14 @@ function runOf(cmd: SlashCmd, rest: string, src: BarSource, now: number): BarRun
         ? { kind: 'remind', at: when.at, text: when.rest }
         : { kind: 'fill', text: `/напомни завтра в 9 ${rest}` };
     }
+    case 'встреча': {
+      // Время разбирается тем же разборщиком, что и напоминание: два разных
+      // понимания «в понедельник» — это два разных понедельника
+      const when = parseWhen(rest, now);
+      return when.at
+        ? { kind: 'meeting', at: when.at, title: when.rest }
+        : { kind: 'fill', text: `/встреча завтра в 10 ${rest}` };
+    }
     default: return { kind: 'ask', query: rest };
   }
 }
@@ -341,6 +351,21 @@ function commandItems(cmd: SlashCmd, rest: string, src: BarSource, now: number):
       });
     }
     if (items.length) return items;
+  }
+
+  if (cmd.name === 'встреча') {
+    const when = parseWhen(rest, now);
+    items.push({
+      key: 'cmd-meeting', group: 'команда', icon: 'calendar',
+      title: when.at ? `Встреча ${whenLabel(when.at, now)}` : 'Встреча — когда?',
+      subtitle: when.at
+        ? (when.rest || 'название допишите — участников позовёте в окне')
+        : 'например: /встреча в понедельник в 10 планёрка по АВО-2',
+      run: when.at
+        ? { kind: 'meeting', at: when.at, title: when.rest }
+        : { kind: 'fill', text: `/встреча ${rest}`.trimEnd() + ' ' },
+    });
+    return items;
   }
 
   if (cmd.name === 'напомни') {

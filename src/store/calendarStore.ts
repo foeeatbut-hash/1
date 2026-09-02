@@ -46,6 +46,13 @@ interface CalendarState {
   shown: Shown;
   /** Уже показанные напоминания: одно напоминание — один звонок */
   fired: string[];
+  /**
+   * Событие, заведённое со стороны: строкой «/встреча» или из письма. Окно
+   * забирает черновик при открытии и гасит — иначе следующий приход в раздел
+   * снова открыл бы то же окно события.
+   */
+  draft: any | null;
+  setDraft: (d: any | null) => void;
 
   load: (projectId: string) => Promise<void>;
   setShown: (next: Partial<Shown>) => void;
@@ -65,6 +72,9 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
   deadlines: [],
   shown: readShown(),
   fired: [],
+  draft: null,
+
+  setDraft: (d) => set({ draft: d }),
 
   load: async (projectId) => {
     set({ loading: true, error: '', projectId });

@@ -45,6 +45,15 @@ export default function CalendarScreen() {
   const projectId = activeProject?.id || '';
   React.useEffect(() => { void st.load(projectId); }, [projectId]);
 
+  // Событие могли начать со стороны: строкой «/встреча» или из письма.
+  // Забираем черновик один раз и сразу гасим
+  React.useEffect(() => {
+    if (!st.draft) return;
+    setDraft(st.draft);
+    setAnchor(st.draft.startsAt || Date.now());
+    st.setDraft(null);
+  }, [st.draft]);
+
   const events = st.visible();
 
   // Окно раскрытия повторов — по виду: месяцу нужна сетка целиком, дню — сутки

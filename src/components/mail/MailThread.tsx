@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, Star, Archive, Trash2, Paperclip, Download, ImageOff, ChevronDown, AlertTriangle,
   CornerUpLeft, ReplyAll, Forward, UserCheck, MessageSquarePlus, CheckCircle2, Loader2,
-  FolderInput, NotebookPen,
+  FolderInput, NotebookPen, CalendarPlus,
 } from 'lucide-react';
 import {
   mailService, type MailAttachment, type MailMessage,
@@ -17,6 +17,8 @@ import MailMentions from './MailMentions';
 import {
   LetterFrame, TranslateBar, DigestCard, alwaysFor, setAlwaysFor, digestOf, type LetterView,
 } from './LetterTranslate';
+import { findMeeting, meetingHint, meetingSkipped, skipMeetingsFrom } from '../../lib/meetingFromMail';
+import EventDialog, { type Draft } from '../calendar/EventDialog';
 import { translateHtml, htmlToText } from '../../lib/translateHtml';
 import { detectLang } from '../../translate/lang';
 import { joinSegments } from '../../translate/engine';
@@ -174,6 +176,18 @@ function Letter({
     () => (foreign && digestOpen ? digestOf(letterText, letterLang) : null),
     [foreign, digestOpen, letterText, letterLang],
   );
+
+  /**
+   * Похоже ли письмо на приглашение. Ищем в любом письме, а не только в
+   * чужеязычном: на встречу зовут и по-русски, и именно эти письма человек
+   * потом переписывает в календарь руками.
+   */
+  const meeting = useMemo(() => findMeeting(letterText), [letterText]);
+  const [meetDraft, setMeetDraft] = useState<Draft | null>(null);
+  // «Не надо» запоминается по отправителю: рассылка, которая каждый раз пахнет
+  // встречей, перестаёт спрашивать
+  const [meetHidden, setMeetHidden] = useState(false);
+  useEffect(() => { setMeetHidden(meetingSkipped(msg.fromAddr)); }, [msg.fromAddr]);
   const asks = useMemo(
     () => (digest ? digest.asks.map((s) => ({ src: s, ru: joinSegments(many(s, letterLang, 'ru')) })) : []),
     [digest, many, letterLang],
@@ -258,6 +272,39 @@ function Letter({
           )}
 
           {digest && <DigestCard digest={digest} asks={asks} />}
+
+          {meeting && !meetHidden && (
+            <div className="flex flex-wrap items-center gap-2 px-3 py-2 mb-2 rounded-lg
+                            bg-emerald-50 dark:bg-emerald-950/25 border border-emerald-200 dark:border-emerald-900/50">
+              <CalendarPlus className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <span className="text-xs text-emerald-800 dark:text-emerald-300">{meetingHint(meeting)}</span>
+              <span className="flex-1" />
+              <button type="button"
+                onClick={() => setMeetDraft({
+                  kind: 'meeting',
+                  title: msg.subject || 'Встреча',
+                  startsAt: meeting.startsAt,
+                  endsAt: meeting.startsAt + 30 * 60000,
+                  joinUrl: meeting.joinUrl,
+                  remindMin: 5,
+                  visibility: 'project',
+                  description: `Из письма: ${msg.fromName || msg.fromAddr}`,
+                  source: 'mail',
+                  sourceId: msg.id,
+                })}
+                className="px-2.5 py-1 rounded-lg text-2xs font-bold cursor-pointer bg-emerald-600 text-white hover:bg-emerald-700">
+                Добавить в календарь
+              </button>
+              <button type="button"
+                onClick={() => { setMeetHidden(true); skipMeetingsFrom(msg.fromAddr); }}
+                className="px-2 py-1 rounded-lg text-2xs font-semibold cursor-pointer
+                           text-slate-500 dark:text-slate-400 hover:bg-white/60 dark:hover:bg-slate-850">
+                Не надо
+              </button>
+            </div>
+          )}
+
+          {meetDraft && <EventDialog draft={meetDraft} onClose={() => setMeetDraft(null)} />}
 
           {srcDoc && view !== 'both' && (
             <LetterFrame
