@@ -131,7 +131,7 @@ export default function LogsManagement() {
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.99 }}
       transition={{ duration: 0.2 }}
-      className="max-w-6xl mx-auto space-y-6 text-slate-800 dark:text-slate-100 font-sans select-none"
+      className="@container space-y-6 text-slate-800 dark:text-slate-100 font-sans select-none"
     >
       {/* HEADER SECTION */}
       <div className="flex flex-col @[640px]:flex-row @[640px]:items-center @[640px]:justify-between gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 shadow-xs relative overflow-hidden">

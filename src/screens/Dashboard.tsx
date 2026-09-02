@@ -336,7 +336,7 @@ export default function Dashboard() {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.18 }}
-      className="relative z-10 max-w-6xl mx-auto min-h-full flex flex-col gap-5 text-slate-800 dark:text-dark-text-main"
+      className="relative z-10 max-w-[1600px] mx-auto min-h-full flex flex-col gap-5 text-slate-800 dark:text-dark-text-main"
     >
       {/* ── Шапка: над чем работаем ──
            Раньше первой строкой стояло крупное «С возвращением, имя», а

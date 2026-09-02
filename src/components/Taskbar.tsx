@@ -31,6 +31,7 @@ import ContextMenu, { MenuItem } from './ContextMenu';
 import StartMenu from './StartMenu';
 import TaskbarPeek from './TaskbarPeek';
 import DeskSwitcher from './DeskSwitcher';
+import ProjectSwitcher from './ProjectSwitcher';
 import { WorkspaceRailControls } from './Workspace';
 
 /** Минута — самый крупный шаг, который видно на часах без секунд */
@@ -411,19 +412,17 @@ export default function Taskbar() {
       {/* Трей: проект, часы со сроком, уведомления. Порядок зон не меняется
           никогда — по нему запоминают, куда вести мышь */}
       <div className="shrink-0 flex items-center gap-1">
+        {/* Проект меняют по двадцать раз в день. Раньше нажатие открывало
+            окно раздела «Проекты» целиком — на частое действие показывали
+            всё, что известно о проектах. Теперь короткий список, поиск и
+            строка «Все проекты» для того самого окна */}
         {activeProject && (
-          <button
-            type="button"
-            onClick={() => openSection('/projects')}
-            title={`Проект «${activeProject.name}» — сменить`}
-            style={{ maxWidth: fit.projectMax, height: BAR_BTN }}
-            className="flex items-center gap-2 px-2.5 rounded-[10px] cursor-pointer
-                       border border-slate-200 dark:border-dark-border text-sm
-                       text-slate-700 dark:text-slate-150 hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors"
-          >
-            <span aria-hidden className="w-2 h-2 rounded-sm bg-emerald-500 shrink-0" />
-            <span className="truncate font-semibold">{activeProject.name}</span>
-          </button>
+          <ProjectSwitcher
+            compact={false}
+            variant="tray"
+            maxWidth={fit.projectMax}
+            onOpenAll={() => openSection('/projects')}
+          />
         )}
 
         <div className="flex flex-col items-end leading-tight px-3 tabular-nums select-none">

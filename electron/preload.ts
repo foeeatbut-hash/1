@@ -64,6 +64,12 @@ contextBridge.exposeInMainWorld('electron', {
     },
   },
 
+  // Автозапуск вместе с Windows: состояние читаем у системы, а не помним своё
+  startup: {
+    get: () => ipcRenderer.invoke('startup:get'),
+    set: (opts: { enabled: boolean; minimized?: boolean }) => ipcRenderer.invoke('startup:set', opts),
+  },
+
   // Управление окном (кастомный заголовок)
   windowControls: {
     minimize: () => ipcRenderer.send('window:minimize'),

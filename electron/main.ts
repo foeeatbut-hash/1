@@ -58,10 +58,16 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
+  // Запуск из автозагрузки со свёрнутым окном: программа поднимается вместе с
+  // системой затем, чтобы уведомления приходили с утра, — а не затем, чтобы
+  // окно лезло поверх всего, пока человек ещё наливает чай
+  const startMinimized = process.argv.includes('--minimized');
+
   let shown = false;
   const revealMainWindow = () => {
     if (shown || !mainWindow) return;
     shown = true;
+    if (startMinimized) { mainWindow.showInactive(); mainWindow.minimize(); return; }
     mainWindow.show();
   };
   mainWindow.once('ready-to-show', revealMainWindow);
@@ -292,6 +298,35 @@ app.whenReady().then(() => {
   });
   ipcMain.on('window:close', (event) => { senderWin(event)?.close(); });
   ipcMain.handle('window:is-maximized', (event) => !!senderWin(event)?.isMaximized());
+
+  /**
+   * Автозапуск вместе с Windows.
+   *
+   * Состояние всегда спрашиваем у системы, а не помним своё: автозапуск могли
+   * снять снаружи — диспетчером задач или уборкой автозагрузки, — и галочка,
+   * рассказывающая о своём прошлом решении, хуже отсутствующей.
+   *
+   * Свёрнутый запуск — отдельным доводом: программа затем и стартует с
+   * системой, чтобы уведомления приходили с утра, а не с первого открытия
+   * окна.
+   */
+  ipcMain.handle('startup:get', () => {
+    try {
+      const s = app.getLoginItemSettings();
+      return { enabled: !!s.openAtLogin, minimized: (s.args || []).includes('--minimized') };
+    } catch (_) { return { enabled: false, minimized: false }; }
+  });
+
+  ipcMain.handle('startup:set', (_event, opts: { enabled: boolean; minimized?: boolean }) => {
+    try {
+      app.setLoginItemSettings({
+        openAtLogin: !!opts?.enabled,
+        args: opts?.minimized ? ['--minimized'] : [],
+      });
+      const s = app.getLoginItemSettings();
+      return { enabled: !!s.openAtLogin, minimized: (s.args || []).includes('--minimized') };
+    } catch (_) { return { enabled: false, minimized: false }; }
+  });
 
   // Вынести раздел в отдельное окно (мультимонитор): полноценное главное окно,
   // открытое на нужном разделе. Своё меню, свои панели, тоже делится на панели.

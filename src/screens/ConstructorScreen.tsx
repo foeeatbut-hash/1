@@ -1847,7 +1847,7 @@ export default function ConstructorScreen() {
   );
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8">
+    <div className="space-y-8">
       <div className="flex flex-col gap-4 bg-white dark:bg-slate-900 p-3 @[700px]:p-6 rounded-lg border border-slate-200 dark:border-slate-800 min-w-0">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="min-w-0">

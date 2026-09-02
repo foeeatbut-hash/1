@@ -390,7 +390,7 @@ export default function UsersManagement() {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
       transition={{ duration: 0.2 }}
-      className="@container max-w-6xl mx-auto pb-6"
+      className="@container pb-6"
     >
       {/* Штамп раздела — как у остальных разделов программы */}
       <div className="stamp rounded-t-xl border border-slate-200 dark:border-dark-border border-b-0">
