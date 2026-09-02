@@ -34,12 +34,14 @@ import {
   type DeskItem, type SortBy,
 } from '../lib/desktop';
 import { deskMetric, DESK_SCALES } from '../lib/metrics';
+import { hiddenIds, groupIdOf, groupById } from '../lib/deskGroups';
 import { deskAction, isTyping } from '../lib/deskKeys';
 import { appsFor, openHref } from '../lib/fileTypes';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import DeskIcon, { titleOf } from './desktop/DeskIcon';
 import DeskList from './desktop/DeskList';
 import DeskProperties from './desktop/DeskProperties';
+import DeskFolder from './desktop/DeskFolder';
 
 /** Корзина — это вид Проводника, поэтому и открывается им */
 const BIN_HREF = '/explorer?folder=trash%3Aroot';
@@ -49,9 +51,9 @@ export default function Desktop() {
   const user = useStore((s) => s.user);
   const navigate = useNavigate();
   const {
-    items, apps, cells, sortBy, scale, selected, error, personalFolderId, trashCount,
+    items, apps, cells, sortBy, scale, selected, error, personalFolderId, trashCount, groups,
     load, select, setCell, arrangeBy, setScale, unpinApp, createFolder, createDoc, rename, remove, share, setStatus,
-    acceptDrop,
+    acceptDrop, foldIcons, unfoldIcon, renameGroup,
   } = useDesktopStore();
   // Клетка и значок — одного размера у всех, кто их рисует: сетка, значок и
   // расчёт попадания при переносе
@@ -68,6 +70,8 @@ export default function Desktop() {
   const [dragging, setDragging] = React.useState<{ id: string; dx: number; dy: number; x: number; y: number } | null>(null);
   const [props, setProps] = React.useState<string | null>(null);
   const [dropHere, setDropHere] = React.useState(false);
+  /** Раскрытая папка: полотно поверх стола, а не окно */
+  const [folder, setFolder] = React.useState<string | null>(null);
   // Начатый перенос средствами браузера отменяет перенос указателем: иначе
   // значок и уедет по сетке, и переедет в другую папку одним движением
   const nativeDrag = React.useRef(false);
@@ -96,7 +100,24 @@ export default function Desktop() {
     return () => ro.disconnect();
   }, []);
 
-  const all = React.useMemo(() => withApps(items, apps), [items, apps]);
+  /**
+   * Что лежит на столе с учётом папок: спрятанное в папках со стола убирается,
+   * а сами папки встают значками. Иначе значок был бы виден и там и там —
+   * и человек не понимал бы, где он на самом деле.
+   */
+  const all = React.useMemo(() => {
+    const base = withApps(items, apps);
+    const hidden = hiddenIds(groups);
+    const byId = new Map(base.map((i) => [i.id, i]));
+    const folders: DeskItem[] = groups.map((g) => ({
+      id: groupIdOf(g),
+      kind: 'group' as const,
+      name: g.name,
+      shared: false,
+      members: g.items.filter((i) => byId.has(i)),
+    }));
+    return [...folders, ...base.filter((i) => !hidden.has(i.id))];
+  }, [items, apps, groups]);
   const view = React.useMemo(() => layout(all, cells, area, metric), [all, cells, area, metric]);
 
   /**
@@ -111,6 +132,7 @@ export default function Desktop() {
   const go = (to: string) => { rememberSectionUse(to.split('?')[0]); navigate(to); };
 
   const openItem = (item: DeskItem) => {
+    if (item.kind === 'group') { setFolder(item.id); return; }
     if (item.kind === 'app' && item.path) return go(item.path);
     if (item.kind === 'bin') return go(BIN_HREF);
     // Папка стола открывается в Проводнике: второго проводника у программы нет,
@@ -161,7 +183,19 @@ export default function Desktop() {
       if (!moved || cancelled) return;
       const x = ev.clientX - box.left - dx + metric.w / 2;
       const y = ev.clientY - box.top - dy + metric.h / 2;
-      setCell(item.id, xyToCell(x, y, area, metric), area);
+      const cell = xyToCell(x, y, area, metric);
+      // Значок на значок — папка, как в системе на телефоне. Именно этого и
+      // просил владелец; прежняя перестановка местами была нашей выдумкой,
+      // и её никто не звал
+      let occupant: string | null = null;
+      view.cells.forEach((c, id) => {
+        if (id !== item.id && c.col === cell.col && c.row === cell.row) occupant = id;
+      });
+      if (occupant && occupant !== BIN_ID && item.id !== BIN_ID) {
+        foldIcons(item.id, occupant);
+        return;
+      }
+      setCell(item.id, cell, area);
     };
     const onUp = (ev: PointerEvent) => finish(ev, false);
     // Перенос отменили (Esc, системный жест) — значок обязан вернуться, а не
@@ -521,6 +555,24 @@ export default function Desktop() {
           }}
         />
       )}
+
+      {folder && (() => {
+        const g = groupById(groups, folder);
+        if (!g) return null;
+        const byId = new Map(all.concat(items).map((i) => [i.id, i]));
+        const inside = g.items.map((id) => byId.get(id)).filter(Boolean) as DeskItem[];
+        return (
+          <DeskFolder
+            group={g}
+            items={inside}
+            scale={scale}
+            onOpen={openItem}
+            onOut={(item) => unfoldIcon(g.id, item.id)}
+            onRename={(name) => renameGroup(g.id, name)}
+            onClose={() => setFolder(null)}
+          />
+        );
+      })()}
 
       {menu && (
         <ContextMenu

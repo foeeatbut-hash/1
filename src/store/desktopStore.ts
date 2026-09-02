@@ -21,6 +21,10 @@ import { create } from 'zustand';
 import { dataService } from '../services/dataService';
 import { arrange, layout, place, withApps, type Cell, type DeskItem, type DeskKind, type SortBy } from '../lib/desktop';
 import { deskMetric, DESK_DEFAULT, type DeskScale } from '../lib/metrics';
+import {
+  loadGroups, saveGroups, fold, unfold, withoutItems, rename as renameGroupIn,
+  hiddenIds, groupIdOf, type DeskGroup,
+} from '../lib/deskGroups';
 
 const CELLS_KEY = 'flux_desk_cells';
 const APPS_KEY = 'flux_desk_apps';
@@ -80,6 +84,15 @@ interface DesktopState {
   arrangeBy: (by: SortBy, area: { w: number; h: number }) => void;
   pinApp: (path: string) => void;
   unpinApp: (path: string) => void;
+  /**
+   * Папки на столе — как в системе: значок на значок и они сложились. Список
+   * личный: это способ разложить свой стол, а не свойство проекта.
+   */
+  groups: DeskGroup[];
+  foldIcons: (dragged: string, target: string) => void;
+  unfoldIcon: (groupId: string, item: string) => void;
+  renameGroup: (groupId: string, name: string) => void;
+
   /** Закреплённые на панели задач — личный список этого сотрудника */
   bar: string[];
   pinBar: (path: string) => void;
@@ -108,6 +121,7 @@ export const useDesktopStore = create<DesktopState>((set, get) => ({
   items: [],
   apps: read<string[]>(APPS_KEY, DEFAULT_APPS),
   bar: read<string[]>(BAR_KEY, DEFAULT_BAR),
+  groups: loadGroups(),
   cells: read<Record<string, Cell>>(CELLS_KEY, {}),
   sortBy: read<SortBy>(SORT_KEY, 'name'),
   scale: read<DeskScale>(SCALE_KEY, DESK_DEFAULT),
@@ -192,6 +206,24 @@ export const useDesktopStore = create<DesktopState>((set, get) => ({
     set({ apps });
   },
 
+  foldIcons: (dragged, target) => {
+    const groups = fold(get().groups, dragged, target);
+    saveGroups(groups);
+    set({ groups });
+  },
+
+  unfoldIcon: (groupId, item) => {
+    const groups = unfold(get().groups, groupId, item);
+    saveGroups(groups);
+    set({ groups });
+  },
+
+  renameGroup: (groupId, name) => {
+    const groups = renameGroupIn(get().groups, groupId, name);
+    saveGroups(groups);
+    set({ groups });
+  },
+
   pinBar: (path) => {
     if (get().bar.includes(path)) return;
     const bar = [...get().bar, path];
@@ -236,6 +268,11 @@ export const useDesktopStore = create<DesktopState>((set, get) => ({
     const cells = { ...get().cells };
     delete cells[id];
     write(CELLS_KEY, cells);
+    // Удалённый документ не должен остаться лежать в папке: там он выглядел бы
+    // существующим, а открыть его было бы нечем
+    const groups = withoutItems(get().groups, [id]);
+    saveGroups(groups);
+    set({ groups });
     set({ cells, selected: get().selected.filter((s) => s !== id) });
     await get().load(projectId);
   },

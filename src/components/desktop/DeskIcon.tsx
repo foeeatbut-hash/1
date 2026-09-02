@@ -19,6 +19,21 @@ import { isSystemKind, type DeskItem } from '../../lib/desktop';
 import { deskMetric, type DeskMetric } from '../../lib/metrics';
 
 function Glyph({ item, size }: { item: DeskItem; size: number }) {
+  // Папка-виджет показывает, что в ней лежит: четыре точки вместо картинки
+  // папки. Иначе две папки на столе неразличимы, пока их не открыть
+  if (item.kind === 'group') {
+    const count = Math.min(4, (item.members || []).length);
+    return (
+      <span
+        style={{ width: size, height: size }}
+        className="grid grid-cols-2 gap-[2px] p-[3px] rounded-[6px] bg-slate-200/80 dark:bg-slate-800"
+      >
+        {Array.from({ length: 4 }).map((_, i) => (
+          <span key={i} className={`rounded-[2px] ${i < count ? 'bg-emerald-500/80' : 'bg-slate-300 dark:bg-slate-700'}`} />
+        ))}
+      </span>
+    );
+  }
   if (item.kind === 'app') {
     const Icon = SECTIONS.find((s) => s.path === item.path)?.icon as any;
     return Icon

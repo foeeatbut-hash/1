@@ -17,12 +17,18 @@ import { DESK } from './metrics';
  * Что лежит на столе. Программы — не файлы, см. пояснение в desktopStore;
  * «bin» — корзина, тоже системный значок и тоже не файл.
  */
-export type DeskKind = 'app' | 'bin' | 'folder' | 'doc' | 'text' | 'note' | 'file';
+export type DeskKind = 'app' | 'bin' | 'group' | 'folder' | 'doc' | 'text' | 'note' | 'file';
 
-/** Значки, которых нет в Проводнике: они системные, а не документы проекта */
-export const isSystemKind = (kind: DeskKind): boolean => kind === 'app' || kind === 'bin';
+/**
+ * Значки, которых нет в Проводнике: они системные, а не документы проекта.
+ * Папка-виджет тоже системная: это способ разложить стол, а не место хранения.
+ */
+export const isSystemKind = (kind: DeskKind): boolean =>
+  kind === 'app' || kind === 'bin' || kind === 'group';
 
 export interface DeskItem {
+  /** Что лежит в папке-виджете: идентификаторы значков */
+  members?: string[];
   /** Для программ — «app:/registry», для остального — идентификатор из базы */
   id: string;
   kind: DeskKind;
@@ -145,7 +151,7 @@ export const STATUS_RANK: Record<string, number> = { D: 0, C: 1, B: 2, A: 3 };
 
 /** Программы всегда впереди файлов: они системные и с места не уходят */
 const KIND_ORDER: Record<DeskKind, number> = {
-  app: 0, bin: 1, folder: 2, doc: 3, text: 4, note: 5, file: 6,
+  app: 0, bin: 1, group: 2, folder: 3, doc: 4, text: 5, note: 6, file: 7,
 };
 
 const byName = (a: DeskItem, b: DeskItem) => a.name.localeCompare(b.name, 'ru');
