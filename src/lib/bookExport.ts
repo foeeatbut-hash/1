@@ -10,6 +10,38 @@
 import * as XLSX from 'xlsx';
 import { saveBytes, type SaveResult } from './saveToWindows';
 
+/**
+ * Снимок книги Конструктора → книга SheetJS.
+ *
+ * Живёт рядом с выгрузкой, а не в экране: превращение снимка в книгу нужно и
+ * тому, кто сохраняет на диск, и тому, кто кладёт файл в Проводник, — а два
+ * одинаковых превращения однажды разошлись бы.
+ */
+export function bookFromSnapshot(snapshotJson: string): any {
+  let snap: any = {};
+  try { snap = JSON.parse(snapshotJson || '{}'); } catch (_) { snap = {}; }
+  const wb = XLSX.utils.book_new();
+  const order: string[] = snap.sheetOrder || Object.keys(snap.sheets || {});
+  for (const sheetId of order) {
+    const sh = snap.sheets?.[sheetId];
+    if (!sh) continue;
+    const aoa: any[][] = [];
+    const cellData = sh.cellData || {};
+    for (const rk of Object.keys(cellData)) {
+      const r = Number(rk);
+      for (const ck of Object.keys(cellData[rk] || {})) {
+        const c = Number(ck);
+        if (!aoa[r]) aoa[r] = [];
+        aoa[r][c] = cellData[rk][ck]?.v ?? '';
+      }
+    }
+    const wsx = XLSX.utils.aoa_to_sheet(aoa.length ? aoa : [[]]);
+    // Имя листа в Excel не длиннее 31 символа — иначе книга не откроется
+    XLSX.utils.book_append_sheet(wb, wsx, (sh.name || 'Лист').slice(0, 31));
+  }
+  return wb;
+}
+
 /** Книга → настоящий файл .xlsx на диске, через окно сохранения Windows */
 export async function saveBookToWindows(workbook: any, name: string): Promise<SaveResult> {
   const fileName = name.endsWith('.xlsx') ? name : `${name}.xlsx`;

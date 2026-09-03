@@ -8,6 +8,7 @@
  * Запуск: npx tsx scripts/test-notify.ts
  */
 import {
+  mergeFeed, unreadIn,
   SNOOZE_CHOICES, QUIET_CHOICES, snoozeUntil, quietUntil, isQuiet, untilLabel,
   visibleNow, dueSnoozed, freshOnes, groupByDay, personalGroups, appOf,
 } from '../src/lib/notifCenter';
@@ -92,6 +93,40 @@ console.log('Группы');
   check('порядок подразделов задан списком', groups[0].key === 'ДОКУМЕНТЫ', groups.map((g) => g.key));
   check('незнакомая категория уходит в «Прочее»', groups.some((g) => g.key === 'ПРОЧЕЕ'));
   check('пустых подразделов нет', groups.every((g) => g.items.length > 0));
+}
+
+// Проверка написана по просьбе владельца переделать панель: две вкладки
+// заставляли помнить, где что лежит, и искать пропущенное дважды
+console.log('Одна лента вместо двух вкладок');
+{
+  const personal = [
+    n('p1', { createdAt: new Date(Date.now() - 3 * 60000).toISOString(), isRead: false }),
+    n('p2', { createdAt: new Date(Date.now() - 60 * 60000).toISOString(), isRead: true }),
+  ];
+  const logs = [
+    { id: 'l1', description: 'Тег AHU-1 изменён', userName: 'Раупов', createdAt: new Date(Date.now() - 30 * 60000).toISOString() },
+  ];
+
+  const all = mergeFeed(personal, logs, 'all');
+  check('в ленте и личное, и системное', all.length === 3, all.map((i) => i.kind));
+  check('свежее сверху', all[0].id === 'p:p1', all.map((i) => i.id));
+  check('системное встало между личными по времени', all[1].id === 's:l1', all.map((i) => i.id));
+  check('личное отличимо от системного', all[0].kind === 'personal' && all[1].kind === 'system');
+  check('у системного назван человек', all[1].who === 'Раупов', all[1]);
+
+  const onlyMine = mergeFeed(personal, logs, 'personal');
+  check('фильтр «Личные» показывает только личное',
+    onlyMine.every((i) => i.kind === 'personal') && onlyMine.length === 2, onlyMine.map((i) => i.kind));
+  const onlySystem = mergeFeed(personal, logs, 'system');
+  check('фильтр «Система» — только системное',
+    onlySystem.every((i) => i.kind === 'system') && onlySystem.length === 1, onlySystem.map((i) => i.kind));
+
+  check('непрочитанным считается только адресованное лично', unreadIn(all) === 1, unreadIn(all));
+  check('пустая лента никого не смущает', mergeFeed([], [], 'all').length === 0);
+
+  // Лента идёт по дням тем же счётом, что и раньше: заголовки не разъедутся
+  const days = groupByDay(all);
+  check('лента группируется по дням', days.length >= 1 && days[0].title === 'Сегодня', days.map((d) => d.title));
 }
 
 console.log('Чья это программа');

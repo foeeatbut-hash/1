@@ -122,6 +122,85 @@ export function groupByDay<T extends { createdAt?: string }>(
   return groups;
 }
 
+/**
+ * Один список вместо двух вкладок.
+ *
+ * Вкладки «Общие» и «Личные» заставляли человека помнить, где что лежит, и
+ * искать пропущенное дважды. Событие приходит во времени, а не по вкладкам —
+ * поэтому лента одна, по дням, а вкладки превратились в фильтр из трёх слов:
+ * посмотреть только своё можно, но по умолчанию видно всё.
+ */
+export type FeedFilter = 'all' | 'personal' | 'system';
+
+export interface FeedItem {
+  id: string;
+  /** Личное адресовано мне, системное — событие программы или проекта */
+  kind: 'personal' | 'system';
+  title: string;
+  body: string;
+  targetRoute?: string;
+  /** Кто это сделал — только у системных: у личных отправитель в тексте */
+  who?: string;
+  category: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export interface SystemLogLike {
+  id: string;
+  description: string;
+  userName?: string;
+  targetRoute?: string;
+  createdAt?: string;
+}
+
+/** Личные уведомления и события программы → одна лента, свежие сверху */
+export function mergeFeed(
+  personal: NotifLike[],
+  logs: SystemLogLike[],
+  filter: FeedFilter = 'all',
+): FeedItem[] {
+  const items: FeedItem[] = [];
+  if (filter !== 'system') {
+    for (const n of personal) {
+      items.push({
+        id: `p:${n.id}`,
+        kind: 'personal',
+        title: n.title,
+        body: n.body || '',
+        targetRoute: n.targetRoute,
+        category: n.category,
+        isRead: n.isRead,
+        createdAt: n.createdAt,
+      });
+    }
+  }
+  if (filter !== 'personal') {
+    for (const l of logs) {
+      items.push({
+        id: `s:${l.id}`,
+        kind: 'system',
+        title: l.description,
+        body: '',
+        targetRoute: l.targetRoute,
+        who: l.userName,
+        category: 'СИСТЕМА',
+        // Событие программы прочитанным не бывает: его не адресовали лично
+        isRead: true,
+        createdAt: l.createdAt || '',
+      });
+    }
+  }
+  const at = (s: string) => {
+    const t = new Date(s).getTime();
+    return Number.isNaN(t) ? 0 : t;
+  };
+  return items.sort((a, b) => at(b.createdAt) - at(a.createdAt));
+}
+
+/** Сколько непрочитанного в ленте — по нему и горит счётчик */
+export const unreadIn = (items: FeedItem[]): number => items.filter((i) => !i.isRead).length;
+
 /** Порядок и названия подразделов личных уведомлений */
 export const PERSONAL_GROUPS: { key: string; title: string }[] = [
   { key: 'ДОКУМЕНТЫ', title: 'Мои документы' },

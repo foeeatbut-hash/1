@@ -34,8 +34,11 @@ export default function RightRail() {
   // Опрос уведомлений переехал в Layout: рельс показывается не всегда, а
   // уведомления обязаны приходить в любой оболочке
 
-  const openNotif = () => { setAssistantOpen(false); setPanelOpen(!panelOpen); };
-  const openAI = () => { setPanelOpen(false); setAssistantOpen(!assistantOpen); };
+  // Открытие одной панели больше не закрывает другую: они делят правую колонку
+  // (components/RightDock). Раньше человек, читавший уведомление и решивший
+  // спросить помощника, терял уведомление из виду
+  const openNotif = () => setPanelOpen(!panelOpen);
+  const openAI = () => setAssistantOpen(!assistantOpen);
 
   /**
    * Справка по тому разделу, где человек стоит, — то же, что F1.

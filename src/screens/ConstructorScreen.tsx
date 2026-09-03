@@ -29,7 +29,8 @@ import { countOf } from '../lib/plural';
 import { useModalStore } from '../store/modalStore';
 import EnglishVersion from '../components/translate/EnglishVersion';
 import { docFingerprint } from '../translate/docPlan';
-import { saveBookToWindows, saveBookToExplorer } from '../lib/bookExport';
+import { saveBookToWindows, saveBookToExplorer, bookFromSnapshot } from '../lib/bookExport';
+import { waitForSheet } from '../lib/engineReady';
 import { useOpenFromFile } from '../components/constructor/useOpenFromFile';
 
 // Диалоги программы вместо системных окон Windows
@@ -589,7 +590,16 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         });
         (univerRef.current as any).cmdDisposer = cmdDisposer;
 
+        // Ждём сам лист, а не отмеренное на глаз время: иначе человек,
+        // создавший документ, секунду смотрит на белое поле (src/lib/engineReady.ts)
+        await waitForSheet(() => !!univerAPI.getActiveWorkbook?.()?.getActiveSheet?.());
+        if (disposed) return;
         setLoading(false);
+
+        // Новая книга сохраняется сразу: пока снимок не записан, документ в
+        // базе пуст, и открытый на другой машине он выглядит потерянным
+        if (!loaded.workbook) setTimeout(() => { void saveNow(); }, 300);
+
         // Документ создан по шаблону: сразу наполняем блоки данными ЭТОГО проекта
         if (autoRefresh && bindingsRef.current.blocks.length > 0) {
           setTimeout(() => { refreshAll(); }, 600);
@@ -892,28 +902,9 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   };
 
   // Снапшот книги → книга SheetJS (все листы, значения)
-  const buildXlsx = () => {
-    const snap = JSON.parse(takeSnapshot() || '{}');
-    const wb = XLSX.utils.book_new();
-    const order: string[] = snap.sheetOrder || Object.keys(snap.sheets || {});
-    for (const sheetId of order) {
-      const sh = snap.sheets?.[sheetId];
-      if (!sh) continue;
-      const aoa: any[][] = [];
-      const cellData = sh.cellData || {};
-      for (const rk of Object.keys(cellData)) {
-        const r = Number(rk);
-        for (const ck of Object.keys(cellData[rk] || {})) {
-          const c = Number(ck);
-          if (!aoa[r]) aoa[r] = [];
-          aoa[r][c] = cellData[rk][ck]?.v ?? '';
-        }
-      }
-      const wsx = XLSX.utils.aoa_to_sheet(aoa.length ? aoa : [[]]);
-      XLSX.utils.book_append_sheet(wb, wsx, (sh.name || 'Лист').slice(0, 31));
-    }
-    return wb;
-  };
+  // Снимок книги → книга SheetJS: превращение нужно и выгрузке на диск, и
+  // сохранению в Проводник, поэтому живёт рядом с ними (lib/bookExport)
+  const buildXlsx = () => bookFromSnapshot(takeSnapshot());
 
   // Печатный HTML активного листа: значения + жирность из стилей книги.
   // Полная пагинация с колонтитулами — следующая фаза (часть II §8 дизайна).
