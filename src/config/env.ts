@@ -12,15 +12,28 @@
  * процесс Electron знал о выборе ещё до загрузки рендерера.
  */
 
+import { checkServerUrl, useSaved, maskSecrets } from '../lib/serverUrl';
+
 const SERVER_URL_KEY = 'flux_server_url';
+
+/**
+ * Негодный сохранённый адрес — почему об этом надо сказать вслух.
+ *
+ * Однажды в это поле вписали строку подключения к базе. После этого КАЖДЫЙ
+ * запрос строился от неё, браузер такие запросы не выполняет вовсе, и
+ * программа перестала отвечать — вместе с экраном входа, с которого это можно
+ * было бы исправить. Теперь негодный адрес просто не применяется: программа
+ * работает на встроенном сервере и объясняет, почему (правила — lib/serverUrl).
+ */
+export let serverUrlWarning = '';
 
 // Нормализованный адрес сервера компании ('' = встроенный режим)
 export function getConfiguredServerUrl(): string {
   try {
     const saved = (localStorage.getItem(SERVER_URL_KEY) || '').trim();
-    if (!saved) return '';
-    const withProto = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(saved) ? saved : `http://${saved}`;
-    return withProto.replace(/\/+$/, '');
+    const { url, warn } = useSaved(saved);
+    serverUrlWarning = warn;
+    return url;
   } catch (_) {
     return '';
   }
@@ -39,7 +52,11 @@ export function getServerBaseUrl(): string {
 // Сохраняет выбор сервера (пустая строка = встроенный) и синхронизирует
 // config.json главного процесса Electron. Применяется после перезагрузки окна.
 export async function setConfiguredServerUrl(url: string): Promise<void> {
-  const clean = String(url || '').trim();
+  // Сохраняем только то, чем программа умеет пользоваться: пустое значение
+  // (встроенный сервер) или разобранный http(s)-адрес
+  const parsed = checkServerUrl(url);
+  if (parsed.error) throw new Error(parsed.error);
+  const clean = parsed.url;
   try {
     if (clean) localStorage.setItem(SERVER_URL_KEY, clean);
     else localStorage.removeItem(SERVER_URL_KEY);
@@ -91,11 +108,16 @@ if (typeof window !== 'undefined') {
   const baseUrl = SERVER_BASE_URL || 'http://localhost:3000';
   const originalFetch = window.fetch.bind(window);
 
+  /**
+   * Запись в журнал. Пароли замазываются ВСЕГДА и на входе, а не там, где о них
+   * вспомнили: строка подключения к базе однажды уже уехала в журнал открытым
+   * текстом — вместе с паролем от общей базы отдела.
+   */
   const logApi = (level: 'INFO' | 'ERROR', ctx: string, msg: string) => {
     try {
       // ленивый импорт, чтобы не создавать циклов на этапе модуля
       const store = (window as any).__pdmLogStore;
-      if (store) store.getState().addLog(level, ctx, msg);
+      if (store) store.getState().addLog(level, ctx, maskSecrets(msg));
     } catch (_) {}
   };
 
@@ -140,7 +162,27 @@ if (typeof window !== 'undefined') {
 
     try {
       const res = await originalFetch(input as any, init);
-      if (isApi && (!isBackgroundPoll || !res.ok)) logApi(res.ok ? 'INFO' : 'ERROR', 'Ответ', `${res.status} ${method} ${shortUrl}`);
+      if (isApi && (!isBackgroundPoll || !res.ok)) {
+        logApi(res.ok ? 'INFO' : 'ERROR', 'Ответ', `${res.status} ${method} ${shortUrl}`);
+        /**
+         * У отказа читаем объяснение сервера.
+         *
+         * Раньше в журнале оставалось голое «500 GET /api/calendar/events», и
+         * причина терялась насовсем: сервер её называл, но никто не слушал.
+         * Именно поэтому поломка календаря на общей базе неделю выглядела как
+         * «программа выкидывает из календаря» без единой зацепки.
+         *
+         * Тело читаем с копии ответа, чтобы не отобрать его у вызывающего кода.
+         */
+        if (!res.ok) {
+          res.clone().text()
+            .then((body) => {
+              const said = body.slice(0, 300).replace(/\s+/g, ' ').trim();
+              if (said) logApi('ERROR', 'Ответ', `${res.status} ${shortUrl} — ${said}`);
+            })
+            .catch(() => { /* тело уже прочитано или его нет */ });
+        }
+      }
       // Сессия недействительна (истекла, профиль отключён) → на экран входа.
       // /api/login не считается: там 401 = просто неверный пароль
       if (res.status === 401 && isApi && !shortUrl.startsWith('/api/login')) {

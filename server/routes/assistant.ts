@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { getPrisma } from '../context.js';
+import { ensureTables as ensureDbTables } from '../ddl.js';
 
 /**
  * Сводка проекта для встроенного помощника: одним запросом теги, плоский
@@ -187,6 +188,8 @@ export function registerAssistantRoutes(app: Express): void {
   const meIdOf = (req: Request): string => String((req as any).authUser?.id || '');
 
   // Таблицы для PostgreSQL и MariaDB (в SQLite их строит server.ts)
+  // Подстраховка на случай, когда автомиграция не отработала. SQL — под движок
+  // базы (server/ddl.ts): PostgreSQL-синтаксис на MariaDB падает всегда
   let ensured = false;
   const ensureTables = async (): Promise<void> => {
     if (ensured) return;
@@ -195,26 +198,25 @@ export function registerAssistantRoutes(app: Express): void {
       await prisma.assistantChat.count();
       ensured = true;
     } catch (_) {
-      try {
-        await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "AssistantChat" (
-          "id" TEXT NOT NULL PRIMARY KEY,
-          "ownerId" TEXT NOT NULL,
-          "projectId" TEXT NOT NULL DEFAULT '',
-          "title" TEXT NOT NULL DEFAULT '',
-          "preview" TEXT NOT NULL DEFAULT '',
-          "messages" TEXT NOT NULL,
-          "search" TEXT NOT NULL,
-          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )`);
-        await prisma.$executeRawUnsafe(
-          `CREATE INDEX IF NOT EXISTS "AssistantChat_owner_project_idx" ON "AssistantChat"("ownerId", "projectId")`);
-        ensured = true;
-      } catch (e) {
-        console.warn('[Помощник] Не удалось создать таблицу разговоров:', e);
-      }
+      const why = await ensureDbTables(prisma, [{
+        table: 'AssistantChat',
+        cols: [
+          { name: 'id', kind: 'text', pk: true },
+          { name: 'ownerId', kind: 'text', notNull: true, def: '', indexed: true },
+          { name: 'projectId', kind: 'text', notNull: true, def: '', indexed: true },
+          { name: 'title', kind: 'text', notNull: true, def: '' },
+          { name: 'preview', kind: 'text', notNull: true, def: '' },
+          { name: 'messages', kind: 'longtext', notNull: true },
+          { name: 'search', kind: 'longtext', notNull: true },
+          { name: 'createdAt', kind: 'time', notNull: true, def: 'now' },
+          { name: 'updatedAt', kind: 'time', notNull: true, def: 'now' },
+        ],
+        indexes: [{ name: 'AssistantChat_owner_project_idx', cols: ['ownerId', 'projectId'] }],
+      }], (m) => console.error('[Помощник]', m));
+      if (!why) ensured = true;
     }
   };
+
 
   /** Список разговоров: только свои, свежие сверху, без тел реплик */
   app.get('/api/assistant/chats', async (req: Request, res: Response) => {

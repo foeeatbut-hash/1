@@ -5,6 +5,9 @@ import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
 import { Lock, User, Eye, EyeOff, Loader2, AlertCircle, Sun, Moon, Database, FolderOpen, RotateCcw, Server, Laptop, CheckCircle2 } from 'lucide-react';
 import { ENV_CONFIG, getConfiguredServerUrl, setConfiguredServerUrl, setAuthToken } from '../config/env';
+import { checkServerUrl } from '../lib/serverUrl';
+import { labelOfUrl } from '../lib/dbUrl';
+import DbConnectDialog from '../components/DbConnectDialog';
 import { useModalStore } from '../store/modalStore';
 
 // Диалоги программы вместо системных окон Windows
@@ -61,6 +64,23 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
   const [serverPanelOpen, setServerPanelOpen] = useState(false);
   const [serverDraft, setServerDraft] = useState(() => getConfiguredServerUrl());
   const [serverCheck, setServerCheck] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle');
+  /**
+   * Отказ показывается прямо в панели, а не всплывающим сообщением.
+   *
+   * Всплывающих сообщений на экране входа не видно вовсе — оболочка с ними
+   * ещё не поднята. Именно поэтому строку подключения к базе поле принимало
+   * «молча»: программа возражала, но возражение показать было негде.
+   */
+  const [serverError, setServerError] = useState('');
+
+  /**
+   * Где лежат данные — отдельный вопрос и отдельная кнопка. Пока он был
+   * подписан почти так же, как адрес сервера программы, в поле сервера
+   * вписывали строку подключения к базе — и программа переставала работать
+   * целиком (§23.1 дизайна).
+   */
+  const [dbUrl, setDbUrl] = useState('');
+  const [dbDialog, setDbDialog] = useState(false);
 
   const checkServer = async (url: string): Promise<boolean> => {
     try {
@@ -82,8 +102,13 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
   };
 
   const applyServerUrl = async (url: string) => {
-    await setConfiguredServerUrl(url);
-    addToast(url ? `Сервер компании: ${url}. Перезагрузка…` : 'Встроенный сервер. Перезагрузка…', 'success');
+    // Негодный адрес не сохраняем вовсе: строка подключения к базе, попавшая
+    // сюда однажды, обездвижила программу вместе с этим самым экраном
+    const parsed = checkServerUrl(url);
+    if (parsed.error) { setServerError(parsed.error); setServerCheck('fail'); return; }
+    setServerError('');
+    await setConfiguredServerUrl(parsed.url);
+    addToast(parsed.url ? `Сервер компании: ${parsed.url}. Перезагрузка…` : 'Встроенный сервер. Перезагрузка…', 'success');
     setTimeout(() => window.location.reload(), 600);
   };
 
@@ -95,6 +120,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
       setDbType(config.current_db_type || 'LOCAL');
       setDbPath(config.databasePath || '');
       setDbDisplayPath(config.displayPath || '');
+      setDbUrl(config.database_url || '');
     } catch (e) {}
   };
 
@@ -321,7 +347,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
       <div className="w-full flex flex-col items-center gap-2 pb-1">
         <button
           type="button"
-          onClick={() => { setServerPanelOpen(v => !v); setServerDraft(serverUrl); setServerCheck('idle'); }}
+          onClick={() => { setServerPanelOpen(v => !v); setServerDraft(serverUrl); setServerCheck('idle'); setServerError(''); }}
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-900 border border-transparent hover:border-slate-200 dark:hover:border-slate-800 transition-ui cursor-pointer"
           title="Настроить подключение к серверу"
         >
@@ -329,8 +355,25 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
           {serverUrl ? `Сервер компании: ${serverUrl}` : 'Встроенный сервер (эта машина)'}
         </button>
 
+        {/* Где лежат данные — второй, отдельный вопрос. Отдельная строка и
+            отдельное окно: пока их путали, строка подключения к базе попадала
+            в поле сервера и обездвиживала программу */}
+        <button
+          type="button"
+          onClick={() => setDbDialog(true)}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-900 border border-transparent hover:border-slate-200 dark:hover:border-slate-800 transition-ui cursor-pointer"
+          title="Где лежат данные: на этом компьютере или в общей базе"
+        >
+          <Database className="w-3.5 h-3.5 text-emerald-600" />
+          {labelOfUrl(dbType, dbUrl)}
+        </button>
+
         {serverPanelOpen && (
           <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg p-4 space-y-3">
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+              Здесь — только адрес сервера программы. Где лежат данные, спрашивают
+              отдельной кнопкой «База» ниже.
+            </p>
             <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
               Укажите адрес сервера компании (например, <span className="font-mono">http://192.168.1.100:3000</span>) —
               все данные и чат будут общими для сотрудников. Оставьте пустым, чтобы работать
@@ -340,7 +383,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
               <input
                 type="text"
                 value={serverDraft}
-                onChange={(e) => { setServerDraft(e.target.value); setServerCheck('idle'); }}
+                onChange={(e) => { setServerDraft(e.target.value); setServerCheck('idle'); setServerError(''); }}
                 placeholder="http://адрес:порт (пусто = встроенный)"
                 className="flex-1 min-w-0 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-ui"
               />
@@ -357,7 +400,11 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
               </button>
             </div>
             {serverCheck === 'ok' && <p className="text-xs text-emerald-600 dark:text-emerald-400">Сервер отвечает — можно подключаться.</p>}
-            {serverCheck === 'fail' && <p className="text-xs text-rose-600 dark:text-rose-400">Сервер не отвечает. Проверьте адрес и что сервер запущен.</p>}
+            {serverCheck === 'fail' && (
+              <p className="text-xs text-rose-600 dark:text-rose-400 leading-snug">
+                {serverError || 'Сервер не отвечает. Проверьте адрес и что сервер запущен.'}
+              </p>
+            )}
             <div className="flex items-center justify-end gap-2">
               {serverUrl && (
                 <button
@@ -387,6 +434,19 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
           </div>
         )}
       </div>
+
+      {dbDialog && (
+        <DbConnectDialog
+          current={dbUrl}
+          currentType={dbType}
+          onClose={() => setDbDialog(false)}
+          onDone={(what) => {
+            setDbDialog(false);
+            addToast(`Подключено: ${what}. Перезагрузка…`, 'success');
+            setTimeout(() => window.location.reload(), 800);
+          }}
+        />
+      )}
 
       {/* Footer: авторство слева, версия справа */}
       <div className="w-full flex items-center justify-between gap-3 px-4 py-4 mt-auto">

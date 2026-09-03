@@ -886,10 +886,24 @@ export const dataService = {
     return request<{ isConfigured: boolean; databasePath: string; displayPath: string; defaultPath: string }>('/db/config');
   },
 
-  async testDbConnection(databasePath: string): Promise<{ success: boolean; exists: boolean; message: string }> {
+  /**
+   * Проверить подключение до того, как что-то переключится. Переключить базу и
+   * узнать, что адрес неверный, — значит остаться без работающей программы.
+   */
+  async testDbConnection(body: { current_db_type: string; database_url: string }):
+    Promise<{ success: boolean; exists: boolean; message: string }> {
     return request<{ success: boolean; exists: boolean; message: string }>('/db/test', {
       method: 'POST',
-      body: JSON.stringify({ databasePath }),
+      body: JSON.stringify(body),
+    });
+  },
+
+  /** Переключить базу: сервер пересоздаёт клиента и приводит базу к схеме */
+  async switchDb(body: { current_db_type: string; database_url: string }):
+    Promise<{ success: boolean; message: string }> {
+    return request<{ success: boolean; message: string }>('/db/switch', {
+      method: 'POST',
+      body: JSON.stringify(body),
     });
   },
 

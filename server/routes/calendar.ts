@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from 'express';
+import { ensureTables as ensureDbTables } from '../ddl.js';
 import { getPrisma, resolveProjectId, sendError, notifyUser } from '../context.js';
 
 // ── Календарь: события проекта, личные напоминания и сроки ВДР ──
@@ -21,36 +22,84 @@ import { getPrisma, resolveProjectId, sendError, notifyUser } from '../context.j
 //      значит звать и прятать одновременно.
 
 let ensured = false;
-async function ensureTables(): Promise<void> {
-  if (ensured) return;
+/**
+ * Таблицы календаря в общей базе.
+ *
+ * Основную работу делает автомиграция по схеме (server/schema-sync.ts); это
+ * подстраховка на случай, когда она не отработала. Раньше она была написана
+ * синтаксисом PostgreSQL и на MariaDB падала всегда, а ошибку глотала молча —
+ * поэтому у владельца КАЖДЫЙ заход в календарь отвечал 500 без единой строчки
+ * о причине. Теперь SQL собирается под движок (server/ddl.ts), а беда
+ * возвращается наверх и попадает и в журнал, и в ответ человеку.
+ */
+let tablesError = '';
+
+async function ensureTables(): Promise<string> {
+  if (ensured) return '';
   const prisma = getPrisma();
   try {
     await prisma.calEvent.count();
     ensured = true;
+    return '';
   } catch (_) {
-    // PostgreSQL и MariaDB: таблиц ещё нет (SQLite их строит в server.ts)
-    try {
-      await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "CalEvent" (
-        "id" TEXT NOT NULL PRIMARY KEY, "projectId" TEXT,
-        "kind" TEXT NOT NULL DEFAULT 'meeting',
-        "title" TEXT NOT NULL DEFAULT '', "description" TEXT NOT NULL DEFAULT '',
-        "startsAt" TIMESTAMP(3) NOT NULL, "endsAt" TIMESTAMP(3) NOT NULL,
-        "allDay" BOOLEAN NOT NULL DEFAULT false,
-        "rrule" TEXT NOT NULL DEFAULT '', "place" TEXT NOT NULL DEFAULT '',
-        "joinUrl" TEXT NOT NULL DEFAULT '', "createdBy" TEXT NOT NULL DEFAULT '',
-        "source" TEXT NOT NULL DEFAULT 'hand', "sourceId" TEXT NOT NULL DEFAULT '',
-        "visibility" TEXT NOT NULL DEFAULT 'project',
-        "remindMin" INTEGER NOT NULL DEFAULT 0,
-        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )`);
-      await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "CalGuest" (
-        "id" TEXT NOT NULL PRIMARY KEY, "eventId" TEXT NOT NULL,
-        "userId" TEXT NOT NULL, "state" TEXT NOT NULL DEFAULT 'invited'
-      )`);
-      ensured = true;
-    } catch (_) { /* следующая попытка на следующем запросе */ }
+    tablesError = await ensureDbTables(prisma, [
+      {
+        table: 'CalEvent',
+        cols: [
+          { name: 'id', kind: 'text', pk: true },
+          { name: 'projectId', kind: 'text', indexed: true },
+          { name: 'kind', kind: 'text', notNull: true, def: 'meeting' },
+          { name: 'title', kind: 'text', notNull: true, def: '' },
+          { name: 'description', kind: 'text', notNull: true, def: '' },
+          { name: 'startsAt', kind: 'time', notNull: true, def: 'now' },
+          { name: 'endsAt', kind: 'time', notNull: true, def: 'now' },
+          { name: 'allDay', kind: 'bool', notNull: true, def: false },
+          { name: 'rrule', kind: 'text', notNull: true, def: '' },
+          { name: 'place', kind: 'text', notNull: true, def: '' },
+          { name: 'joinUrl', kind: 'text', notNull: true, def: '' },
+          { name: 'createdBy', kind: 'text', notNull: true, def: '', indexed: true },
+          { name: 'source', kind: 'text', notNull: true, def: 'hand' },
+          { name: 'sourceId', kind: 'text', notNull: true, def: '' },
+          { name: 'visibility', kind: 'text', notNull: true, def: 'project' },
+          { name: 'remindMin', kind: 'int', notNull: true, def: 0 },
+          { name: 'createdAt', kind: 'time', notNull: true, def: 'now' },
+          { name: 'updatedAt', kind: 'time', notNull: true, def: 'now' },
+        ],
+        indexes: [
+          { name: 'CalEvent_project_start_idx', cols: ['projectId', 'startsAt'] },
+          { name: 'CalEvent_createdBy_idx', cols: ['createdBy'] },
+        ],
+      },
+      {
+        table: 'CalGuest',
+        cols: [
+          { name: 'id', kind: 'text', pk: true },
+          { name: 'eventId', kind: 'text', notNull: true, def: '', indexed: true },
+          { name: 'userId', kind: 'text', notNull: true, def: '', indexed: true },
+          { name: 'state', kind: 'text', notNull: true, def: 'invited' },
+        ],
+        indexes: [
+          { name: 'CalGuest_event_user_key', cols: ['eventId', 'userId'], unique: true },
+          { name: 'CalGuest_userId_idx', cols: ['userId'] },
+        ],
+      },
+    ], (m) => console.error('[Календарь]', m));
+    if (!tablesError) ensured = true;
+    return tablesError;
   }
+}
+
+/**
+ * Отказ, который можно прочитать. Пустой 500 человек видит как «программа
+ * сломалась» и выходит из неё; строка про общую базу говорит, что делать.
+ */
+function tablesFailed(res: Response, why: string): boolean {
+  if (!why) return false;
+  res.status(503).json({
+    error: 'Календарь пока не готов: в общей базе нет его таблиц.',
+    details: why,
+  });
+  return true;
 }
 
 const str = (v: any) => String(v ?? '').trim();
@@ -93,7 +142,7 @@ export function registerCalendarRoutes(app: Express): void {
    */
   app.get('/api/calendar/events', async (req: Request, res: Response) => {
     try {
-      await ensureTables();
+      if (tablesFailed(res, await ensureTables())) return;
       const prisma = getPrisma();
       const me = meOf(req);
       const projectId = await resolveProjectId(req.query.projectId as string);
@@ -168,7 +217,7 @@ export function registerCalendarRoutes(app: Express): void {
 
   app.post('/api/calendar/events', async (req: Request, res: Response) => {
     try {
-      await ensureTables();
+      if (tablesFailed(res, await ensureTables())) return;
       const prisma = getPrisma();
       const me = meOf(req);
       const b = req.body || {};
@@ -221,7 +270,7 @@ export function registerCalendarRoutes(app: Express): void {
 
   app.put('/api/calendar/events/:id', async (req: Request, res: Response) => {
     try {
-      await ensureTables();
+      if (tablesFailed(res, await ensureTables())) return;
       const prisma = getPrisma();
       const me = meOf(req);
       const b = req.body || {};
@@ -262,7 +311,7 @@ export function registerCalendarRoutes(app: Express): void {
 
   app.delete('/api/calendar/events/:id', async (req: Request, res: Response) => {
     try {
-      await ensureTables();
+      if (tablesFailed(res, await ensureTables())) return;
       const prisma = getPrisma();
       const me = meOf(req);
       const cur = await prisma.calEvent.findUnique({ where: { id: req.params.id } });
@@ -279,7 +328,7 @@ export function registerCalendarRoutes(app: Express): void {
   /** Ответ участника: приду, не приду, может быть */
   app.post('/api/calendar/events/:id/answer', async (req: Request, res: Response) => {
     try {
-      await ensureTables();
+      if (tablesFailed(res, await ensureTables())) return;
       const prisma = getPrisma();
       const me = meOf(req);
       const state = ['yes', 'no', 'maybe'].includes(req.body?.state) ? req.body.state : 'invited';

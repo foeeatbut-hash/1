@@ -14,6 +14,7 @@ import { exec, execSync } from 'child_process';
 import os from 'os';
 import crypto from 'crypto';
 import { setPrisma, setNotifier, setBroadcaster, upsertSetting } from './server/context.js';
+import { setDialect, dialectOf } from './server/ddl.js';
 import { setupDocRooms } from './server/collab.js';
 import { ensureRemoteSchema } from './server/schema-sync.js';
 import { computeMachineId, licenseStatus, activateLicense } from './electron/license.js';
@@ -709,6 +710,10 @@ async function syncRemoteSchema(client: any, dbUrl: string, forceDialect?: 'sqli
 }
 
 function createPrismaClient(dbType: string, dbUrl: string) {
+  // Движок базы запоминается здесь, а не угадывается на месте: маршруты,
+  // создающие недостающие таблицы, пишут SQL под конкретный движок
+  // (server/ddl.ts), и «почти правильный» SQL там бесполезен
+  setDialect(dialectOf(dbType, dbUrl));
   try {
     if (dbType === 'REMOTE') {
       if (isMariaDbUrl(dbUrl)) {
