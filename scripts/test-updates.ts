@@ -81,6 +81,10 @@ console.log('Отказ сервера словами');
   check('401 говорит про вход', downloadError(401).includes('вход'));
   check('403 говорит про вход', downloadError(403).includes('вход'));
   check('404 говорит, что делать администратору', downloadError(404).includes('загрузить exe'));
+  check('404 называет сервер, у которого спрашивали',
+    downloadError(404, '', 'http://192.168.1.10:3000').includes('192.168.1.10:3000'),
+    downloadError(404, '', 'http://192.168.1.10:3000'));
+  check('404 подсказывает про «тот же сервер»', downloadError(404).includes('тот же сервер'));
   check('500 передаёт слова сервера', downloadError(500, 'диск переполнен').includes('диск переполнен'));
   check('неизвестный код не оставляет человека без объяснения', downloadError(418).includes('418'));
 }

@@ -694,9 +694,9 @@ app.whenReady().then(() => {
   let latestCachedUpdate: { version: string; installerPath: string } | null = null;
 
   /** Отказ — словами, а не кодом: человек читает это в окне и в журнале */
-  const errorText = (err: any): string => {
+  const errorText = (err: any, from = ''): string => {
     const status = Number(err?.statusCode || 0);
-    if (status) return downloadError(status, String(err?.message || ''));
+    if (status) return downloadError(status, String(err?.message || ''), from);
     return String(err?.message || err || 'Неизвестная ошибка');
   };
 
@@ -839,8 +839,12 @@ app.whenReady().then(() => {
       mainWindow?.webContents.send('updater:status', 'downloaded', { version });
       return { success: true };
     } catch (err: any) {
-      const text = errorText(err);
-      appendLog('ERROR', 'Обновление', `Не скачалось ${version}: ${text}`);
+      // Называем сервер, у которого спрашивали: без этого «файла нет» не
+      // отличить от «загрузили не на тот сервер»
+      let host = '';
+      try { host = new URL(url).origin; } catch (_) { host = url; }
+      const text = errorText(err, host);
+      appendLog('ERROR', 'Обновление', `Не скачалось ${version} с ${host}: ${text}`);
       mainWindow?.webContents.send('updater:error', text);
       throw new Error(text);
     }

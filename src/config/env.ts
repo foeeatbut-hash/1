@@ -145,15 +145,25 @@ if (typeof window !== 'undefined') {
 
     // Токен сессии — на каждый запрос к API (кроме случая, когда вызывающий
     // код уже выставил Authorization сам)
+    let sentToken = false;
     if (isApi) {
       const token = getAuthToken();
-      if (token) {
-        try {
-          const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
-          if (!headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
-          init = { ...(init || {}), headers };
-        } catch (_) {}
-      }
+      try {
+        const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+        const own = headers.get('Authorization') || '';
+        /**
+         * Свой пустой заголовок — не воля вызывающего, а ошибка.
+         *
+         * Один экран подставлял токен руками и брал его из неверного ключа
+         * хранилища: заголовок уходил пустым, а обёртка его не трогала —
+         * «раз задан, значит так и хотели». Сервер отвечал «требуется вход», и
+         * человека выбрасывало на экран входа при открытии события календаря.
+         * Пустой Authorization теперь заменяется настоящим.
+         */
+        if (token && (!own || /^Bearer\s*$/i.test(own))) headers.set('Authorization', `Bearer ${token}`);
+        sentToken = !!(headers.get('Authorization') || '').replace(/^Bearer\s*/i, '');
+        if (token) init = { ...(init || {}), headers };
+      } catch (_) { sentToken = !!token; }
     }
     // Фоновые поллинги (уведомления, чат) идут каждые несколько секунд —
     // их успешные запросы не пишем, чтобы не забивать журнал шумом (ошибки пишем)
@@ -183,10 +193,20 @@ if (typeof window !== 'undefined') {
             .catch(() => { /* тело уже прочитано или его нет */ });
         }
       }
-      // Сессия недействительна (истекла, профиль отключён) → на экран входа.
-      // /api/login не считается: там 401 = просто неверный пароль
-      if (res.status === 401 && isApi && !shortUrl.startsWith('/api/login')) {
+      /**
+       * Сессия недействительна → на экран входа. Но только если запрос
+       * ДЕЙСТВИТЕЛЬНО нёс токен.
+       *
+       * Отказ на запрос без токена означает ошибку в коде, а не конец сессии,
+       * и выбрасывать за неё человека из программы — худшее из возможных
+       * решений: он теряет несохранённое и не понимает, за что.
+       *
+       * /api/login не считается: там 401 = просто неверный пароль.
+       */
+      if (res.status === 401 && isApi && sentToken && !shortUrl.startsWith('/api/login')) {
         try { window.dispatchEvent(new CustomEvent('flux:auth-expired')); } catch (_) {}
+      } else if (res.status === 401 && isApi && !sentToken) {
+        logApi('ERROR', 'Ответ', `401 ${shortUrl} — запрос ушёл без токена (ошибка в коде, сессия цела)`);
       }
       return res;
     } catch (err: any) {

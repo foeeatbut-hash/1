@@ -71,6 +71,9 @@ export default function UpdaterWidget() {
 
   const isElectron = typeof window !== 'undefined' && (window as any).electron !== undefined;
   const busy = phase === 'downloading' || phase === 'verifying' || phase === 'installing';
+  /** Куда уходит публикация: адрес сервера, с которым работает эта программа */
+  const base = getServerBaseUrl() || (typeof window !== 'undefined' ? window.location.origin : '');
+  const onOwnServer = !base || /localhost|127\.0\.0\.1/.test(base);
 
   useEffect(() => {
     void init(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0');
@@ -155,6 +158,26 @@ export default function UpdaterWidget() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `Сервер ответил ${res.status}`);
+
+      /**
+       * Проверяем, что файл действительно лежит там, откуда его будут качать.
+       *
+       * Это не перестраховка. Публикация уходит на ТОТ сервер, с которым
+       * работает эта программа. Если у администратора адрес сервера не задан,
+       * файл ложится на его собственную машину, а сотрудники спрашивают
+       * сервер компании — и получают «файла этой версии нет». Раньше об этом
+       * узнавали от сотрудников через день; теперь программа проверяет сразу.
+       */
+      const at = data?.update?.fileUrl || `/api/updates/download/${version}`;
+      const probe = await fetch(fileUrlOf(at, base), { method: 'GET', headers: { Range: 'bytes=0-1' } })
+        .catch(() => null);
+      if (!probe || (!probe.ok && probe.status !== 206)) {
+        addToast(
+          `Релиз записан, но файл с сервера ${base || 'этой машины'} не отдаётся `
+          + `(${probe ? `код ${probe.status}` : 'сервер не ответил'}). Сотрудники его не скачают.`,
+          'error',
+        );
+      }
 
       addToast(`Релиз v${version} опубликован — сотрудники получат оповещение.`, 'success');
       setShowPublishModal(false);
@@ -344,9 +367,15 @@ export default function UpdaterWidget() {
             </div>
 
             <div className="p-5 flex-1 overflow-y-auto space-y-4">
+              {/* Куда именно уйдёт файл — сказано прямо. Публикация на свою
+                  машину при том, что сотрудники работают с сервером компании,
+                  выглядит успешной и не даёт ничего: «файла этой версии нет» */}
               <div className="text-xs leading-normal bg-amber-500/10 dark:bg-amber-500/5 p-2.5 rounded border border-amber-500/20 text-amber-800 dark:text-amber-300">
-                Файл exe загружается на этот сервер и раздаётся сотрудникам с него же.
-                Все, кто сейчас онлайн, получат оповещение мгновенно; остальные — при следующей проверке.
+                Файл уйдёт на сервер <span className="font-mono font-bold">{base || 'этой машины'}</span>
+                {onOwnServer
+                  ? ' — это встроенный сервер вашего компьютера. Сотрудники, работающие с сервером компании, этот файл не увидят: сначала укажите адрес сервера компании на экране входа.'
+                  : ' — сервер компании. Оттуда его и скачают сотрудники.'}
+                {' '}Все, кто сейчас в программе, получат оповещение мгновенно; остальные — при следующей проверке.
               </div>
 
               <div className="space-y-1">
