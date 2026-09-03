@@ -4181,9 +4181,9 @@ export default function Registry() {
                   <div>
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-                      👈 LEFT SIDE: Tag Filtering Zone
+                      Отбор по сегментам тега
                     </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Фильтрация по сегментам тега KKS (только латиница и цифры).</p>
+                    <p className="text-xs text-slate-500 mt-0.5">По частям кода тега: только латиница и цифры.</p>
                   </div>
                   <button type="button"
                     onClick={() => setAddedTagSegmentsCount(prev => prev + 1)}
@@ -4256,7 +4256,7 @@ export default function Registry() {
                         <div>
                           <div className="flex items-center justify-between border-b border-slate-200/40 dark:border-slate-800/45 pb-1 mb-2">
                             <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 uppercase tracking-wider">
-                              Segment KKS {idx + 1}
+                              Сегмент тега {idx + 1}
                             </span>
                             {idx >= getMaximumTagSegmentLength() && (
                               <button type="button"
@@ -4384,7 +4384,7 @@ export default function Registry() {
                         <div className="space-y-1 border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
                           <div className="space-y-1">
                             <span className="block text-xs font-semibold text-slate-450 dark:text-slate-500 uppercase tracking-wider">
-                              Связать со справочником KKS:
+                              Справочник значений:
                             </span>
                             <CustomSelect
                               value={boundDictId}
@@ -4462,9 +4462,9 @@ export default function Registry() {
                   <div>
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
-                      👉 RIGHT SIDE: Mark Filtering Zone
+                      Отбор по сегментам марки
                     </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Фильтрация физического состава марки (поддержка любых языков).</p>
+                    <p className="text-xs text-slate-500 mt-0.5">По частям марки оборудования: любой язык.</p>
                   </div>
                   <button type="button"
                     onClick={() => setAddedMarkSegmentsCount(prev => prev + 1)}
@@ -4537,7 +4537,7 @@ export default function Registry() {
                         <div>
                           <div className="flex items-center justify-between border-b border-slate-200/40 dark:border-slate-800/45 pb-1 mb-2">
                             <span className="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1 uppercase tracking-wider">
-                              Segment Mark {idx + 1}
+                              Сегмент марки {idx + 1}
                             </span>
                             {idx >= getMaximumMarkSegmentLength() && (
                               <button type="button"
@@ -4665,7 +4665,7 @@ export default function Registry() {
                         <div className="space-y-1 border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
                           <div className="space-y-1">
                             <span className="block text-xs font-semibold text-slate-455 dark:text-slate-500 uppercase tracking-wider">
-                              Связать со справочником Mark:
+                              Справочник значений:
                             </span>
                             <CustomSelect
                               value={boundDictId}
@@ -4818,7 +4818,7 @@ export default function Registry() {
                     onChange={(e) => setExportColumns(p => ({ ...p, parts: e.target.checked }))}
                     className="rounded border-slate-300 text-emerald-600"
                   />
-                  <span>Сегменты отдельно (Segment breakdown)</span>
+                  <span>Сегменты отдельными колонками</span>
                 </label>
                 <label className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-100 dark:border-slate-800 cursor-pointer">
                   <input
@@ -4892,20 +4892,13 @@ export default function Registry() {
                 <table className="w-full text-sm text-left border-collapse">
                   <thead className="sticky top-0 bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-b border-slate-250 dark:border-slate-850 text-xs font-semibold uppercase tracking-wider z-10 shadow-xs">
                     <tr>
-                      <th className="flux-cell">Tag Segments (Тег KKS)</th>
-                      <th className="flux-cell">Mark Segments (Характеристики)</th>
-                      <th className="flux-cell">Наименование тега (Name)</th>
-                      <th className="flux-cell flex items-center justify-between col-span-1">
-                        <span>Статус / Актуальность (Status)</span>
-                        <button
-                          type="button"
-                          onClick={() => void openAlert('Пока недоступно', 'Эта возможность ещё не готова.')}
-                          className="p-1 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-905 hover:scale-105 transition-ui cursor-pointer font-bold shrink-0 shadow-xs flex items-center justify-center w-5 h-5 ml-2"
-                          title="Добавить колонку (Spreadsheet Extension)"
-                        >
-                          +
-                        </button>
-                      </th>
+                      <th className="flux-cell">Сегменты тега</th>
+                      <th className="flux-cell">Сегменты марки</th>
+                      <th className="flux-cell">Наименование тега</th>
+                      {/* Кнопка «добавить колонку» отсюда убрана: она только
+                          сообщала, что возможность не готова. Кнопка, которая
+                          ничего не делает, хуже отсутствующей — она обещает */}
+                      <th className="flux-cell">Статус / Актуальность</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-850">
@@ -5084,7 +5077,8 @@ export default function Registry() {
                           </th>
                         </>
                       )}
-                      <th className="flux-cell font-bold">Распознанные комментарии КИПиА</th>
+                      <th className="flux-cell font-bold">Актуальность</th>
+                      <th className="flux-cell font-bold">Комментарии</th>
                       <th className="flux-cell cursor-pointer hover:bg-slate-105 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('createdAt')}>
                         Регистрация {sortConfig.key === 'createdAt' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                       </th>
@@ -5094,7 +5088,7 @@ export default function Registry() {
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-850">
                     {tableVirtualizer.getVirtualItems().length > 0 && (
                       <tr style={{ height: `${tableVirtualizer.getVirtualItems()[0].start}px`, border: 'none' }}>
-                        <td colSpan={showOptionalTableColumns ? 7 : 5} style={{ padding: 0, border: 'none' }} />
+                        <td colSpan={showOptionalTableColumns ? 8 : 6} style={{ padding: 0, border: 'none' }} />
                       </tr>
                     )}
                     {tableVirtualizer.getVirtualItems().map((virtualRow) => {
@@ -5167,6 +5161,19 @@ export default function Registry() {
                               </td>
                             </>
                           )}
+                          {/* Актуальность тега — отдельной колонкой: за ней и
+                              приходят в спецификацию, а раньше её приходилось
+                              выискивать среди комментариев */}
+                          <td className="flux-cell">
+                            {(() => {
+                              const look = statusConfig[getTagOverallStatus(t)] || statusConfig.draft;
+                              return (
+                                <span className={`inline-block px-1.5 py-0.5 rounded text-2xs font-semibold border ${look.bg} ${look.text} ${look.border}`}>
+                                  {look.label}
+                                </span>
+                              );
+                            })()}
+                          </td>
                           <td className="flux-cell">
                             {meta.descriptions.length > 0 ? (
                               <div className="space-y-1">
@@ -5230,13 +5237,13 @@ export default function Registry() {
                     })}
                     {tableVirtualizer.getVirtualItems().length > 0 && (
                       <tr style={{ height: `${tableVirtualizer.getTotalSize() - tableVirtualizer.getVirtualItems()[tableVirtualizer.getVirtualItems().length - 1].end}px`, border: 'none' }}>
-                        <td colSpan={showOptionalTableColumns ? 7 : 5} style={{ padding: 0, border: 'none' }} />
+                        <td colSpan={showOptionalTableColumns ? 8 : 6} style={{ padding: 0, border: 'none' }} />
                       </tr>
                     )}
 
                     {tags.length === 0 && (
                       <tr>
-                        <td colSpan={showOptionalTableColumns ? 7 : 5} className="text-center py-20 text-slate-400">
+                        <td colSpan={showOptionalTableColumns ? 8 : 6} className="text-center py-20 text-slate-400">
                           В данном проекте отсутствуют теги. Создайте первый тег выше!
                         </td>
                       </tr>

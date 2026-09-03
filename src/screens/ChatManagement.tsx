@@ -1536,8 +1536,8 @@ export default function ChatManagement() {
                       <p className="font-mono font-bold text-slate-700 dark:text-slate-300 truncate">{activePeer.symbol}</p>
                     </div>
                     <div className="bg-white dark:bg-slate-950/50 p-2 rounded-lg border border-slate-150 dark:border-slate-850">
-                      <p className="text-slate-400 text-xs leading-tight mb-0.5">Окружение</p>
-                      <p className="font-bold text-emerald-700 dark:text-emerald-400 leading-none mt-1 truncate">Flux LOCAL</p>
+                      <p className="text-slate-400 text-xs leading-tight mb-0.5">Переписка</p>
+                      <p className="font-bold text-emerald-700 dark:text-emerald-400 leading-none mt-1 truncate">Личная</p>
                     </div>
                   </div>
                 </div>
@@ -1559,8 +1559,8 @@ export default function ChatManagement() {
                       <p className="font-mono font-bold text-slate-700 dark:text-slate-300 truncate">Все сотрудники</p>
                     </div>
                     <div className="bg-white dark:bg-slate-950/50 p-2 rounded-lg border border-slate-150 dark:border-slate-850">
-                      <p className="text-slate-400 text-xs leading-tight mb-0.5">Тип канала</p>
-                      <p className="font-bold text-emerald-700 dark:text-emerald-400 leading-none mt-1 truncate">Auto ROOM</p>
+                      <p className="text-slate-400 text-xs leading-tight mb-0.5">Переписка</p>
+                      <p className="font-bold text-emerald-700 dark:text-emerald-400 leading-none mt-1 truncate">Групповая</p>
                     </div>
                   </div>
                 </div>
