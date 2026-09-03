@@ -11,17 +11,24 @@
  * ничего не уезжает за край, а то, что не поместилось, честно объявляется
  * (см. overflow в layout) — вместо того чтобы молча исчезнуть.
  */
+import { DESK } from './metrics';
 
 /**
  * Что лежит на столе. Программы — не файлы, см. пояснение в desktopStore;
  * «bin» — корзина, тоже системный значок и тоже не файл.
  */
-export type DeskKind = 'app' | 'bin' | 'folder' | 'doc' | 'text' | 'note' | 'file';
+export type DeskKind = 'app' | 'bin' | 'group' | 'folder' | 'doc' | 'text' | 'note' | 'file';
 
-/** Значки, которых нет в Проводнике: они системные, а не документы проекта */
-export const isSystemKind = (kind: DeskKind): boolean => kind === 'app' || kind === 'bin';
+/**
+ * Значки, которых нет в Проводнике: они системные, а не документы проекта.
+ * Папка-виджет тоже системная: это способ разложить стол, а не место хранения.
+ */
+export const isSystemKind = (kind: DeskKind): boolean =>
+  kind === 'app' || kind === 'bin' || kind === 'group';
 
 export interface DeskItem {
+  /** Что лежит в папке-виджете: идентификаторы значков */
+  members?: string[];
   /** Для программ — «app:/registry», для остального — идентификатор из базы */
   id: string;
   kind: DeskKind;
@@ -52,36 +59,44 @@ export interface Cell { col: number; row: number }
 export interface DeskArea { w: number; h: number }
 
 /**
- * Клетка 96×100: значок 40 и две строки подписи. Меньше — подпись обрывается на
- * первом же «Ведомость оборудования», больше — на ноутбуке помещается три
- * столбца вместо пяти.
+ * Клетка и значок — общая мера оболочки (src/lib/metrics.ts), а не число,
+ * придуманное здесь: значок на столе обязан быть того же роста, что значок на
+ * панели задач и в Пуске.
+ *
+ * Размер выбирает человек — крупные, обычные, мелкие, как «Вид» в системе.
+ * Поэтому всё, что считает клетки, принимает размер параметром; без него берётся
+ * обычный. Так старые вызовы (и проверки) остаются верными, а стол умеет
+ * перестраиваться, не заводя второй сетки.
  */
-export const CELL_W = 96;
-export const CELL_H = 100;
+export const CELL_W = DESK.normal.w;
+export const CELL_H = DESK.normal.h;
 /** Отступ от краёв стола: значок у самой кромки трудно поддеть мышью */
 export const PAD = 10;
 
+export type CellSize = { w: number; h: number };
+const SIZE: CellSize = { w: CELL_W, h: CELL_H };
+
 export interface GridSize { cols: number; rows: number }
 
-export function gridSize(area: DeskArea): GridSize {
+export function gridSize(area: DeskArea, size: CellSize = SIZE): GridSize {
   return {
-    cols: Math.max(1, Math.floor((area.w - PAD * 2) / CELL_W)),
-    rows: Math.max(1, Math.floor((area.h - PAD * 2) / CELL_H)),
+    cols: Math.max(1, Math.floor((area.w - PAD * 2) / size.w)),
+    rows: Math.max(1, Math.floor((area.h - PAD * 2) / size.h)),
   };
 }
 
 export const cellKey = (c: Cell): string => `${c.col}:${c.row}`;
 
-export const cellToXY = (c: Cell): { x: number; y: number } => ({
-  x: PAD + c.col * CELL_W,
-  y: PAD + c.row * CELL_H,
+export const cellToXY = (c: Cell, size: CellSize = SIZE): { x: number; y: number } => ({
+  x: PAD + c.col * size.w,
+  y: PAD + c.row * size.h,
 });
 
 /** Куда попал курсор при перетаскивании. За края не выпускаем */
-export function xyToCell(x: number, y: number, area: DeskArea): Cell {
-  const { cols, rows } = gridSize(area);
-  const col = Math.round((x - PAD) / CELL_W);
-  const row = Math.round((y - PAD) / CELL_H);
+export function xyToCell(x: number, y: number, area: DeskArea, size: CellSize = SIZE): Cell {
+  const { cols, rows } = gridSize(area, size);
+  const col = Math.round((x - PAD) / size.w);
+  const row = Math.round((y - PAD) / size.h);
   return {
     col: Math.min(cols - 1, Math.max(0, col)),
     row: Math.min(rows - 1, Math.max(0, row)),
@@ -136,7 +151,7 @@ export const STATUS_RANK: Record<string, number> = { D: 0, C: 1, B: 2, A: 3 };
 
 /** Программы всегда впереди файлов: они системные и с места не уходят */
 const KIND_ORDER: Record<DeskKind, number> = {
-  app: 0, bin: 1, folder: 2, doc: 3, text: 4, note: 5, file: 6,
+  app: 0, bin: 1, group: 2, folder: 3, doc: 4, text: 5, note: 6, file: 7,
 };
 
 const byName = (a: DeskItem, b: DeskItem) => a.name.localeCompare(b.name, 'ru');
@@ -189,8 +204,10 @@ export interface DeskLayout {
  * мониторе). Тогда значок не пропадает и не ложится поверх соседа, а получает
  * ближайшую свободную клетку.
  */
-export function layout(items: DeskItem[], saved: Record<string, Cell>, area: DeskArea): DeskLayout {
-  const size = gridSize(area);
+export function layout(
+  items: DeskItem[], saved: Record<string, Cell>, area: DeskArea, cell: CellSize = SIZE,
+): DeskLayout {
+  const size = gridSize(area, cell);
   const cells = new Map<string, Cell>();
   const taken = new Set<string>();
   const pending: DeskItem[] = [];
@@ -217,8 +234,10 @@ export function layout(items: DeskItem[], saved: Record<string, Cell>, area: Des
 }
 
 /** «Упорядочить значки»: разложить всё заново по порядку, забыв прежние места */
-export function arrange(items: DeskItem[], by: SortBy, area: DeskArea): Record<string, Cell> {
-  const size = gridSize(area);
+export function arrange(
+  items: DeskItem[], by: SortBy, area: DeskArea, cell: CellSize = SIZE,
+): Record<string, Cell> {
+  const size = gridSize(area, cell);
   const out: Record<string, Cell> = {};
   let i = 0;
   for (const item of sortItems(items, by)) {

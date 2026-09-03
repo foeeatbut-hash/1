@@ -16,6 +16,7 @@ import { buildIndex, type TermIndex } from '../translate/glossary';
 import { buildTm, EMPTY_TM, type TmIndex } from '../translate/tm';
 import { translateSegment, translateText } from '../translate/engine';
 import { checkEndpoint, askModel } from '../translate/model';
+import { loadPack, type PackInfo } from '../translate/pack';
 
 export interface TermRow extends TermPair {
   id: string;
@@ -43,6 +44,19 @@ export interface ModelSettings {
 }
 
 const MODEL_KEY = 'flux_translate_model';
+const PACK_KEY = 'flux_translate_pack';
+
+/**
+ * Состояние словарного пакета. «Нет файла» — не ошибка: сборка может идти без
+ * него, и программа тогда работает своим словарём.
+ */
+export type PackState = 'idle' | 'loading' | 'ready' | 'off' | 'none';
+
+const loadPackOn = (): boolean => {
+  try {
+    return typeof localStorage === 'undefined' ? true : localStorage.getItem(PACK_KEY) !== '0';
+  } catch (_) { return true; }
+};
 
 const loadModel = (): ModelSettings => {
   try {
@@ -65,6 +79,13 @@ interface TranslateState {
   /** Собранные индексы по направлениям: 'ru>en' и т.д. */
   termIndex: Record<string, TermIndex>;
   tmIndex: Record<string, TmIndex>;
+
+  /** Словарный пакет из открытых источников — младший в старшинстве */
+  packOn: boolean;
+  packState: PackState;
+  packInfo: Pick<PackInfo, 'fromDict' | 'fromWiki'> | null;
+  packIndex: Record<string, TermIndex>;
+  setPackOn: (on: boolean) => void;
 
   /**
    * Текст, переданный Переводчику со стороны: из строки Ctrl+K или из
@@ -105,6 +126,29 @@ function buildAll(terms: TermRow[], memory: MemoryRow[]) {
   return { termIndex, tmIndex };
 }
 
+/**
+ * Прочитать пакет и собрать по нему индексы.
+ *
+ * Индексы строятся сразу после чтения, а не при первом переводе: семьдесят
+ * тысяч пар собираются полсекунды, и эти полсекунды не должны прийтись на
+ * нажатие «Перевести». Здесь они попадают в паузу после запуска.
+ */
+async function pullPack(set: any, get: () => TranslateState): Promise<void> {
+  if (get().packState === 'loading' || get().packState === 'ready') return;
+  set({ packState: 'loading' });
+  const info = await loadPack();
+  if (!info) { set({ packState: 'none', packInfo: null, packIndex: {} }); return; }
+  const packIndex: Record<string, TermIndex> = {};
+  for (const [from, to] of [['ru', 'en'], ['en', 'ru']] as [Lang, Lang][]) {
+    packIndex[dirKey(from, to)] = buildIndex(info.pairs, from, to);
+  }
+  set({
+    packState: 'ready',
+    packInfo: { fromDict: info.fromDict, fromWiki: info.fromWiki },
+    packIndex,
+  });
+}
+
 export const useTranslateStore = create<TranslateState>((set, get) => ({
   ready: false,
   loading: false,
@@ -114,7 +158,17 @@ export const useTranslateStore = create<TranslateState>((set, get) => ({
   model: loadModel(),
   termIndex: {},
   tmIndex: {},
+  packOn: loadPackOn(),
+  packState: 'idle',
+  packInfo: null,
+  packIndex: {},
   pending: '',
+
+  setPackOn: (on) => {
+    try { localStorage.setItem(PACK_KEY, on ? '1' : '0'); } catch (_) { /* приватный режим */ }
+    set({ packOn: on, packState: on ? 'idle' : 'off' });
+    if (on) void pullPack(set, get);
+  },
 
   setPending: (text) => set({ pending: String(text || '') }),
 
@@ -150,6 +204,9 @@ export const useTranslateStore = create<TranslateState>((set, get) => ({
     } catch (_) {
       set({ loading: false, ready: true });
     }
+    // Пакет читаем после словаря проекта: он младше и ждать себя не заставляет
+    if (get().packOn) void pullPack(set, get);
+    else set({ packState: 'off' });
   },
 
   setModel: (m) => {
@@ -162,7 +219,7 @@ export const useTranslateStore = create<TranslateState>((set, get) => ({
     const st = get();
     const key = dirKey(from, to);
     return translateSegment(text, {
-      from, to, terms: st.termIndex[key], tm: st.tmIndex[key] || EMPTY_TM,
+      from, to, terms: st.termIndex[key], tm: st.tmIndex[key] || EMPTY_TM, pack: st.packIndex[key],
     });
   },
 
@@ -170,7 +227,7 @@ export const useTranslateStore = create<TranslateState>((set, get) => ({
     const st = get();
     const key = dirKey(from, to);
     return translateText(text, {
-      from, to, terms: st.termIndex[key], tm: st.tmIndex[key] || EMPTY_TM,
+      from, to, terms: st.termIndex[key], tm: st.tmIndex[key] || EMPTY_TM, pack: st.packIndex[key],
     });
   },
 

@@ -4,7 +4,7 @@ import { formatName } from '../lib/docFormula';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 const SignatureEditor = React.lazy(() => import('./SignatureEditor'));
-import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen, PenLine, Mail, LifeBuoy, Languages } from 'lucide-react';
+import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, ChevronDown, ChevronRight, ChevronLeft, Menu, Tag, Sun, Moon, Users, ClipboardList, Layers, MessageSquare, ChevronUp, X, User, Loader2, Check, Terminal, MessagesSquare, NotebookPen, FolderKanban, FolderOpen, Fan, BookOpen, Briefcase, Table2, PanelLeftClose, PanelLeftOpen, PenLine, Mail, LifeBuoy, Languages, Globe, CalendarDays } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ToastProvider from './ToastProvider';
 import ModalProvider from './ModalProvider';
@@ -19,6 +19,12 @@ import ShareLayer from './ShareLayer';
 import CommandBar from './CommandBar';
 import { useReminderStore, onReminder } from '../store/reminderStore';
 import { useShellNotifyStore, toastOf } from '../store/shellNotifyStore';
+import { shouldNotifySystem, notifyText, badgeCount } from '../lib/systemNotify';
+import { OPEN_URL_EVENT } from '../lib/openLink';
+import { useBrowserStore } from '../store/browserStore';
+import { useCalendarStore } from '../store/calendarStore';
+import { occurrences, isDue, untilLabel, MINUTE, HOUR } from '../lib/calendar';
+import { isQuiet } from '../lib/notifCenter';
 import { useWindowStore } from '../store/windowStore';
 import { onFreshNotifications } from '../store/notificationStore';
 import { shouldPopup, shouldSound, playNotifSound } from '../lib/notifPrefs';
@@ -29,15 +35,51 @@ import { useNotificationStore } from '../store/notificationStore';
 import Workspace from './Workspace';
 import Taskbar from './Taskbar';
 import WindowsLayer from './WindowsLayer';
+import { BAR_H } from '../lib/metrics';
 import ProjectSwitcher from './ProjectSwitcher';
 import ContextMenu, { MenuItem } from './ContextMenu';
-import { useWorkspaceStore, visiblePanes, openSectionWindow } from '../store/workspaceStore';
+import { useWorkspaceStore, visiblePanes, openSectionWindow, rememberSectionUse } from '../store/workspaceStore';
 import { useTranslateStore } from '../store/translateStore';
 import QuickTranslate from './translate/QuickTranslate';
 import { useModalStore } from '../store/modalStore';
 
 // Диалоги программы вместо системных окон Windows
 const { openAlert } = useModalStore.getState();
+
+/**
+ * Состояние окна: свёрнуто ли и в фокусе ли оно. В браузере окна нет —
+ * считаем, что человек смотрит сюда, и наружу ничего не шлём.
+ */
+async function windowState(): Promise<{ minimized: boolean; focused: boolean }> {
+  const api = (window as any).electron?.notify;
+  if (!api?.windowState) return { minimized: false, focused: true };
+  try {
+    const s = await api.windowState();
+    return { minimized: !!s?.minimized, focused: !!s?.focused };
+  } catch (_) { return { minimized: false, focused: true }; }
+}
+
+/**
+ * Уведомление на рабочий стол Windows. Решение «показывать ли» принимает
+ * чистое правило (lib/systemNotify), а не это место: тихий режим, настройки
+ * категории и состояние окна должны считаться в одном месте и проверяться.
+ */
+async function notifySystem(
+  n: { title?: string; body?: string; targetRoute?: string; category?: string },
+  win: { minimized: boolean; focused: boolean },
+): Promise<void> {
+  const api = (window as any).electron?.notify;
+  const ok = shouldNotifySystem({
+    minimized: win.minimized,
+    focused: win.focused,
+    quiet: isQuiet(useShellNotifyStore.getState().quiet),
+    allowed: shouldPopup(n.category),
+    desktop: !!api?.system,
+  });
+  if (!ok) return;
+  const text = notifyText(n.title || 'Flux', n.body || '');
+  try { await api.system({ ...text, route: n.targetRoute || '' }); } catch (_) { /* система отказала */ }
+}
 
 export default function Layout() {
   const { user, setUser, activeProject, theme, toggleTheme, syncStatus, sidebarCompact, toggleSidebarCompact, shell } = useStore();
@@ -61,6 +103,15 @@ export default function Layout() {
    */
   React.useEffect(() => {
     if (activeProject?.id) useTranslateStore.getState().load(activeProject.id);
+  }, [activeProject?.id]);
+
+  /**
+   * Календарь читается оболочкой, а не только своим разделом: напоминания
+   * должны приходить, пока человек работает в ведомости, — то есть тогда,
+   * когда календарь закрыт. Раздел, открывшись, перечитает его сам.
+   */
+  React.useEffect(() => {
+    void useCalendarStore.getState().load(activeProject?.id || '');
   }, [activeProject?.id]);
 
   /**
@@ -163,15 +214,32 @@ export default function Layout() {
    * настройках: тихий режим обязан молчать, иначе он ничего не значит.
    */
   React.useEffect(() => {
-    onFreshNotifications((list) => {
+    onFreshNotifications(async (list) => {
       const push = useShellNotifyStore.getState().push;
+      // Состояние окна спрашиваем один раз на пачку: между двумя уведомлениями
+      // одной пачки человек к окну не вернётся
+      const win = await windowState();
       for (const n of list) {
         if (!shouldPopup(n.category)) continue;
         push(toastOf(n));
         if (shouldSound(n.category)) { try { playNotifSound(n.category); } catch (_) { /* без звука */ } }
+        // …и на рабочий стол Windows, если человек смотрит не сюда
+        void notifySystem(n, win);
       }
     });
   }, []);
+
+  /**
+   * Нажатие по уведомлению Windows возвращает окно и открывает то самое место.
+   * Уведомление, после которого приходится вспоминать, о чём оно было, только
+   * отнимает время.
+   */
+  React.useEffect(() => {
+    const api = (window as any).electron?.notify;
+    if (!api?.onOpen) return;
+    return api.onOpen((route: string) => { if (route) navigate(route); });
+  }, [navigate]);
+
 
   /**
    * Отложенное возвращается само. Раз в минуту: отложить можно на четверть
@@ -207,11 +275,80 @@ export default function Layout() {
    * подниматься над панелью, иначе она их накрывает.
    */
   React.useEffect(() => {
-    document.documentElement.style.setProperty('--flux-taskbar-h', shell === 'menu' ? '0px' : '52px');
+    document.documentElement.style.setProperty('--flux-taskbar-h', shell === 'menu' ? '0px' : `${BAR_H}px`);
   }, [shell]);
   // На Главной (/) в режиме одного окна левой панели нет; иначе она закреплена
   const sidebarHidden = shell !== 'menu' || (wsLayout === 'single' && wsActivePath === '/');
   const chatUnread = useNotificationStore((s) => s.chatUnread);
+  const notifUnread = useNotificationStore((s) => s.unread);
+
+  /**
+   * Напоминания календаря.
+   *
+   * Часы заводятся здесь, а не в самом календаре: раздел закрыт почти всегда, и
+   * напоминание из него не пришло бы никогда. Раз в полминуты — чаще незачем,
+   * самый короткий срок напоминания пять минут.
+   *
+   * Одно напоминание звонит один раз: ключ помнит и событие, и его появление,
+   * иначе еженедельная планёрка звонила бы каждые тридцать секунд.
+   */
+  React.useEffect(() => {
+    const tick = async () => {
+      const cal = useCalendarStore.getState();
+      const now = Date.now();
+      const list = occurrences(cal.visible(), now - 10 * MINUTE, now + 2 * HOUR);
+      const win = await windowState();
+      for (const o of list) {
+        const remind = o.event.remindMin;
+        if (!isDue(o.startsAt, remind, now)) continue;
+        const key = `${o.event.id}@${o.startsAt}`;
+        if (cal.fired.includes(key)) continue;
+        cal.markFired(key);
+        useShellNotifyStore.getState().push({
+          id: key,
+          title: o.event.title,
+          body: `${untilLabel(o.startsAt, now)}${o.event.guests.length ? ` · ${o.event.guests.length} чел.` : ''}`,
+          route: '/calendar',
+          source: 'reminder',
+          category: 'СИСТЕМА',
+          action: o.event.joinUrl ? { label: 'Подключиться', url: o.event.joinUrl } : undefined,
+        });
+        // …и на рабочий стол Windows, если человек смотрит не сюда: встреча
+        // через пять минут — ровно тот случай, ради которого это и делалось
+        void notifySystem(
+          { title: o.event.title, body: untilLabel(o.startsAt, now), targetRoute: '/calendar', category: 'СИСТЕМА' },
+          win,
+        );
+      }
+    };
+    void tick();
+    const t = setInterval(() => void tick(), 30_000);
+    return () => clearInterval(t);
+  }, []);
+
+  /**
+   * Ссылка откуда угодно открывается вкладкой браузера, а не выбрасывает
+   * человека в Windows: вернуться оттуда можно только через панель задач,
+   * потеряв место.
+   */
+  React.useEffect(() => {
+    const onOpen = (e: Event) => {
+      const url = String((e as CustomEvent).detail || '');
+      if (!url) return;
+      useBrowserStore.getState().setPending(url);
+      rememberSectionUse('/browser');
+      navigate('/browser');
+    };
+    window.addEventListener(OPEN_URL_EVENT, onOpen as EventListener);
+    return () => window.removeEventListener(OPEN_URL_EVENT, onOpen as EventListener);
+  }, [navigate]);
+
+  /** Число на значке программы в панели Windows — то же, что в трее Flux */
+  React.useEffect(() => {
+    const api = (window as any).electron?.notify;
+    if (!api?.badge) return;
+    api.badge(badgeCount(notifUnread)).catch(() => {});
+  }, [notifUnread]);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   // Окно своей подписи: открывается из профиля
   const [signOpen, setSignOpen] = useState(false);
@@ -532,6 +669,8 @@ export default function Layout() {
       { name: 'Блокнот', path: '/notes', icon: NotebookPen },
       { name: 'Чат', path: '/chat', icon: MessagesSquare },
       { name: 'Почта', path: '/mail', icon: Mail },
+      { name: 'Браузер', path: '/browser', icon: Globe },
+      { name: 'Календарь', path: '/calendar', icon: CalendarDays },
       ...(user && user.role === 'ADMIN' ? [{ name: 'Сотрудники', path: '/users', icon: Users }] : []),
       { name: 'Руководство', path: '/handbook', icon: LifeBuoy },
     ] },

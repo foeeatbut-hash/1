@@ -17,11 +17,14 @@ contextBridge.exposeInMainWorld('electron', {
   
   // Автообновления: проверка и публикация идут через HTTP API сервера
   // (см. UpdaterWidget); главный процесс скачивает exe и подменяет приложение
-  startDownload: (data: { url: string; version: string; token?: string }) =>
+  startDownload: (data: { url: string; version: string; token?: string; server?: string }) =>
     ipcRenderer.invoke('updater:start-download', data),
   quitAndInstall: () => ipcRenderer.invoke('updater:quitAndInstall'),
   getAppVersion: () => ipcRenderer.invoke('updater:version'),
   isPackaged: () => ipcRenderer.invoke('updater:is-packaged'),
+  // Портативный ли это файл: от этого зависит, что обещать человеку про
+  // подмену программы на месте
+  isPortable: () => ipcRenderer.invoke('updater:is-portable'),
 
   // Listener registrations
   onUpdaterStatus: (callback: (state: string, data?: any) => void) => {
@@ -62,6 +65,68 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.on('capture:ready', subscription);
       return () => ipcRenderer.removeListener('capture:ready', subscription);
     },
+  },
+
+  // Браузер внутри программы: страницы живут отдельными процессами, окно
+  // рисует React, а границы страницы приезжают отсюда числами
+  browser: {
+    newTab: (url: string) => ipcRenderer.invoke('browser:new-tab', url),
+    show: (id: string) => ipcRenderer.invoke('browser:show', id),
+    hide: () => ipcRenderer.invoke('browser:hide'),
+    closeTab: (id: string) => ipcRenderer.invoke('browser:close-tab', id),
+    setBounds: (b: { x: number; y: number; width: number; height: number }) =>
+      ipcRenderer.invoke('browser:bounds', b),
+    go: (id: string, url: string) => ipcRenderer.invoke('browser:go', { id, url }),
+    action: (id: string, action: string) => ipcRenderer.invoke('browser:action', { id, action }),
+    state: (id: string) => ipcRenderer.invoke('browser:state', id),
+    selection: (id: string) => ipcRenderer.invoke('browser:selection', id),
+    onState: (callback: (s: any) => void) => {
+      const sub = (_e: any, s: any) => callback(s);
+      ipcRenderer.on('browser:state', sub);
+      return () => ipcRenderer.removeListener('browser:state', sub);
+    },
+    onOpened: (callback: (p: { id: string; url: string }) => void) => {
+      const sub = (_e: any, p: any) => callback(p);
+      ipcRenderer.on('browser:opened', sub);
+      return () => ipcRenderer.removeListener('browser:opened', sub);
+    },
+    onFailed: (callback: (p: { id: string; code: number; desc: string; url: string }) => void) => {
+      const sub = (_e: any, p: any) => callback(p);
+      ipcRenderer.on('browser:failed', sub);
+      return () => ipcRenderer.removeListener('browser:failed', sub);
+    },
+    onDownload: (callback: (p: { name: string; size: number }) => void) => {
+      const sub = (_e: any, p: any) => callback(p);
+      ipcRenderer.on('browser:download', sub);
+      return () => ipcRenderer.removeListener('browser:download', sub);
+    },
+  },
+
+  // Уведомления системы: показываются, когда окно свёрнуто или не в фокусе
+  notify: {
+    system: (payload: { title: string; body: string; route?: string }) =>
+      ipcRenderer.invoke('notify:system', payload),
+    badge: (count: number) => ipcRenderer.invoke('notify:badge', count),
+    windowState: () => ipcRenderer.invoke('notify:window-state'),
+    onOpen: (callback: (route: string) => void) => {
+      const subscription = (_event: any, route: string) => callback(route);
+      ipcRenderer.on('notify:open', subscription);
+      return () => ipcRenderer.removeListener('notify:open', subscription);
+    },
+  },
+
+  // Журналы: папка на рабочем столе, файл на день
+  logs: {
+    append: (p: { level?: string; where?: string; text?: string }) => ipcRenderer.invoke('logs:append', p),
+    today: () => ipcRenderer.invoke('logs:today'),
+    folder: () => ipcRenderer.invoke('logs:folder'),
+    openFolder: () => ipcRenderer.invoke('logs:open-folder'),
+  },
+
+  // Автозапуск вместе с Windows: состояние читаем у системы, а не помним своё
+  startup: {
+    get: () => ipcRenderer.invoke('startup:get'),
+    set: (opts: { enabled: boolean; minimized?: boolean }) => ipcRenderer.invoke('startup:set', opts),
   },
 
   // Управление окном (кастомный заголовок)

@@ -123,6 +123,8 @@ export default function GeneralSection({ theme, toggleTheme, density, setDensity
           </div>
         </div>
 
+        <StartupSection />
+
         <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
           <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">О программе</div>
           <div className="flex items-center gap-3.5">
@@ -150,3 +152,75 @@ export default function GeneralSection({ theme, toggleTheme, density, setDensity
 // тегам шаблон назначается вручную в разделе «Менеджмент».
 
 // Переиспользуемый редактор списка этапов (для стандартного набора и шаблонов)
+
+/**
+ * Автозапуск вместе с Windows.
+ *
+ * Состояние спрашивается у системы при каждом открытии параметров, а не
+ * помнится своё: автозапуск могли снять снаружи, и галочка, рассказывающая о
+ * своём прошлом решении, хуже отсутствующей.
+ *
+ * В браузере (не в Electron) блока нет вовсе: обещать автозапуск там, где его
+ * не бывает, — это переключатель, который ничего не делает.
+ */
+function StartupSection() {
+  const api = (window as any).electron?.startup;
+  const [state, setState] = React.useState<{ enabled: boolean; minimized: boolean } | null>(null);
+
+  React.useEffect(() => {
+    if (!api) return;
+    let alive = true;
+    api.get().then((s: any) => { if (alive) setState({ enabled: !!s?.enabled, minimized: !!s?.minimized }); })
+      .catch(() => { if (alive) setState({ enabled: false, minimized: false }); });
+    return () => { alive = false; };
+  }, [api]);
+
+  if (!api || !state) return null;
+
+  const apply = async (next: { enabled: boolean; minimized: boolean }) => {
+    setState(next);
+    try {
+      const got = await api.set(next);
+      // Верим системе, а не себе: она могла и отказать
+      setState({ enabled: !!got?.enabled, minimized: !!got?.minimized });
+    } catch (_) { /* система не дала — состояние перечитается при следующем открытии */ }
+  };
+
+  const Row = ({ on, disabled, title, desc, onFlip }: {
+    on: boolean; disabled?: boolean; title: string; desc: string; onFlip: () => void;
+  }) => (
+    <button type="button" onClick={onFlip} role="switch" aria-checked={on} disabled={disabled}
+      className={`w-full flex items-start gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-800
+                  bg-white dark:bg-slate-950 text-left transition-ui
+                  ${disabled ? 'opacity-40 cursor-not-allowed' : 'hover:border-emerald-500 cursor-pointer'}`}>
+      <span className={`mt-0.5 shrink-0 w-9 h-5 rounded-full p-0.5 transition-colors ${on ? 'bg-emerald-600' : 'bg-slate-300 dark:bg-slate-700'}`}>
+        <span className={`block w-4 h-4 rounded-full bg-white transition-transform ${on ? 'translate-x-4' : ''}`} />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100 break-words">{title}</span>
+        <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5 break-words text-pretty">{desc}</span>
+      </span>
+    </button>
+  );
+
+  return (
+    <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
+      <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Запуск</div>
+      <div className="space-y-2">
+        <Row
+          on={state.enabled}
+          title="Запускать Flux при входе в Windows"
+          desc="Программа поднимется сама вместе с системой."
+          onFlip={() => apply({ enabled: !state.enabled, minimized: state.minimized })}
+        />
+        <Row
+          on={state.minimized}
+          disabled={!state.enabled}
+          title="Запускаться свёрнутым"
+          desc="Окно не полезет поверх всего при входе в систему, но уведомления начнут приходить с утра."
+          onFlip={() => apply({ enabled: state.enabled, minimized: !state.minimized })}
+        />
+      </div>
+    </div>
+  );
+}

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { usePresenceStore } from '../store/presenceStore';
 import { ENV_CONFIG, getAuthToken } from '../config/env';
 import { useToastStore } from '../store/toastStore';
 import { useStore } from '../store/store';
@@ -58,8 +59,18 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       reconnectionDelayMax: 4000,
     });
 
-    activeSocket.on('connect', () => setIsConnected(true));
-    activeSocket.on('disconnect', () => setIsConnected(false));
+    activeSocket.on('connect', () => {
+      setIsConnected(true);
+      // Связь вернулась — список «кто в сети» просим заново: пока её не было,
+      // кто-то успел прийти и уйти, а мы этого не слышали
+      activeSocket.emit('presence:list');
+    });
+    activeSocket.on('disconnect', () => {
+      setIsConnected(false);
+      // Без связи мы не знаем ничего о чужом присутствии. Показывать прежний
+      // список — значит уверенно врать: половина этих людей уже ушла
+      usePresenceStore.getState().reset();
+    });
 
     setSocket(activeSocket);
 
@@ -105,6 +116,17 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       addToast(`Опубликовано обновление Flux v${data.version} — откройте Настройки, чтобы установить.`, 'info');
     };
 
+    // Кто в сети: список целиком при подключении, дальше по одному событию
+    const handlePresenceList = (d: { online?: string[]; lastSeen?: Record<string, number> }) =>
+      usePresenceStore.getState().setList(d?.online || [], d?.lastSeen || {});
+    const handlePresenceOn = (d: { userId?: string }) =>
+      usePresenceStore.getState().setOnline(String(d?.userId || ''));
+    const handlePresenceOff = (d: { userId?: string; at?: number }) =>
+      usePresenceStore.getState().setOffline(String(d?.userId || ''), Number(d?.at) || Date.now());
+
+    activeSocket.on('presence:list', handlePresenceList);
+    activeSocket.on('presence:online', handlePresenceOn);
+    activeSocket.on('presence:offline', handlePresenceOff);
     activeSocket.on('tag:linked', handleTagLinked);
     activeSocket.on('tag:updated', handleTagUpdated);
     activeSocket.on('equipment:conflict', handleEquipmentConflict);
@@ -112,6 +134,9 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     activeSocket.on('entity:changed', handleEntityChanged);
 
     return () => {
+      activeSocket.off('presence:list', handlePresenceList);
+      activeSocket.off('presence:online', handlePresenceOn);
+      activeSocket.off('presence:offline', handlePresenceOff);
       activeSocket.off('tag:linked', handleTagLinked);
       activeSocket.off('tag:updated', handleTagUpdated);
       activeSocket.off('equipment:conflict', handleEquipmentConflict);

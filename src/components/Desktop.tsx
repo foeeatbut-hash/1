@@ -21,23 +21,27 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   FolderPlus, Table, Type, StickyNote, Users, Lock, RefreshCw, ArrowDownAZ, Clock, Shapes,
-  Pencil, Trash2, FolderOpen, PinOff, Info, LayoutGrid, List,
+  Pencil, Trash2, FolderOpen, PinOff, Info, LayoutGrid, List, Link2,
 } from 'lucide-react';
 import { useStore } from '../store/store';
 import { useDesktopStore } from '../store/desktopStore';
+import { useInsightStore } from '../store/insightStore';
 import { rememberSectionUse } from '../store/workspaceStore';
 import { useModalStore } from '../store/modalStore';
 import { useToastStore } from '../store/toastStore';
 import {
-  cellToXY, xyToCell, layout, withApps, isSystemKind, BIN_ID, CELL_W, CELL_H,
+  cellToXY, xyToCell, layout, withApps, isSystemKind, BIN_ID,
   type DeskItem, type SortBy,
 } from '../lib/desktop';
+import { deskMetric, DESK_SCALES } from '../lib/metrics';
+import { hiddenIds, groupIdOf, groupById } from '../lib/deskGroups';
 import { deskAction, isTyping } from '../lib/deskKeys';
 import { appsFor, openHref } from '../lib/fileTypes';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import DeskIcon, { titleOf } from './desktop/DeskIcon';
 import DeskList from './desktop/DeskList';
 import DeskProperties from './desktop/DeskProperties';
+import DeskFolder from './desktop/DeskFolder';
 
 /** Корзина — это вид Проводника, поэтому и открывается им */
 const BIN_HREF = '/explorer?folder=trash%3Aroot';
@@ -47,10 +51,14 @@ export default function Desktop() {
   const user = useStore((s) => s.user);
   const navigate = useNavigate();
   const {
-    items, apps, cells, sortBy, selected, error, personalFolderId, trashCount,
-    load, select, setCell, arrangeBy, unpinApp, createFolder, createDoc, rename, remove, share, setStatus,
-    acceptDrop,
+    items, apps, cells, sortBy, scale, selected, error, personalFolderId, trashCount, groups,
+    load, select, setCell, arrangeBy, setScale, unpinApp, createFolder, createDoc, rename, remove, share, setStatus,
+    acceptDrop, foldIcons, unfoldIcon, renameGroup,
   } = useDesktopStore();
+  // Клетка и значок — одного размера у всех, кто их рисует: сетка, значок и
+  // расчёт попадания при переносе
+  const metric = deskMetric(scale);
+  const openWhere = useInsightStore((s) => s.openWhere);
   const openConfirm = useModalStore((s) => s.openConfirm);
   const addToast = useToastStore((s) => s.addToast);
 
@@ -62,6 +70,8 @@ export default function Desktop() {
   const [dragging, setDragging] = React.useState<{ id: string; dx: number; dy: number; x: number; y: number } | null>(null);
   const [props, setProps] = React.useState<string | null>(null);
   const [dropHere, setDropHere] = React.useState(false);
+  /** Раскрытая папка: полотно поверх стола, а не окно */
+  const [folder, setFolder] = React.useState<string | null>(null);
   // Начатый перенос средствами браузера отменяет перенос указателем: иначе
   // значок и уедет по сетке, и переедет в другую папку одним движением
   const nativeDrag = React.useRef(false);
@@ -90,8 +100,25 @@ export default function Desktop() {
     return () => ro.disconnect();
   }, []);
 
-  const all = React.useMemo(() => withApps(items, apps), [items, apps]);
-  const view = React.useMemo(() => layout(all, cells, area), [all, cells, area]);
+  /**
+   * Что лежит на столе с учётом папок: спрятанное в папках со стола убирается,
+   * а сами папки встают значками. Иначе значок был бы виден и там и там —
+   * и человек не понимал бы, где он на самом деле.
+   */
+  const all = React.useMemo(() => {
+    const base = withApps(items, apps);
+    const hidden = hiddenIds(groups);
+    const byId = new Map(base.map((i) => [i.id, i]));
+    const folders: DeskItem[] = groups.map((g) => ({
+      id: groupIdOf(g),
+      kind: 'group' as const,
+      name: g.name,
+      shared: false,
+      members: g.items.filter((i) => byId.has(i)),
+    }));
+    return [...folders, ...base.filter((i) => !hidden.has(i.id))];
+  }, [items, apps, groups]);
+  const view = React.useMemo(() => layout(all, cells, area, metric), [all, cells, area, metric]);
 
   /**
    * Открыть — значит только перейти по адресу. Окно (в оконной оболочке) или
@@ -105,6 +132,7 @@ export default function Desktop() {
   const go = (to: string) => { rememberSectionUse(to.split('?')[0]); navigate(to); };
 
   const openItem = (item: DeskItem) => {
+    if (item.kind === 'group') { setFolder(item.id); return; }
     if (item.kind === 'app' && item.path) return go(item.path);
     if (item.kind === 'bin') return go(BIN_HREF);
     // Папка стола открывается в Проводнике: второго проводника у программы нет,
@@ -131,7 +159,7 @@ export default function Desktop() {
     if (!cell || !box) return;
     e.preventDefault();
     nativeDrag.current = false;
-    const at = cellToXY(cell);
+    const at = cellToXY(cell, metric);
     // Смещение внутри значка запоминаем, иначе значок «прыгает» под курсор
     const dx = e.clientX - box.left - at.x;
     const dy = e.clientY - box.top - at.y;
@@ -153,9 +181,21 @@ export default function Desktop() {
       window.removeEventListener('pointercancel', onCancel);
       setDragging(null);
       if (!moved || cancelled) return;
-      const x = ev.clientX - box.left - dx + CELL_W / 2;
-      const y = ev.clientY - box.top - dy + CELL_H / 2;
-      setCell(item.id, xyToCell(x, y, area), area);
+      const x = ev.clientX - box.left - dx + metric.w / 2;
+      const y = ev.clientY - box.top - dy + metric.h / 2;
+      const cell = xyToCell(x, y, area, metric);
+      // Значок на значок — папка, как в системе на телефоне. Именно этого и
+      // просил владелец; прежняя перестановка местами была нашей выдумкой,
+      // и её никто не звал
+      let occupant: string | null = null;
+      view.cells.forEach((c, id) => {
+        if (id !== item.id && c.col === cell.col && c.row === cell.row) occupant = id;
+      });
+      if (occupant && occupant !== BIN_ID && item.id !== BIN_ID) {
+        foldIcons(item.id, occupant);
+        return;
+      }
+      setCell(item.id, cell, area);
     };
     const onUp = (ev: PointerEvent) => finish(ev, false);
     // Перенос отменили (Esc, системный жест) — значок обязан вернуться, а не
@@ -184,8 +224,8 @@ export default function Desktop() {
       const t = Math.min(y1, y2); const b = Math.max(y1, y2);
       const hit: string[] = [];
       view.cells.forEach((cell, id) => {
-        const p = cellToXY(cell);
-        if (p.x < r && p.x + CELL_W > l && p.y < b && p.y + CELL_H > t) hit.push(id);
+        const p = cellToXY(cell, metric);
+        if (p.x < r && p.x + metric.w > l && p.y < b && p.y + metric.h > t) hit.push(id);
       });
       select(hit);
     };
@@ -253,29 +293,66 @@ export default function Desktop() {
         disabled: item.shared && !canPersonal,
         onClick: () => doShare(item),
       },
+      {
+        // Одна вещь целиком: где встречается тег этого документа, в каких
+        // строках ВДР он выпускается, каким письмом его отправляли. Раньше
+        // это открывалось только из помощника и проверки проекта — то есть
+        // почти никогда
+        label: 'Карточка связей',
+        icon: <Link2 className="w-3.5 h-3.5" />,
+        onClick: () => (item.kind === 'doc' && item.refId
+          ? openWhere('doc', item.refId)
+          : openWhere('file', item.id)),
+      },
       { label: 'Свойства', icon: <Info className="w-3.5 h-3.5" />, onClick: () => setProps(item.id) },
-      { label: 'Убрать со стола', icon: <Trash2 className="w-3.5 h-3.5" />, danger: true, onClick: () => doRemove(item) },
+      { label: 'Убрать со стола', separated: true, icon: <Trash2 className="w-3.5 h-3.5" />, danger: true, onClick: () => doRemove(item) },
     ];
 
-  // Куда кладём новое: на свой стол, если он есть. «Создать общим» — отдельным
-  // пунктом, а не переключателем: положить документ на общий стол случайно
-  // нельзя, это должно быть отдельным осознанным нажатием
+  /**
+   * Меню стола: шесть строк наверху, остальное — в подменю.
+   *
+   * Раньше все двенадцать пунктов стояли одним столбцом, и «Упорядочить по
+   * стадии» приходилось искать глазами среди «Создать заметку» и «Обновить».
+   * Правило верхнего уровня — не длиннее семи строк (см. ContextMenu).
+   *
+   * Куда кладём новое: на свой стол, если он есть. «На общем столе» — отдельным
+   * пунктом, а не переключателем: положить документ всем на виду случайным
+   * нажатием нельзя.
+   */
   const deskMenu: MenuItem[] = [
-    { label: 'Создать таблицу', icon: <Table className="w-3.5 h-3.5" />, onClick: () => create('DOC', canPersonal ? 'PERSONAL' : 'SHARED') },
-    { label: 'Создать документ', icon: <Type className="w-3.5 h-3.5" />, onClick: () => create('TEXT', canPersonal ? 'PERSONAL' : 'SHARED') },
-    { label: 'Создать заметку', icon: <StickyNote className="w-3.5 h-3.5" />, onClick: () => create('NOTE', 'PERSONAL') },
-    { label: 'Создать папку', icon: <FolderPlus className="w-3.5 h-3.5" />, onClick: () => create('folder', canPersonal ? 'PERSONAL' : 'SHARED') },
-    { label: 'Создать таблицу на общем столе', icon: <Users className="w-3.5 h-3.5" />, onClick: () => create('DOC', 'SHARED') },
-    { label: sortBy === 'name' ? 'Упорядочить по имени ✓' : 'Упорядочить по имени', icon: <ArrowDownAZ className="w-3.5 h-3.5" />, onClick: () => arrangeBy('name', area) },
-    { label: sortBy === 'date' ? 'Упорядочить по дате ✓' : 'Упорядочить по дате', icon: <Clock className="w-3.5 h-3.5" />, onClick: () => arrangeBy('date', area) },
-    { label: sortBy === 'kind' ? 'Упорядочить по типу ✓' : 'Упорядочить по типу', icon: <Shapes className="w-3.5 h-3.5" />, onClick: () => arrangeBy('kind', area) },
-    { label: sortBy === 'status' ? 'Упорядочить по стадии ✓' : 'Упорядочить по стадии', icon: <Shapes className="w-3.5 h-3.5" />, onClick: () => arrangeBy('status', area) },
     {
-      label: asList ? 'Показать значками' : 'Показать списком',
-      icon: asList ? <LayoutGrid className="w-3.5 h-3.5" /> : <List className="w-3.5 h-3.5" />,
-      onClick: () => setView(!asList),
+      label: 'Создать',
+      icon: <FolderPlus className="w-3.5 h-3.5" />,
+      items: [
+        { label: 'Папку', icon: <FolderPlus className="w-3.5 h-3.5" />, onClick: () => create('folder', canPersonal ? 'PERSONAL' : 'SHARED') },
+        { label: 'Таблицу', icon: <Table className="w-3.5 h-3.5" />, onClick: () => create('DOC', canPersonal ? 'PERSONAL' : 'SHARED') },
+        { label: 'Текстовый документ', icon: <Type className="w-3.5 h-3.5" />, onClick: () => create('TEXT', canPersonal ? 'PERSONAL' : 'SHARED') },
+        { label: 'Заметку', icon: <StickyNote className="w-3.5 h-3.5" />, onClick: () => create('NOTE', 'PERSONAL') },
+        { label: 'Таблицу на общем столе', separated: true, icon: <Users className="w-3.5 h-3.5" />, onClick: () => create('DOC', 'SHARED') },
+      ],
     },
-    { label: 'Обновить', icon: <RefreshCw className="w-3.5 h-3.5" />, onClick: () => load(projectId) },
+    {
+      label: 'Вид',
+      icon: <LayoutGrid className="w-3.5 h-3.5" />,
+      items: [
+        ...DESK_SCALES.map((s): MenuItem => ({
+          label: s.label, checked: scale === s.id, onClick: () => setScale(s.id),
+        })),
+        { label: 'Значками', separated: true, checked: !asList, icon: <LayoutGrid className="w-3.5 h-3.5" />, onClick: () => setView(false) },
+        { label: 'Списком', checked: asList, icon: <List className="w-3.5 h-3.5" />, onClick: () => setView(true) },
+      ],
+    },
+    {
+      label: 'Сортировка',
+      icon: <ArrowDownAZ className="w-3.5 h-3.5" />,
+      items: [
+        { label: 'По имени', checked: sortBy === 'name', icon: <ArrowDownAZ className="w-3.5 h-3.5" />, onClick: () => arrangeBy('name', area) },
+        { label: 'По дате', checked: sortBy === 'date', icon: <Clock className="w-3.5 h-3.5" />, onClick: () => arrangeBy('date', area) },
+        { label: 'По типу', checked: sortBy === 'kind', icon: <Shapes className="w-3.5 h-3.5" />, onClick: () => arrangeBy('kind', area) },
+        { label: 'По стадии', checked: sortBy === 'status', icon: <Shapes className="w-3.5 h-3.5" />, onClick: () => arrangeBy('status', area) },
+      ],
+    },
+    { label: 'Обновить', separated: true, icon: <RefreshCw className="w-3.5 h-3.5" />, onClick: () => load(projectId) },
     { label: 'Открыть в Проводнике', icon: <FolderOpen className="w-3.5 h-3.5" />, onClick: () => go('/explorer') },
   ];
 
@@ -304,12 +381,26 @@ export default function Desktop() {
     const box = ref.current?.getBoundingClientRect();
     let data: any = null;
     try { data = JSON.parse(e.dataTransfer.getData('text/plain') || 'null'); } catch (_) { data = null; }
+
+    // Программу принесли из Пуска: закрепляем её ровно в той клетке, куда
+    // отпустили. Класть значок «куда-нибудь» нельзя — человек метил в место
+    if (data && data.type === 'app_pin' && typeof data.path === 'string') {
+      const { pinApp, setCell } = useDesktopStore.getState();
+      pinApp(data.path);
+      if (box && !asList) {
+        const cell = xyToCell(e.clientX - box.left + metric.w / 2 - 24, e.clientY - box.top + metric.h / 2 - 24, area, metric);
+        setCell(`app:${data.path}`, cell, area);
+      }
+      addToast('Программа на рабочем столе', 'success');
+      return;
+    }
+
     if (!data || data.type !== 'app_items' || !Array.isArray(data.ids)) return;
 
     // Со стола на стол — это перекладывание значка, а не перенос файла
     if (data.desk) {
       if (!box || asList) return;
-      const cell = xyToCell(e.clientX - box.left + CELL_W / 2 - 24, e.clientY - box.top + CELL_H / 2 - 24, area);
+      const cell = xyToCell(e.clientX - box.left + metric.w / 2 - 24, e.clientY - box.top + metric.h / 2 - 24, area, metric);
       setCell(data.ids[0], cell, area);
       return;
     }
@@ -393,12 +484,13 @@ export default function Desktop() {
       ) : all.map((item) => {
         const cell = view.cells.get(item.id);
         if (!cell) return null;
-        const at = cellToXY(cell);
+        const at = cellToXY(cell, metric);
         const isDragged = dragging?.id === item.id;
         return (
           <DeskIcon
             key={item.id}
             item={item}
+            metric={metric}
             x={isDragged ? dragging.x : at.x}
             y={isDragged ? dragging.y : at.y}
             selected={selected.includes(item.id)}
@@ -463,6 +555,24 @@ export default function Desktop() {
           }}
         />
       )}
+
+      {folder && (() => {
+        const g = groupById(groups, folder);
+        if (!g) return null;
+        const byId = new Map(all.concat(items).map((i) => [i.id, i]));
+        const inside = g.items.map((id) => byId.get(id)).filter(Boolean) as DeskItem[];
+        return (
+          <DeskFolder
+            group={g}
+            items={inside}
+            scale={scale}
+            onOpen={openItem}
+            onOut={(item) => unfoldIcon(g.id, item.id)}
+            onRename={(name) => renameGroup(g.id, name)}
+            onClose={() => setFolder(null)}
+          />
+        );
+      })()}
 
       {menu && (
         <ContextMenu

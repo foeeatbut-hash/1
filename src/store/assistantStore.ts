@@ -293,7 +293,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   messages: [{
     id: uid(),
     role: 'assistant',
-    text: 'Здравствуйте! Я помощник Flux — работаю локально, понимаю обычную речь и опечатки.\n\nМожно спросить про данные («покажи вентиляторы», «где 3700-K02»), проблемы («покажи дубли», «что требует внимания»), закупки («что не заказано») — а я найду и дам кнопки: открыть на холсте, показать в Менеджменте, выгрузить в Excel. Могу и выполнить: «открой менеджмент», «создай заметку». Ctrl+K — строка «Спросить или найти»: там команды со слэша, поиск по проекту и вопрос мне последней строкой.',
+    text: 'Здравствуйте! Я помощник Flux — работаю локально, понимаю обычную речь и опечатки.\n\nМожно спросить про данные («покажи вентиляторы», «где 3700-K02»), проблемы («покажи дубли», «что требует внимания»), закупки («что не заказано») — а я найду и дам кнопки: открыть на Схеме, показать в Менеджменте, выгрузить в Excel. Могу и выполнить: «открой менеджмент», «создай заметку». Ctrl+K — строка «Спросить или найти»: там команды со слэша, поиск по проекту и вопрос мне последней строкой.',
     actions: [
       { label: 'Покажи дубли', kind: 'ask', query: 'покажи дубли' },
       { label: 'Что не заказано', kind: 'ask', query: 'что не заказано' },
@@ -401,7 +401,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
             id: uid(), role: 'assistant',
             text: `✅ Переименовал: «${pending.oldCode}» → «${v.code}». Связи и подописания сохранены.${warn}`,
             actions: [
-              { label: 'Показать на холсте', kind: 'focus-tag', tagId: pending.tagId },
+              { label: 'Показать на Схеме', kind: 'focus-tag', tagId: pending.tagId },
               { label: 'Показать дубли', kind: 'ask', query: 'покажи дубли' },
             ],
           });
@@ -558,7 +558,7 @@ const EXPORT_ACTIONS: AssistantAction[] = [
 // Разделы для навигационных команд «открой …»
 const ROUTE_WORDS: { stems: string[]; route: string; name: string }[] = [
   { stems: ['менеджмент', 'закупк'], route: '/management', name: 'Менеджмент' },
-  { stems: ['тег', 'реестр', 'холст', 'граф'], route: '/registry', name: 'Теги' },
+  { stems: ['тег', 'реестр', 'схем', 'холст', 'граф'], route: '/registry', name: 'Теги' },
   { stems: ['оборудован'], route: '/equipment', name: 'Оборудование' },
   { stems: ['проводник', 'файл'], route: '/explorer', name: 'Проводник' },
   { stems: ['блокнот', 'заметк'], route: '/notes', name: 'Блокнот' },
@@ -847,7 +847,7 @@ export async function resolveQuery(
             id: t.id, title: t.identifier || oldCode, subtitle: t.mainName || t.department || '', badge: 'дубль',
             actions: [
               { label: 'Переименовать', kind: 'prompt-rename-tag', tagId: t.id, code: t.identifier || oldCode },
-              { label: 'На холсте', kind: 'focus-tag', tagId: t.id },
+              { label: 'На Схеме', kind: 'focus-tag', tagId: t.id },
             ],
           })),
         },
@@ -868,7 +868,7 @@ export async function resolveQuery(
             id: uid(), role: 'assistant',
             text: `✅ Переименовал: «${oldCode}» → «${v.code}». Связи и подописания сохранены.${warn}`,
             actions: [
-              { label: 'Показать на холсте', kind: 'focus-tag', tagId: tag.id },
+              { label: 'Показать на Схеме', kind: 'focus-tag', tagId: tag.id },
               { label: 'Показать дубли', kind: 'ask', query: 'покажи дубли' },
             ],
           },
@@ -952,7 +952,7 @@ export async function resolveQuery(
       const t = found[0];
       const dup = data.duplicates.find(d => d.code === (t.identifier || '').trim());
       const actions: AssistantAction[] = [
-        { label: 'Открыть на холсте', kind: 'focus-tag', tagId: t.id },
+        { label: 'Открыть на Схеме', kind: 'focus-tag', tagId: t.id },
         { label: 'Показать в Менеджменте', kind: 'open-section', route: '/management' },
       ];
       if (dup) actions.push({ label: `Найти дубли (${dup.count})`, kind: 'find-duplicates', code: dup.code });

@@ -54,6 +54,30 @@ export const FEATURES: FeatureDef[] = [
     desc: 'Подключать и менять общий ящик компании — он виден всем сотрудникам' },
 ];
 
+/**
+ * Что сотрудник может по умолчанию.
+ *
+ * Решение владельца, и оно про то, как в отделе действительно работают: люди
+ * не воруют друг у друга ведомости, и доступ нужен ровно для двух вещей —
+ * чтобы посторонний не сломал структуру проектов и чтобы доступы раздавал
+ * один человек. Всё остальное — работа, и мешать ей не надо.
+ *
+ * Поэтому новому сотруднику выдаётся всё, кроме управления проектами:
+ * создание, переименование и удаление проекта остаётся за руководителем.
+ * Тридцать галочек, которые раньше приходилось расставлять руками, начинали
+ * с нуля — и новый человек первый день не мог ничего.
+ */
+export const DEFAULT_DENIED = ['project.manage'];
+
+export function defaultPermissions(): PermMap {
+  const map: PermMap = {};
+  for (const f of FEATURES) {
+    if (DEFAULT_DENIED.includes(f.id)) continue;
+    map[f.id] = { enabled: true, until: null };
+  }
+  return map;
+}
+
 export const FEATURE_GROUPS = Array.from(new Set(FEATURES.map((f) => f.group)));
 export const featureById = (id: string) => FEATURES.find((f) => f.id === id) || null;
 

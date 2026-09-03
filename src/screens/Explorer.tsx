@@ -5,12 +5,15 @@ import { useToastStore } from '../store/toastStore';
 import VdrItemPicker from '../components/VdrItemPicker';
 import { isPdf, isConstructorDoc, FILE_APPS } from '../lib/fileTypes';
 import ExplorerMenu from '../components/explorer/ExplorerMenu';
+import { ExplorerTabs, ExplorerStatus, buildStatus, useExplorerTabs } from '../components/explorer/ExplorerTabs';
+import { ROOT_NAME } from '../lib/explorerTabs';
+import { useInsightStore } from '../store/insightStore';
 import { useModalStore } from '../store/modalStore';
 import {
   Folder, File as FileIcon, ChevronRight, ChevronDown, Plus, Upload,
   Search, MoreVertical, Copy, Edit2, Trash2, FolderPlus,
   ArrowLeft, ArrowRight, ArrowUp, Tag, PanelRight, LayoutGrid, List,
-  Download, Info, Boxes, Clock
+  Download, Info, Boxes, Clock, X,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
@@ -136,6 +139,7 @@ export default function Explorer() {
 
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
 
+
   // Context Menu
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, targetId?: string, isFile?: boolean, isContainer?: boolean, isSection?: boolean } | null>(null);
   // «Прикрепить к строке ВДР»: файл (замечания/выпуск) привязывается к документу реестра
@@ -214,6 +218,9 @@ export default function Explorer() {
   useEffect(() => { clipboardRef.current = clipboard; }, [clipboard]);
   useEffect(() => { currentFolderIdRef.current = currentFolderId; }, [currentFolderId]);
   useEffect(() => { foldersRef.current = folders; }, [folders]);
+  const sectionsRef = useRef<any[]>([]);
+  // navigateTo объявлен раньше вкладок и потому зовёт их через ссылку
+  const tabsRef = useRef<any>(null);
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -347,6 +354,15 @@ export default function Explorer() {
     };
   }, []);
 
+  /** Имя папки для вкладки: корень — «Проводник», раздел — его имя */
+  const folderTitle = (id: string | null): string => {
+    if (!id) return ROOT_NAME;
+    if (id === TRASH_ID) return 'Корзина';
+    const f = foldersRef.current.find((x: any) => x.id === id);
+    if (f?.name) return f.name;
+    return sectionsRef.current.find((x: any) => x.id === id)?.name || ROOT_NAME;
+  };
+
   const navigateTo = (folderId: string | null) => {
     // Папка чужого проекта видна в списке, но открывается только вместе с
     // переключением: внутри неё лежат файлы, размеченные тегами того проекта,
@@ -367,7 +383,18 @@ export default function Explorer() {
     pushHistory(folderId);
     setSearchQuery('');
     setSelectedIds(new Set());
+    // Показанная вкладка переехала вместе с нами: иначе, вернувшись на неё,
+    // человек попадал бы не туда, где был
+    tabsRef.current?.follow(folderId);
   };
+
+  /**
+   * Вкладки Проводника: раньше «две папки рядом» означало два окна, и для
+   * простого сравнения списков приходилось разводить их по экрану. Поведение
+   * целиком живёт в components/explorer/ExplorerTabs.
+   */
+  const tabs = useExplorerTabs({ currentFolderId, navigateTo, titleOf: folderTitle });
+  tabsRef.current = tabs;
 
   // ── Переход по ссылке: /explorer?file=…&folder=… ──
   // Сюда ведут панель связей, общий поиск и рабочий стол. Для ФАЙЛА папка в
@@ -431,6 +458,8 @@ export default function Explorer() {
     }
     return list;
   }, [user?.id, isMainAdmin, owners]);
+
+  useEffect(() => { sectionsRef.current = sections; }, [sections]);
 
   const sectionName = useCallback((secId: string): string => {
     return sections.find(s => s.id === secId)?.name || (secId === SEC_SHARED ? 'Общий' : 'Личный');
@@ -955,6 +984,11 @@ export default function Explorer() {
 
     return filtered;
   }, [folders, rootFiles, currentFolderId, currentSectionId, sections, searchQuery, sortConfig, statusFilter]);
+  const statusLine = useMemo(
+    () => buildStatus(allCurrentItems, selectedIds),
+    [allCurrentItems, selectedIds],
+  );
+
 
   useEffect(() => { allCurrentItemsRef.current = allCurrentItems; }, [allCurrentItems]);
 
@@ -1202,6 +1236,7 @@ export default function Explorer() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+
   const handleContextMenu = (e: React.MouseEvent, targetId?: string, isFile?: boolean) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1268,6 +1303,16 @@ export default function Explorer() {
       onClick={() => setSelectedIds(new Set())}
     >
       
+      {/* Вкладки: две папки рядом в одном окне. Раньше для этого разводили
+          два окна по экрану */}
+      <ExplorerTabs
+        tabs={tabs.tabs}
+        activeId={tabs.activeId}
+        onPick={tabs.pick}
+        onClose={tabs.close}
+        onNew={tabs.add}
+      />
+
       {/* Explorer Top Bar - Like Windows */}
       <div className="flex flex-col bg-slate-100/95 dark:bg-slate-900/90 border-b border-slate-200 dark:border-slate-800">
         {/* Современный компактный тулбар */}
@@ -1914,11 +1959,9 @@ export default function Explorer() {
         )}
       </div>
 
-      {/* StatusBar */}
-      <div className="h-6 bg-[#F3F4F6] dark:bg-dark-surface border-t border-slate-300 dark:border-dark-border flex items-center px-4 text-xs text-slate-600 dark:text-dark-text-muted gap-4 flex-shrink-0">
-          <span>{countOf(allCurrentItems.length, 'элемент')}</span>
-          {selectedIds.size > 0 && <span>выбрано: {selectedIds.size}</span>}
-      </div>
+      {/* Строка состояния — как в проводнике: сколько всего, что выбрано и
+          что с выбранным */}
+      <ExplorerStatus line={statusLine} />
 
       {/* Меню правой кнопки — отдельным модулем (components/explorer/ExplorerMenu) */}
       {contextMenu && (
@@ -1963,6 +2006,9 @@ export default function Explorer() {
             const item = isFile ? files.find(f => f.id === id) : folders.find(f => f.id === id);
             if (item) setPropertiesModal({ item, isFile });
           }}
+          /* Папка своей карточки связей не имеет: связи есть у документа, а
+             не у места, где он лежит */
+          links={(id) => useInsightStore.getState().openWhere('file', id)}
           remove={(id, isFile) => handleDelete(id, isFile)}
         />
       )}

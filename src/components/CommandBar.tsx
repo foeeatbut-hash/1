@@ -14,7 +14,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search, CornerDownLeft, ArrowUp, ArrowDown, ShieldCheck, History, BookOpen,
-  Bell, StickyNote, Monitor, AppWindow, MessageCircleQuestion, Slash, Languages,
+  Bell, StickyNote, Monitor, AppWindow, MessageCircleQuestion, Slash, Languages, CalendarDays,
 } from 'lucide-react';
 import { useStore } from '../store/store';
 import { useInsightStore } from '../store/insightStore';
@@ -23,6 +23,7 @@ import { useWindowStore } from '../store/windowStore';
 import { useToastStore } from '../store/toastStore';
 import { useReminderStore } from '../store/reminderStore';
 import { useTranslateStore } from '../store/translateStore';
+import { useCalendarStore } from '../store/calendarStore';
 import { SECTIONS } from '../workspace/sections';
 import { fetchSearch, type SearchHit } from '../lib/insight';
 import { search as searchHandbook } from '../handbook/registry';
@@ -45,6 +46,7 @@ function ItemIcon({ icon }: { icon: string }) {
     case 'search': return <Search className={cls} />;
     case 'book': return <BookOpen className={cls} />;
     case 'bell': return <Bell className={cls} />;
+    case 'calendar': return <CalendarDays className={cls} />;
     case 'note': return <StickyNote className={cls} />;
     case 'translate': return <Languages className={cls} />;
     case 'desk': return <Monitor className={cls} />;
@@ -177,6 +179,18 @@ export default function CommandBar() {
         close();
         addReminder({ at: r.at, text: r.text, href: window.location.hash.replace(/^#/, '') });
         addToast(`Напомню ${whenLabel(r.at)}: ${r.text}`, 'success');
+        return;
+      }
+      case 'meeting': {
+        // Окно события открывает сам Календарь: заводить встречу молча, одной
+        // строкой, нельзя — участников и ссылку человек ещё не назвал
+        close();
+        useCalendarStore.getState().setDraft({
+          kind: 'meeting', title: r.title || 'Встреча',
+          startsAt: r.at, endsAt: r.at + 30 * 60000,
+          remindMin: 5, visibility: 'project', source: 'assistant',
+        });
+        useWindowStore.getState().open('/calendar');
         return;
       }
       default: close();

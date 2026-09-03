@@ -57,9 +57,32 @@ export default function WhereUsedView({ kind, id }: { kind: UsageKind; id: strin
     );
   }
 
+  // Пустые разделы не показываем: «Письма 0» ничего не говорит, а место
+  // занимает — и за ним теряется то, где связи есть
+  const groups = data.groups.filter(g => g.links.length > 0);
+
   return (
     <div className="pb-4">
-      {data.groups.map(g => (
+      {/* Сводка: что это за вещь и сколько у неё связей. Без неё карточка
+          начиналась сразу со списков, и на вопрос «а вообще есть что-нибудь»
+          приходилось отвечать пролистыванием */}
+      <div className="px-3 py-2.5 border-b border-slate-200 dark:border-slate-800">
+        <div className="text-sm font-bold text-slate-800 dark:text-slate-100 break-words">{data.title}</div>
+        {data.subtitle && (
+          <div className="text-2xs text-slate-500 dark:text-slate-400 mt-0.5 break-words">{data.subtitle}</div>
+        )}
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {groups.map(g => (
+            <span key={g.id}
+              className="px-2 py-0.5 rounded-full text-2xs font-semibold tabular-nums
+                         bg-slate-100 dark:bg-slate-850 text-slate-600 dark:text-slate-300">
+              {g.title}: {g.links.length}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {groups.map(g => (
         <section key={g.id}>
           <GroupHead title={g.title} hint={g.hint} count={g.links.length} />
           <div className="px-1">

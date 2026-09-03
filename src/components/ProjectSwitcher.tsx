@@ -5,16 +5,36 @@
  * можно было только со стартового экрана — при том что без выбранного
  * проекта пять разделов не работают вовсе. Теперь он виден всегда и
  * переключается на месте, из любого раздела.
+ *
+ * Два вида одной и той же вещи: в левом меню (`rail`) и в трее панели задач
+ * (`tray`). В трее нажатие раньше открывало окно раздела «Проекты» целиком —
+ * то есть на действие, которое делают по двадцать раз в день, человеку
+ * показывали всё, что известно о проектах. Список из пяти последних, поиск и
+ * строка «Все проекты» отвечают на тот же вопрос за одно нажатие.
  */
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown, FolderKanban, Search } from 'lucide-react';
 import { useStore } from '../store/store';
 import { dataService } from '../services/dataService';
+import { BAR_BTN } from '../lib/metrics';
 
 type Project = { id: string; name: string };
 
-export default function ProjectSwitcher({ compact }: { compact: boolean }) {
+/** Сколько проектов показывать без поиска: дальше начинается пролистывание */
+const RECENT_SHOWN = 5;
+/** Размер всплывающей панели: по нему считается, куда она поместится */
+const MENU_W = 288;
+const MENU_H = 320;
+
+export default function ProjectSwitcher({ compact, variant = 'rail', maxWidth, onOpenAll }: {
+  compact: boolean;
+  variant?: 'rail' | 'tray';
+  /** Предел ширины кнопки в трее: её задаёт панель, а не сама кнопка */
+  maxWidth?: number;
+  /** «Все проекты» — то самое окно, которое раньше открывалось сразу */
+  onOpenAll?: () => void;
+}) {
   const { activeProject, setActiveProject } = useStore();
   const [open, setOpen] = React.useState(false);
   const [projects, setProjects] = React.useState<Project[]>([]);
@@ -37,7 +57,13 @@ export default function ProjectSwitcher({ compact }: { compact: boolean }) {
 
   const openMenu = () => {
     const r = btnRef.current?.getBoundingClientRect();
-    if (r) setPos({ top: r.bottom + 6, left: Math.max(8, r.left) });
+    // В трее панель раскрывается вверх и прижимается к правому краю кнопки:
+    // вниз ей некуда, там панель задач и край экрана
+    if (r) {
+      setPos(variant === 'tray'
+        ? { top: Math.max(8, r.top - 8 - MENU_H), left: Math.max(8, Math.min(r.right - MENU_W, window.innerWidth - MENU_W - 8)) }
+        : { top: r.bottom + 6, left: Math.max(8, r.left) });
+    }
     setOpen(true);
     setQuery('');
     load();
@@ -51,10 +77,32 @@ export default function ProjectSwitcher({ compact }: { compact: boolean }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
-  const shown = projects.filter((p) => p.name.toLowerCase().includes(query.trim().toLowerCase()));
+  const matched = projects.filter((p) => p.name.toLowerCase().includes(query.trim().toLowerCase()));
+  // Без поиска показываем пять: список из сорока проектов — это уже раздел
+  // «Проекты», и для него есть строка внизу
+  const shown = query.trim() ? matched : matched.slice(0, RECENT_SHOWN);
+  const restCount = matched.length - shown.length;
 
   return (
     <>
+      {variant === 'tray' ? (
+        <button
+          ref={btnRef}
+          type="button"
+          onClick={openMenu}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-label={activeProject ? `Активный проект: ${activeProject.name}. Сменить` : 'Выбрать проект'}
+          title={activeProject ? `Проект «${activeProject.name}» — сменить` : 'Выбрать проект'}
+          style={{ maxWidth, height: BAR_BTN }}
+          className="flex items-center gap-2 px-2.5 rounded-[10px] cursor-pointer
+                     border border-slate-200 dark:border-dark-border text-xs
+                     text-slate-700 dark:text-slate-150 hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors"
+        >
+          <span aria-hidden className="w-2 h-2 rounded-sm bg-emerald-500 shrink-0" />
+          <span className="truncate font-semibold">{activeProject?.name || 'Проект не выбран'}</span>
+        </button>
+      ) : (
       <button
         ref={btnRef}
         type="button"
@@ -87,12 +135,13 @@ export default function ProjectSwitcher({ compact }: { compact: boolean }) {
           </>
         )}
       </button>
+      )}
 
       {open && pos && createPortal(
         <div className="fixed inset-0 z-[80]" onMouseDown={() => setOpen(false)}>
           <div
-            className="absolute w-72 max-h-[70vh] flex flex-col rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-panel shadow-xl overflow-hidden"
-            style={{ top: pos.top, left: pos.left }}
+            className="absolute max-h-[70vh] flex flex-col rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-panel shadow-xl overflow-hidden"
+            style={{ top: pos.top, left: pos.left, width: MENU_W }}
             onMouseDown={(e) => e.stopPropagation()}
             role="listbox"
             aria-label="Выбор проекта"
@@ -140,6 +189,25 @@ export default function ProjectSwitcher({ compact }: { compact: boolean }) {
                 );
               })}
             </div>
+
+            {restCount > 0 && (
+              <p className="shrink-0 px-3 py-1.5 text-2xs text-slate-400 border-t border-slate-200 dark:border-dark-border">
+                …ещё {restCount}: найдите по названию
+              </p>
+            )}
+
+            {onOpenAll && (
+              <button
+                type="button"
+                onClick={() => { setOpen(false); onOpenAll(); }}
+                className="shrink-0 flex items-center gap-2 px-3 py-2 text-2xs font-semibold text-slate-600 dark:text-slate-300
+                           hover:bg-slate-100 dark:hover:bg-dark-surface border-t border-slate-200 dark:border-dark-border
+                           text-left cursor-pointer"
+              >
+                <FolderKanban className="w-3.5 h-3.5 text-slate-400" />
+                Все проекты
+              </button>
+            )}
 
             {activeProject && (
               <button

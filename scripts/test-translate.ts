@@ -17,7 +17,10 @@ import { buildTm, exactHit, fuzzyHit } from '../src/translate/tm';
 import { glossZh, splitZh, zhWordCount } from '../src/translate/zh';
 import { parseTmx, buildTmx } from '../src/translate/tmx';
 import { checkEndpoint, endpointUrl, askModel } from '../src/translate/model';
-import { translateSegment, translateText, joinSegments, readiness, builtinTerms } from '../src/translate/engine';
+import { translateSegment, translateText, joinSegments, readiness, builtinTerms, composeTerms } from '../src/translate/engine';
+import { parsePack } from '../src/translate/pack';
+import { existsSync, readFileSync } from 'fs';
+import { gunzipSync } from 'zlib';
 import { findDates, deadlineOf, asksIn, codesIn, digestOf, dueLabel } from '../src/translate/mailDigest';
 import {
   collectDocCells, docFingerprint, hasFormulas, modesFor, applyTranslation, cellKey,
@@ -346,6 +349,50 @@ console.log('Разбор письма');
   check('год без указания не уводит в прошлое',
     (deadlineOf('Please reply by 5 January.', NOW)?.at.getFullYear() || 0) === 2027,
     deadlineOf('Please reply by 5 January.', NOW)?.at.toISOString());
+}
+
+console.log('Словарный пакет');
+{
+  const info = parsePack([
+    '# комментарий не строка словаря',
+    'насос\tpump\tor',
+    'теплообменник\theat exchanger\twd',
+    'пустое\t\tor',
+    'без табуляции',
+  ].join('\n'));
+  check('разобраны только полные строки', info.pairs.length === 2, info.pairs);
+  check('источники сосчитаны', info.fromDict === 1 && info.fromWiki === 1, info);
+
+  // Старшинство. Пакет добирает общую лексику и не смеет переименовывать
+  // термины: «расход» в ведомости — это flow rate, а не consumption
+  const pack = buildIndex([{ ru: 'расход', en: 'consumption' }], 'ru', 'en');
+  const project = buildIndex([{ ru: 'насос', en: 'circulation pump' }], 'ru', 'en');
+  check('встроенный словарь старше пакета',
+    composeTerms({ from: 'ru', to: 'en', pack }).exact.get('расход') === 'flow rate',
+    composeTerms({ from: 'ru', to: 'en', pack }).exact.get('расход'));
+  check('словарь проекта старше всех',
+    composeTerms({ from: 'ru', to: 'en', terms: project, pack }).exact.get('насос') === 'circulation pump');
+
+  // Слияние считается один раз на набор словарей: на ведомости в четыреста
+  // строк оно шло четыреста раз, а пакет весит семьдесят тысяч пар
+  const a = composeTerms({ from: 'ru', to: 'en', terms: project, pack });
+  const b = composeTerms({ from: 'ru', to: 'en', terms: project, pack });
+  check('слияние словарей не пересчитывается на каждый сегмент', a === b);
+
+  // Настоящий файл: он и уезжает в сборку, и по нему видно, собрался ли пакет
+  const packPath = new URL('../public/dict/ru-en.tsv.gz', import.meta.url).pathname;
+  if (!existsSync(packPath)) {
+    console.log('  · файла пакета нет — пересоберите scripts/build-dict.ts');
+  } else {
+    const real = parsePack(gunzipSync(readFileSync(packPath)).toString('utf8'));
+    check('в пакете больше пятидесяти тысяч пар', real.pairs.length > 50000, real.pairs.length);
+    const realIdx = buildIndex(real.pairs, 'ru', 'en');
+    check('слово из Викиданных на месте',
+      realIdx.exact.get('теплообменник') === 'heat exchanger', realIdx.exact.get('теплообменник'));
+    check('пакет не переименовывает термины программы',
+      translateSegment('Расход воздуха', { from: 'ru', to: 'en', pack: realIdx }).dst === 'Air flow rate',
+      translateSegment('Расход воздуха', { from: 'ru', to: 'en', pack: realIdx }).dst);
+  }
 }
 
 console.log('Движок по адресу владельца');

@@ -6,11 +6,11 @@ import { dataService, Project } from '../services/dataService';
 import { can } from '../lib/permissions';
 import ProjectFields, { draftOf, emptyProject, trimmed, type ProjectDraft } from '../components/ProjectFields';
 import ProjectFormModal from '../components/ProjectFormModal';
+import ProjectMembers from '../components/ProjectMembers';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Plus, Search, Folder, Calendar, Trash2, Edit3, 
-  Save, FileText, CheckCircle2, RefreshCw, AlertCircle, Info, ArrowLeft, Layers
-} from 'lucide-react';
+  Save, FileText, CheckCircle2, RefreshCw, Info, ArrowLeft, Layers, Users } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export default function ProjectsManagement() {
@@ -30,6 +30,8 @@ export default function ProjectsManagement() {
   const [draft, setDraft] = useState<ProjectDraft>(() => emptyProject());
   const [isSaving, setIsSaving] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  /** Открытый состав проекта: спрашиваем после создания и по кнопке в карточке */
+  const [membersFor, setMembersFor] = useState<{ id: string; name: string } | null>(null);
 
   // Load all projects
   const loadProjects = async (selectIdAfterLoad?: string) => {
@@ -98,6 +100,9 @@ export default function ProjectsManagement() {
       });
       setShowCreate(false);
       await loadProjects(proj.id);
+      // Сразу спрашиваем, кто в деле: проект без ответа на этот вопрос
+      // остаётся общим, и ограничение доступа не включается никогда
+      setMembersFor({ id: proj.id, name: proj.name });
     } catch (err: any) {
       addToast(err.message || 'Не удалось создать проект', 'error');
     }
@@ -400,6 +405,23 @@ export default function ProjectsManagement() {
                     </span>
                   </div>
 
+                  {/* Состав: кто видит проект. Кнопка стоит в карточке, а не в
+                      настройках, — состав меняют вместе с ходом работы */}
+                  <button
+                    type="button"
+                    onClick={() => setMembersFor({ id: selectedProject.id, name: selectedProject.name })}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl cursor-pointer text-left
+                               border border-slate-200 dark:border-slate-800 hover:border-emerald-500 transition-ui"
+                  >
+                    <Users className="w-4 h-4 shrink-0 text-emerald-600" />
+                    <span className="min-w-0">
+                      <span className="block text-xs font-bold text-slate-800 dark:text-slate-300">Кто работает над проектом</span>
+                      <span className="block text-xs text-slate-500 dark:text-slate-400">
+                        Кто не в списке — не увидит ни проекта, ни его файлов
+                      </span>
+                    </span>
+                  </button>
+
                   {/* Short Description */}
                   <div className="p-4 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200/40 dark:border-slate-800/50">
                     <h3 className="text-xs font-bold text-slate-800 dark:text-slate-300 mb-1 flex items-center gap-1.5">
@@ -422,16 +444,10 @@ export default function ProjectsManagement() {
                     </div>
                   </div>
 
-                  {/* Reminder Banner */}
-                  <div className="bg-emerald-50/50 dark:bg-emerald-995/10 border border-emerald-100 dark:border-emerald-900/40 rounded-xl p-4 flex items-start gap-3">
-                    <AlertCircle className="w-4 h-4 text-emerald-650 shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="text-xs font-bold text-emerald-800 dark:text-emerald-400">Как работать с проектом?</h4>
-                      <p className="text-xs text-emerald-700/90 dark:text-emerald-400/80 mt-1 leading-relaxed">
-                        Поставьте галочку у нужного проекта слева в списке или нажмите "Отметить галочкой" вверху. Это переключит фокус MAX на данные выбранного проекта в Проводнике, Списке Тегов и Оборудовании!
-                      </p>
-                    </div>
-                  </div>
+                  {/* Объяснение «как работать с проектом» отсюда убрано: оно
+                      платило собой каждый день, а помогало один раз. Всё, что
+                      в нём было, есть в Руководстве (кнопка «?» и F1) — а тут
+                      человеку нужен сам проект */}
                 </div>
               )}
             </div>
@@ -441,7 +457,7 @@ export default function ProjectsManagement() {
             <Layers className="w-12 h-12 text-slate-300 dark:text-slate-700 mb-3" />
             <h3 className="text-md font-bold text-slate-850 dark:text-white">Проект не выбран</h3>
             <p className="text-xs text-center max-w-sm mt-1 opacity-75">
-              Создайте новый технологический проект или выберите существующий из левой панели, чтобы ознакомиться с деталями или переключить текущий рабочий контекст.
+              Выберите проект слева или создайте новый.
             </p>
           </div>
         )}
@@ -449,6 +465,14 @@ export default function ProjectsManagement() {
 
       {showCreate && (
         <ProjectFormModal title="Новый проект" onClose={() => setShowCreate(false)} onSave={handleCreateProject} />
+      )}
+
+      {membersFor && (
+        <ProjectMembers
+          projectId={membersFor.id}
+          projectName={membersFor.name}
+          onClose={() => setMembersFor(null)}
+        />
       )}
     </motion.div>
   );

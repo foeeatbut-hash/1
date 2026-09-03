@@ -2797,7 +2797,7 @@ export default function Registry() {
           <div className="flex flex-wrap bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800">
             <button type="button"
               onClick={() => setActiveTab('board')}
-              title="Интерактивный граф (Dynamo)"
+              title="Схема связей между тегами"
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
                 activeTab === 'board' 
                   ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
@@ -2805,7 +2805,7 @@ export default function Registry() {
               }`}
             >
               <Network className="w-3.5 h-3.5" />
-              <span className="hidden @[760px]:inline">Интерактивный граф (Dynamo)</span>
+              <span className="hidden @[760px]:inline">Схема</span>
             </button>
             <button type="button"
               onClick={() => setActiveTab('tree')}
@@ -3915,7 +3915,7 @@ export default function Registry() {
             )}
             <button type="button" onClick={() => { openWhereUsed('tag', cardMenu.tagId); setCardMenu(null); }}
               className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-150 cursor-pointer">
-              <Network className="w-3.5 h-3.5 text-emerald-600" /> Где используется
+              <Network className="w-3.5 h-3.5 text-emerald-600" /> Карточка связей
             </button>
             <button type="button"
               onClick={() => {
@@ -3993,7 +3993,7 @@ export default function Registry() {
               </button>
             )}
             <button type="button" onClick={() => { openWhereUsed('tag', cardPanel.tagId); setCardPanel(null); }}
-              title="Где используется: оборудование, документы, файлы, ВДР"
+              title="Карточка связей: оборудование, документы, файлы, ВДР"
               className="p-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-600 cursor-pointer">
               <Network className="w-4 h-4" />
             </button>

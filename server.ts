@@ -14,6 +14,7 @@ import { exec, execSync } from 'child_process';
 import os from 'os';
 import crypto from 'crypto';
 import { setPrisma, setNotifier, setBroadcaster, upsertSetting } from './server/context.js';
+import { setupDocRooms } from './server/collab.js';
 import { ensureRemoteSchema } from './server/schema-sync.js';
 import { computeMachineId, licenseStatus, activateLicense } from './electron/license.js';
 import { registerNoteRoutes } from './server/routes/notes.js';
@@ -33,6 +34,8 @@ import { watchAll as watchAllMail, stopAll as stopMailWatch } from './server/mai
 import { registerInsightRoutes } from './server/routes/insight.js';
 import { registerAssistantRoutes } from './server/routes/assistant.js';
 import { registerTranslateRoutes } from './server/routes/translate.js';
+import { registerCalendarRoutes } from './server/routes/calendar.js';
+import { registerMemberRoutes, canSeeProject } from './server/routes/members.js';
 import { registerEquipmentUndoRoutes } from './server/routes/equipmentUndo.js';
 import { registerUserRoutes, seedRoles, backfillNameParts } from './server/routes/users.js';
 import { initBackups } from './server/backup.js';
@@ -437,6 +440,58 @@ function ensureSchemaColumns(dbPath: string) {
         "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`);
+      db.exec(`CREATE TABLE IF NOT EXISTS "CalEvent" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "projectId" TEXT,
+        "kind" TEXT NOT NULL DEFAULT 'meeting',
+        "title" TEXT NOT NULL DEFAULT '',
+        "description" TEXT NOT NULL DEFAULT '',
+        "startsAt" DATETIME NOT NULL,
+        "endsAt" DATETIME NOT NULL,
+        "allDay" BOOLEAN NOT NULL DEFAULT false,
+        "rrule" TEXT NOT NULL DEFAULT '',
+        "place" TEXT NOT NULL DEFAULT '',
+        "joinUrl" TEXT NOT NULL DEFAULT '',
+        "createdBy" TEXT NOT NULL DEFAULT '',
+        "source" TEXT NOT NULL DEFAULT 'hand',
+        "sourceId" TEXT NOT NULL DEFAULT '',
+        "visibility" TEXT NOT NULL DEFAULT 'project',
+        "remindMin" INTEGER NOT NULL DEFAULT 0,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS "CalEvent_project_start_idx" ON "CalEvent"("projectId", "startsAt")');
+      db.exec('CREATE INDEX IF NOT EXISTS "CalEvent_createdBy_idx" ON "CalEvent"("createdBy")');
+      db.exec(`CREATE TABLE IF NOT EXISTS "CalGuest" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "eventId" TEXT NOT NULL,
+        "userId" TEXT NOT NULL,
+        "state" TEXT NOT NULL DEFAULT 'invited',
+        CONSTRAINT "CalGuest_eventId_fkey" FOREIGN KEY ("eventId") REFERENCES "CalEvent"("id") ON DELETE CASCADE
+      )`);
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS "CalGuest_event_user_key" ON "CalGuest"("eventId", "userId")');
+      db.exec('CREATE INDEX IF NOT EXISTS "CalGuest_userId_idx" ON "CalGuest"("userId")');
+      db.exec(`CREATE TABLE IF NOT EXISTS "ProjectMember" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "projectId" TEXT NOT NULL,
+        "userId" TEXT NOT NULL,
+        "addedBy" TEXT NOT NULL DEFAULT '',
+        "addedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS "ProjectMember_project_user_key" ON "ProjectMember"("projectId", "userId")');
+      db.exec('CREATE INDEX IF NOT EXISTS "ProjectMember_userId_idx" ON "ProjectMember"("userId")');
+      db.exec(`CREATE TABLE IF NOT EXISTS "AssistantChat" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "ownerId" TEXT NOT NULL,
+        "projectId" TEXT NOT NULL DEFAULT '',
+        "title" TEXT NOT NULL DEFAULT '',
+        "preview" TEXT NOT NULL DEFAULT '',
+        "messages" TEXT NOT NULL DEFAULT '[]',
+        "search" TEXT NOT NULL DEFAULT '',
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS "AssistantChat_owner_project_idx" ON "AssistantChat"("ownerId", "projectId")');
       db.exec('CREATE INDEX IF NOT EXISTS "TmUnit_lang_key_idx" ON "TmUnit"("fromLang", "toLang", "srcKey")');
       db.exec('CREATE INDEX IF NOT EXISTS "TmUnit_projectId_idx" ON "TmUnit"("projectId")');
       db.exec(`CREATE TABLE IF NOT EXISTS "TransLink" (
@@ -1006,24 +1061,18 @@ io.use((socket, next) => {
   next();
 });
 
-// ── Совместное редактирование Конструктора (часть IV дизайна, MVP) ──
-// Комната на документ: presence (кто в файле + выделенные ячейки, как в
-// онлайн-Excel) и репликация мутаций движка остальным участникам.
-// Состояние presence живёт в памяти и исчезает с дисконнектом.
-const PRESENCE_COLORS = ['#0ea5e9', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16'];
-const presenceColor = (userId: string) => {
-  let h = 0;
-  for (const ch of String(userId)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return PRESENCE_COLORS[h % PRESENCE_COLORS.length];
-};
-// docId → (socketId → участник)
-const docPresence = new Map<string, Map<string, { userId: string; name: string; color: string; selection: any }>>();
+// ── Кто сейчас в сети ────────────────────────────────────────────────────────
+// Один сотрудник — несколько вкладок и окон, поэтому считаем сокеты, а не
+// людей: закрытая вкладка не должна гасить человека, у которого открыто ещё
+// три. «Не в сети» объявляется, когда ушёл последний его сокет.
+//
+// Правило одно для всех: администратор виден так же, как остальные. Скрытое
+// присутствие начальника — это не приватность, а неравенство, из-за которого
+// в чате пишут в пустоту, не понимая, дошло ли.
+const online = new Map<string, Set<string>>();
+const lastSeen = new Map<string, number>();
 
-const emitRoster = (docId: string) => {
-  const room = docPresence.get(docId);
-  const roster = room ? Array.from(room.entries()).map(([sid, p]) => ({ socketId: sid, ...p })) : [];
-  io.to(`constructor:${docId}`).emit('constructor:presence', { docId, peers: roster });
-};
+const rosterOnline = () => Array.from(online.keys());
 
 io.on('connection', (socket) => {
   console.log(`[Socket] client connected: ${socket.id}`);
@@ -1033,6 +1082,24 @@ io.on('connection', (socket) => {
   // приходил на каждую машину в сети
   const uid = (socket as any).userId;
   if (uid) socket.join(`user:${uid}`);
+
+  if (uid) {
+    const was = online.get(uid);
+    if (was) was.add(socket.id);
+    else {
+      online.set(uid, new Set([socket.id]));
+      // Появился — сказать всем. Себе тоже: своя точка «в сети» подтверждает,
+      // что связь есть, и отличает «никто не отвечает» от «я отключён»
+      io.emit('presence:online', { userId: uid });
+    }
+  }
+
+  // Пришедшему — весь список сразу: без него человек до первого чужого входа
+  // видел бы всех офлайн
+  socket.emit('presence:list', { online: rosterOnline(), lastSeen: Object.fromEntries(lastSeen) });
+  socket.on('presence:list', () => {
+    socket.emit('presence:list', { online: rosterOnline(), lastSeen: Object.fromEntries(lastSeen) });
+  });
 
   socket.on('tag:linked', (data) => {
     socket.broadcast.emit('tag:linked', data);
@@ -1046,47 +1113,21 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('equipment:conflict', data);
   });
 
-  const joinedDocs = new Set<string>();
-
-  socket.on('constructor:join', async ({ docId }: { docId: string }) => {
-    if (!docId) return;
-    const userId = String((socket as any).userId || '');
-    let name = 'Сотрудник';
-    try { name = (await getAuthUser(userId))?.name || name; } catch (e) {}
-    socket.join(`constructor:${docId}`);
-    joinedDocs.add(docId);
-    if (!docPresence.has(docId)) docPresence.set(docId, new Map());
-    docPresence.get(docId)!.set(socket.id, { userId, name, color: presenceColor(userId), selection: null });
-    emitRoster(docId);
-  });
-
-  socket.on('constructor:leave', ({ docId }: { docId: string }) => {
-    if (!docId) return;
-    socket.leave(`constructor:${docId}`);
-    joinedDocs.delete(docId);
-    docPresence.get(docId)?.delete(socket.id);
-    emitRoster(docId);
-  });
-
-  // Выделение участника (троттлится на клиенте) — остальным в комнате
-  socket.on('constructor:selection', ({ docId, selection }: { docId: string; selection: any }) => {
-    const p = docPresence.get(docId)?.get(socket.id);
-    if (!p) return;
-    p.selection = selection;
-    socket.to(`constructor:${docId}`).emit('constructor:selection', { socketId: socket.id, selection });
-  });
-
-  // Мутация движка от одного участника — всем остальным в комнате
-  socket.on('constructor:op', ({ docId, op }: { docId: string; op: any }) => {
-    if (!docId || !op) return;
-    socket.to(`constructor:${docId}`).emit('constructor:op', { socketId: socket.id, op });
-  });
+  // Комната документа: присутствие, выделения, операции движка (server/collab.ts)
+  const docRooms = setupDocRooms(io, socket, async (id) => (await getAuthUser(id))?.name || '');
 
   socket.on('disconnect', () => {
     console.log(`[Socket] client disconnected: ${socket.id}`);
-    for (const docId of joinedDocs) {
-      docPresence.get(docId)?.delete(socket.id);
-      emitRoster(docId);
+    docRooms.leaveAll();
+    if (uid) {
+      const set = online.get(uid);
+      set?.delete(socket.id);
+      if (set && set.size === 0) {
+        online.delete(uid);
+        const at = Date.now();
+        lastSeen.set(uid, at);
+        io.emit('presence:offline', { userId: uid, at });
+      }
     }
   });
 });
@@ -1959,6 +2000,28 @@ app.post('/api/updates', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Отозвать опубликованный релиз (только админ).
+ *
+ * Опубликовать не тот файл или не ту версию — обычное дело, а до этой правки
+ * отозвать публикацию было нечем: запись жила в базе навсегда, и у всех
+ * сотрудников горел значок обновления, которое ставить не надо.
+ */
+app.delete('/api/updates/:version', async (req: Request, res: Response) => {
+  const u = (req as any).authUser;
+  if (!u || u.role !== 'ADMIN') return res.status(403).json({ error: 'Отзыв релиза доступен только администратору' });
+  const version = sanitizeVersion(req.params.version);
+  if (!version) return res.status(400).json({ error: 'Не указана версия' });
+  try {
+    await prisma.appUpdate.deleteMany({ where: { version } });
+    // Файл убираем вместе с записью: раздавать его больше некому
+    try { if (fs.existsSync(updateFilePath(version))) fs.unlinkSync(updateFilePath(version)); } catch (_) {}
+    res.json({ success: true, version });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || 'Не удалось отозвать релиз' });
+  }
+});
+
 // Скачивание exe с сервера (токен обязателен — проверяет общий middleware)
 app.get('/api/updates/download/:version', (req: Request, res: Response) => {
   const version = sanitizeVersion(req.params.version);
@@ -2032,7 +2095,16 @@ async function enforce(req: Request, res: Response, feature: string): Promise<bo
 
 app.get('/api/projects', async (req: Request, res: Response) => {
   const projects = await prisma.project.findMany();
-  res.json({ projects });
+  // Человек видит только те проекты, в которые его позвали. Проект, куда ещё
+  // никого не звали, виден всем: включать ограничение задним числом на базе,
+  // которая о составе не знает, — значит отобрать у отдела всё разом
+  const me = (req as any).authUser || null;
+  const isAdmin = me?.role === 'ADMIN';
+  const mine: any[] = [];
+  for (const p of projects) {
+    if (await canSeeProject(me?.id || '', p.id, isAdmin)) mine.push(p);
+  }
+  res.json({ projects: mine });
 });
 
 app.post('/api/projects', async (req: Request, res: Response) => {
@@ -2165,6 +2237,9 @@ registerPdfMarkupRoutes(app);
 registerInsightRoutes(app);
 registerAssistantRoutes(app);
 registerTranslateRoutes(app);
+registerCalendarRoutes(app);
+registerMemberRoutes(app);
+
 registerEquipmentUndoRoutes(app);
 
 
@@ -3125,9 +3200,21 @@ app.get('/chat_files/:id/:name', async (req: Request, res: Response) => {
 });
 
 // Search ComponentElement by tag string
+/**
+ * Куда ведёт тег, отправленный в чат.
+ *
+ * Раньше искали только среди элементов оборудования — и тег, который есть в
+ * реестре, но ещё не привязан к позиции, объявлялся «не зарегистрированным в
+ * базе». Человек видел ошибку про несуществующий тег, глядя на тег, который
+ * сам же и завёл час назад.
+ *
+ * Ищем в обоих местах и говорим, что нашли: элемент — открывать в
+ * «Оборудовании», тег — в «Тегах». Не нашли ни там ни там — так и отвечаем,
+ * не выдумывая причину.
+ */
 app.get('/api/chat/search-element', async (req: Request, res: Response) => {
   try {
-    const { tag } = req.query;
+    const { tag, projectId } = req.query;
     if (!tag) {
       return res.status(400).json({ error: 'tag is required' });
     }
@@ -3146,7 +3233,21 @@ app.get('/api/chat/search-element', async (req: Request, res: Response) => {
         monoblock: { include: { system: true } }
       }
     });
-    res.json({ element });
+
+    // Тег реестра ищем и в текущем проекте, и вне его: тег из соседнего
+    // проекта — это не «не найден», это другой разговор, и сказать о нём надо
+    // прямо, а не отправлять человека искать самому
+    const pid = projectId ? String(projectId) : '';
+    const tagRow = await prisma.tag.findFirst({
+      where: { identifier: cleanTag, ...(pid ? { projectId: pid } : {}) },
+      select: { id: true, identifier: true, projectId: true },
+    });
+    const elsewhere = tagRow || !pid ? null : await prisma.tag.findFirst({
+      where: { identifier: cleanTag },
+      select: { id: true, identifier: true, projectId: true, project: { select: { name: true } } },
+    });
+
+    res.json({ element, tag: tagRow, elsewhere });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

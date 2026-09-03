@@ -1,4 +1,16 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+/**
+ * Обновление программы в настройках.
+ *
+ * Одна кнопка на всё: нажал — скачалось, проверилось, программа закрылась,
+ * подменила свой exe и открылась уже новой. Двух шагов («скачать», потом
+ * «установить») здесь быть не должно: человек, нажавший «скачать», уже сказал,
+ * чего хочет, и второе подтверждение — это просто ещё одно место, где можно
+ * забыть нажать и остаться на старой версии.
+ *
+ * Состояние живёт в updateStore: о том же обновлении должен знать значок у
+ * часов, а он к этому окну отношения не имеет.
+ */
+import React, { useState, useEffect, useRef } from 'react';
 import {
   RefreshCw,
   CheckCircle2,
@@ -11,7 +23,9 @@ import {
 } from 'lucide-react';
 import { useToastStore } from '../store/toastStore';
 import { useStore } from '../store/store';
-import { getServerBaseUrl, getAuthToken } from '../config/env';
+import { getServerBaseUrl } from '../config/env';
+import { useUpdateStore } from '../store/updateStore';
+import { phaseLabel, blocker, fileUrlOf } from '../lib/updates';
 
 // ── Автообновления через сервер ──
 // Админ публикует релиз прямо на сервер (загружает exe или даёт прямую ссылку),
@@ -20,27 +34,8 @@ import { getServerBaseUrl, getAuthToken } from '../config/env';
 // оттуда же и портативное приложение подменяет само себя. Никакого стороннего
 // хостинга и прямых подключений клиента к базе.
 
-function isNewerVersion(latest: string, current: string): boolean {
-  // Суффиксы вида "-beta" дают NaN при Number() — оставляем цифры и точки
-  const clean = (v: string) => String(v || '').replace(/[^0-9.]/g, '');
-  const latestParts = clean(latest).split('.').map(Number);
-  const currentParts = clean(current).split('.').map(Number);
-  for (let i = 0; i < Math.max(latestParts.length, currentParts.length); i++) {
-    const l = latestParts[i] || 0;
-    const c = currentParts[i] || 0;
-    if (l > c) return true;
-    if (l < c) return false;
-  }
-  return false;
-}
-
-// Абсолютный адрес файла: относительные ссылки (/api/updates/download/…)
-// резолвим на текущий сервер
-function toAbsoluteUrl(fileUrl: string): string {
-  if (/^https?:\/\//i.test(fileUrl)) return fileUrl;
-  const base = getServerBaseUrl() || (typeof window !== 'undefined' ? window.location.origin : '');
-  return `${base}${fileUrl}`;
-}
+// Сравнение версий, адрес файла и разбор отказов — в src/lib/updates.ts:
+// теми же правилами пользуется главный процесс, который и качает файл
 
 function formatSize(bytes: number): string {
   if (!bytes) return '';
@@ -48,21 +43,9 @@ function formatSize(bytes: number): string {
   return mb >= 1 ? `${mb.toFixed(1)} МБ` : `${Math.round(bytes / 1024)} КБ`;
 }
 
-interface LatestInfo {
-  version: string;
-  changelog: string;
-  fileUrl: string;
-  size?: number;
-}
-
 export default function UpdaterWidget() {
   const { user } = useStore();
   const { addToast } = useToastStore();
-  const [status, setStatus] = useState<'idle' | 'checking' | 'available' | 'downloading' | 'downloaded'>('idle');
-  const [latest, setLatest] = useState<LatestInfo | null>(null);
-  const [progress, setProgress] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const [showModal, setShowModal] = useState(false);
 
   // Публикация релиза (админ)
   const [showPublishModal, setShowPublishModal] = useState(false);
@@ -72,139 +55,72 @@ export default function UpdaterWidget() {
   const [pubFileUrl, setPubFileUrl] = useState('');
   const [isPublishing, setIsPublishing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showModal, setShowModal] = useState(false);
 
-  const [isPackaged, setIsPackaged] = useState(false);
-  const [currentVersion, setCurrentVersion] = useState<string>(
-    typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'
-  );
+  const phase = useUpdateStore((s) => s.phase);
+  const percent = useUpdateStore((s) => s.percent);
+  const latest = useUpdateStore((s) => s.latest);
+  const error = useUpdateStore((s) => s.error);
+  const currentVersion = useUpdateStore((s) => s.current);
+  const isPackaged = useUpdateStore((s) => s.packaged);
+  const isPortable = useUpdateStore((s) => s.portable);
+  const init = useUpdateStore((s) => s.init);
+  const check = useUpdateStore((s) => s.check);
+  const install = useUpdateStore((s) => s.install);
+  const markSeen = useUpdateStore((s) => s.markSeen);
 
   const isElectron = typeof window !== 'undefined' && (window as any).electron !== undefined;
+  const busy = phase === 'downloading' || phase === 'verifying' || phase === 'installing';
 
   useEffect(() => {
-    if (!isElectron) return;
-    const elec = (window as any).electron;
+    void init(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0');
+  }, [init]);
 
-    elec.isPackaged?.().then((res: boolean) => setIsPackaged(res)).catch(() => {});
-    elec.getAppVersion?.().then((res: string) => res && setCurrentVersion(res)).catch(() => {});
-
-    // Прогресс скачивания и ошибки приходят из главного процесса
-    const unsubscribe = elec.onUpdaterStatus?.((state: string, data?: { percent?: number; version?: string }) => {
-      if (state === 'downloading') {
-        setStatus('downloading');
-        setProgress(Math.round(data?.percent || 0));
-      } else if (state === 'downloaded') {
-        setStatus('downloaded');
-        setProgress(100);
-      }
-    });
-    const unsubscribeError = elec.onUpdaterError?.((errMsg: string) => {
-      setError(errMsg);
-      setStatus('idle');
-      addToast(`Ошибка обновления: ${errMsg}`, 'error');
-    });
-
-    return () => {
-      unsubscribe?.();
-      unsubscribeError?.();
-    };
-  }, [isElectron, addToast]);
-
-  // Проверка последнего релиза на сервере. silent = фоновая (без тостов
-  // «обновлений нет»), используется при автопроверке и push-оповещении.
-  const checkUpdate = useCallback(async (silent: boolean) => {
-    setError(null);
-    if (!silent) setStatus('checking');
-    try {
-      const res = await fetch('/api/updates/latest');
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `Сервер ответил ${res.status}`);
-      if (!data.version) {
-        setStatus('idle');
-        if (!silent) addToast('Обновления ещё не публиковались.', 'info');
-        return;
-      }
-      if (isNewerVersion(data.version, currentVersion)) {
-        setLatest({ version: data.version, changelog: data.changelog || '', fileUrl: data.fileUrl || '', size: data.size });
-        setStatus('available');
-        setShowModal(true);
-        if (!silent) addToast(`Найдена новая версия v${data.version}!`, 'success');
-      } else {
-        setStatus('idle');
-        if (!silent) addToast(`У вас последняя версия (v${currentVersion}).`, 'info');
-      }
-    } catch (err: any) {
-      setStatus('idle');
-      if (!silent) {
-        setError(err.message);
-        addToast(`Ошибка проверки: ${err.message}`, 'error');
-      }
-    }
-  }, [currentVersion, addToast]);
+  // Человек в разделе обновлений — значку у часов больше подпрыгивать незачем
+  useEffect(() => { markSeen(); }, [markSeen]);
 
   // Автопроверка при открытии настроек + мгновенная реакция на публикацию
   // (сервер шлёт socket-событие, SocketProvider транслирует его в window)
   useEffect(() => {
-    const timer = setTimeout(() => { checkUpdate(true); }, 1200);
-    const onPublished = () => checkUpdate(true);
+    const timer = setTimeout(() => { void check(true); }, 1200);
+    const onPublished = () => { void check(true); };
     window.addEventListener('socket:app:update-published', onPublished);
     return () => {
       clearTimeout(timer);
       window.removeEventListener('socket:app:update-published', onPublished);
     };
-  }, [checkUpdate]);
+  }, [check]);
 
-  const handleStartDownload = async () => {
-    if (!latest) return;
-    const absoluteUrl = toAbsoluteUrl(latest.fileUrl);
-    if (isElectron) {
-      try {
-        setStatus('downloading');
-        setProgress(0);
-        await (window as any).electron.startDownload({
-          url: absoluteUrl,
-          version: latest.version,
-          token: getAuthToken(),
-        });
-      } catch (err: unknown) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        setError(errMsg);
-        setStatus('idle');
-        addToast(`Не удалось скачать обновление: ${errMsg}`, 'error');
-      }
-    } else {
-      // Браузер: качаем через fetch (токен добавит обёртка) и отдаём как файл
-      try {
-        setStatus('downloading');
-        setProgress(0);
-        const res = await fetch(absoluteUrl);
-        if (!res.ok) throw new Error(`Сервер ответил ${res.status}`);
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Flux ${latest.version}.exe`;
-        a.click();
-        URL.revokeObjectURL(url);
-        setStatus('idle');
-        addToast(`Файл Flux ${latest.version}.exe скачан — замените им текущий exe.`, 'success');
-      } catch (err: any) {
-        setStatus('idle');
-        addToast(`Не удалось скачать: ${err.message}`, 'error');
-      }
-    }
+  const handleCheck = async () => {
+    await check(false);
+    const s = useUpdateStore.getState();
+    if (s.error) { addToast(`Ошибка проверки: ${s.error}`, 'error'); return; }
+    if (s.latest) { setShowModal(true); addToast(`Найдена версия v${s.latest.version}`, 'success'); }
+    else addToast(`У вас последняя версия (v${s.current}).`, 'info');
   };
 
-  const handleRestartToInstall = async () => {
-    if (!isElectron) return;
+  /**
+   * Одно нажатие на всё. В программе — скачает, проверит и обновится само;
+   * в браузере обновлять нечего, поэтому там файл просто отдаётся человеку.
+   */
+  const handleInstall = async () => {
+    setShowModal(false);
+    if (!latest) return;
+    if (isElectron) { await install(); return; }
     try {
-      addToast('Установка обновления и перезапуск приложения...', 'info');
-      const res = await (window as any).electron.quitAndInstall();
-      if (res && res.success === false) {
-        addToast(`Не удалось запустить установку: ${res.error || 'неизвестная ошибка'}`, 'error');
-      }
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      addToast(`Ошибка установки: ${errMsg}`, 'error');
+      const base = getServerBaseUrl() || window.location.origin;
+      const res = await fetch(fileUrlOf(latest.fileUrl, base));
+      if (!res.ok) throw new Error(`Сервер ответил ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Flux ${latest.version}.exe`;
+      a.click();
+      URL.revokeObjectURL(url);
+      addToast(`Файл Flux ${latest.version}.exe скачан — замените им текущий exe.`, 'success');
+    } catch (err: any) {
+      addToast(`Не удалось скачать: ${err.message}`, 'error');
     }
   };
 
@@ -283,9 +199,51 @@ export default function UpdaterWidget() {
           </div>
         )}
 
-        {status === 'idle' && (
+        {/* Одна кнопка на весь путь: проверить — и, если есть что ставить,
+            поставить. Этапы человек видит строкой, а не набором кнопок */}
+        {phase === 'available' && latest ? (
+          <div className="space-y-2">
+            <div className="text-xs text-slate-600 dark:text-slate-300 font-semibold">
+              Доступна версия <span className="font-extrabold text-emerald-600 dark:text-emerald-400">v{latest.version}</span>
+              {latest.size ? <span className="text-slate-400 font-normal"> · {formatSize(latest.size)}</span> : null}
+            </div>
+            <button type="button"
+              onClick={handleInstall}
+              className="w-full py-1.5 bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white rounded text-xs font-bold transition-ui flex items-center justify-center gap-1.5 cursor-pointer font-sans"
+            >
+              <Download className="w-3.5 h-3.5 shrink-0" />
+              <span>{isElectron ? 'Скачать и установить' : 'Скачать файл'}</span>
+            </button>
+            <button type="button"
+              onClick={() => setShowModal(true)}
+              className="w-full py-1 text-xs font-semibold text-slate-500 hover:text-emerald-600 cursor-pointer"
+            >
+              Что изменилось
+            </button>
+          </div>
+        ) : busy ? (
+          <div className="space-y-1.5 py-1">
+            <div className="flex justify-between text-xs font-mono font-bold text-slate-500 dark:text-slate-400">
+              <span>{phaseLabel(phase, percent)}</span>
+            </div>
+            <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded overflow-hidden">
+              <div className="bg-emerald-500 h-full transition-ui duration-300"
+                style={{ width: `${phase === 'downloading' ? percent : 100}%` }} />
+            </div>
+            {phase === 'installing' && (
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-snug">
+                Программа сейчас закроется и откроется заново уже новой версии. Данные не затрагиваются.
+              </p>
+            )}
+          </div>
+        ) : phase === 'checking' ? (
+          <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 py-1 text-xs justify-center bg-slate-200/40 dark:bg-slate-800/40 rounded">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-500 shrink-0" />
+            <span className="font-medium">Сравнение версий…</span>
+          </div>
+        ) : (
           <button type="button"
-            onClick={() => checkUpdate(false)}
+            onClick={handleCheck}
             className="w-full py-1.5 px-3 bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white rounded text-xs font-bold transition-ui flex items-center justify-center gap-1.5 cursor-pointer font-sans"
           >
             <RefreshCw className="w-3.5 h-3.5 shrink-0" />
@@ -293,62 +251,24 @@ export default function UpdaterWidget() {
           </button>
         )}
 
-        {status === 'checking' && (
-          <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 py-1 text-xs justify-center bg-slate-200/40 dark:bg-slate-800/40 rounded">
-            <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-500 shrink-0" />
-            <span className="font-medium">Сравнение версий...</span>
+        {/* Отказ объясняется словами и не прячется: человек должен знать, что
+            обновления у него нет, и почему именно */}
+        {!!error && (
+          <div className="text-xs text-rose-600 dark:text-rose-400 leading-snug bg-rose-500/10 rounded p-2">
+            {error}
+            {phase === 'failed' && latest && (
+              <button type="button" onClick={handleInstall}
+                className="block mt-1 font-bold underline cursor-pointer">Повторить</button>
+            )}
           </div>
         )}
 
-        {status === 'available' && latest && (
-          <div className="space-y-2">
-            <div className="text-xs text-slate-600 dark:text-slate-300 font-semibold">
-              Доступно ПО версии <span className="font-extrabold text-emerald-600 dark:text-emerald-400">v{latest.version}</span>
-              {latest.size ? <span className="text-slate-400 font-normal"> · {formatSize(latest.size)}</span> : null}
-            </div>
-            <button type="button"
-              onClick={() => setShowModal(true)}
-              className="w-full py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-bold transition-ui flex items-center justify-center gap-1 cursor-pointer font-sans"
-            >
-              <ArrowUpCircle className="w-3.5 h-3.5 text-white" />
-              <span>Показать Changelog</span>
-            </button>
-          </div>
-        )}
-
-        {status === 'downloading' && (
-          <div className="space-y-1.5 py-1">
-            <div className="flex justify-between text-xs font-mono font-bold text-slate-500 dark:text-slate-400">
-              <span>Загрузка...</span>
-              <span>{progress}%</span>
-            </div>
-            <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded overflow-hidden">
-              <div
-                className="bg-emerald-500 h-full transition-ui duration-300"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        {status === 'downloaded' && latest && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 justify-center bg-emerald-500/10 py-1 rounded">
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
-              <span className="text-xs font-bold font-sans">Пакет v{latest.version} скачан!</span>
-            </div>
-            <button type="button"
-              onClick={handleRestartToInstall}
-              className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold hover:scale-[1.02] active:scale-95 transition-ui flex items-center justify-center gap-1.5 cursor-pointer font-sans"
-            >
-              <ArrowUpCircle className="w-3.5 h-3.5 shrink-0" />
-              <span>Установить & Перезапустить</span>
-            </button>
-          </div>
-        )}
-
-        {error && status === 'idle' && (
-          <p className="text-xs text-rose-500 dark:text-rose-400">{error}</p>
+        {/* Портативная сборка подменяет себя на месте — это стоит сказать
+            заранее, иначе закрывшееся окно выглядит как поломка */}
+        {isElectron && isPackaged && !isPortable && phase === 'available' && (
+          <p className="text-xs text-amber-600 dark:text-amber-400 leading-snug">
+            Программа запущена не портативным файлом — обновление поставит обычный установщик.
+          </p>
         )}
 
         {/* Публикация релиза — только администратор */}
@@ -398,16 +318,13 @@ export default function UpdaterWidget() {
               >
                 Закрыть
               </button>
-              {status === 'available' && (
+              {phase === 'available' && (
                 <button type="button"
-                  onClick={() => {
-                    setShowModal(false);
-                    handleStartDownload();
-                  }}
+                  onClick={handleInstall}
                   className="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white rounded text-xs font-bold transition-ui flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/10"
                 >
                   <Download className="w-3.5 h-3.5 shrink-0" />
-                  <span>Скачать & Установить</span>
+                  <span>{isElectron ? 'Скачать и установить' : 'Скачать файл'}</span>
                 </button>
               )}
             </div>

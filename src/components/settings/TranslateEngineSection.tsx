@@ -11,7 +11,7 @@
  * говорит, что не так, — а не молчит до первой отправки письма наружу.
  */
 import React from 'react';
-import { Link2, ShieldCheck, TriangleAlert, Loader2 } from 'lucide-react';
+import { Link2, ShieldCheck, TriangleAlert, Loader2, Library } from 'lucide-react';
 import { useTranslateStore } from '../../store/translateStore';
 import { useToastStore } from '../../store/toastStore';
 import { checkEndpoint, endpointUrl } from '../../translate/model';
@@ -25,6 +25,10 @@ export default function TranslateEngineSection() {
   const terms = useTranslateStore((s) => s.terms);
   const memory = useTranslateStore((s) => s.memory);
   const { addToast } = useToastStore();
+  const packOn = useTranslateStore((s) => s.packOn);
+  const packState = useTranslateStore((s) => s.packState);
+  const packInfo = useTranslateStore((s) => s.packInfo);
+  const setPackOn = useTranslateStore((s) => s.setPackOn);
   const [probing, setProbing] = React.useState(false);
 
   const check = checkEndpoint(model.url);
@@ -82,6 +86,71 @@ export default function TranslateEngineSection() {
           Китайский разбирается по словарю из {zhWordCount()} слов — чтобы понять письмо. Документы на
           китайском программа не выпускает.
         </p>
+      </div>
+
+      <div className="rounded-lg border border-slate-200 dark:border-slate-850 p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Library className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+          <span className="text-sm font-bold">Словарный пакет</span>
+          <span className="flex-1" />
+          <button type="button" onClick={() => setPackOn(!packOn)}
+            className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer ${packOn
+              ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+              : 'bg-slate-100 dark:bg-slate-850 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800'}`}>
+            {packOn ? 'Включён' : 'Выключен'}
+          </button>
+        </div>
+        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+          Общая лексика из открытых источников: она нужна прозе писем, где инженерного словаря не
+          хватает. Пакет младше всех — словарь проекта и инженерный словарь всегда важнее, иначе
+          «расход» посреди ведомости стал бы «consumption».
+        </p>
+
+        <div className="flex items-center gap-2 text-xs">
+          {packState === 'loading' && (
+            <><Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
+              <span className="text-slate-500 dark:text-slate-400">Читаем пакет…</span></>
+          )}
+          {packState === 'ready' && packInfo && (
+            <span className="text-slate-600 dark:text-slate-300">
+              В пакете пар: <b>{(packInfo.fromDict + packInfo.fromWiki).toLocaleString('ru-RU')}</b>
+              {' '}— из словаря {packInfo.fromDict.toLocaleString('ru-RU')},
+              из Викиданных {packInfo.fromWiki.toLocaleString('ru-RU')}
+            </span>
+          )}
+          {packState === 'none' && (
+            <span className="text-amber-700 dark:text-amber-400">
+              Файла пакета нет — программа работает своим словарём
+            </span>
+          )}
+          {packState === 'off' && (
+            <span className="text-slate-500 dark:text-slate-400">
+              Выключен: переводят только словарь проекта и инженерный словарь
+            </span>
+          )}
+        </div>
+
+        <div className="rounded-md bg-slate-50 dark:bg-slate-900 p-3">
+          <p className="text-2xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-2">
+            Откуда взяты слова
+          </p>
+          <ul className="space-y-1.5 text-2xs text-slate-500 dark:text-slate-400">
+            <li>
+              <b className="text-slate-700 dark:text-slate-300">Викиданные</b> — пары названий статей
+              Википедии: узлы, материалы, стандарты. Лицензия CC0, общественное достояние.
+            </li>
+            <li>
+              <b className="text-slate-700 dark:text-slate-300">OpenRussian</b> — существительные,
+              глаголы и прилагательные с английскими значениями. Лицензия CC BY-SA 4.0: указание
+              авторства и те же условия. Пакет лежит отдельным файлом, и лицензия данных на программу
+              не распространяется.
+            </li>
+          </ul>
+          <p className="mt-2 text-2xs text-slate-400 dark:text-slate-500">
+            Пересобрать пакет: <span className="font-mono">scripts/build-dict.ts</span>; происхождение
+            и адреса источников — <span className="font-mono">public/dict/SOURCES.md</span>.
+          </p>
+        </div>
       </div>
 
       <div className="rounded-lg border border-slate-200 dark:border-slate-850 p-4 space-y-3">

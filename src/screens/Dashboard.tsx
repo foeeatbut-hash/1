@@ -127,7 +127,7 @@ export default function Dashboard() {
   const sections = useMemo(() => {
     const uses = sectionUses();
     const list = SECTIONS
-      .filter((s) => s.path !== '/' && s.path !== '/logs' && s.path !== '/generator')
+      .filter((s) => s.path !== '/' && s.path !== '/logs')
       .filter((s) => !s.adminOnly || user?.role === 'ADMIN');
     return [...list].sort((a, b) => (uses[b.path] || 0) - (uses[a.path] || 0));
   }, [user?.role, loading, panes]);
@@ -336,7 +336,7 @@ export default function Dashboard() {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.18 }}
-      className="relative z-10 max-w-6xl mx-auto min-h-full flex flex-col gap-5 text-slate-800 dark:text-dark-text-main"
+      className="relative z-10 max-w-[1600px] mx-auto min-h-full flex flex-col gap-5 text-slate-800 dark:text-dark-text-main"
     >
       {/* ── Шапка: над чем работаем ──
            Раньше первой строкой стояло крупное «С возвращением, имя», а

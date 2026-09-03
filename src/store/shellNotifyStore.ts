@@ -23,6 +23,11 @@ export interface ShellToast {
   route?: string;
   /** Откуда: уведомление программы или личное напоминание */
   source: 'notif' | 'reminder';
+  /**
+   * Своя кнопка карточки. Заведена ради встречи: напоминание за пять минут
+   * бесполезно, если после него надо идти искать ссылку в переписке.
+   */
+  action?: { label: string; url: string };
   category?: string;
   at: number;
 }

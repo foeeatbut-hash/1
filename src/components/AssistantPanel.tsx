@@ -5,12 +5,14 @@
  * (screens/AssistantScreen). Панель нужна там, где окон нет вовсе (панельная
  * оболочка), и когда спросить надо на секунду, не заводя окна.
  *
- * На широком окне панель раздвигает содержимое, на узком ложится поверх.
- * Раньше она отжимала всегда: при окне 1024 разделу оставалось 492 точки, при
- * 820 — 268, и таблицы уходили в горизонтальную прокрутку. Отступ справа — на
- * ширину рельса, чтобы он оставался доступен.
+ * Панель всегда лежит поверх содержимого и никогда не отжимает его. Сначала
+ * она отжимала всегда (при окне 1024 разделу оставалось 492 точки, и таблицы
+ * уходили в прокрутку), потом — только на широком окне; но и тогда открытый
+ * помощник менял ширину панели задач под собой. Опора оболочки не двигается от
+ * того, что рядом что-то открыли.
  */
 import React, { useEffect, useState } from 'react';
+import { Z } from '../lib/layers';
 import { X, Maximize2 } from 'lucide-react';
 import { useAssistantStore } from '../store/assistantStore';
 import { useWindowStore } from '../store/windowStore';
@@ -40,11 +42,11 @@ export default function AssistantPanel() {
   };
 
   return (
-    <aside
+    <aside style={{ zIndex: Z.tray }}
       className={`${isOpen ? 'w-[380px] opacity-100' : 'w-0 opacity-0 pointer-events-none'} shrink-0 h-full
                   bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col
                   transition-ui duration-300 overflow-hidden absolute top-0 bottom-0 right-[var(--flux-rail-w)]
-                  z-50 shadow-2xl xl:static xl:right-auto xl:z-auto xl:shadow-none`}
+                  shadow-2xl`}
     >
       <div className="w-[380px] h-full flex flex-col shrink-0">
         {artOn

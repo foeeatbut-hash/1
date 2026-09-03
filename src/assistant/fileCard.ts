@@ -63,7 +63,7 @@ export function fileCard(f: FileRecord): FileCard {
             kind: 'navigate', route: openRoute(f),
           },
           {
-            label: 'Где используется', kind: 'where-used',
+            label: 'Карточка связей', kind: 'where-used',
             usageKind: kind === 'doc' ? 'doc' : 'file',
             usageId: kind === 'doc' ? (f.refId || f.id) : f.id,
           },

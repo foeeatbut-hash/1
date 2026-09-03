@@ -1,6 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { io, Socket } from 'socket.io-client';
-import { ENV_CONFIG, getAuthToken } from '../config/env';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { Loader2, FileText, StickyNote } from 'lucide-react';
@@ -25,6 +23,10 @@ import { useWindowTitle } from '../lib/paneTitle';
 import { docRibbon, DOC_TEXT_COLORS, DOC_MARK_COLORS } from '../lib/ribbonDoc';
 import { editorFileMenu } from '../lib/ribbonFile';
 import { useEscape } from '../lib/useEscape';
+import { type ConflictChoice } from '../lib/docConflict';
+import SaveConflictDialog from '../components/SaveConflictDialog';
+import { useDocRoom } from '../components/collab/useDocRoom';
+import { dataService } from '../services/dataService';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm } = useModalStore.getState();
@@ -85,11 +87,6 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versions, setVersions] = useState<{ id: string; version: number; comment: string; createdAt: string }[]>([]);
   const [reloadTick, setReloadTick] = useState(0);
-  // Родная панель движка: её видно только по просьбе. Настройка переживает
-  // закрытие документа — человек включил её не на один раз
-  const [nativePanel, setNativePanel] = useState(() => {
-    try { return localStorage.getItem('flux_doc_native') === '1'; } catch (_) { return false; }
-  });
   const [counts, setCounts] = useState({ words: 0, chars: 0 });
   const [dataOpen, setDataOpen] = useState(false); // панель «Данные» (умные поля)
   // ── Титул: присвоенный шаблон + реквизиты именно этого документа ──
@@ -131,10 +128,21 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   };
 
   // ── Совместное редактирование (как у таблиц): комната документа ──
-  interface Peer { socketId: string; userId: string; name: string; color: string }
-  const collabSocketRef = useRef<Socket | null>(null);
   const applyingRemoteRef = useRef(false);
-  const [peers, setPeers] = useState<Peer[]>([]);
+  /**
+   * Правил ли этот человек страницу с прошлой записи. Разницы снимков для
+   * этого мало: снимок меняется и от чужой операции, и от приведения документа
+   * к порядку при открытии, — а своя мутация окну известна точно.
+   */
+  const myEditRef = useRef(false);
+  /**
+   * Время, с которым это окно прочитало документ. Без него автосохранение
+   * текстового документа клало мою страницу поверх чужой правки молча — та же
+   * беда, от которой у таблиц давно стоит сверка (см. src/lib/docConflict.ts).
+   */
+  const baseRef = useRef<string>('');
+  const [saveConflict, setSaveConflict] = useState<{ who: string; at: string | null } | null>(null);
+  const saveConflictRef = useRef(false);
 
   const takeSnapshot = (): string => {
     try {
@@ -144,28 +152,101 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     } catch (_) { return ''; }
   };
 
-  const saveNow = async (extra?: Record<string, any>) => {
+  const saveNow = async (extra?: Record<string, any>, force = false) => {
+    // Пока столкновение не разобрано, окно молчит: иначе оно повторяло бы
+    // отказ каждые две с половиной секунды
+    if (saveConflictRef.current && !force) return;
+    // Связи с комнатой нет, а в документе кто-то есть: чужие правки до меня не
+    // доходят, и запись своей страницы целиком легла бы поверх них
+    if (roomRef.current?.hold.current && !force) return;
     const snapshot = takeSnapshot();
     if (!snapshot && !extra) return;
-    if (snapshot === lastSavedRef.current && !extra) return;
+    if (snapshot === lastSavedRef.current && !extra && !force) return;
     setSaveState('saving');
     try {
       const res = await fetch(`/api/constructor/docs/${docId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...(snapshot ? { workbook: snapshot } : {}), ...(extra || {}) }),
+        body: JSON.stringify({
+          ...(snapshot ? { workbook: snapshot } : {}),
+          ...(extra || {}),
+          baseUpdatedAt: baseRef.current,
+          ...(force ? { force: true } : {}),
+        }),
       });
       if (res.ok) {
-        if (snapshot) lastSavedRef.current = snapshot;
+        if (snapshot) { lastSavedRef.current = snapshot; myEditRef.current = false; }
         const d = await res.json();
         setDoc(d.doc);
+        baseRef.current = d.doc?.updatedAt || baseRef.current;
+        roomRef.current?.send('constructor:saved', { docId, at: baseRef.current });
+        saveConflictRef.current = false;
+        setSaveConflict(null);
         setSaveState('saved');
-      } else {
-        const d = await res.json().catch(() => ({}));
-        if (d.error) addToast(d.error, 'error');
-        setSaveState('idle');
+        return;
       }
+      const d = await res.json().catch(() => ({}));
+      if (res.status === 409 && d.conflict) {
+        // Разбор вместо записи. Текст человека цел — он на экране
+        saveConflictRef.current = true;
+        setSaveConflict({ who: d.who || '', at: d.at || null });
+        setSaveState('idle');
+        return;
+      }
+      if (d.error) addToast(d.error, 'error');
+      setSaveState('idle');
     } catch (_) { setSaveState('idle'); }
   };
+
+  /** Три выхода из столкновения — те же, что у таблиц, и с тем же смыслом */
+  const resolveSaveConflict = async (choice: ConflictChoice) => {
+    saveConflictRef.current = false;
+    setSaveConflict(null);
+    if (choice === 'theirs') {
+      lastSavedRef.current = '';
+      setLoading(true);
+      setReloadTick(t => t + 1);
+      return;
+    }
+    if (choice === 'mine') {
+      await saveNow(undefined, true);
+      addToast('Сохранено. Правка коллеги — в истории версий', 'success');
+      return;
+    }
+    try {
+      await dataService.forkDoc(docId, takeSnapshot(), `${doc?.name || 'Документ'} — моя правка`);
+      addToast('Ваша правка сохранена отдельным документом', 'success');
+      lastSavedRef.current = '';
+      setLoading(true);
+      setReloadTick(t => t + 1);
+    } catch (_) {
+      addToast('Не удалось создать копию — правка осталась на экране', 'error');
+      saveConflictRef.current = true;
+      setSaveConflict({ who: '', at: null });
+    }
+  };
+
+  /**
+   * Комната документа: кто здесь ещё, чужие правки и поведение при обрыве
+   * связи. Решение после возвращения принимает collab.afterReconnect.
+   */
+  const room = useDocRoom({
+    docId,
+    ready: !loading,
+    applyOp: (op) => {
+      applyingRemoteRef.current = true;
+      try { univerRef.current?.univerAPI?.executeCommand(op.id, op.params, { fromCollab: true } as any); }
+      catch (_) { /* операция чужого движка не подошла — своя страница цела */ }
+      finally { setTimeout(() => { applyingRemoteRef.current = false; }, 0); }
+    },
+    isDirty: () => myEditRef.current,
+    onResync: () => { lastSavedRef.current = ''; setLoading(true); setReloadTick(t => t + 1); },
+    onResolve: () => { void saveNow(); },
+    onNote: (text) => addToast(text, 'info'),
+    onPeerSaved: (at) => { baseRef.current = at; },
+  });
+  const roomRef = useRef(room);
+  roomRef.current = room;
+  const peers = room.peers;
 
   // Страховка от вылета: несохранённый снапшот уходит keepalive-запросом
   useEffect(() => {
@@ -204,6 +285,10 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         const { doc: loaded } = await res.json();
         if (disposed) return;
         setDoc(loaded);
+        baseRef.current = loaded.updatedAt || '';
+        myEditRef.current = false;      // документ прочитан заново — своих правок нет
+        saveConflictRef.current = false;
+        setSaveConflict(null);
         try { setSettings(loaded.settings ? JSON.parse(loaded.settings) : {}); } catch (_) { setSettings({}); }
 
         // Ядро документов + гиперссылки + картинки (drawing) — ближе к Ворду
@@ -231,12 +316,11 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
           presets: [
             (docsPreset as any).UniverDocsCorePreset({
               container: containerRef.current,
-              // Своя лента рисуется поверх (components/ribbon), поэтому родную
-              // панель движка прячем: две панели с разными отступами и цветами
-              // — это два разных места для одного и того же действия. Вернуть
-              // её можно кнопкой «Панель движка» во вкладке «Вид»
-              header: nativePanel,
-              toolbar: nativePanel,
+              // Своя лента рисуется поверх (components/ribbon), родной панели
+              // движка нет вовсе: две панели с разными отступами и цветами —
+              // это два разных места для одного и того же действия
+              header: false,
+              toolbar: false,
               footer: false,
               ribbonType: 'classic',
             }),
@@ -291,24 +375,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
           } catch (_) {}
         }
 
-        // ── Коллаборация: комната документа (presence + репликация операций) ──
-        const sock = io(ENV_CONFIG.socketUrl, {
-          auth: { token: getAuthToken() },
-          transports: ['websocket', 'polling'],
-          reconnectionDelay: 800, reconnectionDelayMax: 4000,
-        });
-        collabSocketRef.current = sock;
-        sock.on('connect', () => sock.emit('constructor:join', { docId }));
-        sock.on('constructor:presence', ({ peers: roster }: any) => {
-          setPeers((roster || []).filter((pp: any) => pp.socketId !== sock.id));
-        });
-        sock.on('constructor:op', ({ op }: any) => {
-          if (!op?.id) return;
-          applyingRemoteRef.current = true;
-          try { univerAPI.executeCommand(op.id, op.params, { fromCollab: true } as any); }
-          catch (_) {}
-          finally { setTimeout(() => { applyingRemoteRef.current = false; }, 0); }
-        });
+        // Мои мутации → остальным участникам комнаты (useDocRoom)
         const cmdDisposer = univerAPI.onCommandExecuted((command: any, options: any) => {
           // Линейка следит за курсором, правкой и масштабом — иначе она
           // показывала бы отступы того абзаца, где человек стоял раньше
@@ -317,7 +384,8 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
           if (command?.type !== 2) return; // MUTATION
           const cmdId = String(command.id || '');
           if (!cmdId.startsWith('doc.mutation.')) return;
-          collabSocketRef.current?.emit('constructor:op', { docId, op: { id: cmdId, params: command.params } });
+          myEditRef.current = true;
+          roomRef.current.send('constructor:op', { docId, op: { id: cmdId, params: command.params } });
         });
         (univerRef.current as any).cmdDisposer = cmdDisposer;
 
@@ -336,11 +404,6 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
       disposed = true;
       clearInterval(timer);
       try { (univerRef.current as any)?.cmdDisposer?.dispose?.(); } catch (_) {}
-      try {
-        collabSocketRef.current?.emit('constructor:leave', { docId });
-        collabSocketRef.current?.disconnect();
-      } catch (_) {}
-      collabSocketRef.current = null;
       // Движок держит свой корень React. Снести его прямо здесь нельзя: уборка
       // эффекта идёт внутри отрисовки, и React ругается «нельзя размонтировать
       // корень во время отрисовки». Отпускаем в следующий тик — к этому моменту
@@ -717,22 +780,6 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     saveNow();
   };
 
-  /**
-   * Родная панель движка.
-   *
-   * Показать её можно только пересозданием редактора: состав рабочей области
-   * движок читает один раз при запуске. Поэтому сначала записываем документ —
-   * иначе несохранённая правка ушла бы вместе со старым экземпляром.
-   */
-  const toggleNativePanel = async () => {
-    const next = !nativePanel;
-    await saveNow();
-    try { localStorage.setItem('flux_doc_native', next ? '1' : '0'); } catch (_) {}
-    setNativePanel(next);
-    setLoading(true);
-    setReloadTick(t => t + 1);
-  };
-
   const STYLE_CMD: Record<string, string> = {
     normal: 'doc.command.normal-text-heading',
     title: 'doc.command.title',
@@ -812,7 +859,6 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         return exec('doc.command.set-zoom-ratio', { zoomRatio: next / 100 });
       }
       case 'doc.zoomReset': { setZoom(100); return exec('doc.command.set-zoom-ratio', { zoomRatio: 1 }); }
-      case 'doc.native': return toggleNativePanel();
       default: return undefined;
     }
   };
@@ -825,7 +871,6 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     'doc.color': textColor,
     'doc.mark': markColor,
     'doc.ruler': showRuler,
-    'doc.native': nativePanel,
     'doc.title': !!settings.titleTemplateId,
     'doc.fields': dataOpen,
     'doc.versions': versionsOpen,
@@ -896,7 +941,8 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
           scope: isAuthor ? (doc?.scope === 'PERSONAL' ? 'PERSONAL' : 'SHARED') : undefined,
           onScope: isAuthor ? (v) => saveNow({ scope: v }) : undefined,
           peers,
-          saveState,
+          link: room.note,
+          saveState: saveConflict ? 'conflict' : saveState,
           menu: [
             { label: 'Открыть в Проводнике', hint: 'Зеркало документа в общей папке', run: () => window.location.assign('#/explorer') },
             { label: 'История версий', hint: 'Снимки и возврат к любому', run: () => { setVersionsOpen(true); loadVersions(); } },
@@ -961,6 +1007,15 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
           userName={user?.name || user?.symbol || 'Пользователь'}
           onInsert={insertField}
           onClose={() => setDataOpen(false)}
+        />
+      )}
+
+      {/* Документ ушёл вперёд, пока его правили: разбор, а не тихая запись */}
+      {saveConflict && (
+        <SaveConflictDialog
+          info={saveConflict}
+          meName={user?.name || ''}
+          onChoose={resolveSaveConflict}
         />
       )}
 

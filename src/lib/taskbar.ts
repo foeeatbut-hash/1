@@ -36,6 +36,10 @@ export interface TaskbarButton {
 
 export interface TaskbarView {
   buttons: TaskbarButton[];
+  /** Те, что помещаются в полосу */
+  visible: TaskbarButton[];
+  /** Хвост, ушедший под кнопку «ещё»: он не потерян, он свёрнут */
+  hidden: TaskbarButton[];
   /** Показывать ли подписи: после порога от кнопки остаётся значок */
   labels: boolean;
   /** Панель предлагает прибраться */
@@ -52,9 +56,11 @@ export const LABELS_UNTIL = 8;
 export const TIDY_FROM = 12;
 
 /** Значок, отступы, счётчик и промежуток до соседа — кнопка без подписи */
-const BTN_BASE = 52;
+const BTN_BASE = 44;
 /** Ширина буквы подписи: замерено на живой панели, с запасом вверх */
-const CHAR_W = 9;
+const CHAR_W = 8;
+/** Кнопка «ещё» с числом свёрнутых: под неё место резервируется заранее */
+const MORE_W = 44;
 
 /**
  * Влезут ли подписи в полосу кнопок.
@@ -71,6 +77,31 @@ const CHAR_W = 9;
 export function labelsFit(titles: string[], width: number): boolean {
   if (!width || !titles.length) return true; // нечего мерить — не мигаем подписями
   return titles.reduce((sum, t) => sum + BTN_BASE + t.length * CHAR_W, 0) <= width;
+}
+
+/**
+ * Сколько кнопок помещается в полосу.
+ *
+ * Раньше полоса просто прокручивалась, и на краю панели вырастал скроллбар во
+ * всю её высоту — та самая полоса, про которую спрашивают «откуда она». Хуже
+ * скроллбара было другое: без него кнопки обрезались по краю и исчезали без
+ * следа. Теперь хвост честно сворачивается под кнопку «ещё» — место под неё
+ * резервируется заранее, иначе она сама окажется за краем.
+ */
+export function fitButtons(titles: string[], width: number, labels: boolean): number {
+  if (!width || !titles.length) return titles.length;
+  const widthOf = (t: string) => BTN_BASE + (labels ? t.length * CHAR_W : 0);
+  let sum = 0;
+  for (let i = 0; i < titles.length; i++) {
+    sum += widthOf(titles[i]);
+    if (sum <= width) continue;
+    // Не влезла i-я: отступаем назад, пока не освободится место под «ещё»
+    let n = i;
+    let rest = sum - widthOf(titles[i]);
+    while (n > 0 && rest + MORE_W > width) { n--; rest -= widthOf(titles[n]); }
+    return n;
+  }
+  return titles.length;
 }
 
 /**
@@ -137,9 +168,15 @@ export function buildTaskbar(
     active: s.path === opts.activePath,
   }));
 
+  const labels = buttons.length <= LABELS_UNTIL
+    && labelsFit(buttons.map((b) => b.title), opts.width || 0);
+  const shown = fitButtons(buttons.map((b) => b.title), opts.width || 0, labels);
+
   return {
     buttons,
-    labels: buttons.length <= LABELS_UNTIL && labelsFit(buttons.map((b) => b.title), opts.width || 0),
+    visible: buttons.slice(0, shown),
+    hidden: buttons.slice(shown),
+    labels,
     tidy: opts.open.length >= TIDY_FROM,
   };
 }

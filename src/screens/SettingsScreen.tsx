@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
 import SectionShell from '../components/settings/SectionShell';
+import LogsSection from '../components/settings/LogsSection';
+import BrowserSection from '../components/settings/BrowserSection';
 import GeneralSection from '../components/settings/GeneralSection';
 import ToggleRow from '../components/settings/ToggleRow';
 import { useToastStore } from '../store/toastStore';
@@ -16,8 +18,7 @@ import {
   Settings, Sun, Moon, Database, Terminal, Bell, Briefcase, Fan, DownloadCloud,
   Plus, Trash2, ChevronUp, ChevronDown, RotateCcw, Loader2, Check,
   Tag, MousePointerClick, Link2, Archive, PlayCircle, FolderOpen, FileSpreadsheet, X,
-  ShieldCheck, Lock, Pencil, Sigma, Languages
-} from 'lucide-react';
+  ShieldCheck, Lock, Pencil, Sigma, Languages, Globe } from 'lucide-react';
 import RoleIcon from '../components/RoleIcon';
 import FormulaManager from '../components/FormulaManager';
 import {
@@ -42,7 +43,7 @@ const { openConfirm, openAlert, openPrompt } = useModalStore.getState();
 // Windows/iOS), содержимое выбранной категории справа. Сюда перенесены
 // настройки из профиля и из отдельных разделов.
 
-type SectionId = 'general' | 'roles' | 'management' | 'docflow' | 'formulas' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'database' | 'backup' | 'logs' | 'updates';
+type SectionId = 'general' | 'roles' | 'management' | 'docflow' | 'formulas' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'updates';
 
 // Настройки делятся ровно так же, как остальные данные программы (см.
 // src/lib/projectScope.ts): часть общая для всей программы, часть — своя у
@@ -50,17 +51,22 @@ type SectionId = 'general' | 'roles' | 'management' | 'docflow' | 'formulas' | '
 // «Формулы документа», настроенные вчера, сегодня в другом проекте пустые.
 type SettingScope = 'global' | 'project';
 
-const SECTIONS: Array<{ id: SectionId; label: string; icon: any; desc: string; scope: SettingScope }> = [
+const SECTIONS: Array<{ id: SectionId; label: string; icon: any; desc: string; scope: SettingScope; topOnly?: boolean }> = [
   { id: 'general', label: 'Общие', icon: Settings, desc: 'Тема и плотность', scope: 'global' },
-  { id: 'roles', label: 'Роли сотрудников', icon: ShieldCheck, desc: 'Кто кем работает', scope: 'global' },
+  // Роли и доступ — дело одного главного администратора. Остальные не видят
+  // этот лист вовсе: серая кнопка рассказывает о существовании двери, в
+  // которую всё равно не войти, а отказ приходил уже от сервера — то есть
+  // человек нажимал и получал ошибку
+  { id: 'roles', label: 'Роли сотрудников', icon: ShieldCheck, desc: 'Кто кем работает', scope: 'global', topOnly: true },
   { id: 'management', label: 'Менеджмент', icon: Briefcase, desc: 'Этапы закупки', scope: 'global' },
   { id: 'docflow', label: 'Документооборот', icon: FileSpreadsheet, desc: 'Стандарты ВДР', scope: 'global' },
   { id: 'equipment', label: 'Оборудование', icon: Fan, desc: 'Категории оборудования', scope: 'global' },
   // «Теги» здесь — про способ соединять теги на холсте, а не про сами теги:
   // настройка одна на программу. Сами теги живут в проекте.
-  { id: 'tags', label: 'Теги', icon: Tag, desc: 'Холст связей', scope: 'global' },
+  { id: 'tags', label: 'Теги', icon: Tag, desc: 'Схема связей', scope: 'global' },
   { id: 'notifications', label: 'Уведомления', icon: Bell, desc: 'Какие события показывать', scope: 'global' },
   { id: 'translate', label: 'Переводчик', icon: Languages, desc: 'Чем переводим', scope: 'global' },
+  { id: 'browser', label: 'Браузер', icon: Globe, desc: 'Куда разрешено ходить', scope: 'global' },
   { id: 'database', label: 'База данных', icon: Database, desc: 'На этом компьютере или на сервере', scope: 'global' },
   { id: 'backup', label: 'Резервные копии', icon: Archive, desc: 'Ежедневный архив данных', scope: 'global' },
   { id: 'logs', label: 'Crash-логи', icon: Terminal, desc: 'Журналы сбоев', scope: 'global' },
@@ -98,6 +104,16 @@ export default function SettingsScreen() {
   };
 
   const isAdmin = user?.role === 'ADMIN';
+  // Главный администратор — уровень 1 (lib/roles). Роли и доступ доступны
+  // только ему, и список настроек это учитывает, а не показывает всем
+  const topAdmin = isTopAdmin(user);
+
+  // Раздел могли открыть по адресу — тот, кому он не положен, попадает
+  // в «Общие», а не в пустую страницу с отказом
+  React.useEffect(() => {
+    const def = SECTIONS.find(s => s.id === section);
+    if (def?.topOnly && !topAdmin) setSection('general');
+  }, [section, topAdmin]);
 
   return (
     <motion.div
@@ -124,7 +140,7 @@ export default function SettingsScreen() {
             <div className="hidden @[700px]:block px-3 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 select-none">{g.label}</div>
             <div className="@[700px]:hidden mx-2 mb-1 border-t border-slate-200 dark:border-slate-800" />
           </div>
-          {SECTIONS.filter(s => s.scope === g.scope).map(s => {
+          {SECTIONS.filter(s => s.scope === g.scope && (!s.topOnly || topAdmin)).map(s => {
             const Icon = s.icon;
             const active = section === s.id;
             return (
@@ -174,9 +190,14 @@ export default function SettingsScreen() {
             <TranslateEngineSection />
           </SectionShell>
         )}
+        {section === 'browser' && (
+          <SectionShell title="Браузер" desc="Отделён от программы; список адресов ведёт администратор.">
+            <BrowserSection />
+          </SectionShell>
+        )}
         {section === 'database' && <DatabaseSection addToast={addToast} />}
         {section === 'backup' && <BackupSection isAdmin={isAdmin} addToast={addToast} />}
-        {section === 'logs' && <CrashLogsSection addLog={addLog} />}
+        {section === 'logs' && <LogsSection addLog={addLog} />}
         {section === 'updates' && (
           <SectionShell title="Обновления" desc="Текущая версия программы и установка обновлений.">
             <div className="max-w-md"><UpdaterWidget /></div>
@@ -781,7 +802,7 @@ function LinkModeChooser({ value, onChange, clickDesc, dragDesc }: {
   );
 }
 
-// ── Раздел «Теги»: подразделы «Холст» и «Дерево» ────────────────────────────
+// ── Раздел «Теги»: подразделы «Схема» и «Дерево» ─────────────────────────────
 function TagsSection({ addToast }: any) {
   const [canvasMode, setCanvasMode] = useState<'click' | 'drag'>('click');
   const [treeMode, setTreeMode] = useState<'click' | 'drag'>('click');
@@ -809,7 +830,7 @@ function TagsSection({ addToast }: any) {
     <SectionShell title="Теги" desc="Настройки раздела «Теги»: способ создания связей на холсте и в дереве.">
       <div className="space-y-5">
         <div className="p-4 rounded-xl border border-slate-150 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Холст · подключение связей</div>
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Схема · подключение связей</div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Как соединять теги на холсте.</p>
           <LinkModeChooser
             value={canvasMode}
@@ -994,62 +1015,6 @@ function DatabaseSection({ addToast }: any) {
             <p className="text-xs text-slate-500 dark:text-slate-400">Достраивает недостающие таблицы и колонки после обновления программы.</p>
           </div>
         )}
-      </div>
-    </SectionShell>
-  );
-}
-
-// ── Crash-логи ─────────────────────────────────────────────────────────────────
-function CrashLogsSection({ addLog }: any) {
-  const [crashLogDir, setCrashLogDir] = useState('');
-
-  useEffect(() => {
-    fetch(`${ENV_CONFIG.apiUrl}/db/config`).then(r => r.json()).then((config: any) => {
-      setCrashLogDir(config.crash_log_dir || '');
-    }).catch(() => {});
-  }, []);
-
-  const save = async (dir: string) => {
-    try {
-      const resp = await fetch(`${ENV_CONFIG.apiUrl}/config/logs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ crash_log_dir: dir })
-      });
-      const data = await resp.json();
-      if (data.success) {
-        setCrashLogDir(data.crash_log_dir || '');
-        addLog('INFO', 'Система', `Папка для crash-логов изменена: ${data.crash_log_dir || 'по умолчанию (AppData/pdm-app/logs)'}`);
-      }
-    } catch (err: any) {
-      addLog('ERROR', 'Система', `Не удалось сохранить папку crash-логов: ${err.message}`);
-    }
-  };
-
-  const pickDir = async () => {
-    const win = window as any;
-    if (!win.electron?.ipcRenderer?.invoke) {
-      void openAlert('Доступно только в программе', 'Выбрать папку можно в установленном приложении Flux — в браузере эта возможность недоступна.');
-      return;
-    }
-    try {
-      const dirPath = await win.electron.ipcRenderer.invoke('dialog:openDirectory');
-      if (dirPath) await save(String(dirPath));
-    } catch (err: any) {
-      addLog('ERROR', 'Система', `Ошибка выбора папки: ${err.message}`);
-    }
-  };
-
-  return (
-    <SectionShell title="Crash-логи" desc="Папка, куда пишутся аварийные журналы.">
-      <div className="max-w-lg space-y-2">
-        <p className="font-mono text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 p-2.5 border border-slate-200 dark:border-slate-800 rounded-lg select-all break-all">
-          {crashLogDir || 'AppData/pdm-app/logs (по умолчанию)'}
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" onClick={pickDir} className="py-2 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">Выбрать папку…</button>
-          <button type="button" onClick={() => save('')} className="py-2 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">По умолчанию</button>
-        </div>
       </div>
     </SectionShell>
   );
