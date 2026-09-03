@@ -9,6 +9,7 @@
  * src/lib/startMenu.ts — там же они и проверяются.
  */
 import React from 'react';
+import { useOverlay } from '../store/overlayStore';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Search, Settings, LogOut, Sun, Moon, ArrowRight, Pin, PinOff, FolderOpen } from 'lucide-react';
@@ -24,6 +25,9 @@ import ContextMenu, { MenuItem } from './ContextMenu';
 import { can } from '../lib/permissions';
 
 export default function StartMenu({ onClose }: { onClose: () => void }) {
+  // Пока это открыто, страница браузера уступает место: родной слой Chromium
+  // выше любой разметки, и без этого панель оказалась бы под страницей
+  useOverlay(true);
   const user = useStore((s) => s.user);
   const setUser = useStore((s) => s.setUser);
   const theme = useStore((s) => s.theme);

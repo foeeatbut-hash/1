@@ -18,6 +18,7 @@
  * не падает, а тихо отрезает кусок экрана.
  */
 import React from 'react';
+import { useOverlay } from '../store/overlayStore';
 import { Z } from '../lib/layers';
 import { useAssistantStore } from '../store/assistantStore';
 import { useNotificationStore } from '../store/notificationStore';
@@ -59,6 +60,9 @@ export default function RightDock() {
   const [tab, setTab] = React.useState<PanelId | null>(null);
 
   const plan = dockPlan(opened, width, split);
+  // Пока колонка открыта, страница браузера уступает место: родной слой
+  // Chromium выше любой разметки, и без этого панель оказалась бы под страницей
+  useOverlay(plan.order.length > 0);
   const shown = plan.tabs ? [tab && plan.order.includes(tab) ? tab : plan.active].filter(Boolean) as PanelId[] : plan.order;
 
   /** Тянем разделитель: считаем долю от высоты колонки, а не от окна */

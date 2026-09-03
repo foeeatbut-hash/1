@@ -11,6 +11,7 @@
  * проверяется. Здесь только ввод, список и исполнение выбранной строки.
  */
 import React from 'react';
+import { useOverlay } from '../store/overlayStore';
 import { useNavigate } from 'react-router-dom';
 import {
   Search, CornerDownLeft, ArrowUp, ArrowDown, ShieldCheck, History, BookOpen,
@@ -60,6 +61,9 @@ function ItemIcon({ icon }: { icon: string }) {
 
 export default function CommandBar() {
   const open = useInsightStore((s) => s.paletteOpen);
+  // Пока это открыто, страница браузера уступает место: родной слой Chromium
+  // выше любой разметки, и без этого панель оказалась бы под страницей
+  useOverlay(open);
   const close = useInsightStore((s) => s.closePalette);
   const toggle = useInsightStore((s) => s.togglePalette);
   const openCheck = useInsightStore((s) => s.openCheck);

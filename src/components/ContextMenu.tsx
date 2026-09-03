@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useOverlay } from '../store/overlayStore';
 import { createPortal } from 'react-dom';
 import { Check, ChevronRight } from 'lucide-react';
 import { Z } from '../lib/layers';
@@ -96,6 +97,9 @@ function Rows({ items, onClose, depth }: { items: MenuItem[]; onClose: () => voi
 export default function ContextMenu({ x, y, items, onClose }: {
   x: number; y: number; items: MenuItem[]; onClose: () => void;
 }) {
+  // Пока это открыто, страница браузера уступает место: родной слой Chromium
+  // выше любой разметки, и без этого панель оказалась бы под страницей
+  useOverlay(true);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

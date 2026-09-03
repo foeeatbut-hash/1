@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useOverlay } from '../store/overlayStore';
 import { useModalStore } from '../store/modalStore';
 import { AnimatePresence, motion } from 'motion/react';
 import { AlertCircle, FileQuestion, HelpCircle, X } from 'lucide-react';
 
 export default function ModalProvider() {
   const { currentModal, closeModal } = useModalStore();
+  // Пока это открыто, страница браузера уступает место: родной слой Chromium
+  // выше любой разметки, и без этого панель оказалась бы под страницей
+  useOverlay(!!currentModal);
   const [inputValue, setInputValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
