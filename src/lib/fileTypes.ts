@@ -26,7 +26,7 @@ export interface FileLike {
 
 export interface FileApp {
   id: string;
-  /** Как называется в меню: «Открыть в Чертеже» */
+  /** Как называется в меню: «Открыть в Просмотре» */
   name: string;
   /** Раздел-программа: по нему находится значок и заголовок окна */
   path: string;
@@ -44,7 +44,7 @@ export const FILE_APPS: Record<string, FileApp> = {
     href: (f) => `/constructor?doc=${q(f.refId || f.id)}`,
   },
   pdf: {
-    id: 'pdf', name: 'Чертёж', path: '/pdf',
+    id: 'pdf', name: 'Просмотр', path: '/pdf',
     href: (f) => `/pdf?file=${q(f.id)}`,
   },
   // Офисный файл, ещё не ставший документом: Конструктор разберёт его при
@@ -64,7 +64,7 @@ export const FILE_APPS: Record<string, FileApp> = {
   },
 };
 
-/** Чертёж узнаём и по типу из базы, и по имени: старые записи типа не имеют */
+/** ПДФ узнаём и по типу из базы, и по имени: старые записи типа не имеют */
 export const isPdf = (f: FileLike): boolean =>
   f.type === 'PDF' || /\.pdf$/i.test(f.name || '');
 

@@ -21,6 +21,7 @@ import { create } from 'zustand';
 import { dataService } from '../services/dataService';
 import { arrange, layout, place, withApps, type Cell, type DeskItem, type DeskKind, type SortBy } from '../lib/desktop';
 import { deskMetric, DESK_DEFAULT, type DeskScale } from '../lib/metrics';
+import { moveInList } from '../lib/startMenu';
 import {
   loadGroups, saveGroups, fold, unfold, withoutItems, rename as renameGroupIn,
   hiddenIds, groupIdOf, type DeskGroup,
@@ -84,6 +85,8 @@ interface DesktopState {
   arrangeBy: (by: SortBy, area: { w: number; h: number }) => void;
   pinApp: (path: string) => void;
   unpinApp: (path: string) => void;
+  /** Переставить закреплённую программу: перетаскивание плиток в Пуске */
+  moveApp: (from: number, to: number) => void;
   /**
    * Папки на столе — как в системе: значок на значок и они сложились. Список
    * личный: это способ разложить свой стол, а не свойство проекта.
@@ -202,6 +205,13 @@ export const useDesktopStore = create<DesktopState>((set, get) => ({
 
   unpinApp: (path) => {
     const apps = get().apps.filter((p) => p !== path);
+    write(APPS_KEY, apps);
+    set({ apps });
+  },
+
+  moveApp: (from, to) => {
+    const apps = moveInList(get().apps, from, to);
+    if (apps === get().apps) return;
     write(APPS_KEY, apps);
     set({ apps });
   },

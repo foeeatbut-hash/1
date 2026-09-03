@@ -7,6 +7,7 @@
  */
 import {
   groupSections, countFound, allowed, matches, toRu, visibleRecent, RECENT_SHOWN,
+  pinnedTiles, moveInList, stepFocus, OFFICE_PATHS, OFFICE_TITLE,
   type StartSource,
 } from '../src/lib/startMenu';
 import { SECTIONS } from '../src/workspace/sections';
@@ -76,6 +77,57 @@ console.log('Недавние');
   const many = Array.from({ length: RECENT_SHOWN + 4 }, () => '/mail');
   check(`показываем не больше ${RECENT_SHOWN}`, visibleRecent(many, S, false).length <= RECENT_SHOWN);
   check('пустой список не ломает', visibleRecent([], S, false).length === 0);
+}
+
+console.log('Флукс Офис отдельной семьёй');
+{
+  const office = groupSections(SECTIONS as any, false).find((g) => g.title === OFFICE_TITLE);
+  check('группа семьи есть', !!office, groupSections(SECTIONS as any, false).map((g) => g.title));
+  check('порядок внутри семьи задан списком, а не объявлением разделов',
+    (office?.items || []).map((i) => i.path).join(',')
+      === OFFICE_PATHS.filter((p) => (office?.items || []).some((i) => i.path === p)).join(','),
+    office?.items.map((i) => i.path));
+  const all = groupSections(SECTIONS as any, true);
+  const seen = all.flatMap((g) => g.items.map((i) => i.path));
+  check('ни один раздел не показан дважды', new Set(seen).size === seen.length,
+    seen.filter((p, i) => seen.indexOf(p) !== i));
+  check('редакторы ушли из «Проекта» и «Общего»',
+    !all.some((g) => g.title !== OFFICE_TITLE && g.items.some((i) => OFFICE_PATHS.includes(i.path))));
+}
+
+console.log('Закреплённое');
+{
+  const pin = pinnedTiles(['/mail', '/users', '/нет', '/mail'], S, false);
+  check('чужое по правам не закрепляется', !pin.some((s) => s.path === '/users'), pin.map((s) => s.path));
+  check('несуществующее выпало', !pin.some((s) => s.path === '/нет'));
+  check('повтор не двоится', pin.length === 1, pin.map((s) => s.path));
+  check('администратору его раздел виден', pinnedTiles(['/users'], S, true).length === 1);
+}
+
+console.log('Перестановка плиток');
+{
+  check('вперёд', moveInList(['a', 'b', 'c'], 0, 2).join('') === 'bca');
+  check('назад', moveInList(['a', 'b', 'c'], 2, 0).join('') === 'cab');
+  check('на месте — список тот же', moveInList(['a', 'b'], 1, 1).join('') === 'ab');
+  // Промах мимо списка не должен ни ронять, ни терять плитку
+  check('за пределы — ничего не потеряно', moveInList(['a', 'b'], 0, 5).join('') === 'ab');
+  check('отрицательный указатель безопасен', moveInList(['a', 'b'], -1, 0).join('') === 'ab');
+}
+
+console.log('Клавиатура');
+{
+  // Девять плиток в три столбца
+  check('первое нажатие ставит выделение в начало', stepFocus(9, -1, 'ArrowDown', 3) === 0);
+  check('вправо', stepFocus(9, 0, 'ArrowRight', 3) === 1);
+  check('вниз через строку', stepFocus(9, 0, 'ArrowDown', 3) === 3);
+  check('вверх', stepFocus(9, 4, 'ArrowUp', 3) === 1);
+  // Заворачивать за край нельзя: человек ждёт, что выделение останется на месте
+  check('вниз с последней строки остаётся на месте', stepFocus(9, 7, 'ArrowDown', 3) === 7);
+  check('вверх с первой строки остаётся на месте', stepFocus(9, 1, 'ArrowUp', 3) === 1);
+  check('вправо за конец остаётся на месте', stepFocus(9, 8, 'ArrowRight', 3) === 8);
+  check('пустой список выделять нечего', stepFocus(0, -1, 'ArrowDown', 3) === -1);
+  check('чужая клавиша ничего не двигает', stepFocus(9, 4, 'a', 3) === 4);
+  check('нулевое число столбцов не роняет', stepFocus(9, 0, 'ArrowDown', 0) === 1);
 }
 
 console.log('Настоящий реестр');

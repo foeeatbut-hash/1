@@ -29,6 +29,8 @@ export const CHIP_H = 16;
 export const RUN_MARK = 2;
 /** Меню «Пуск»: ширина и значок плитки */
 export const START_W = 520;
+/** Плитки Пуска — сеткой 4×N, как в системе: по ней же ходят стрелки */
+export const START_COLS = 4;
 export const TILE_BOX = 32;
 export const TILE_ICON = 20;
 

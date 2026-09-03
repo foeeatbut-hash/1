@@ -90,9 +90,9 @@ export const SECTIONS: SectionDef[] = [
   { path: '/management', title: 'Менеджмент', icon: Briefcase, scope: 'project', scroll: 'auto', pad: true, Component: ProcurementManagement },
   { path: '/explorer', title: 'Проводник', icon: FolderOpen, scope: 'global', scroll: 'auto', pad: true, pinned: true, multi: true, Component: Explorer },
   { path: '/constructor', title: 'Конструктор', icon: Table2, scope: 'project', scroll: 'auto', pad: true, pinned: true, multi: true, Component: ConstructorScreen },
-  // Чертёж открывается из Проводника и живёт своим окном: у него своя лента и
+  // «Просмотр» открывается из Проводника и живёт своим окном: у него своя лента и
   // свои пометки, и возвращаться из него надо туда, откуда пришли
-  { path: '/pdf', title: 'Чертёж', icon: FileText, scope: 'project', scroll: 'fixed', pad: false, multi: true, Component: PdfEditor },
+  { path: '/pdf', title: 'Просмотр', icon: FileText, scope: 'project', scroll: 'fixed', pad: false, multi: true, Component: PdfEditor },
   // Помощник — такая же программа: окно, кнопка на панели задач, место на
   // столе. Спросить на секунду по-прежнему можно панелью (Ctrl+K), но
   // разговаривать про открытую ведомость удобнее рядом с ней, а не поверх

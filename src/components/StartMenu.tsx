@@ -12,14 +12,14 @@ import React from 'react';
 import { useOverlay } from '../store/overlayStore';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Search, Settings, LogOut, Sun, Moon, ArrowRight, Pin, PinOff, FolderOpen } from 'lucide-react';
+import { Search, Settings, LogOut, Sun, Moon, ArrowRight, Pin, PinOff, FolderOpen, Power, ChevronDown, ChevronRight } from 'lucide-react';
 import { SECTIONS } from '../workspace/sections';
 import { useStore } from '../store/store';
 import { rememberSectionUse, recentSections } from '../store/workspaceStore';
 import { useDesktopStore } from '../store/desktopStore';
 import { useInsightStore } from '../store/insightStore';
-import { groupSections, countFound, visibleRecent } from '../lib/startMenu';
-import { BAR_H, START_W, TILE_BOX, TILE_ICON } from '../lib/metrics';
+import { groupSections, countFound, visibleRecent, pinnedTiles, stepFocus } from '../lib/startMenu';
+import { BAR_H, START_W, START_COLS, TILE_BOX, TILE_ICON } from '../lib/metrics';
 import { Z } from '../lib/layers';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import { can } from '../lib/permissions';
@@ -37,11 +37,18 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
   const apps = useDesktopStore((s) => s.apps);
   const pinApp = useDesktopStore((s) => s.pinApp);
   const unpinApp = useDesktopStore((s) => s.unpinApp);
+  const moveApp = useDesktopStore((s) => s.moveApp);
   const bar = useDesktopStore((s) => s.bar);
   const pinBar = useDesktopStore((s) => s.pinBar);
   const unpinBar = useDesktopStore((s) => s.unpinBar);
   const [q, setQ] = React.useState('');
   const [menu, setMenu] = React.useState<{ x: number; y: number; path: string } | null>(null);
+  /** Все программы списком: сначала закреплённое, полный список — по кнопке */
+  const [allOpen, setAllOpen] = React.useState(false);
+  /** Клавиатура: какая плитка сейчас под выделением */
+  const [focus, setFocus] = React.useState(-1);
+  /** Откуда тянут закреплённую плитку — для перестановки внутри Пуска */
+  const dragFrom = React.useRef(-1);
   const boxRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
   /** Пока значок тянут из меню, закрывать его нельзя: ронять будет некуда */
@@ -78,6 +85,26 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
     () => (q ? [] : visibleRecent(recentSections(), SECTIONS as any, isAdmin)),
     [q, isAdmin],
   );
+  // Свой набор человека идёт первым: искать его в общем списке каждый раз незачем
+  const pinnedList = React.useMemo(
+    () => (q ? [] : pinnedTiles(apps, SECTIONS as any, isAdmin, (f) => can(user as any, f))),
+    [apps, isAdmin, q, user],
+  );
+  // Полный список раскрыт сам, если закреплять человеку пока нечего или он ищет
+  const showAll = allOpen || !!q || pinnedList.length === 0;
+
+  /**
+   * Плоский порядок плиток — по нему ходят стрелки.
+   *
+   * Считается ровно из того, что сейчас на экране: список, посчитанный «как
+   * должно быть», однажды разойдётся с нарисованным, и Enter откроет не то,
+   * что подсвечено.
+   */
+  const order = React.useMemo(
+    () => [...pinnedList.map((s) => s.path), ...(showAll ? groups.flatMap((g) => g.items.map((i) => i.path)) : [])],
+    [pinnedList, groups, showAll],
+  );
+  React.useEffect(() => { setFocus(-1); }, [q, allOpen]);
 
   // Открыть — только перейти по адресу. Окно или вкладку панели заводит сама
   // оболочка: она одна знает, в каком виде сейчас показываются разделы, и
@@ -100,31 +127,45 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
       : { label: 'Закрепить на панели задач', icon: <Pin className="w-3.5 h-3.5" />, onClick: () => pinBar(menu.path) },
   ] : [];
 
-  const Tile = ({ path, title }: { path: string; title: string }) => {
+  const Tile = ({ path, title, at }: { path: string; title: string; at?: number }) => {
     const Icon = iconOf(path) as any;
+    const active = order[focus] === path;
     return (
       <button
         type="button"
         onClick={() => go(path)}
+        onMouseEnter={() => setFocus(order.indexOf(path))}
         /* Программу тянут отсюда на стол и на панель задач — это и есть
            «закрепить». Пуск при этом не закрывается по первому нажатию: пока
            тянут, меню обязано остаться, иначе значок ронять некуда */
         draggable
         onDragStart={(e) => {
-          e.dataTransfer.effectAllowed = 'copy';
+          e.dataTransfer.effectAllowed = 'copyMove';
           e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'app_pin', path }));
           dragging.current = true;
+          dragFrom.current = at ?? -1;
         }}
-        onDragEnd={() => { dragging.current = false; onClose(); }}
+        /* Закреплённые меняются местами перетаскиванием — как плитки в системе.
+           Тянуть на стол и на панель задач это не мешает: там ронять во что,
+           а здесь роняют В плитку */
+        onDragOver={at === undefined || dragFrom.current < 0 ? undefined : (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+        onDrop={at === undefined ? undefined : (e) => {
+          if (dragFrom.current < 0) return;
+          e.preventDefault(); e.stopPropagation();
+          moveApp(dragFrom.current, at);
+          dragFrom.current = -1;
+          dragging.current = false;
+        }}
+        onDragEnd={() => { dragging.current = false; if (dragFrom.current >= 0) { dragFrom.current = -1; return; } onClose(); }}
         onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, path }); }}
         /* Та же метка, что у пункта меню и кнопки на панели задач: демонстрация
            показывает раздел там, где он есть в этой оболочке, а не там, где его
            когда-то нарисовали */
         data-tour={`nav-${path}`}
         title={pinned(path) ? `${title} — на рабочем столе` : `${title} — потяните на стол или панель, чтобы закрепить`}
-        className="flex flex-col items-center gap-2 p-3 rounded-xl cursor-pointer min-w-0
+        className={`flex flex-col items-center gap-2 p-3 rounded-xl cursor-pointer min-w-0
                    text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-850
-                   transition-colors"
+                   transition-colors ${active ? 'bg-slate-100 dark:bg-slate-850 ring-1 ring-emerald-500' : ''}`}
       >
         <span
           style={{ width: TILE_BOX, height: TILE_BOX }}
@@ -160,9 +201,19 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
+            if (e.key.startsWith('Arrow')) {
+              // Стрелки водят по плиткам, не по тексту в поле: искать буквой
+              // человек уже закончил, если потянулся к стрелке
+              e.preventDefault();
+              setFocus((i) => stepFocus(order.length, i, e.key, START_COLS));
+              return;
+            }
+            if (e.key !== 'Enter') return;
+            // Подсвеченная плитка важнее строки поиска: человек её выбрал
+            if (focus >= 0 && order[focus]) { go(order[focus]); return; }
             // Enter с запросом уводит в общий поиск: там ищется не только по
             // названиям разделов, но и по тегам, оборудованию и письмам
-            if (e.key === 'Enter' && q.trim()) { onClose(); togglePalette(); }
+            if (q.trim()) { onClose(); togglePalette(); }
           }}
           placeholder="Найти раздел, а по Enter — искать везде"
           className="flex-1 min-w-0 bg-transparent outline-none text-sm
@@ -209,10 +260,34 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
             </div>
           </section>
         )}
-        {groups.map((g) => (
-          <section key={g.id} className={g.id === 'project' && recent.length > 0 ? 'border-t border-slate-200 dark:border-dark-border' : undefined}>
+        {pinnedList.length > 0 && (
+          <section className={recent.length > 0 ? 'border-t border-slate-200 dark:border-dark-border' : undefined}>
+            <h3 className="px-4 pt-3 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400">Закреплено</h3>
+            <div className="grid gap-1 px-2 pb-2" style={{ gridTemplateColumns: `repeat(${START_COLS}, minmax(0, 1fr))` }}>
+              {pinnedList.map((s, i) => <Tile key={s.path} path={s.path} title={s.title} at={i} />)}
+            </div>
+          </section>
+        )}
+
+        {/* «Все программы»: полный список нужен не каждый раз, но нужен всегда.
+            Свёрнут он только тогда, когда у человека есть свой набор наверху */}
+        {pinnedList.length > 0 && !q && (
+          <button
+            type="button"
+            onClick={() => setAllOpen((v) => !v)}
+            className="w-full flex items-center gap-1.5 px-4 py-2 border-t border-slate-200 dark:border-dark-border
+                       text-2xs font-bold uppercase tracking-wider text-slate-400 cursor-pointer
+                       hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors"
+          >
+            {allOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            Все программы
+          </button>
+        )}
+
+        {showAll && groups.map((g) => (
+          <section key={g.id} className={g.id === groups[0].id && recent.length > 0 && pinnedList.length === 0 ? 'border-t border-slate-200 dark:border-dark-border' : undefined}>
             <h3 className="px-4 pt-3 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400">{g.title}</h3>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-1 px-2 pb-2">
+            <div className="grid gap-1 px-2 pb-2" style={{ gridTemplateColumns: `repeat(${START_COLS}, minmax(0, 1fr))` }}>
               {g.items.map((s) => <Tile key={s.path} path={s.path} title={s.title} />)}
             </div>
           </section>
@@ -253,13 +328,25 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
           <Settings className="w-4 h-4" />
         </button>
         <button
-          type="button" onClick={() => { onClose(); setUser(null); }} title="Выйти"
+          type="button" onClick={() => { onClose(); setUser(null); }} title="Выйти из учётной записи"
           style={{ width: TILE_BOX, height: TILE_BOX }}
           className="rounded-lg cursor-pointer flex items-center justify-center text-slate-500
                      hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-600 transition-colors"
         >
           <LogOut className="w-4 h-4" />
         </button>
+        {/* Завершение работы — только в оболочке: во вкладке браузера закрывать
+            нечего, и кнопка обещала бы то, чего не сделает */}
+        {!!(window as any).electron?.windowControls && (
+          <button
+            type="button" onClick={() => (window as any).electron.windowControls.close()} title="Завершить работу"
+            style={{ width: TILE_BOX, height: TILE_BOX }}
+            className="rounded-lg cursor-pointer flex items-center justify-center text-slate-500
+                       hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-600 transition-colors"
+          >
+            <Power className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
