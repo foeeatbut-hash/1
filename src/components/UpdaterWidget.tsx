@@ -25,7 +25,7 @@ import { useToastStore } from '../store/toastStore';
 import { useStore } from '../store/store';
 import { getServerBaseUrl } from '../config/env';
 import { useUpdateStore } from '../store/updateStore';
-import { phaseLabel, blocker, fileUrlOf } from '../lib/updates';
+import { phaseLabel, fileUrlOf, versionFromFileName, versionProblem } from '../lib/updates';
 
 // ── Автообновления через сервер ──
 // Админ публикует релиз прямо на сервер (загружает exe или даёт прямую ссылку),
@@ -68,6 +68,8 @@ export default function UpdaterWidget() {
   const check = useUpdateStore((s) => s.check);
   const install = useUpdateStore((s) => s.install);
   const markSeen = useUpdateStore((s) => s.markSeen);
+  const broken = useUpdateStore((s) => s.broken);
+  const revoke = useUpdateStore((s) => s.revoke);
 
   const isElectron = typeof window !== 'undefined' && (window as any).electron !== undefined;
   const busy = phase === 'downloading' || phase === 'verifying' || phase === 'installing';
@@ -126,10 +128,26 @@ export default function UpdaterWidget() {
     }
   };
 
+  /**
+   * Файл выбран — номер версии берётся из его имени.
+   *
+   * Руками номер набирать не надо: именно на этом обновления и встали. В поле
+   * оказалось «90» вместо «0.90.0», запись о релизе разошлась всем сотрудникам,
+   * а файл на сервере лежал под настоящим номером — и каждый получал «файла
+   * этой версии нет».
+   */
+  const handlePickFile = (file: File | null) => {
+    setPubFile(file);
+    if (!file) return;
+    const fromName = versionFromFileName(file.name);
+    if (fromName) setPubVersion(fromName);
+  };
+
   const handlePublishRelease = async () => {
     const version = pubVersion.trim();
-    if (!version) {
-      addToast('Укажите номер версии релиза', 'error');
+    const badVersion = versionProblem(version);
+    if (badVersion) {
+      addToast(badVersion, 'error');
       return;
     }
     if (!pubFile && !pubFileUrl.trim()) {
@@ -171,12 +189,13 @@ export default function UpdaterWidget() {
        * сервер компании — и получают «файла этой версии нет». Раньше об этом
        * узнавали от сотрудников через день; теперь программа проверяет сразу.
        */
-      const at = data?.update?.fileUrl || `/api/updates/download/${version}`;
-      const probe = await fetch(fileUrlOf(at, base), { method: 'GET', headers: { Range: 'bytes=0-1' } })
-        .catch(() => null);
-      if (!probe || (!probe.ok && probe.status !== 206)) {
+      // Спрашиваем сервер, дошёл ли файл, а не качаем его ради проверки:
+      // 130 мегабайт по сети ради двух байтов — плохая цена за спокойствие
+      const probe = await fetch(fileUrlOf(`/api/updates/check/${version}`, base)).catch(() => null);
+      const state = probe ? await probe.json().catch(() => null) : null;
+      if (!state?.ok) {
         addToast(
-          `Релиз записан, но файл не отдаётся (${probe ? `код ${probe.status}` : 'сервер не ответил'}). `
+          `Релиз записан, но файла на сервере нет (${state?.why || (probe ? `код ${probe.status}` : 'сервер не ответил')}). `
           + 'Сотрудники его не скачают — опубликуйте заново.',
           'error',
         );
@@ -188,6 +207,7 @@ export default function UpdaterWidget() {
       setShowPublishModal(false);
       setPubChangelog('');
       setPubFile(null);
+      void check(true);
       if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -299,6 +319,30 @@ export default function UpdaterWidget() {
           </p>
         )}
 
+        {/* Публикация без файла — не молчаливая беда, а видимая строка.
+            Раньше такая запись жила в общей базе вечно: у всех горело
+            «доступно обновление», нажатие отвечало «файла этой версии нет»,
+            и убрать её было нечем */}
+        {broken.map((b) => (
+          <div key={b.version} className="text-xs leading-snug bg-amber-500/10 rounded p-2 text-amber-700 dark:text-amber-300">
+            <div>
+              Релиз <span className="font-bold">v{b.version}</span> опубликован без файла: {b.why}.
+              {!isAdmin && ' Обновиться по нему нельзя — скажите администратору.'}
+            </div>
+            {isAdmin && (
+              <button type="button"
+                onClick={async () => {
+                  const err = await revoke(b.version);
+                  addToast(err || `Публикация v${b.version} отозвана`, err ? 'error' : 'success');
+                }}
+                className="mt-1 font-bold underline cursor-pointer"
+              >
+                Отозвать публикацию
+              </button>
+            )}
+          </div>
+        ))}
+
         {/* Публикация релиза — только администратор */}
         {isAdmin && (
           <button type="button"
@@ -390,6 +434,12 @@ export default function UpdaterWidget() {
                   placeholder="Например: 0.25.0"
                   className="w-full text-xs p-2 rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white font-mono"
                 />
+                {/* Ошибку в номере видно сразу, а не после рассылки оповещения */}
+                {!!versionProblem(pubVersion, currentVersion) && pubVersion.trim() !== '' && (
+                  <p className="text-xs text-rose-600 dark:text-rose-400 leading-snug">
+                    {versionProblem(pubVersion, currentVersion)}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1">
@@ -400,7 +450,7 @@ export default function UpdaterWidget() {
                   ref={fileInputRef}
                   type="file"
                   accept=".exe"
-                  onChange={(e) => setPubFile(e.target.files?.[0] || null)}
+                  onChange={(e) => handlePickFile(e.target.files?.[0] || null)}
                   className="w-full text-xs p-2 rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white file:mr-2 file:px-2 file:py-1 file:rounded file:border-0 file:bg-emerald-600 file:text-white file:text-xs file:font-bold file:cursor-pointer"
                 />
                 {pubFile && (

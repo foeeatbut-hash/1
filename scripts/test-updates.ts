@@ -12,8 +12,11 @@
 // Правила разложены по сторонам: окно сравнивает версии и подписывает кнопку,
 // главный процесс качает файл и объясняет отказ. Проверяются вместе — сбой
 // обновления одинаково плох с любой стороны границы
-import { isNewer, fileUrlOf, blocker, phaseLabel } from '../src/lib/updates';
+import { isNewer, fileUrlOf, blocker, phaseLabel, versionFromFileName, versionProblem } from '../src/lib/updates';
 import { sameServer, installerName, badPackage, downloadError, MIN_EXE_BYTES } from '../electron/updates';
+// Со стороны сервера — выбор релиза: предлагать можно только то, что реально
+// можно скачать
+import { pickRelease } from '../server/updates';
 
 let failed = 0;
 const check = (name: string, cond: boolean, got?: unknown) => {
@@ -101,6 +104,53 @@ console.log('Что мешает обновиться');
     blocker({ ...okCase, fileUrl: '' }).toLowerCase().includes('администратору'));
   check('непортативная сборка предупреждает про установщик',
     blocker({ ...okCase, portable: false }).includes('установщик'));
+}
+
+// Проверка написана по поломке: в поле версии оказалось «90» вместо «0.90.0»,
+// запись о релизе разошлась всем, а файла с таким номером на сервере не было —
+// и обновиться не смог никто
+console.log('Номер версии при публикации');
+{
+  check('номер берётся из имени собранного файла',
+    versionFromFileName('Flux-0.90.0-x64.exe') === '0.90.0', versionFromFileName('Flux-0.90.0-x64.exe'));
+  check('предвыпуск тоже разбирается',
+    versionFromFileName('Flux-1.2.3-beta.2-x64.exe') === '1.2.3-beta.2', versionFromFileName('Flux-1.2.3-beta.2-x64.exe'));
+  check('из имени без номера ничего не выдумывается', versionFromFileName('setup.exe') === '');
+
+  check('«90» — не версия, и об этом сказано словами',
+    versionProblem('90').includes('0.90.0'), versionProblem('90'));
+  check('пустое поле названо пустым', versionProblem('').includes('Укажите'));
+  check('правильный номер претензий не вызывает', versionProblem('0.90.0') === '', versionProblem('0.90.0'));
+  check('предвыпуск проходит', versionProblem('1.2.3-beta.2') === '', versionProblem('1.2.3-beta.2'));
+  check('версия не новее запущенной — предупреждение, а не тишина',
+    versionProblem('0.80.0', '0.90.0').includes('не новее'), versionProblem('0.80.0', '0.90.0'));
+  check('новее запущенной — всё в порядке', versionProblem('0.91.0', '0.90.0') === '');
+}
+
+// Проверка написана по той же поломке, но со стороны сервера: запись о релизе
+// живёт в общей базе, а файл к ней мог не доехать. Пока сервер предлагал просто
+// последнюю по дате запись, одна неудачная публикация закрывала обновления
+// всему отделу
+console.log('Сервер предлагает только то, что можно скачать');
+{
+  const has = (v: string[]) => (r: { version: string }) =>
+    (v.includes(r.version) ? { ok: true, why: '' } : { ok: false, why: 'файла нет' });
+  const list = [{ version: '0.92.0' }, { version: '0.91.0' }, { version: '0.90.0' }];
+
+  const good = pickRelease(list, has(['0.92.0', '0.90.0']));
+  check('целый релиз предлагается сразу', good.release?.version === '0.92.0', good.release);
+  check('и жалоб на него нет', good.broken.length === 0, good.broken);
+
+  const skipped = pickRelease(list, has(['0.90.0']));
+  check('пустая публикация пропускается ради рабочей', skipped.release?.version === '0.90.0', skipped.release);
+  check('но о ней сказано, а не умолчано', skipped.broken.length === 2, skipped.broken);
+  check('названы и версия, и причина',
+    skipped.broken[0].version === '0.92.0' && skipped.broken[0].why.length > 0, skipped.broken[0]);
+
+  const none = pickRelease(list, has([]));
+  check('когда качать нечего — обновления нет', none.release === null);
+  check('и все пустые публикации перечислены', none.broken.length === 3, none.broken);
+  check('пустой список никого не смущает', pickRelease([], has([])).release === null);
 }
 
 console.log('Ход дела одной строкой');

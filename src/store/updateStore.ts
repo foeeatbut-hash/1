@@ -24,10 +24,18 @@ export interface Release {
   size?: number;
 }
 
+/** Опубликованный релиз, у которого на сервере нет файла */
+export interface BrokenRelease {
+  version: string;
+  why: string;
+}
+
 interface UpdateState {
   phase: Phase;
   percent: number;
   latest: Release | null;
+  /** Публикации без файла: их видно администратору, чтобы он их отозвал */
+  broken: BrokenRelease[];
   error: string;
   /** Версия, которая работает прямо сейчас */
   current: string;
@@ -42,6 +50,8 @@ interface UpdateState {
   /** Скачать и поставить: одно нажатие доводит дело до конца */
   install: () => Promise<void>;
   markSeen: () => void;
+  /** Убрать публикацию, у которой нет файла (только администратор) */
+  revoke: (version: string) => Promise<string>;
 }
 
 const elec = (): any => (typeof window !== 'undefined' ? (window as any).electron : undefined);
@@ -50,6 +60,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   phase: 'idle',
   percent: 0,
   latest: null,
+  broken: [],
   error: '',
   current: '0.0.0',
   packaged: false,
@@ -88,6 +99,9 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       const res = await fetch('/api/updates/latest');
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || `Сервер ответил ${res.status}`);
+      // Публикации без файла сервер не предлагает как обновление, но и не
+      // прячет: администратор должен их увидеть и отозвать
+      set({ broken: Array.isArray(d.broken) ? d.broken : [] });
       if (!d.version || !isNewer(d.version, get().current)) {
         set({ phase: 'idle', latest: null });
         return;
@@ -104,6 +118,19 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   },
 
   markSeen: () => set({ seen: true }),
+
+  revoke: async (version) => {
+    try {
+      const res = await fetch(`/api/updates/${encodeURIComponent(version)}`, { method: 'DELETE' });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) return d.error || `Сервер ответил ${res.status}`;
+      set({ broken: get().broken.filter((b) => b.version !== version) });
+      await get().check(true);
+      return '';
+    } catch (err: any) {
+      return String(err?.message || err || 'Не удалось отозвать релиз');
+    }
+  },
 
   install: async () => {
     const { latest, packaged, portable } = get();

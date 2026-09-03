@@ -19,7 +19,30 @@ import type { Express, Request, Response } from 'express';
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
-import { ensureTables as ensureDbTables } from './ddl.js';
+import { ensureTables as ensureDbTables, getDialect } from './ddl.js';
+
+/**
+ * Какой релиз предлагать и о каких сказать, что они пусты.
+ *
+ * Отдельной функцией, потому что это и есть суть починки: до неё предлагался
+ * просто последний по дате, и одна неудачная публикация закрывала обновления
+ * всему отделу — у всех горело «доступна новая версия», а нажатие отвечало
+ * «файла этой версии нет».
+ *
+ * `list` — релизы от свежего к старому, `ok` — есть ли у релиза файл.
+ */
+export function pickRelease<T extends { version: string }>(
+  list: T[],
+  ok: (r: T) => { ok: boolean; why: string },
+): { release: T | null; broken: { version: string; why: string }[] } {
+  const broken: { version: string; why: string }[] = [];
+  for (const r of list) {
+    const a = ok(r);
+    if (a.ok) return { release: r, broken };
+    broken.push({ version: r.version, why: a.why });
+  }
+  return { release: null, broken };
+}
 
 export interface UpdateDeps {
   /** Клиент базы берётся лениво: он пересоздаётся при переключении базы */
@@ -40,17 +63,72 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
   const sanitizeVersion = (v: unknown): string => String(v || '').trim().replace(/[^0-9a-zA-Z.\-]/g, '').slice(0, 40);
   const updateFilePath = (version: string) => path.join(updatesDir, `Flux-${version}.exe`);
 
-  // Последний опубликованный релиз (для виджета «Проверить обновления»)
+  /**
+   * Есть ли у релиза файл, который сотрудник действительно получит.
+   *
+   * Проверять приходится потому, что запись о релизе и файл живут порознь:
+   * запись создаётся отдельным запросом и остаётся в общей базе навсегда, даже
+   * если загрузка файла не удалась или её вовсе не делали. Тогда у всех горит
+   * «доступно обновление», а нажатие отвечает «файла этой версии нет» — и так
+   * до тех пор, пока запись не уберут руками. Именно в этом состоянии отдел и
+   * просидел два выпуска.
+   */
+  const availability = async (version: string, fileUrl: string): Promise<{ ok: boolean; size: number; why: string }> => {
+    // Внешнюю ссылку проверить нечем — она на чужом сервере, верим на слово
+    if (/^https?:\/\//i.test(String(fileUrl || ''))) return { ok: true, size: 0, why: '' };
+    const local = updateFilePath(version);
+    if (fs.existsSync(local)) return { ok: true, size: fs.statSync(local).size, why: '' };
+    try {
+      await ensureUpdateChunks();
+      const n = await deps.getPrisma().appUpdateChunk.count({ where: { version } });
+      if (n > 0) return { ok: true, size: await chunkedSize(version), why: '' };
+      return {
+        ok: false, size: 0,
+        why: 'файл не загружен в общую базу — сотрудники его не скачают',
+      };
+    } catch (e: any) {
+      return { ok: false, size: 0, why: `файл недоступен: ${e?.message || e}` };
+    }
+  };
+
+  /**
+   * Последний релиз, который РЕАЛЬНО можно поставить.
+   *
+   * Не просто последний по дате: если у самого свежего нет файла, предлагается
+   * предыдущий рабочий, а про пропущенные говорится отдельным списком. Иначе
+   * одна неудачная публикация закрывает обновления всему отделу.
+   */
   app.get('/api/updates/latest', async (_req: Request, res: Response) => {
     try {
-      const upd = await deps.getPrisma().appUpdate.findFirst({ orderBy: { createdAt: 'desc' } });
-      if (!upd) return res.json({ version: null });
-      const local = updateFilePath(upd.version);
-      const size = fs.existsSync(local) ? fs.statSync(local).size : 0;
-      res.json({ version: upd.version, changelog: upd.changelog, fileUrl: upd.fileUrl, size, createdAt: upd.createdAt });
+      const list = await deps.getPrisma().appUpdate.findMany({ orderBy: { createdAt: 'desc' }, take: 10 });
+      // Наличие файла спрашивается заранее: выбор релиза — правило, и живёт оно
+      // отдельной функцией, которую можно проверить скриптом
+      const state = new Map<string, { ok: boolean; size: number; why: string }>();
+      for (const upd of list) state.set(upd.version, await availability(upd.version, upd.fileUrl));
+      const { release, broken } = pickRelease(list, (r: any) => state.get(r.version)!);
+      if (!release) return res.json({ version: null, broken });
+      res.json({
+        version: release.version, changelog: release.changelog, fileUrl: release.fileUrl,
+        size: state.get(release.version)?.size || 0, createdAt: release.createdAt, broken,
+      });
     } catch (e: any) {
       res.status(500).json({ error: e?.message || 'Не удалось получить сведения об обновлении' });
     }
+  });
+
+  /**
+   * Дошёл ли файл этой версии до сервера — вопросом, а не скачиванием.
+   *
+   * Публикация обязана проверять себя: раньше она этого не делала, и о том, что
+   * релиз опубликован без файла, узнавали через день от сотрудников. Проверять
+   * запросом самого файла нельзя — это 130 мегабайт по сети ради двух байтов.
+   */
+  app.get('/api/updates/check/:version', async (req: Request, res: Response) => {
+    const version = sanitizeVersion(req.params.version);
+    if (!version) return res.status(400).json({ error: 'Не указана версия' });
+    const upd = await deps.getPrisma().appUpdate.findFirst({ where: { version } }).catch(() => null);
+    const a = await availability(version, upd?.fileUrl || '');
+    res.json({ version, ...a });
   });
 
   // Загрузка файла exe на сервер (только админ). Тело запроса — сырые байты файла,
@@ -88,6 +166,25 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
       }], (m) => console.error('[Обновление]', m));
       if (why) throw new Error(why);
       updateChunksReady = true;
+    }
+  };
+
+  /**
+   * Размер файла, собранного из кусков. Нужен, чтобы человек видел, сколько
+   * качается, а не полосу, стоящую на нуле: у потока из базы нет заголовка с
+   * длиной, взять её больше неоткуда.
+   */
+  const chunkedSize = async (version: string): Promise<number> => {
+    const len = getDialect() === 'postgresql' ? 'octet_length("data")' : 'LENGTH(`data`)';
+    const table = getDialect() === 'postgresql' ? '"AppUpdateChunk"' : '`AppUpdateChunk`';
+    const col = getDialect() === 'postgresql' ? '"version"' : '`version`';
+    try {
+      const rows: any = await deps.getPrisma().$queryRawUnsafe(
+        `SELECT SUM(${len}) AS total FROM ${table} WHERE ${col} = ?`.replace('?', `'${version.replace(/'/g, "''")}'`),
+      );
+      return Number(rows?.[0]?.total || 0);
+    } catch (_) {
+      return 0;
     }
   };
 
@@ -138,6 +235,13 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
     if (!u || u.role !== 'ADMIN') return res.status(403).json({ error: 'Публикация обновлений доступна только администратору' });
     const version = sanitizeVersion(req.body?.version);
     if (!version) return res.status(400).json({ error: 'Укажите номер версии' });
+    // «90» вместо «0.90.0» — это не придирка к форме записи: файл на сервере
+    // лежит под настоящим номером, и по выдуманному его не найдёт никто
+    if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(version)) {
+      return res.status(400).json({
+        error: `«${version}» — не номер версии. Версия пишется тремя числами через точку: 0.90.0.`,
+      });
+    }
     const changelog = String(req.body?.changelog || '').slice(0, 20000);
     const hasLocalFile = fs.existsSync(updateFilePath(version));
     const fileUrl = hasLocalFile ? `/api/updates/download/${version}` : String(req.body?.fileUrl || '').trim();
@@ -174,8 +278,14 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
     if (!version) return res.status(400).json({ error: 'Не указана версия' });
     try {
       await deps.getPrisma().appUpdate.deleteMany({ where: { version } });
-      // Файл убираем вместе с записью: раздавать его больше некому
+      // Файл убираем вместе с записью: раздавать его больше некому. И с диска,
+      // и из общей базы — иначе отозванный релиз так и лежит там сотней
+      // мегабайт, а место в общей базе общее
       try { if (fs.existsSync(updateFilePath(version))) fs.unlinkSync(updateFilePath(version)); } catch (_) {}
+      try {
+        await ensureUpdateChunks();
+        await deps.getPrisma().appUpdateChunk.deleteMany({ where: { version } });
+      } catch (_) { /* таблицы кусков может не быть — тогда и убирать нечего */ }
       res.json({ success: true, version });
     } catch (e: any) {
       res.status(500).json({ error: e?.message || 'Не удалось отозвать релиз' });
@@ -209,6 +319,9 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
       }
       res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader('Content-Disposition', `attachment; filename="Flux ${version}.exe"`);
+      // Длина потока — чтобы у человека шла полоса загрузки, а не стояла на нуле
+      const total = await chunkedSize(version);
+      if (total > 0) res.setHeader('Content-Length', String(total));
       // По куску за раз: 130 МБ целиком в память сервера класть незачем
       for (const p of parts) {
         const row = await deps.getPrisma().appUpdateChunk.findFirst({

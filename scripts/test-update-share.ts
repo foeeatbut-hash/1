@@ -93,8 +93,34 @@ const updatesDir = (): string => {
     ok('подпись программы на месте', got[0] === 0x4d && got[1] === 0x5a);
     ok('содержимое не перепутано кусками', got.includes('ФАЙЛ-ИЗ-ОБЩЕЙ-БАЗЫ'));
     ok('байты совпали до единого', got.equals(fake));
+    ok('размер файла известен заранее — полосе загрузки есть от чего идти',
+      Number(dl.headers.get('content-length') || 0) === size, dl.headers.get('content-length'));
+
+    // Публикация без файла — то, из-за чего отдел просидел два выпуска без
+    // обновлений: запись о релизе разошлась всем, файла не было ни у кого, и
+    // убрать её было нечем
+    console.log('3. Публикация без файла не выдаётся за обновление');
+    const ghost = '999.9.8';
+    const pubGhost = await api(token, 'POST', '/api/updates', {
+      version: ghost, changelog: 'Релиз без файла', fileUrl: '',
+    });
+    ok('без файла и без ссылки релиз не записывается', pubGhost.status === 400, pubGhost.json || pubGhost.status);
+
+    console.log('4. Номер версии проверяется до рассылки оповещения');
+    const bad = await api(token, 'POST', '/api/updates', { version: '90', changelog: '', fileUrl: 'http://x/y.exe' });
+    ok('«90» сервер не принимает', bad.status === 400, bad.json || bad.status);
+    ok('и объясняет, как пишется версия', String(bad.json?.error || '').includes('0.90.0'), bad.json);
+
+    console.log('5. Сервер отвечает, дошёл ли файл, не отдавая его целиком');
+    const check = await api(token, 'GET', `/api/updates/check/${VERSION}`);
+    ok('про загруженную версию сказано «есть»', check.json?.ok === true, check.json);
+    ok('и назван размер', Number(check.json?.size) === size, check.json?.size);
+    const missing = await api(token, 'GET', '/api/updates/check/999.9.7');
+    ok('про незагруженную — «нет», с причиной',
+      missing.json?.ok === false && String(missing.json?.why || '').length > 0, missing.json);
   } finally {
     await api(token, 'DELETE', `/api/updates/${VERSION}`);
+    await api(token, 'DELETE', '/api/updates/999.9.8');
   }
 
   console.log(f ? `\nПровалено проверок: ${f}` : '\nПроверка раздачи обновления пройдена');

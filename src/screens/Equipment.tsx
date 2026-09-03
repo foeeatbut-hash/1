@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useInsightStore } from '../store/insightStore';
 import { useEntityChanged } from '../lib/entityWatch';
 import { readLastImport, forgetImport, type LastImport } from '../lib/lastImport';
+import { fetchList } from '../lib/apiList';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import {
@@ -336,8 +337,10 @@ export default function Equipment() {
 
   const openHistory = async (comp: Component) => {
     setHistoryFor(comp);
-    try { const r = await fetch(api(`/components/${comp.id}/history`)); setHistoryData(await r.json()); }
-    catch (_) { setHistoryData([]); }
+    // Сервер отдаёт { history: [...] }, а не голый массив: список достаём
+    // разбором ответа, иначе .map по объекту уносит весь раздел
+    const r = await fetch(api(`/components/${comp.id}/history`));
+    setHistoryData(await fetchList(r, 'history'));
   };
 
   const linkTag = async (comp: Component, tagId: string) => {
