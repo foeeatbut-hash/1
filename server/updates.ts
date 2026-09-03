@@ -44,6 +44,29 @@ export function pickRelease<T extends { version: string }>(
   return { release: null, broken };
 }
 
+/** Больше куска в базу не кладём: проверками этого хватало всегда */
+export const CHUNK_MAX = 2 * 1024 * 1024;
+/** Меньше уже бессмысленно: 130 МБ такими кусками — это тысячи запросов */
+export const CHUNK_MIN = 64 * 1024;
+
+/**
+ * Размер куска под предел размера пакета у базы.
+ *
+ * Отдельной функцией, потому что именно на этом обновления встали в последний
+ * раз. Два мегабайта проходили во всех проверках, а у живого сервера отдела
+ * предел оказался меньше — и MariaDB на слишком большой пакет не отвечает
+ * ошибкой, а разрывает соединение: программа видит «Cannot execute new
+ * commands: connection closed» и угадать причину не может никогда.
+ *
+ * В пакет кроме самих данных едет ещё и запрос, а двоичное содержимое в
+ * протоколе занимает больше, чем весит. Половина предела с запасом — размер,
+ * который проходит наверняка. `limit` равный нулю значит «спросить не удалось».
+ */
+export function chunkSizeFor(limit: number): number {
+  if (!limit) return CHUNK_MAX;
+  return Math.max(CHUNK_MIN, Math.min(CHUNK_MAX, Math.floor(limit / 2) - 64 * 1024));
+}
+
 export interface UpdateDeps {
   /** Клиент базы берётся лениво: он пересоздаётся при переключении базы */
   getPrisma: () => any;
@@ -141,10 +164,28 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
    * ложилась в общую базу, а сам файл — на диск того, кто публиковал, все
    * остальные видели «доступна новая версия» и получали «файла этой версии нет».
    *
-   * Кусками по два мегабайта: целиком 130 МБ одним запросом не проходят — у
-   * MariaDB есть предел размера пакета, и он обычно меньше.
+   * Кусками, потому что целиком 130 МБ одним запросом не проходят — у MariaDB
+   * есть предел размера пакета (`max_allowed_packet`).
+   *
+   * Размер куска НЕ ВЫБИРАЕТСЯ НАУГАД. Двух мегабайтов хватало в проверках, но
+   * у живого сервера отдела предел оказался меньше — и MariaDB на слишком
+   * большой пакет не отвечает ошибкой, а РАЗРЫВАЕТ СОЕДИНЕНИЕ. Со стороны
+   * программы это выглядело как «Cannot execute new commands: connection
+   * closed» — сообщение, по которому причину не угадать никогда. Поэтому предел
+   * спрашивается у самой базы, а если куски всё равно не проходят, они
+   * уменьшаются вдвое и попытка повторяется.
    */
-  const CHUNK_BYTES = 2 * 1024 * 1024;
+  /** Предел размера пакета у сервера базы; 0 — спросить не удалось */
+  const packetLimit = async (): Promise<number> => {
+    if (getDialect() !== 'mysql') return 0;
+    try {
+      const rows: any = await deps.getPrisma().$queryRawUnsafe('SELECT @@max_allowed_packet AS n');
+      return Number(rows?.[0]?.n || 0);
+    } catch (_) {
+      return 0;
+    }
+  };
+
 
   /**
    * Таблица кусков может отсутствовать — или быть НЕПОЛНОЙ.
@@ -212,24 +253,54 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
     }
     try {
       await ensureUpdateChunks();
-      await deps.getPrisma().appUpdateChunk.deleteMany({ where: { version } });
-      for (let i = 0, idx = 0; i < body.length; i += CHUNK_BYTES, idx++) {
-        await deps.getPrisma().appUpdateChunk.create({
-          data: { version, idx, data: body.subarray(i, Math.min(i + CHUNK_BYTES, body.length)) },
-        });
+      const limit = await packetLimit();
+      let piece = chunkSizeFor(limit);
+      let lastErr: any = null;
+
+      // Попытки с уменьшающимся куском. Разрыв соединения на большом пакете
+      // ошибкой о размере не сопровождается — только «соединение закрыто», —
+      // поэтому единственный надёжный ответ на неудачу: взять кусок поменьше
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          await deps.getPrisma().appUpdateChunk.deleteMany({ where: { version } });
+          for (let i = 0, idx = 0; i < body.length; i += piece, idx++) {
+            await deps.getPrisma().appUpdateChunk.create({
+              data: { version, idx, data: body.subarray(i, Math.min(i + piece, body.length)) },
+            });
+          }
+          // Записанное перечитывается: «вставка не упала» и «файл в базе
+          // целиком» — разные вещи, а сотруднику достанется то, что в базе
+          const stored = await chunkedSize(version);
+          if (stored !== body.length) throw new Error(`в общую базу дошло ${stored} байт из ${body.length}`);
+          lastErr = null;
+          break;
+        } catch (e: any) {
+          lastErr = e;
+          console.error(`[Обновление] Кусок ${Math.round(piece / 1024)} КБ не прошёл: ${e?.message || e}`);
+          if (piece <= CHUNK_MIN) break;
+          piece = Math.max(CHUNK_MIN, Math.floor(piece / 2));
+          // База после разрыва соединения приходит в себя не мгновенно
+          await new Promise((r) => setTimeout(r, 700));
+        }
       }
-      // Записанное перечитывается: «вставка не упала» и «файл в базе целиком» —
-      // разные вещи, а сотруднику достанется именно то, что в базе
-      const stored = await chunkedSize(version);
-      if (stored !== body.length) {
-        throw new Error(`в общую базу дошло ${stored} байт из ${body.length}`);
+      if (lastErr) {
+        const hint = limit
+          ? ` У сервера базы предел размера пакета — ${Math.round(limit / 1024)} КБ.`
+          : '';
+        throw new Error(`${lastErr?.message || lastErr}.${hint}`);
       }
+
       // Старые версии из базы убираем: держать по 130 МБ на каждый выпуск
       // незачем, а место в общей базе — общее
       const keep = await deps.getPrisma().appUpdate.findMany({ orderBy: { createdAt: 'desc' }, take: 2, select: { version: true } });
       const keepList = [version, ...keep.map((k: any) => k.version)];
       await deps.getPrisma().appUpdateChunk.deleteMany({ where: { version: { notIn: keepList } } });
-      res.json({ success: true, version, size: body.length, shared: true });
+      // В журнал — чтобы в следующий раз было видно, каким куском прошло и
+      // какой предел у базы: по одному «соединение закрыто» этого не понять
+      console.log(`[Обновление] Версия ${version} (${body.length} Б) записана в общую базу `
+        + `кусками по ${Math.round(piece / 1024)} КБ; предел пакета у базы `
+        + `${limit ? Math.round(limit / 1024) + ' КБ' : 'неизвестен'}`);
+      res.json({ success: true, version, size: body.length, shared: true, chunk: piece });
     } catch (e: any) {
       // Недописанное убираем сразу. Обрезанный exe хуже отсутствующего: он
       // выглядит как файл, скачивается и ложится на место работающей программы
@@ -237,10 +308,16 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
       // На диске файл уже есть — этот сервер обновление раздаст, но остальные
       // сотрудники его не увидят. Молчать об этом нельзя
       console.error('[Обновление] Файл не попал в общую базу:', e?.message || e);
+      const lost = /connection closed|lost connection|ECONNRESET|socket|closed state/i.test(String(e?.message || e));
       res.json({
         success: true, version, size: body.length, shared: false,
         warning: 'Файл сохранён только на этой машине: в общую базу он не записался. '
-          + 'Сотрудники его не скачают. Причина: ' + (e?.message || e),
+          + 'Сотрудники его не скачают. Причина: ' + (e?.message || e)
+          + (lost
+            ? ' Программа уже пробовала уменьшать куски — не помогло. Так ведёт себя MariaDB, '
+              + 'когда пакет больше разрешённого: администратору базы нужно поднять max_allowed_packet '
+              + '(достаточно 16 МБ) или проверить, не рвёт ли соединение что-то между программой и базой.'
+            : ''),
       });
     }
   });
