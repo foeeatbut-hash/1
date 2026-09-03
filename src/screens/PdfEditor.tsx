@@ -22,6 +22,9 @@ import { openPdf } from '../import/pdfShared';
 import { useToastStore } from '../store/toastStore';
 import { useModalStore } from '../store/modalStore';
 import { useWindowTitle } from '../lib/paneTitle';
+import { useStore } from '../store/store';
+import { signCaption, signBox, NO_SIGNATURE, DEFAULT_AT } from '../lib/signStamp';
+import { roleByCode } from '../lib/roles';
 
 const { openPrompt, openConfirm } = useModalStore.getState();
 
@@ -71,6 +74,17 @@ export default function PdfEditor() {
   const [fileOpen, setFileOpen] = useState(false);
   const [tab, setTab] = useState('Главная');
   const [folded, setFolded] = useState(false);
+  /**
+   * Подписи людей по их идентификатору.
+   *
+   * В самой пометке подпись не хранится: копия в каждой пометке значила бы,
+   * что смена подписи в профиле не доходит до документов, а старые росчерки
+   * живут вечно. Здесь только то, что нужно нарисовать открытый лист.
+   */
+  const [signs, setSigns] = useState<Record<string, { src: string; heightMm: number }>>({});
+  const me = useStore((st) => st.user);
+  /** Настоящий размер листа в точках ПДФ — по нему считается место подписи */
+  const pageSizePt = useRef<{ w: number; h: number } | null>(null);
 
   const tabs = React.useMemo(() => pdfRibbon(), []);
   const revision = String(file?.revision || '1');
@@ -123,6 +137,10 @@ export default function PdfEditor() {
         const p = await pdf.getPage(Math.min(Math.max(1, page), pdf.numPages));
         if (cancelled) return;
         const viewport = p.getViewport({ scale: zoom / 100, rotation: rotate });
+        // Размер листа берём при масштабе 1: на нём считается место подписи, а
+        // оно не должно зависеть от того, как человек приблизил чертёж
+        const real = p.getViewport({ scale: 1, rotation: 0 });
+        pageSizePt.current = { w: real.width, h: real.height };
         canvas.width = Math.round(viewport.width);
         canvas.height = Math.round(viewport.height);
         setSize({ w: canvas.width, h: canvas.height });
@@ -226,9 +244,76 @@ export default function PdfEditor() {
     } catch (_) { addToast('Не удалось снять пометку', 'error'); }
   };
 
+  /**
+   * Подписи всех, кто подписал этот чертёж.
+   *
+   * Тянем по мере появления пометок и по одному разу на человека: подписанный
+   * лист бывает подписан несколькими, и запрашивать росчерк на каждую пометку
+   * значило бы дёргать сервер по десятку раз ради одной картинки.
+   */
+  useEffect(() => {
+    const need = [...new Set(markups.filter((m) => m.kind === 'SIGN' && m.createdBy?.id)
+      .map((m) => String(m.createdBy!.id)))].filter((id) => !signs[id]);
+    if (!need.length) return;
+    let alive = true;
+    (async () => {
+      const got: Record<string, { src: string; heightMm: number }> = {};
+      for (const id of need) {
+        try {
+          const r = await fetch(`/api/users/${id}/signature`);
+          const j = r.ok ? await r.json() : null;
+          if (j?.signature) got[id] = { src: String(j.signature), heightMm: Number(j.signatureHeightMm) || 8 };
+        } catch (_) { /* без росчерка нарисуется линия для подписи от руки */ }
+      }
+      if (alive && Object.keys(got).length) setSigns((all) => ({ ...all, ...got }));
+    })();
+    return () => { alive = false; };
+  }, [markups]);
+
   /** Штамп на лист: то же замечание, только с готовым текстом и в углу */
   const stamp = (text: string) =>
     addMarkup('STAMP', { x: 0.72, y: 0.04, w: 0.24, h: 0.06 }, text);
+
+  /**
+   * Подписать лист.
+   *
+   * Подпись берётся из профиля человека — той самой, которую он завёл и
+   * почистил от фона. Размер считается из её высоты в миллиметрах и размеров
+   * листа: подпись, заданная в 8 мм, обязана выйти в 8 мм и на A4, и на A1.
+   *
+   * Это НЕ электронная подпись. Скан живого росчерка значит на документе ровно
+   * то же, что подпись от руки на распечатке, — и говорить об этом надо прямо.
+   */
+  const signSheet = async () => {
+    if (!me?.id) return;
+    let mine = signs[me.id];
+    if (!mine) {
+      try {
+        const r = await fetch(`/api/users/${me.id}/signature`);
+        const j = r.ok ? await r.json() : null;
+        if (j?.signature) {
+          mine = { src: String(j.signature), heightMm: Number(j.signatureHeightMm) || 8 };
+          setSigns((all) => ({ ...all, [me.id]: mine as any }));
+        }
+      } catch (_) { /* ниже скажем словами */ }
+    }
+    if (!mine) { addToast(NO_SIGNATURE, 'error'); return; }
+    const box = signBox(mine.heightMm, DEFAULT_AT, mmOfPage());
+    const line = signCaption({
+      lastName: (me as any).lastName, firstName: (me as any).firstName,
+      middleName: (me as any).middleName, name: me.name,
+      position: roleByCode(String(me.role || '')).name,
+    });
+    await addMarkup('SIGN', box, line);
+  };
+
+  /** Размеры открытого листа в миллиметрах — по ним считается место подписи */
+  const mmOfPage = (): { wMm?: number; hMm?: number } => {
+    // Точки ПДФ — 1/72 дюйма; в миллиметрах это 25.4/72
+    const k = 25.4 / 72;
+    const v = pageSizePt.current;
+    return v ? { wMm: v.w * k, hMm: v.h * k } : {};
+  };
 
   /** Замечания текстом — вставить в письмо поставщику */
   const copyRemarks = async () => {
@@ -272,6 +357,7 @@ export default function PdfEditor() {
       }
       case 'pdf.color': { if (value) setColor(value); return; }
       case 'pdf.width': return setStroke((s) => Math.min(12, Math.max(1, s + (value === '+' ? 1 : -1))));
+      case 'pdf.sign': return signSheet();
       case 'pdf.stampOk': return stamp('Проверено');
       case 'pdf.stampWork': return stamp('В работу');
       case 'pdf.stampNo': return stamp('Отменено');
@@ -356,6 +442,7 @@ export default function PdfEditor() {
                 <MarkupLayer
                   markups={shown} width={size.w} height={size.h}
                   currentRevision={revision} selectedId={selected} onSelect={setSelected} draft={draft}
+                  signatures={signs}
                 />
               )}
             </div>

@@ -294,7 +294,7 @@ model PdfMarkup {
   /// Ревизия чертежа на момент постановки пометки
   revision    String    @default("1")
   page        Int       @default(1)
-  /// CLOUD | ARROW | RECT | NOTE | STAMP | PEN
+  /// CLOUD | ARROW | RECT | NOTE | STAMP | PEN | SIGN
   kind        String    @default("CLOUD")
   x           Float     @default(0)
   y           Float     @default(0)

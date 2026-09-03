@@ -79,7 +79,7 @@ npx vite build && npm run build:electron
 `test-assistant-privacy`, `test-assistant-history`, `test-login-db`,
 `test-update-ui`, `test-update-share`, `test-update-repair`, `test-mail-shared`,
 `test-office-open`, `test-panels-live`, `test-tours-live`, `test-walkthrough`,
-`test-labels-live`.
+`test-labels-live`, `test-sign-live`.
 
 Живой пробе, которая ходит по разделам, мало записать выбранный проект в
 хранилище браузера: переход, отличающийся только решёткой в адресе, страницу
