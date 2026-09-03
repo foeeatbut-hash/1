@@ -5,6 +5,8 @@ import { setupCapture } from './capture';
 import { setupBrowser, disposeBrowserFor } from './browser';
 import { setupLogs, appendLog } from './logs';
 import { TRAY_ICON_PNG } from './trayIcon';
+// Правила скачивания: кому показывать токен, годен ли файл, как назвать отказ
+import { sameServer, badPackage, downloadError } from './updates';
 
 const additionalData = { myKey: 'pdm-system' };
 const gotTheLock = app.requestSingleInstanceLock(additionalData);
@@ -370,22 +372,51 @@ app.whenReady().then(() => {
     focused: !!mainWindow?.isFocused(),
   }));
 
+  /**
+   * Какой файл прописывать в автозапуск.
+   *
+   * У портативной программы process.execPath — не тот файл, который человек
+   * запускал: portable-сборка распаковывает себя во временную папку вида
+   * …\Temp\3IWzySU76g5tkaPVRvtQi9B5Ged\Flux.exe, и папка эта исчезает при
+   * выходе, а в следующий раз называется иначе. Автозапуск, прописанный на
+   * такой путь, просто ничего не запускает: Windows молча пропускает запись,
+   * ведущую в никуда. Ошибки при этом нет нигде — галочка стоит, а программа
+   * не стартует. Именно так автозапуск и «не работал».
+   *
+   * PORTABLE_EXECUTABLE_FILE ставит сам запускающий модуль portable-сборки, и
+   * это ровно тот exe, который лежит у человека на рабочем столе.
+   */
+  const startupExe = (): string => process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+
+  /** Настройки автозапуска спрашиваем про тот же файл, что и прописываем */
+  const loginItemFor = (args: string[]) => ({ path: startupExe(), args });
+
   ipcMain.handle('startup:get', () => {
     try {
-      const s = app.getLoginItemSettings();
-      return { enabled: !!s.openAtLogin, minimized: (s.args || []).includes('--minimized') };
-    } catch (_) { return { enabled: false, minimized: false }; }
+      const s = app.getLoginItemSettings(loginItemFor([]));
+      const sMin = app.getLoginItemSettings(loginItemFor(['--minimized']));
+      return {
+        enabled: !!(s.openAtLogin || sMin.openAtLogin),
+        minimized: !!sMin.openAtLogin,
+        path: startupExe(),
+      };
+    } catch (_) { return { enabled: false, minimized: false, path: '' }; }
   });
 
   ipcMain.handle('startup:set', (_event, opts: { enabled: boolean; minimized?: boolean }) => {
     try {
-      app.setLoginItemSettings({
-        openAtLogin: !!opts?.enabled,
-        args: opts?.minimized ? ['--minimized'] : [],
-      });
-      const s = app.getLoginItemSettings();
-      return { enabled: !!s.openAtLogin, minimized: (s.args || []).includes('--minimized') };
-    } catch (_) { return { enabled: false, minimized: false }; }
+      const args = opts?.minimized ? ['--minimized'] : [];
+      // Снимаем обе возможные записи и ставим одну нужную: иначе смена
+      // «свёрнуто/развёрнуто» оставляла бы в автозапуске две строки, и
+      // программа поднималась бы дважды
+      app.setLoginItemSettings({ ...loginItemFor([]), openAtLogin: false });
+      app.setLoginItemSettings({ ...loginItemFor(['--minimized']), openAtLogin: false });
+      if (opts?.enabled) {
+        app.setLoginItemSettings({ ...loginItemFor(args), openAtLogin: true });
+      }
+      const s = app.getLoginItemSettings(loginItemFor(args));
+      return { enabled: !!s.openAtLogin, minimized: !!opts?.minimized, path: startupExe() };
+    } catch (_) { return { enabled: false, minimized: false, path: '' }; }
   });
 
   // Вынести раздел в отдельное окно (мультимонитор): полноценное главное окно,
@@ -662,99 +693,131 @@ app.whenReady().then(() => {
   // подменить работающий портативный exe новым.
   let latestCachedUpdate: { version: string; installerPath: string } | null = null;
 
-  function downloadUpdate(url: string, dest: string, onProgress: (percent: number) => void, headers?: Record<string, string>): Promise<void> {
+  /** Отказ — словами, а не кодом: человек читает это в окне и в журнале */
+  const errorText = (err: any): string => {
+    const status = Number(err?.statusCode || 0);
+    if (status) return downloadError(status, String(err?.message || ''));
+    return String(err?.message || err || 'Неизвестная ошибка');
+  };
+
+  function downloadUpdate(
+    url: string, dest: string, onProgress: (percent: number) => void, headers?: Record<string, string>,
+  ): Promise<void> {
     const fs = require('fs');
     const https = require('https');
     const http = require('http');
-    const urlModule = require('url');
 
     return new Promise((resolve, reject) => {
       let redirectCount = 0;
 
       function startGet(requestUrl: string) {
-        let parsedUrl;
+        let parsed: URL;
         try {
-          parsedUrl = urlModule.parse(requestUrl);
-        } catch (e) {
-          reject(new Error(`Invalid download URL: ${requestUrl}`));
+          parsed = new URL(requestUrl);
+        } catch (_) {
+          reject(new Error(`Адрес обновления не разобрать: ${requestUrl}`));
+          return;
+        }
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          reject(new Error(`Обновление можно скачать только по http или https, а адрес такой: ${requestUrl}`));
           return;
         }
 
-        const protocol = parsedUrl.protocol === 'https:' ? https : http;
-
+        const protocol = parsed.protocol === 'https:' ? https : http;
         const req = protocol.get(requestUrl, { headers: headers || {} }, (res: any) => {
-          // Handle redirect (3xx codes)
-          if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-            if (redirectCount > 5) {
-              reject(new Error('Prevail redirect limit of 5'));
-              return;
-            }
+          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            if (redirectCount > 5) { reject(new Error('Сервер уводит запрос по кругу.')); return; }
             redirectCount++;
-            let nextUrl = res.headers.location;
-            if (!nextUrl.startsWith('http')) {
-              nextUrl = urlModule.resolve(requestUrl, nextUrl);
-            }
-            startGet(nextUrl);
+            const next = new URL(res.headers.location, requestUrl).toString();
+            res.resume();
+            startGet(next);
             return;
           }
 
           if (res.statusCode !== 200) {
-            reject(new Error(`Server responded with status code ${res.statusCode}`));
+            /**
+             * Тело отказа читаем и передаём наверх. Сервер Flux объясняет
+             * причину словами («Файл этой версии не найден»), и потерять это
+             * объяснение ради «status code 404» — значит оставить человека
+             * гадать, что делать.
+             */
+            let said = '';
+            res.setEncoding('utf8');
+            res.on('data', (c: string) => { if (said.length < 400) said += c; });
+            res.on('end', () => {
+              let text = said;
+              try { text = JSON.parse(said)?.error || said; } catch (_) { /* не JSON — как есть */ }
+              const err: any = new Error(text);
+              err.statusCode = res.statusCode;
+              reject(err);
+            });
             return;
           }
 
-          const totalLength = parseInt(res.headers['content-length'] || '0', 10);
-          let downloadedLength = 0;
+          const total = parseInt(res.headers['content-length'] || '0', 10);
+          let got = 0;
           const fileStream = fs.createWriteStream(dest);
-
           res.on('data', (chunk: any) => {
-            downloadedLength += chunk.length;
-            if (totalLength > 0) {
-              const percent = Math.min(100, Math.round((downloadedLength / totalLength) * 100));
-              onProgress(percent);
-            }
+            got += chunk.length;
+            if (total > 0) onProgress(Math.min(100, Math.round((got / total) * 100)));
           });
-
           res.pipe(fileStream);
-
-          fileStream.on('finish', () => {
-            fileStream.close();
-            resolve();
-          });
-
-          fileStream.on('error', (err: any) => {
-            fs.unlink(dest, () => {});
-            reject(err);
-          });
+          fileStream.on('finish', () => { fileStream.close(); resolve(); });
+          fileStream.on('error', (err: any) => { fs.unlink(dest, () => {}); reject(err); });
         });
 
-        req.on('error', (err: any) => {
-          reject(err);
-        });
+        req.on('error', (err: any) => reject(err));
+        // Сервер, который принял соединение и замолчал, иначе держал бы окно
+        // «Скачиваю… 0 %» бесконечно
+        req.setTimeout(120000, () => { req.destroy(new Error('Сервер обновлений не отвечает.')); });
       }
 
       startGet(url);
     });
   }
 
-  // Скачивание файла обновления на диск. Рендерер передаёт абсолютный адрес,
-  // версию и токен сессии (сервер отдаёт exe только авторизованным).
-  ipcMain.handle('updater:start-download', async (_event, payload: { url: string; version: string; token?: string }) => {
+  /** Первые два байта файла: у любой программы Windows это «MZ» */
+  function headBytes(file: string, n = 2): number[] {
+    const fs = require('fs');
+    try {
+      const fd = fs.openSync(file, 'r');
+      const buf = Buffer.alloc(n);
+      fs.readSync(fd, buf, 0, n, 0);
+      fs.closeSync(fd);
+      return Array.from(buf);
+    } catch (_) { return []; }
+  }
+
+  /**
+   * Скачивание файла обновления на диск.
+   *
+   * Проверок здесь две, и обе появились не от осторожности. Первая: заголовок
+   * с токеном уходит ТОЛЬКО на свой сервер — чужой хост отвечал на него
+   * отказом, и обновление по прямой ссылке не скачивалось вовсе (а токен
+   * сотрудника уезжал наружу). Вторая: скачанное проверяется на то, что это
+   * действительно программа, — страница с ошибкой приходит с кодом 200 и без
+   * проверки легла бы на место работающего exe.
+   */
+  ipcMain.handle('updater:start-download', async (_event, payload: {
+    url: string; version: string; token?: string; server?: string;
+  }) => {
     const path = require('path');
+    const fs = require('fs');
 
     const url = String(payload?.url || '');
     const version = String(payload?.version || '').replace(/[^0-9a-zA-Z.\-]/g, '');
     if (!url || !version) throw new Error('Не переданы адрес или версия обновления.');
 
+    const installerPath = path.join(app.getPath('temp'), `Flux-${version}.exe`);
+    appendLog('INFO', 'Обновление', `Скачиваю ${version}: ${url}`);
+    mainWindow?.webContents.send('updater:status', 'downloading', { percent: 0 });
+
+    const headers: Record<string, string> = {};
+    if (payload?.token && sameServer(url, String(payload?.server || ''))) {
+      headers['Authorization'] = `Bearer ${payload.token}`;
+    }
+
     try {
-      const installerPath = path.join(app.getPath('temp'), `flux-update-${version}.exe`);
-      console.log(`[Updater] Starting download: ${url} -> ${installerPath}`);
-
-      mainWindow?.webContents.send('updater:status', 'downloading', { percent: 0 });
-
-      const headers: Record<string, string> = {};
-      if (payload?.token) headers['Authorization'] = `Bearer ${payload.token}`;
-
       let lastPercent = -1;
       await downloadUpdate(url, installerPath, (percent) => {
         if (percent !== lastPercent) {
@@ -763,71 +826,95 @@ app.whenReady().then(() => {
         }
       }, headers);
 
+      mainWindow?.webContents.send('updater:status', 'verifying', {});
+      const size = fs.existsSync(installerPath) ? fs.statSync(installerPath).size : 0;
+      const bad = badPackage(headBytes(installerPath), size);
+      if (bad) {
+        try { fs.unlinkSync(installerPath); } catch (_) { /* уже нет */ }
+        throw new Error(bad);
+      }
+
       latestCachedUpdate = { version, installerPath };
-      console.log('[Updater] Download completed successfully on disk.');
+      appendLog('INFO', 'Обновление', `Скачано ${version}, ${Math.round(size / 1048576)} МБ`);
       mainWindow?.webContents.send('updater:status', 'downloaded', { version });
       return { success: true };
     } catch (err: any) {
-      console.error('[Updater Download Error]', err);
-      mainWindow?.webContents.send('updater:error', err.message);
-      throw err;
+      const text = errorText(err);
+      appendLog('ERROR', 'Обновление', `Не скачалось ${version}: ${text}`);
+      mainWindow?.webContents.send('updater:error', text);
+      throw new Error(text);
     }
   });
 
-  // Установка скачанного обновления с перезапуском.
-  // Портативный exe не может перезаписать сам себя, пока запущен, поэтому
-  // подмену делает отдельный cmd-скрипт: ждёт выхода приложения, кладёт новый
-  // exe на место старого (то же имя файла, тот же ярлык) и запускает его.
-  // Для установленной NSIS-версии остаётся классический тихий инсталлятор /S.
+  /**
+   * Установка скачанного с перезапуском.
+   *
+   * Портативный exe не может переписать сам себя, пока работает, поэтому
+   * подмену делает отдельный сценарий: ждёт выхода программы, кладёт новый exe
+   * на место старого (то же имя, тот же ярлык) и запускает его.
+   *
+   * Пути в сценарий передаются ПЕРЕМЕННЫМИ ОКРУЖЕНИЯ, а не текстом. Текст
+   * cmd-файла читается в кодировке консоли, и путь вида
+   * C:\Users\Иванов\Рабочий стол\Flux.exe превратился бы в мусор — подмена
+   * прошла бы мимо файла, и человек остался бы со старой версией, считая, что
+   * обновился. Переменные окружения передаются мимо кодировки файла.
+   */
   ipcMain.handle('updater:quitAndInstall', () => {
     const fs = require('fs');
     const path = require('path');
     const { spawn } = require('child_process');
 
     if (!latestCachedUpdate) {
-      console.error('[Updater] No downloaded update package info cached.');
       return { success: false, error: 'Обновление ещё не скачано.' };
     }
-
     const installerPath = latestCachedUpdate.installerPath;
     if (!fs.existsSync(installerPath)) {
-      console.error(`[Updater] Installer file does not exist at: ${installerPath}`);
-      return { success: false, error: 'Файл обновления не найден на диске.' };
+      return { success: false, error: 'Файл обновления не найден на диске — скачайте заново.' };
     }
 
     try {
-      // electron-builder portable выставляет путь к исходному exe пользователя
+      // Тот файл, который человек запускал (у portable-сборки это не execPath)
       const portableExe = process.env.PORTABLE_EXECUTABLE_FILE || '';
 
       if (portableExe && fs.existsSync(portableExe)) {
         const scriptPath = path.join(app.getPath('temp'), `flux-update-${Date.now()}.cmd`);
         const script = [
           '@echo off',
-          'chcp 65001 >nul',
           ':wait',
-          // ждём завершения текущего процесса (фильтр по PID не зависит от языка системы)
+          // Ждём выхода этой программы: пока процесс жив, файл занят
           `tasklist /FI "PID eq ${process.pid}" 2>nul | find "${process.pid}" >nul && (ping -n 2 127.0.0.1 >nul & goto wait)`,
-          `move /y "${installerPath}" "${portableExe}"`,
-          `start "" "${portableExe}"`,
+          'move /y "%FLUX_NEW%" "%FLUX_EXE%" >nul',
+          'if errorlevel 1 (start "" "%FLUX_EXE%" & del "%~f0" & exit /b)',
+          'start "" "%FLUX_EXE%"',
           'del "%~f0"',
         ].join('\r\n');
-        fs.writeFileSync(scriptPath, script);
-        console.log(`[Updater] Portable self-replace scheduled: ${installerPath} -> ${portableExe}`);
-        const child = spawn('cmd.exe', ['/c', scriptPath], { detached: true, stdio: 'ignore', windowsHide: true });
+        fs.writeFileSync(scriptPath, script, 'ascii');
+        appendLog('INFO', 'Обновление', `Подменяю программу: ${portableExe}`);
+        const child = spawn('cmd.exe', ['/c', scriptPath], {
+          detached: true, stdio: 'ignore', windowsHide: true,
+          env: { ...process.env, FLUX_NEW: installerPath, FLUX_EXE: portableExe },
+        });
         child.unref();
       } else {
-        console.log(`[Updater] Spawning silent installer: "${installerPath}" /S`);
+        appendLog('INFO', 'Обновление', 'Портативный файл не найден — запускаю установщик');
         const child = spawn(installerPath, ['/S'], { detached: true, stdio: 'ignore', shell: true });
         child.unref();
       }
 
-      console.log('[Updater] Exiting application to allow overwrite...');
-      app.exit(0);
+      // Выходим сразу: сценарий ждёт именно этого, чтобы освободить файл
+      setTimeout(() => app.exit(0), 400);
       return { success: true };
     } catch (err: any) {
-      console.error('[Updater Launch Error]', err);
-      return { success: false, error: err.message };
+      appendLog('ERROR', 'Обновление', `Не удалось запустить подмену: ${err?.message || err}`);
+      return { success: false, error: errorText(err) };
     }
+  });
+
+  /** Портативная ли сборка: от этого зависит, что обещать человеку */
+  ipcMain.handle('updater:is-portable', () => {
+    const fs = require('fs');
+    const exe = process.env.PORTABLE_EXECUTABLE_FILE || '';
+    return { portable: !!exe && fs.existsSync(exe), path: exe };
   });
 
   // Get app package status or information

@@ -17,11 +17,14 @@ contextBridge.exposeInMainWorld('electron', {
   
   // Автообновления: проверка и публикация идут через HTTP API сервера
   // (см. UpdaterWidget); главный процесс скачивает exe и подменяет приложение
-  startDownload: (data: { url: string; version: string; token?: string }) =>
+  startDownload: (data: { url: string; version: string; token?: string; server?: string }) =>
     ipcRenderer.invoke('updater:start-download', data),
   quitAndInstall: () => ipcRenderer.invoke('updater:quitAndInstall'),
   getAppVersion: () => ipcRenderer.invoke('updater:version'),
   isPackaged: () => ipcRenderer.invoke('updater:is-packaged'),
+  // Портативный ли это файл: от этого зависит, что обещать человеку про
+  // подмену программы на месте
+  isPortable: () => ipcRenderer.invoke('updater:is-portable'),
 
   // Listener registrations
   onUpdaterStatus: (callback: (state: string, data?: any) => void) => {

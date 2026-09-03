@@ -2000,6 +2000,28 @@ app.post('/api/updates', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Отозвать опубликованный релиз (только админ).
+ *
+ * Опубликовать не тот файл или не ту версию — обычное дело, а до этой правки
+ * отозвать публикацию было нечем: запись жила в базе навсегда, и у всех
+ * сотрудников горел значок обновления, которое ставить не надо.
+ */
+app.delete('/api/updates/:version', async (req: Request, res: Response) => {
+  const u = (req as any).authUser;
+  if (!u || u.role !== 'ADMIN') return res.status(403).json({ error: 'Отзыв релиза доступен только администратору' });
+  const version = sanitizeVersion(req.params.version);
+  if (!version) return res.status(400).json({ error: 'Не указана версия' });
+  try {
+    await prisma.appUpdate.deleteMany({ where: { version } });
+    // Файл убираем вместе с записью: раздавать его больше некому
+    try { if (fs.existsSync(updateFilePath(version))) fs.unlinkSync(updateFilePath(version)); } catch (_) {}
+    res.json({ success: true, version });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || 'Не удалось отозвать релиз' });
+  }
+});
+
 // Скачивание exe с сервера (токен обязателен — проверяет общий middleware)
 app.get('/api/updates/download/:version', (req: Request, res: Response) => {
   const version = sanitizeVersion(req.params.version);

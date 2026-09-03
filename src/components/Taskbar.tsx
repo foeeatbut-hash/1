@@ -12,7 +12,9 @@
  * «кто в проекте» и связь появятся вместе со своими механизмами, а не раньше.
  */
 import React from 'react';
-import { Bell, BellOff, LayoutGrid, Sun, Moon, Settings, LogOut, MessageCircleQuestion, LifeBuoy } from 'lucide-react';
+import {
+  Bell, BellOff, LayoutGrid, Sun, Moon, Settings, LogOut, MessageCircleQuestion, LifeBuoy, ArrowUpCircle,
+} from 'lucide-react';
 import { SECTIONS } from '../workspace/sections';
 import { useWorkspaceStore, visiblePanes, openSectionWindow, rememberSectionUse } from '../store/workspaceStore';
 import { useStore } from '../store/store';
@@ -33,6 +35,7 @@ import TaskbarPeek from './TaskbarPeek';
 import DeskSwitcher from './DeskSwitcher';
 import ProjectSwitcher from './ProjectSwitcher';
 import ClockPanel from './calendar/ClockPanel';
+import { useUpdateStore, updateReady } from '../store/updateStore';
 import { WorkspaceRailControls } from './Workspace';
 
 /** Минута — самый крупный шаг, который видно на часах без секунд */
@@ -235,6 +238,39 @@ export default function Taskbar() {
     const href = `/handbook?for=${encodeURIComponent(path)}`;
     useWorkspaceStore.getState().setFrozenHref(useWorkspaceStore.getState().activePaneId, '/handbook', href);
     rememberSectionUse('/handbook');
+    navigate(href);
+  };
+
+  /**
+   * Обновление в трее. Раздел настроек открывается сразу на нужном месте:
+   * «нажал на значок — попал в обновления», а не «нажал и ищи, где это».
+   */
+  const hasUpdate = useUpdateStore(updateReady);
+  const updateVersion = useUpdateStore((s) => s.latest?.version || '');
+  const updateSeen = useUpdateStore((s) => s.seen);
+  const checkUpdate = useUpdateStore((s) => s.check);
+  const initUpdate = useUpdateStore((s) => s.init);
+
+  React.useEffect(() => {
+    void initUpdate(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0');
+    // Первая проверка — после того, как оболочка поднялась; дальше раз в час и
+    // мгновенно, когда администратор публикует релиз
+    const first = setTimeout(() => { void checkUpdate(true); }, 8000);
+    const timer = setInterval(() => { void checkUpdate(true); }, 3600000);
+    const onPublished = () => { void checkUpdate(true); };
+    window.addEventListener('socket:app:update-published', onPublished);
+    return () => {
+      clearTimeout(first);
+      clearInterval(timer);
+      window.removeEventListener('socket:app:update-published', onPublished);
+    };
+  }, [initUpdate, checkUpdate]);
+
+  const openUpdates = () => {
+    useUpdateStore.getState().markSeen();
+    const href = '/settings?section=updates';
+    useWorkspaceStore.getState().setFrozenHref(useWorkspaceStore.getState().activePaneId, '/settings', href);
+    rememberSectionUse('/settings');
     navigate(href);
   };
 
@@ -475,6 +511,26 @@ export default function Taskbar() {
         >
           <LifeBuoy size={BAR_ICON + 2} />
         </button>
+
+        {/* Обновление — как в системе: значок у часов светится, когда есть что
+            поставить, и по нажатию открывает раздел обновлений. Иначе о новой
+            версии узнаёт только тот, кто сам зашёл в настройки и нажал
+            «Проверить», — то есть почти никто */}
+        {hasUpdate && (
+          <button
+            type="button"
+            onClick={openUpdates}
+            title={`Доступно обновление v${updateVersion} — нажмите, чтобы поставить`}
+            style={{ width: BAR_BTN, height: BAR_BTN }}
+            className={trayBtn(false)}
+          >
+            <ArrowUpCircle size={BAR_ICON + 2} className="text-emerald-600 dark:text-emerald-400" />
+            <span aria-hidden
+              className={`absolute top-1.5 right-2 w-2 h-2 rounded-full bg-emerald-500 ${
+                updateSeen ? '' : 'animate-ping'}`} />
+            <span aria-hidden className="absolute top-1.5 right-2 w-2 h-2 rounded-full bg-emerald-500" />
+          </button>
+        )}
 
         <button
           type="button"
