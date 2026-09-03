@@ -14,7 +14,8 @@ import { exec, execSync } from 'child_process';
 import os from 'os';
 import crypto from 'crypto';
 import { setPrisma, setNotifier, setBroadcaster, upsertSetting } from './server/context.js';
-import { setDialect, dialectOf } from './server/ddl.js';
+import { setDialect, dialectOf, ensureTables as ensureDbTables } from './server/ddl.js';
+import { setupPresence } from './server/presence.js';
 import { setupDocRooms } from './server/collab.js';
 import { ensureRemoteSchema } from './server/schema-sync.js';
 import { computeMachineId, licenseStatus, activateLicense } from './electron/license.js';
@@ -481,18 +482,11 @@ function ensureSchemaColumns(dbPath: string) {
       )`);
       db.exec('CREATE UNIQUE INDEX IF NOT EXISTS "ProjectMember_project_user_key" ON "ProjectMember"("projectId", "userId")');
       db.exec('CREATE INDEX IF NOT EXISTS "ProjectMember_userId_idx" ON "ProjectMember"("userId")');
-      db.exec(`CREATE TABLE IF NOT EXISTS "AssistantChat" (
-        "id" TEXT NOT NULL PRIMARY KEY,
-        "ownerId" TEXT NOT NULL,
-        "projectId" TEXT NOT NULL DEFAULT '',
-        "title" TEXT NOT NULL DEFAULT '',
-        "preview" TEXT NOT NULL DEFAULT '',
-        "messages" TEXT NOT NULL DEFAULT '[]',
-        "search" TEXT NOT NULL DEFAULT '',
-        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )`);
+      db.exec('CREATE TABLE IF NOT EXISTS "AssistantChat" ("id" TEXT NOT NULL PRIMARY KEY, "ownerId" TEXT NOT NULL, "projectId" TEXT NOT NULL DEFAULT \'\', "title" TEXT NOT NULL DEFAULT \'\', "preview" TEXT NOT NULL DEFAULT \'\', "messages" TEXT NOT NULL DEFAULT \'[]\', "search" TEXT NOT NULL DEFAULT \'\', "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)');
       db.exec('CREATE INDEX IF NOT EXISTS "AssistantChat_owner_project_idx" ON "AssistantChat"("ownerId", "projectId")');
+      // Присутствие: одна строка на человека, «в сети» — свежая отметка
+      db.exec('CREATE TABLE IF NOT EXISTS "Presence" ("userId" TEXT NOT NULL PRIMARY KEY, "at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)');
+      db.exec('CREATE INDEX IF NOT EXISTS "Presence_at_idx" ON "Presence"("at")');
       db.exec('CREATE INDEX IF NOT EXISTS "TmUnit_lang_key_idx" ON "TmUnit"("fromLang", "toLang", "srcKey")');
       db.exec('CREATE INDEX IF NOT EXISTS "TmUnit_projectId_idx" ON "TmUnit"("projectId")');
       db.exec(`CREATE TABLE IF NOT EXISTS "TransLink" (
@@ -1079,6 +1073,15 @@ const lastSeen = new Map<string, number>();
 
 const rosterOnline = () => Array.from(online.keys());
 
+// Присутствие живёт в общей базе (server/presence.ts): в отделе база одна, а
+// сервер у каждого свой — в памяти оно означало бы «все не в сети»
+const { markPresence, markGone, rosterFromDb } = setupPresence({
+  getPrisma: () => prisma,
+  localOnline: rosterOnline,
+  localSeen: () => Object.fromEntries(lastSeen),
+  broadcast: (roster) => io.emit('presence:list', roster),
+});
+
 io.on('connection', (socket) => {
   console.log(`[Socket] client connected: ${socket.id}`);
 
@@ -1101,9 +1104,12 @@ io.on('connection', (socket) => {
 
   // Пришедшему — весь список сразу: без него человек до первого чужого входа
   // видел бы всех офлайн
-  socket.emit('presence:list', { online: rosterOnline(), lastSeen: Object.fromEntries(lastSeen) });
+  void (async () => {
+    if (uid) await markPresence(uid);
+    socket.emit('presence:list', await rosterFromDb());
+  })();
   socket.on('presence:list', () => {
-    socket.emit('presence:list', { online: rosterOnline(), lastSeen: Object.fromEntries(lastSeen) });
+    void (async () => { socket.emit('presence:list', await rosterFromDb()); })();
   });
 
   socket.on('tag:linked', (data) => {
@@ -1131,6 +1137,9 @@ io.on('connection', (socket) => {
         online.delete(uid);
         const at = Date.now();
         lastSeen.set(uid, at);
+        // И в общей базе тоже: иначе на чужих машинах он останется «в сети»
+        // до конца срока свежести отметки
+        void markGone(uid);
         io.emit('presence:offline', { userId: uid, at });
       }
     }

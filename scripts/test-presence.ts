@@ -81,6 +81,52 @@ console.log('Сервер считает сокеты, а не людей');
   check('список сотрудников показывает присутствие', users.includes('onlineIds.includes(emp.id)'));
 }
 
+
+// ── Присутствие в общей базе ────────────────────────────────────────────────
+// Добавлено по случаю у заказчика: в отделе база одна, а сервер у каждого свой,
+// встроенный. Пока присутствие жило в памяти сервера, каждый сидел в своей
+// комнате один и все были для него «не в сети». Теперь свежесть отметки решает
+// всё, и числа здесь важнее кода.
+import { isFresh, rosterOf, mergeLocal, BEAT_MS, FRESH_MS } from '../src/lib/presenceTime';
+
+console.log('Свежесть отметки');
+{
+  const now = 1_700_000_000_000;
+  check('только что отмеченный — в сети', isFresh(now - 1000, now));
+  check('один пропущенный удар не гасит', isFresh(now - BEAT_MS - 500, now));
+  check('два пропущенных подряд гасят', !isFresh(now - BEAT_MS * 3 - 1, now));
+  check('срок свежести втрое больше удара', FRESH_MS === BEAT_MS * 3);
+  check('отметки нет — не в сети', !isFresh(null, now) && !isFresh(undefined, now));
+  check('мусор вместо времени не роняет проверку', !isFresh('не дата', now));
+  check('строка времени понимается', isFresh(new Date(now - 1000).toISOString(), now));
+  check('спешащие часы соседа не гасят человека', isFresh(now + 60_000, now));
+}
+
+console.log('Список из отметок базы');
+{
+  const now = 1_700_000_000_000;
+  const r = rosterOf([
+    { userId: 'a', at: now - 2000 },
+    { userId: 'b', at: now - FRESH_MS - 1000 },
+    { userId: '', at: now },
+    { userId: 'c', at: 'не дата' },
+  ], now);
+  check('свежий попал в «в сети»', r.online.includes('a'), r.online);
+  check('давний не попал', !r.online.includes('b'), r.online);
+  check('про давнего известно, когда его видели', r.lastSeen.b === now - FRESH_MS - 1000);
+  check('запись без человека отброшена', !r.online.includes(''), r.online);
+  check('битое время не создаёт записи', !('c' in r.lastSeen), r.lastSeen);
+  check('пустая база — пустой список', rosterOf([], now).online.length === 0);
+}
+
+console.log('Свои и чужие вместе');
+{
+  check('свои добавляются к тем, кто виден по базе',
+    mergeLocal(['a'], ['b']).sort().join() === 'a,b');
+  check('повтор не удваивает', mergeLocal(['a'], ['a']).join() === 'a');
+  check('пустые не попадают', mergeLocal([], ['']).length === 0);
+}
+
 if (failed) {
   console.error(`\nПровалено проверок: ${failed}`);
   process.exit(1);
