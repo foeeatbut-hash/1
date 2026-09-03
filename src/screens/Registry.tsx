@@ -50,6 +50,9 @@ import { useShareStore } from '../store/shareStore';
 import { countOf } from '../lib/plural';
 import { useModalStore } from '../store/modalStore';
 import NoProject from '../components/NoProject';
+import ExchangeDialog from '../components/ExchangeDialog';
+import { toCsv, fileName, type Column } from '../lib/exchange';
+import { TAG_EXCHANGE_COLUMNS, buildTagExchange, buildSegmentTable } from '../lib/tagExchange';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm, openAlert, openPrompt } = useModalStore.getState();
@@ -2656,53 +2659,35 @@ export default function Registry() {
    * один, и «скопировать три строки в письмо» требовало создать файл, открыть
    * его, выделить и потом удалить.
    */
+  /**
+   * Обмен одним окном (§9 дизайна): что выгружаем, куда и какие столбцы —
+   * в одном окне, с подписью «сколько получится» до нажатия. Прежняя полоса
+   * занимала экран целиком, и чтобы найти нужное, приходилось крутить страницу.
+   */
+  const [exchangeOpen, setExchangeOpen] = useState(false);
+  const EXCHANGE_COLUMNS = TAG_EXCHANGE_COLUMNS;
+
+  const buildExchange = (scopeId: string, cols: Column[]) => buildTagExchange(
+    scopeId === 'selected' ? tags.filter((t: any) => selectedTagIds.has(t.id))
+      : scopeId === 'filtered' ? matchedTagsList : tags,
+    cols,
+    { lineage: getParentTraceLineage, meta: parseTagMetadata },
+  );
+
+  // Сборка таблицы подбора уехала в lib/tagExchange: раздел «Теги» — самый
+  // большой файл программы, и держать в нём ещё и разбор сегментов значит
+  // растить его дальше. Заодно эту сборку теперь можно проверить скриптом
   const buildExportTable = (): { headers: string[]; rows: string[][] } | null => {
     const matched = getSegmentMatchedTags();
     if (matched.length === 0) return null;
-
-    const headers: string[] = [];
-    if (exportColumns.identifier) headers.push("Код тега (Tag)");
-    if (exportColumns.brand) headers.push("Марка");
-    if (exportColumns.brandParts) {
-      const maxBrandLen = getMaximumBrandSegmentLength();
-      for (let i = 0; i < maxBrandLen; i++) headers.push(`Сегмент Марки ${i + 1}`);
-    }
-    if (exportColumns.parts) {
-      const maxLen = getMaximumSegmentLength();
-      for (let i = 0; i < maxLen; i++) headers.push(`Сегмент ${i + 1}`);
-    }
-    if (exportColumns.department) headers.push("Дисциплина / Отдел");
-    if (exportColumns.fluid) headers.push("Тех. Среда / Назначение");
-    if (exportColumns.chain) headers.push("Инженерная Цепочка (Parent Chain)");
-    if (exportColumns.descriptions) headers.push("Замечания и подописания");
-
-    const rows = matched.map(t => {
-      const rowData: string[] = [];
-      const parts = splitTagIntoParts(t.identifier);
-      const meta = parseTagMetadata(t);
-
-      if (exportColumns.identifier) rowData.push(t.identifier);
-      if (exportColumns.brand) rowData.push(t.brand || "");
-      if (exportColumns.brandParts) {
-        const bp = splitBrandIntoParts(t.brand || "");
-        const maxBrandLen = getMaximumBrandSegmentLength();
-        for (let i = 0; i < maxBrandLen; i++) rowData.push(bp[i] || "");
-      }
-      if (exportColumns.parts) {
-        const maxLen = getMaximumSegmentLength();
-        for (let i = 0; i < maxLen; i++) rowData.push(parts[i] || "");
-      }
-      if (exportColumns.department) rowData.push(t.department || "");
-      if (exportColumns.fluid) rowData.push(t.fluid || "");
-      if (exportColumns.chain) rowData.push(getParentTraceLineage(t.id) || t.identifier);
-      if (exportColumns.descriptions) {
-        const descTexts = meta.descriptions.map(d => `${d.text} [${d.status.toUpperCase()}]: ${d.comment}`).join(' | ');
-        rowData.push(descTexts || "Нет замечаний");
-      }
-      return rowData;
+    return buildSegmentTable(matched, exportColumns, {
+      segments: getMaximumSegmentLength(),
+      brandSegments: getMaximumBrandSegmentLength(),
+      splitTag: splitTagIntoParts,
+      splitBrand: splitBrandIntoParts,
+      lineage: getParentTraceLineage,
+      meta: parseTagMetadata,
     });
-
-    return { headers, rows };
   };
 
   const handleExportSelectedToExcel = () => {
@@ -2712,21 +2697,16 @@ export default function Registry() {
       return;
     }
 
-    // BOM в начале — иначе Excel открывает кириллицу крякозябрами
-    let csvContent = "\uFEFF";
-    csvContent += table.headers.map(h => `"${h}"`).join(';') + "\r\n";
-    for (const rowData of table.rows) {
-      csvContent += rowData.map(val => `"${String(val).replace(/"/g, '""')}"`).join(';') + "\r\n";
-    }
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    // Сборка CSV — общая (lib/exchange): BOM, точка с запятой и удвоение
+    // кавычек одинаковы для всех разделов и проверяются скриптом
+    const blob = new Blob([toCsv(table.headers, table.rows)], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `MAX-Реестр-Агрегация_${format(new Date(), 'dd-MM-yyyy')}.csv`);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName('Теги — подбор', 'csv');
     document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
+    link.remove();
   };
 
   /** Та же подборка — сразу в буфер, чтобы вставить в письмо или протокол */
@@ -2819,16 +2799,27 @@ export default function Registry() {
               <FolderTree className="w-3.5 h-3.5" />
               <span className="hidden @[760px]:inline">Дерево связей</span>
             </button>
+            {/* Быстрая выгрузка — окном (§9). Прежняя полоса осталась вкладкой
+                «Подбор»: она про сложный разбор сегментов, а не про «выгрузить» */}
+            <button type="button"
+              onClick={() => setExchangeOpen(true)}
+              title="Выгрузить теги в файл или буфер обмена"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
+              <span className="hidden @[760px]:inline text-emerald-700 dark:text-emerald-300">Выгрузить</span>
+            </button>
             <button type="button"
               onClick={() => setActiveTab('segments')}
+              title="Подбор по сегментам кода и разбор загруженного файла"
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
                 activeTab === 'segments' 
                   ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
-              <span className="hidden @[760px]:inline text-emerald-700 dark:text-emerald-300">Экспорт и импорт</span>
+              <List className="w-3.5 h-3.5" />
+              <span className="hidden @[760px]:inline">Подбор</span>
             </button>
             <button type="button"
               onClick={() => setActiveTab('table')}
@@ -5866,6 +5857,23 @@ export default function Registry() {
           </div>
         )}
       </AnimatePresence>
+
+      {exchangeOpen && (
+        <ExchangeDialog
+          section="Теги"
+          scopes={[
+            { id: 'all', label: 'Все', count: tags.length },
+            { id: 'filtered', label: 'Отобранные', count: matchedTagsList.length },
+            { id: 'selected', label: 'Отмеченные', count: selectedTagIds.size },
+          ]}
+          columns={EXCHANGE_COLUMNS}
+          defaultColumns={['identifier', 'brand', 'department', 'wbs', 'fluid']}
+          build={buildExchange}
+          onImport={() => setShowImportWizard(true)}
+          importHint="Разбор файла со сверкой — прежним мастером"
+          onClose={() => setExchangeOpen(false)}
+        />
+      )}
 
       {showImportWizard && activeProject && (
         <TagImportWizard

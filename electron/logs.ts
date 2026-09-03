@@ -42,11 +42,23 @@ const fileFor = (d = new Date()): string =>
   path.join(logsDir(), `flux-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.log`);
 
 /** Строка журнала: время, откуда и что случилось */
+/**
+ * Пароль в журнал не попадает.
+ *
+ * Журнал уходит владельцу и в переписку с поддержкой; строка подключения к
+ * общей базе однажды уже уехала туда открытым текстом, вместе с паролем. Своя
+ * маленькая копия правила, а не общий модуль: главный процесс не тянет код
+ * окна — это граница слоёв (scripts/test-architecture.ts).
+ */
+const hidePasswords = (text: string): string => String(text || '')
+  .replace(/([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)([^\s/@:]+):([^\s/@]+)@/g, '$1$2:***@')
+  .replace(/\b(password|pwd|pass)\s*=\s*[^\s;&]+/gi, '$1=***');
+
 export function appendLog(level: string, where: string, text: string): void {
   try {
     const d = new Date();
     const stamp = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-    const line = `[${stamp}] ${String(level || 'INFO').toUpperCase()} · ${where || '—'} · ${String(text || '').replace(/\s+/g, ' ')}\n`;
+    const line = `[${stamp}] ${String(level || 'INFO').toUpperCase()} · ${where || '—'} · ${hidePasswords(String(text || '')).replace(/\s+/g, ' ')}\n`;
     fs.appendFileSync(fileFor(d), line, 'utf-8');
   } catch (_) { /* не записалось — программа из-за журнала падать не должна */ }
 }

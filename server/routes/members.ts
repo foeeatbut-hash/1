@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from 'express';
+import { ensureTables as ensureDbTables } from '../ddl.js';
 import { getPrisma, sendError, notifyUser } from '../context.js';
 
 // ── Кто работает над проектом ───────────────────────────────────────────────
@@ -19,21 +20,33 @@ import { getPrisma, sendError, notifyUser } from '../context.js';
 //   2. АДМИНИСТРАТОР ВИДИТ ВСЁ. Иначе некому чинить.
 
 let ensured = false;
-async function ensureTables(): Promise<void> {
-  if (ensured) return;
+// Подстраховка на случай, когда автомиграция не отработала. SQL собирается
+// под движок базы (server/ddl.ts): написанный синтаксисом PostgreSQL, он на
+// MariaDB падал всегда и молча — см. историю с календарём.
+async function ensureTables(): Promise<string> {
+  if (ensured) return '';
   const prisma = getPrisma();
   try {
     await prisma.projectMember.count();
     ensured = true;
+    return '';
   } catch (_) {
-    try {
-      await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "ProjectMember" (
-        "id" TEXT NOT NULL PRIMARY KEY, "projectId" TEXT NOT NULL, "userId" TEXT NOT NULL,
-        "addedBy" TEXT NOT NULL DEFAULT '',
-        "addedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )`);
-      ensured = true;
-    } catch (_) { /* следующая попытка на следующем запросе */ }
+    const why = await ensureDbTables(prisma, [{
+      table: 'ProjectMember',
+      cols: [
+        { name: 'id', kind: 'text', pk: true },
+        { name: 'projectId', kind: 'text', notNull: true, def: '', indexed: true },
+        { name: 'userId', kind: 'text', notNull: true, def: '', indexed: true },
+        { name: 'addedBy', kind: 'text', notNull: true, def: '' },
+        { name: 'addedAt', kind: 'time', notNull: true, def: 'now' },
+      ],
+      indexes: [
+        { name: 'ProjectMember_project_user_key', cols: ['projectId', 'userId'], unique: true },
+        { name: 'ProjectMember_userId_idx', cols: ['userId'] },
+      ],
+    }], (m) => console.error('[Участники]', m));
+    if (!why) ensured = true;
+    return why;
   }
 }
 

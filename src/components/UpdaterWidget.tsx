@@ -25,7 +25,7 @@ import { useToastStore } from '../store/toastStore';
 import { useStore } from '../store/store';
 import { getServerBaseUrl } from '../config/env';
 import { useUpdateStore } from '../store/updateStore';
-import { phaseLabel, blocker, fileUrlOf } from '../lib/updates';
+import { phaseLabel, fileUrlOf, versionFromFileName, versionProblem } from '../lib/updates';
 
 // ── Автообновления через сервер ──
 // Админ публикует релиз прямо на сервер (загружает exe или даёт прямую ссылку),
@@ -54,6 +54,8 @@ export default function UpdaterWidget() {
   const [pubFile, setPubFile] = useState<File | null>(null);
   const [pubFileUrl, setPubFileUrl] = useState('');
   const [isPublishing, setIsPublishing] = useState(false);
+  /** Почему публикация не удалась — прямо в окне, а не всплывающей подсказкой */
+  const [pubError, setPubError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showModal, setShowModal] = useState(false);
 
@@ -68,9 +70,13 @@ export default function UpdaterWidget() {
   const check = useUpdateStore((s) => s.check);
   const install = useUpdateStore((s) => s.install);
   const markSeen = useUpdateStore((s) => s.markSeen);
+  const broken = useUpdateStore((s) => s.broken);
+  const revoke = useUpdateStore((s) => s.revoke);
 
   const isElectron = typeof window !== 'undefined' && (window as any).electron !== undefined;
   const busy = phase === 'downloading' || phase === 'verifying' || phase === 'installing';
+  /** Куда уходит запрос за файлом: сервер, с которым работает эта программа */
+  const base = getServerBaseUrl() || (typeof window !== 'undefined' ? window.location.origin : '');
 
   useEffect(() => {
     void init(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0');
@@ -124,10 +130,26 @@ export default function UpdaterWidget() {
     }
   };
 
+  /**
+   * Файл выбран — номер версии берётся из его имени.
+   *
+   * Руками номер набирать не надо: именно на этом обновления и встали. В поле
+   * оказалось «90» вместо «0.90.0», запись о релизе разошлась всем сотрудникам,
+   * а файл на сервере лежал под настоящим номером — и каждый получал «файла
+   * этой версии нет».
+   */
+  const handlePickFile = (file: File | null) => {
+    setPubFile(file);
+    if (!file) return;
+    const fromName = versionFromFileName(file.name);
+    if (fromName) setPubVersion(fromName);
+  };
+
   const handlePublishRelease = async () => {
     const version = pubVersion.trim();
-    if (!version) {
-      addToast('Укажите номер версии релиза', 'error');
+    const badVersion = versionProblem(version);
+    if (badVersion) {
+      addToast(badVersion, 'error');
       return;
     }
     if (!pubFile && !pubFileUrl.trim()) {
@@ -136,6 +158,7 @@ export default function UpdaterWidget() {
     }
 
     setIsPublishing(true);
+    setPubError('');
     try {
       // Шаг 1: файл — на сервер (сырыми байтами, минуя JSON-лимиты)
       if (pubFile) {
@@ -146,6 +169,12 @@ export default function UpdaterWidget() {
         });
         const upData = await upRes.json().catch(() => ({}));
         if (!upRes.ok) throw new Error(upData.error || `Загрузка файла: сервер ответил ${upRes.status}`);
+        // Файл, не попавший в общую базу, виден только на этой машине.
+        // Публиковать такое нельзя: оповещение уйдёт всем, а скачать не сможет
+        // никто — именно так отдел и просидел два выпуска без обновлений
+        if (upData?.shared === false) {
+          throw new Error(String(upData.warning || 'Файл не попал в общую базу — сотрудники его не скачают.'));
+        }
       }
       // Шаг 2: запись релиза (ссылка на сервер, если файл загружен)
       const res = await fetch('/api/updates', {
@@ -156,13 +185,36 @@ export default function UpdaterWidget() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `Сервер ответил ${res.status}`);
 
+      /**
+       * Проверяем, что файл действительно лежит там, откуда его будут качать.
+       *
+       * Это не перестраховка. Публикация уходит на ТОТ сервер, с которым
+       * работает эта программа, а берут файл сотрудники из общей базы. Спросить
+       * дешевле, чем узнать от них через день. Спрашиваем именно вопросом, а не
+       * скачиванием: 130 мегабайт по сети ради двух байтов никому не нужны.
+       */
+      const probe = await fetch(fileUrlOf(`/api/updates/check/${version}`, base)).catch(() => null);
+      const state = probe ? await probe.json().catch(() => null) : null;
+      if (!state?.ok) {
+        setPubError(
+          `Релиз записан, но файла на сервере нет (${state?.why || (probe ? `код ${probe.status}` : 'сервер не ответил')}). `
+          + 'Сотрудники его не скачают — опубликуйте заново.',
+        );
+        addToast('Файл на сервере не найден — смотрите объяснение в окне публикации', 'error');
+        return;
+      }
+
       addToast(`Релиз v${version} опубликован — сотрудники получат оповещение.`, 'success');
       setShowPublishModal(false);
       setPubChangelog('');
       setPubFile(null);
+      void check(true);
       if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
+      // Причина остаётся в окне, а не уезжает с всплывающей подсказкой:
+      // читать её приходится внимательно, а иногда и показывать кому-то
+      setPubError(errMsg);
       addToast(`Ошибка публикации: ${errMsg}`, 'error');
     } finally {
       setIsPublishing(false);
@@ -271,6 +323,30 @@ export default function UpdaterWidget() {
           </p>
         )}
 
+        {/* Публикация без файла — не молчаливая беда, а видимая строка.
+            Раньше такая запись жила в общей базе вечно: у всех горело
+            «доступно обновление», нажатие отвечало «файла этой версии нет»,
+            и убрать её было нечем */}
+        {broken.map((b) => (
+          <div key={b.version} className="text-xs leading-snug bg-amber-500/10 rounded p-2 text-amber-700 dark:text-amber-300">
+            <div>
+              Релиз <span className="font-bold">v{b.version}</span> опубликован без файла: {b.why}.
+              {!isAdmin && ' Обновиться по нему нельзя — скажите администратору.'}
+            </div>
+            {isAdmin && (
+              <button type="button"
+                onClick={async () => {
+                  const err = await revoke(b.version);
+                  addToast(err || `Публикация v${b.version} отозвана`, err ? 'error' : 'success');
+                }}
+                className="mt-1 font-bold underline cursor-pointer"
+              >
+                Отозвать публикацию
+              </button>
+            )}
+          </div>
+        ))}
+
         {/* Публикация релиза — только администратор */}
         {isAdmin && (
           <button type="button"
@@ -344,9 +420,13 @@ export default function UpdaterWidget() {
             </div>
 
             <div className="p-5 flex-1 overflow-y-auto space-y-4">
+              {/* Куда уйдёт файл — сказано прямо. Раньше он оставался на диске
+                  того, кто публиковал, и сотрудники получали «файла этой версии
+                  нет», хотя запись о релизе видели все */}
               <div className="text-xs leading-normal bg-amber-500/10 dark:bg-amber-500/5 p-2.5 rounded border border-amber-500/20 text-amber-800 dark:text-amber-300">
-                Файл exe загружается на этот сервер и раздаётся сотрудникам с него же.
-                Все, кто сейчас онлайн, получат оповещение мгновенно; остальные — при следующей проверке.
+                Файл уйдёт в общую базу — ту же, где лежат проекты и переписка. Оттуда его возьмёт
+                программа каждого сотрудника, на какой бы машине она ни работала.
+                Все, кто сейчас в программе, получат оповещение мгновенно; остальные — при следующей проверке.
               </div>
 
               <div className="space-y-1">
@@ -358,6 +438,12 @@ export default function UpdaterWidget() {
                   placeholder="Например: 0.25.0"
                   className="w-full text-xs p-2 rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white font-mono"
                 />
+                {/* Ошибку в номере видно сразу, а не после рассылки оповещения */}
+                {!!versionProblem(pubVersion, currentVersion) && pubVersion.trim() !== '' && (
+                  <p className="text-xs text-rose-600 dark:text-rose-400 leading-snug">
+                    {versionProblem(pubVersion, currentVersion)}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1">
@@ -368,7 +454,7 @@ export default function UpdaterWidget() {
                   ref={fileInputRef}
                   type="file"
                   accept=".exe"
-                  onChange={(e) => setPubFile(e.target.files?.[0] || null)}
+                  onChange={(e) => handlePickFile(e.target.files?.[0] || null)}
                   className="w-full text-xs p-2 rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white file:mr-2 file:px-2 file:py-1 file:rounded file:border-0 file:bg-emerald-600 file:text-white file:text-xs file:font-bold file:cursor-pointer"
                 />
                 {pubFile && (
@@ -402,6 +488,12 @@ export default function UpdaterWidget() {
                 />
               </div>
             </div>
+
+            {!!pubError && (
+              <div className="mx-5 mb-4 text-xs leading-snug bg-rose-500/10 border border-rose-500/20 rounded p-2.5 text-rose-700 dark:text-rose-300">
+                {pubError}
+              </div>
+            )}
 
             <div className="p-4 bg-slate-50 dark:bg-slate-990 border-t border-slate-200 dark:border-slate-850 flex items-center justify-end gap-2 shrink-0">
               <button type="button"

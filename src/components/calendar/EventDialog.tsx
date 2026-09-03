@@ -79,7 +79,12 @@ export default function EventDialog({ draft, onClose }: { draft: Draft; onClose:
   // Звать можно только тех, кто есть в программе: список приходит с сервера
   React.useEffect(() => {
     let alive = true;
-    fetch('/api/users', { headers: { Authorization: `Bearer ${localStorage.getItem('flux_token') || ''}` } })
+    // Токен добавляет общая обёртка fetch (src/config/env.ts), и подставлять
+    // его руками нельзя: здесь стояло неверное имя ключа хранилища, заголовок
+    // уходил пустым, сервер отвечал «требуется вход» — и программа выкидывала
+    // человека на экран входа ровно в тот момент, когда он открывал событие
+    // календаря. Своим заголовком мы ещё и запрещали обёртке подставить верный
+    fetch('/api/users')
       .then((r) => (r.ok ? r.json() : []))
       .then((list: any) => {
         if (!alive) return;
