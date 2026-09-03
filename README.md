@@ -78,7 +78,14 @@ npx vite build && npm run build:electron
 `test-api`, `test-flow`, `test-layout`, `test-collab-live`, `test-presence-live`,
 `test-assistant-privacy`, `test-assistant-history`, `test-login-db`,
 `test-update-ui`, `test-update-share`, `test-update-repair`, `test-mail-shared`,
-`test-office-open`, `test-panels-live`, `test-tours-live`, `test-walkthrough`.
+`test-office-open`, `test-panels-live`, `test-tours-live`, `test-walkthrough`,
+`test-labels-live`.
+
+Живой пробе, которая ходит по разделам, мало записать выбранный проект в
+хранилище браузера: переход, отличающийся только решёткой в адресе, страницу
+не перезагружает, а выбранный проект программа читает при загрузке. После
+записи нужен `page.reload()` — иначе проба видит «Проект не выбран» и решит,
+что сломана программа.
 
 `test-walkthrough` идёт по работе целиком — проект, его данные, тег,
 оборудование, документ, общий доступ, запись в Журнал, — и находит то, что

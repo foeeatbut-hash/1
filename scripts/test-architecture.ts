@@ -136,7 +136,7 @@ const LEGACY: Record<string, number> = {
   'src/screens/DictionaryEditor.tsx': 2279,
   // Пузырь сообщения уехал в components/chat/MessageBubble.tsx — планка ниже
   'src/screens/ChatManagement.tsx': 1864,
-  'src/screens/ConstructorScreen.tsx': 1909,
+  'src/screens/ConstructorScreen.tsx': 1905,
   'src/screens/SettingsScreen.tsx': 1530,
   // Типы ответа и два новых ответа уехали в src/assistant/ — планка ниже
   'src/store/assistantStore.ts': 1225,
