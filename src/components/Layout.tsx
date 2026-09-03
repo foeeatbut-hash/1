@@ -666,7 +666,7 @@ export default function Layout() {
     { label: 'Общее', items: [
       { name: 'Проводник', path: '/explorer', icon: FolderOpen },
       { name: 'Блокнот', path: '/notes', icon: NotebookPen },
-      { name: 'Чат', path: '/chat', icon: MessagesSquare },
+      { name: 'Мессенджер', path: '/chat', icon: MessagesSquare },
       { name: 'Почта', path: '/mail', icon: Mail },
       { name: 'Браузер', path: '/browser', icon: Globe },
       { name: 'Календарь', path: '/calendar', icon: CalendarDays },

@@ -204,7 +204,7 @@ export const unreadIn = (items: FeedItem[]): number => items.filter((i) => !i.is
 /** Порядок и названия подразделов личных уведомлений */
 export const PERSONAL_GROUPS: { key: string; title: string }[] = [
   { key: 'ДОКУМЕНТЫ', title: 'Мои документы' },
-  { key: 'ЧАТ', title: 'Чат' },
+  { key: 'ЧАТ', title: 'Мессенджер' },
   { key: 'ДОСТУП', title: 'Доступ' },
   { key: 'ПРОЕКТЫ', title: 'Проекты' },
   { key: 'ОБОРУДОВАНИЕ', title: 'Оборудование' },

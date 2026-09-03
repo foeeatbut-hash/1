@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
+import { useAssistantStore } from '../store/assistantStore';
+import { useAssistantCall } from '../components/chat/useAssistantCall';
+import AssistantEntry from '../components/chat/AssistantEntry';
+import { matchUsers, matchGroups } from '../lib/chatSearch';
+import { canvasAttachment } from '../lib/chatDrawing';
 import { useToastStore } from '../store/toastStore';
 import { usePresenceStore, presenceLabel } from '../store/presenceStore';
 import { useChatStore, ChatMessage } from '../store/chatStore';
@@ -403,21 +408,9 @@ export default function ChatManagement() {
     }
   }, [isAnnotating, screenshotData]);
 
-  // Filters
-  const filteredUsers = users.filter(u => {
-    if (u.id === user?.id) return false;
-    const q = searchQuery.toLowerCase();
-    return u.name.toLowerCase().includes(q) || u.symbol.toLowerCase().includes(q);
-  });
-
-  // Группы ищем той же строкой, что и людей: раньше поиск их не касался,
-  // и при десятке групп список приходилось перебирать глазами
-  const filteredGroups = groups.filter(g => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return true;
-    return (g.name || '').toLowerCase().includes(q)
-      || (g.description || '').toLowerCase().includes(q);
-  });
+  // Поиск по людям и группам одной строкой — src/lib/chatSearch.ts
+  const filteredUsers = matchUsers(users, user?.id, searchQuery);
+  const filteredGroups = matchGroups(groups, searchQuery);
 
   const activePeer = users.find(u => u.id === activeReceiverId);
   const activeGroup = groups.find(g => g.id === activeGroupId);
@@ -463,6 +456,15 @@ export default function ChatManagement() {
     }
   };
 
+  // Вызов помощника через «@» — components/chat/useAssistantCall: там же и
+  // правило приватности, по которому он видит только заданный вопрос
+  const maybeAskAssistant = useAssistantCall({
+    me: user,
+    projectId: activeProject?.id || null,
+    say: (userId, text, projectId) => sendMessage(userId, text, null, projectId, [], null),
+    toast: (text, kind) => addToast(text, kind),
+  });
+
   const handleSend = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!user) return;
@@ -492,6 +494,9 @@ export default function ChatManagement() {
       setStagedAttachments([]);
       setSelectedElementId(null);
       setSelectedElementName(null);
+
+      // Сообщение, начатое с «@помощник», кроме собеседников уходит и ему
+      void maybeAskAssistant(messageText, !!editingMessage);
       // Возвращаем фокус в поле — чтобы можно было сразу печатать дальше
       requestAnimationFrame(() => messageInputRef.current?.focus());
     } catch (err: any) {
@@ -803,19 +808,9 @@ export default function ChatManagement() {
     if (!canvasRef.current) return;
     try {
       addToast('Заливка снимка на сетевой сервер...', 'info');
-      const canvas = canvasRef.current;
-      const dataUrl = canvas.toDataURL('image/png');
-      const base64Data = dataUrl.split(',')[1];
-      const fileName = `screenshot_${Date.now()}.png`;
-
-      const uploaded = await uploadFile(fileName, base64Data);
-
-      setStagedAttachments(prev => [...prev, {
-        fileName: uploaded.fileName,
-        filePath: uploaded.filePath,
-        fileSize: uploaded.fileSize
-      }]);
-
+      // Превращение холста в файл — в src/lib/chatDrawing.ts
+      const uploaded = await canvasAttachment(canvasRef.current, uploadFile);
+      setStagedAttachments(prev => [...prev, uploaded]);
       setIsAnnotating(false);
       setScreenshotData(null);
       addToast('Аннотированный скриншот прикреплен к сообщениям!', 'success');
@@ -850,7 +845,11 @@ export default function ChatManagement() {
 
         {/* Categories channels scrolling container */}
         <div className="flex-1 overflow-y-auto p-2 space-y-4">
-          
+
+          {/* Помощник — закреплённый первым разговор, а не программа, в которую
+              надо идти (components/chat/AssistantEntry) */}
+          <AssistantEntry />
+
           {/* Section 1: Groups & Channels */}
           <div className="space-y-1">
             <div className="px-3 py-1 flex items-center justify-between">
