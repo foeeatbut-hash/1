@@ -146,12 +146,21 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
    */
   const CHUNK_BYTES = 2 * 1024 * 1024;
 
-  // Таблица кусков может отсутствовать в базе, созданной прежней версией
+  /**
+   * Таблица кусков может отсутствовать — или быть НЕПОЛНОЙ.
+   *
+   * Второе и случилось: автомиграция общей базы не знала двоичного типа и
+   * создала таблицу без самой колонки с файлом. Проверка «сколько строк»
+   * при этом проходила успешно — таблица-то есть, — а вставка падала на «нет
+   * такой колонки», и файл обновления не попадал в общую базу никогда.
+   *
+   * Поэтому спрашивается именно колонка с данными: она и есть смысл таблицы.
+   */
   let updateChunksReady = false;
   const ensureUpdateChunks = async (): Promise<void> => {
     if (updateChunksReady) return;
     try {
-      await deps.getPrisma().appUpdateChunk.count();
+      await deps.getPrisma().appUpdateChunk.findFirst({ select: { data: true } });
       updateChunksReady = true;
     } catch (_) {
       const why = await ensureDbTables(deps.getPrisma(), [{
@@ -209,6 +218,12 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
           data: { version, idx, data: body.subarray(i, Math.min(i + CHUNK_BYTES, body.length)) },
         });
       }
+      // Записанное перечитывается: «вставка не упала» и «файл в базе целиком» —
+      // разные вещи, а сотруднику достанется именно то, что в базе
+      const stored = await chunkedSize(version);
+      if (stored !== body.length) {
+        throw new Error(`в общую базу дошло ${stored} байт из ${body.length}`);
+      }
       // Старые версии из базы убираем: держать по 130 МБ на каждый выпуск
       // незачем, а место в общей базе — общее
       const keep = await deps.getPrisma().appUpdate.findMany({ orderBy: { createdAt: 'desc' }, take: 2, select: { version: true } });
@@ -216,6 +231,9 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
       await deps.getPrisma().appUpdateChunk.deleteMany({ where: { version: { notIn: keepList } } });
       res.json({ success: true, version, size: body.length, shared: true });
     } catch (e: any) {
+      // Недописанное убираем сразу. Обрезанный exe хуже отсутствующего: он
+      // выглядит как файл, скачивается и ложится на место работающей программы
+      try { await deps.getPrisma().appUpdateChunk.deleteMany({ where: { version } }); } catch (_) {}
       // На диске файл уже есть — этот сервер обновление раздаст, но остальные
       // сотрудники его не увидят. Молчать об этом нельзя
       console.error('[Обновление] Файл не попал в общую базу:', e?.message || e);
@@ -243,9 +261,26 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
       });
     }
     const changelog = String(req.body?.changelog || '').slice(0, 20000);
-    const hasLocalFile = fs.existsSync(updateFilePath(version));
-    const fileUrl = hasLocalFile ? `/api/updates/download/${version}` : String(req.body?.fileUrl || '').trim();
-    if (!fileUrl) return res.status(400).json({ error: 'Загрузите файл exe на сервер или укажите прямую ссылку' });
+    const external = String(req.body?.fileUrl || '').trim();
+    /**
+     * Оповещение не уходит, пока файл не лежит там, откуда его возьмут.
+     *
+     * Раньше хватало файла на диске того, кто публикует. Но у сотрудников свои
+     * серверы, и его диск для них — чужая машина: они получали «файла этой
+     * версии нет». Теперь запись о релизе создаётся только вместе с настоящей
+     * возможностью его скачать.
+     */
+    const inDb = await deps.getPrisma().appUpdateChunk.count({ where: { version } }).catch(() => 0);
+    const onDisk = fs.existsSync(updateFilePath(version));
+    if (!external && !inDb) {
+      return res.status(400).json({
+        error: onDisk
+          ? 'Файл сохранён только на этой машине — в общую базу он не попал, и сотрудники его не скачают. '
+            + 'Загрузите exe заново; если не выходит, причина будет в журнале сервера.'
+          : 'Загрузите файл exe на сервер или укажите прямую ссылку',
+      });
+    }
+    const fileUrl = (onDisk || inDb) ? `/api/updates/download/${version}` : external;
     try {
       const update = await deps.getPrisma().appUpdate.upsert({
         where: { version },

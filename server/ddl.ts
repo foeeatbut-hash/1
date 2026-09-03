@@ -123,6 +123,23 @@ export function createIndexSql(d: Dialect, table: string, name: string, cols: st
 export const isDuplicateIndex = (message: string): boolean =>
   /duplicate key name|already exists|ER_DUP_KEYNAME/i.test(String(message || ''));
 
+/**
+ * Добавить недостающую колонку в уже существующую таблицу.
+ *
+ * Понадобилось после случая, когда таблица в общей базе была создана НЕ ПОЛНОЙ:
+ * автомиграция не знала двоичного типа и молча пропустила колонку с файлом
+ * обновления. Дальше всё выглядело исправным — таблица есть, значит создавать
+ * нечего, — а вставка падала на «нет такой колонки». Поэтому «таблица есть»
+ * больше не значит «таблица правильная».
+ */
+export function addColumnSql(d: Dialect, table: string, c: Col): string {
+  return `ALTER TABLE ${q(d, table)} ADD COLUMN ${columnSql(d, c)}`;
+}
+
+/** «Колонка уже есть» — тоже достигнутая цель, а не беда */
+export const isDuplicateColumn = (message: string): boolean =>
+  /duplicate column|already exists|ER_DUP_FIELDNAME/i.test(String(message || ''));
+
 export interface TableSpec {
   table: string;
   cols: Col[];
@@ -144,6 +161,18 @@ export async function ensureTables(prisma: any, specs: TableSpec[], log?: (m: st
       const msg = `Не удалось создать таблицу ${spec.table} (${d}): ${e?.message || e}`;
       log?.(msg);
       return msg;
+    }
+    // Таблица могла остаться с прошлой версии программы неполной — тогда её
+    // надо не создать, а дополнить. Первичный ключ пропускаем: он есть всегда,
+    // и добавить его второй раз нельзя
+    for (const col of spec.cols) {
+      if (col.pk) continue;
+      try {
+        await prisma.$executeRawUnsafe(addColumnSql(d, spec.table, col));
+        log?.(`В таблицу ${spec.table} добавлена недостающая колонка ${col.name}`);
+      } catch (e: any) {
+        if (!isDuplicateColumn(e?.message)) log?.(`Колонка ${col.name} не добавлена: ${e?.message || e}`);
+      }
     }
     for (const idx of spec.indexes || []) {
       try {

@@ -25,7 +25,18 @@ interface Model {
   columns: Column[];
 }
 
-const SCALARS = new Set(['String', 'Int', 'Boolean', 'DateTime', 'Float', 'BigInt', 'Decimal', 'Json']);
+/**
+ * Типы, которые становятся колонками. Всё остальное в схеме — связи.
+ *
+ * `Bytes` сюда не входил, и это стоило отделу двух выпусков без обновлений.
+ * Двоичное поле в схеме одно — файл обновления (`AppUpdateChunk.data`), и из-за
+ * пропуска таблица в общей базе создавалась БЕЗ НЕГО: id, version, idx — и всё.
+ * Дальше по цепочке всё выглядело исправным: таблица есть, значит подстраховка
+ * с созданием не срабатывает; вставка куска падает на «нет такой колонки»,
+ * ошибка ловится и превращается в предупреждение, которое легко не заметить.
+ * Итог — запись о релизе у всех, файла в общей базе нет ни у кого.
+ */
+const SCALARS = new Set(['String', 'Int', 'Boolean', 'DateTime', 'Float', 'BigInt', 'Decimal', 'Json', 'Bytes']);
 
 function quoteId(dialect: Dialect, id: string): string {
   return dialect === 'mysql' ? `\`${id}\`` : `"${id}"`;
@@ -38,6 +49,7 @@ function sqliteType(base: string): string {
     case 'Int': case 'BigInt': case 'Boolean': return 'INTEGER';
     case 'Float': case 'Decimal': return 'REAL';
     case 'DateTime': return 'DATETIME';
+    case 'Bytes': return 'BLOB';
     default: return 'TEXT';
   }
 }
@@ -58,9 +70,15 @@ function sqlType(dialect: Dialect, base: string, dbAttr: string | null): string 
     if (t === 'mediumtext') return dialect === 'mysql' ? 'MEDIUMTEXT' : 'TEXT';
     if (t === 'varchar') return `VARCHAR${arg || '(191)'}`;
     if (t === 'char') return `CHAR${arg || '(1)'}`;
+    // Двоичное поле: у каждого движка своё имя, «почти правильное» не подходит
+    if (t === 'longblob') return dialect === 'mysql' ? 'LONGBLOB' : 'BYTEA';
+    if (t === 'blob' || t === 'mediumblob') return dialect === 'mysql' ? t.toUpperCase() : 'BYTEA';
   }
   switch (base) {
     case 'String': return dialect === 'mysql' ? 'VARCHAR(191)' : 'TEXT';
+    // Без указания размера двоичное поле берётся самым вместительным: в нём
+    // едет файл обновления, а BLOB на 64 КБ для него бесполезен
+    case 'Bytes': return dialect === 'mysql' ? 'LONGBLOB' : 'BYTEA';
     case 'Int': return 'INTEGER';
     case 'Boolean': return dialect === 'mysql' ? 'TINYINT(1)' : 'BOOLEAN';
     case 'DateTime': return dialect === 'mysql' ? 'DATETIME(3)' : 'TIMESTAMP(3)';
@@ -88,11 +106,14 @@ function defaultSql(dialect: Dialect, base: string, raw: string | null): string 
 
 // Синтетический дефолт для NOT NULL колонки без @default — чтобы ADD COLUMN не
 // падал на таблице с существующими строками
-function fallbackDefault(dialect: Dialect, base: string): string {
+function fallbackDefault(dialect: Dialect, base: string): string | null {
   switch (base) {
     case 'Int': case 'Float': case 'BigInt': case 'Decimal': return '0';
     case 'Boolean': return dialect === 'postgresql' ? 'false' : '0';
     case 'DateTime': return dialect === 'sqlite' ? "(datetime('now'))" : 'CURRENT_TIMESTAMP(3)';
+    // У двоичного поля значения по умолчанию нет и быть не должно: MySQL на
+    // DEFAULT для BLOB отвечает отказом, и вся правка схемы встала бы из-за него
+    case 'Bytes': return null;
     default: return quoteStr('');
   }
 }

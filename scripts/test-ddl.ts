@@ -9,8 +9,13 @@
  * Запуск: npx tsx scripts/test-ddl.ts
  */
 import {
-  createTableSql, createIndexSql, columnSql, dialectOf, isDuplicateIndex, type Col,
+  createTableSql, createIndexSql, columnSql, dialectOf, isDuplicateIndex,
+  addColumnSql, isDuplicateColumn, type Col,
 } from '../server/ddl';
+// Автомиграция общей базы: она создаёт таблицы по схеме Prisma, и именно она
+// однажды пропустила колонку с файлом обновления
+import { parsePrismaSchema } from '../server/schema-sync';
+import { readFileSync } from 'fs';
 
 let failed = 0;
 const check = (name: string, cond: boolean, got?: unknown) => {
@@ -112,6 +117,68 @@ console.log('Индексы');
   check('повтор индекса у MySQL считается успехом',
     isDuplicateIndex("Duplicate key name 'T_idx'"));
   check('чужая ошибка успехом не считается', !isDuplicateIndex('Table does not exist'));
+}
+
+// Проверка написана по поломке, из-за которой обновления не работали вовсе.
+// Автомиграция общей базы не знала двоичного типа и молча пропускала колонку с
+// файлом обновления: таблица в MariaDB создавалась без неё. Дальше всё выглядело
+// исправным — таблица есть, — а вставка падала на «нет такой колонки», и файл
+// не попадал в общую базу никогда
+console.log('Двоичное поле доезжает до общей базы');
+{
+  const schema = `
+model AppUpdateChunk {
+  id      String @id @default(uuid())
+  version String
+  idx     Int
+  data    Bytes  @db.LongBlob
+
+  @@unique([version, idx])
+}
+`;
+  const my = parsePrismaSchema('mysql', schema)[0];
+  check('модель разобрана', !!my, my);
+  check('колонка с файлом не потерялась', my.columns.some((c) => c.name === 'data'), my.columns.map((c) => c.name));
+  const data = my.columns.find((c) => c.name === 'data')!;
+  check('у MariaDB это LONGBLOB, а не текст', data.sqlType === 'LONGBLOB', data.sqlType);
+  // У MySQL двоичное поле не имеет значения по умолчанию — с DEFAULT запрос
+  // отказал бы целиком, и таблица снова осталась бы без колонки
+  check('значения по умолчанию у него нет', data.defaultSql === null, data.defaultSql);
+
+  const pg = parsePrismaSchema('postgresql', schema)[0].columns.find((c) => c.name === 'data')!;
+  check('у PostgreSQL это BYTEA', pg.sqlType === 'BYTEA', pg.sqlType);
+  const lite = parsePrismaSchema('sqlite', schema)[0].columns.find((c) => c.name === 'data')!;
+  check('у SQLite это BLOB', lite.sqlType === 'BLOB', lite.sqlType);
+}
+
+// Та же проверка, но на настоящих схемах: правило должно держаться и тогда,
+// когда двоичных полей станет больше одного
+{
+  const files: [string, 'sqlite' | 'postgresql' | 'mysql'][] = [
+    ['prisma/schema.prisma', 'sqlite'],
+    ['prisma/schema.postgresql.prisma', 'postgresql'],
+    ['prisma/schema.mariadb.prisma', 'mysql'],
+  ];
+  for (const [file, dialect] of files) {
+    const text = readFileSync(file, 'utf-8');
+    const declared = [...text.matchAll(/^\s*(\w+)\s+Bytes\b/gm)].map((m) => m[1]);
+    const parsed = parsePrismaSchema(dialect, text).flatMap((m) => m.columns.map((c) => c.name));
+    check(`${file}: ни одно двоичное поле не потерялось`,
+      declared.every((n) => parsed.includes(n)), { declared, дошли: declared.filter((n) => parsed.includes(n)) });
+  }
+}
+
+console.log('Неполная таблица дополняется, а не остаётся неполной');
+{
+  const blob: Col = { name: 'data', kind: 'blob', notNull: true };
+  const sql = addColumnSql('mysql', 'AppUpdateChunk', blob);
+  check('колонка добавляется в существующую таблицу', sql.startsWith('ALTER TABLE'), sql);
+  check('имена в обратных кавычках, как любит MySQL', sql.includes('`AppUpdateChunk`') && sql.includes('`data`'), sql);
+  check('тип двоичный и вместительный', sql.includes('LONGBLOB'), sql);
+  check('у PostgreSQL — BYTEA в двойных кавычках',
+    addColumnSql('postgresql', 'T', blob).includes('"data" BYTEA'), addColumnSql('postgresql', 'T', blob));
+  check('«колонка уже есть» — это успех', isDuplicateColumn("Duplicate column name 'data'"));
+  check('чужая ошибка успехом не считается', !isDuplicateColumn('Table does not exist'));
 }
 
 if (failed) {

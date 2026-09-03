@@ -54,6 +54,8 @@ export default function UpdaterWidget() {
   const [pubFile, setPubFile] = useState<File | null>(null);
   const [pubFileUrl, setPubFileUrl] = useState('');
   const [isPublishing, setIsPublishing] = useState(false);
+  /** Почему публикация не удалась — прямо в окне, а не всплывающей подсказкой */
+  const [pubError, setPubError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showModal, setShowModal] = useState(false);
 
@@ -156,7 +158,7 @@ export default function UpdaterWidget() {
     }
 
     setIsPublishing(true);
-    let sharedWarning = '';
+    setPubError('');
     try {
       // Шаг 1: файл — на сервер (сырыми байтами, минуя JSON-лимиты)
       if (pubFile) {
@@ -167,9 +169,12 @@ export default function UpdaterWidget() {
         });
         const upData = await upRes.json().catch(() => ({}));
         if (!upRes.ok) throw new Error(upData.error || `Загрузка файла: сервер ответил ${upRes.status}`);
-        // Файл, не попавший в общую базу, виден только на этой машине —
-        // сотрудники его не скачают, и знать об этом надо сразу
-        sharedWarning = upData?.shared === false ? String(upData.warning || '') : '';
+        // Файл, не попавший в общую базу, виден только на этой машине.
+        // Публиковать такое нельзя: оповещение уйдёт всем, а скачать не сможет
+        // никто — именно так отдел и просидел два выпуска без обновлений
+        if (upData?.shared === false) {
+          throw new Error(String(upData.warning || 'Файл не попал в общую базу — сотрудники его не скачают.'));
+        }
       }
       // Шаг 2: запись релиза (ссылка на сервер, если файл загружен)
       const res = await fetch('/api/updates', {
@@ -184,23 +189,19 @@ export default function UpdaterWidget() {
        * Проверяем, что файл действительно лежит там, откуда его будут качать.
        *
        * Это не перестраховка. Публикация уходит на ТОТ сервер, с которым
-       * работает эта программа. Если у администратора адрес сервера не задан,
-       * файл ложится на его собственную машину, а сотрудники спрашивают
-       * сервер компании — и получают «файла этой версии нет». Раньше об этом
-       * узнавали от сотрудников через день; теперь программа проверяет сразу.
+       * работает эта программа, а берут файл сотрудники из общей базы. Спросить
+       * дешевле, чем узнать от них через день. Спрашиваем именно вопросом, а не
+       * скачиванием: 130 мегабайт по сети ради двух байтов никому не нужны.
        */
-      // Спрашиваем сервер, дошёл ли файл, а не качаем его ради проверки:
-      // 130 мегабайт по сети ради двух байтов — плохая цена за спокойствие
       const probe = await fetch(fileUrlOf(`/api/updates/check/${version}`, base)).catch(() => null);
       const state = probe ? await probe.json().catch(() => null) : null;
       if (!state?.ok) {
-        addToast(
+        setPubError(
           `Релиз записан, но файла на сервере нет (${state?.why || (probe ? `код ${probe.status}` : 'сервер не ответил')}). `
           + 'Сотрудники его не скачают — опубликуйте заново.',
-          'error',
         );
-      } else if (sharedWarning) {
-        addToast(sharedWarning, 'error');
+        addToast('Файл на сервере не найден — смотрите объяснение в окне публикации', 'error');
+        return;
       }
 
       addToast(`Релиз v${version} опубликован — сотрудники получат оповещение.`, 'success');
@@ -211,6 +212,9 @@ export default function UpdaterWidget() {
       if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
+      // Причина остаётся в окне, а не уезжает с всплывающей подсказкой:
+      // читать её приходится внимательно, а иногда и показывать кому-то
+      setPubError(errMsg);
       addToast(`Ошибка публикации: ${errMsg}`, 'error');
     } finally {
       setIsPublishing(false);
@@ -484,6 +488,12 @@ export default function UpdaterWidget() {
                 />
               </div>
             </div>
+
+            {!!pubError && (
+              <div className="mx-5 mb-4 text-xs leading-snug bg-rose-500/10 border border-rose-500/20 rounded p-2.5 text-rose-700 dark:text-rose-300">
+                {pubError}
+              </div>
+            )}
 
             <div className="p-4 bg-slate-50 dark:bg-slate-990 border-t border-slate-200 dark:border-slate-850 flex items-center justify-end gap-2 shrink-0">
               <button type="button"
