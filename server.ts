@@ -16,6 +16,7 @@ import crypto from 'crypto';
 import { setPrisma, setNotifier, setBroadcaster, upsertSetting } from './server/context.js';
 import { setDialect, dialectOf, ensureTables as ensureDbTables } from './server/ddl.js';
 import { setupPresence, readAppVersion } from './server/presence.js';
+import { registerUpdateRoutes } from './server/updates.js';
 import { setupDocRooms } from './server/collab.js';
 import { ensureRemoteSchema } from './server/schema-sync.js';
 import { computeMachineId, licenseStatus, activateLicense } from './electron/license.js';
@@ -487,6 +488,9 @@ function ensureSchemaColumns(dbPath: string) {
       // Присутствие: одна строка на человека, «в сети» — свежая отметка
       db.exec('CREATE TABLE IF NOT EXISTS "Presence" ("userId" TEXT NOT NULL PRIMARY KEY, "at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)');
       db.exec('CREATE INDEX IF NOT EXISTS "Presence_at_idx" ON "Presence"("at")');
+      // Файл обновления кусками: у сотрудников общая только база
+      db.exec('CREATE TABLE IF NOT EXISTS "AppUpdateChunk" ("id" TEXT NOT NULL PRIMARY KEY, "version" TEXT NOT NULL DEFAULT \'\', "idx" INTEGER NOT NULL DEFAULT 0, "data" BLOB NOT NULL)');
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS "AppUpdateChunk_version_idx_key" ON "AppUpdateChunk"("version", "idx")');
       db.exec('CREATE INDEX IF NOT EXISTS "TmUnit_lang_key_idx" ON "TmUnit"("fromLang", "toLang", "srcKey")');
       db.exec('CREATE INDEX IF NOT EXISTS "TmUnit_projectId_idx" ON "TmUnit"("projectId")');
       db.exec(`CREATE TABLE IF NOT EXISTS "TransLink" (
@@ -1946,105 +1950,13 @@ app.post('/api/seed', async (req: Request, res: Response) => {
   }
 });
 
-// ── Обновления приложения: публикация и раздача через сервер ────────────────
-// Админ загружает новый exe прямо на сервер (или указывает внешнюю ссылку),
-// сотрудники проверяют и скачивают обновление с того же сервера, на котором
-// работают — никакого стороннего хостинга. Файлы лежат в папке данных сервера.
-const updatesDir = path.join(ventAppDataPath, 'updates');
-const sanitizeVersion = (v: unknown): string => String(v || '').trim().replace(/[^0-9a-zA-Z.\-]/g, '').slice(0, 40);
-const updateFilePath = (version: string) => path.join(updatesDir, `Flux-${version}.exe`);
-
-// Последний опубликованный релиз (для виджета «Проверить обновления»)
-app.get('/api/updates/latest', async (_req: Request, res: Response) => {
-  try {
-    const upd = await prisma.appUpdate.findFirst({ orderBy: { createdAt: 'desc' } });
-    if (!upd) return res.json({ version: null });
-    const local = updateFilePath(upd.version);
-    const size = fs.existsSync(local) ? fs.statSync(local).size : 0;
-    res.json({ version: upd.version, changelog: upd.changelog, fileUrl: upd.fileUrl, size, createdAt: upd.createdAt });
-  } catch (e: any) {
-    res.status(500).json({ error: e?.message || 'Не удалось получить сведения об обновлении' });
-  }
-});
-
-// Загрузка файла exe на сервер (только админ). Тело запроса — сырые байты файла,
-// потому что base64-через-JSON упирается в лимит парсера, а exe весит >100 МБ.
-app.post('/api/updates/upload', express.raw({ type: () => true, limit: '800mb' }), async (req: Request, res: Response) => {
-  const u = (req as any).authUser;
-  if (!u || u.role !== 'ADMIN') return res.status(403).json({ error: 'Публикация обновлений доступна только администратору' });
-  const version = sanitizeVersion(req.query.version);
-  if (!version) return res.status(400).json({ error: 'Укажите версию (?version=1.2.3)' });
-  const body = req.body as Buffer;
-  if (!Buffer.isBuffer(body) || body.length < 1024) return res.status(400).json({ error: 'Файл обновления пуст или не передан' });
-  try {
-    if (!fs.existsSync(updatesDir)) fs.mkdirSync(updatesDir, { recursive: true });
-    fs.writeFileSync(updateFilePath(version), body);
-    res.json({ success: true, version, size: body.length });
-  } catch (e: any) {
-    res.status(500).json({ error: e?.message || 'Не удалось сохранить файл обновления' });
-  }
-});
-
-// Публикация релиза (только админ): создаёт/обновляет запись AppUpdate.
-// Если файл этой версии уже загружен на сервер — ссылка ставится на сервер,
-// иначе используется внешняя прямая ссылка из формы.
-app.post('/api/updates', async (req: Request, res: Response) => {
-  const u = (req as any).authUser;
-  if (!u || u.role !== 'ADMIN') return res.status(403).json({ error: 'Публикация обновлений доступна только администратору' });
-  const version = sanitizeVersion(req.body?.version);
-  if (!version) return res.status(400).json({ error: 'Укажите номер версии' });
-  const changelog = String(req.body?.changelog || '').slice(0, 20000);
-  const hasLocalFile = fs.existsSync(updateFilePath(version));
-  const fileUrl = hasLocalFile ? `/api/updates/download/${version}` : String(req.body?.fileUrl || '').trim();
-  if (!fileUrl) return res.status(400).json({ error: 'Загрузите файл exe на сервер или укажите прямую ссылку' });
-  try {
-    const update = await prisma.appUpdate.upsert({
-      where: { version },
-      update: { changelog, fileUrl },
-      create: { version, changelog, fileUrl },
-    });
-    // Мгновенное оповещение всем, кто сейчас онлайн
-    try { io.emit('app:update-published', { version, changelog }); } catch (_) {}
-    // И запись в уведомления — чтобы узнал и тот, кто был не в программе
-    await notifyAll('СИСТЕМА', `Вышла версия ${version}`,
-      String(changelog || '').split('\n')[0].slice(0, 120),
-      '/settings?section=updates', String(u.id || ''));
-    res.json({ success: true, update });
-  } catch (e: any) {
-    res.status(500).json({ error: e?.message || 'Не удалось опубликовать релиз' });
-  }
-});
-
-/**
- * Отозвать опубликованный релиз (только админ).
- *
- * Опубликовать не тот файл или не ту версию — обычное дело, а до этой правки
- * отозвать публикацию было нечем: запись жила в базе навсегда, и у всех
- * сотрудников горел значок обновления, которое ставить не надо.
- */
-app.delete('/api/updates/:version', async (req: Request, res: Response) => {
-  const u = (req as any).authUser;
-  if (!u || u.role !== 'ADMIN') return res.status(403).json({ error: 'Отзыв релиза доступен только администратору' });
-  const version = sanitizeVersion(req.params.version);
-  if (!version) return res.status(400).json({ error: 'Не указана версия' });
-  try {
-    await prisma.appUpdate.deleteMany({ where: { version } });
-    // Файл убираем вместе с записью: раздавать его больше некому
-    try { if (fs.existsSync(updateFilePath(version))) fs.unlinkSync(updateFilePath(version)); } catch (_) {}
-    res.json({ success: true, version });
-  } catch (e: any) {
-    res.status(500).json({ error: e?.message || 'Не удалось отозвать релиз' });
-  }
-});
-
-// Скачивание exe с сервера (токен обязателен — проверяет общий middleware)
-app.get('/api/updates/download/:version', (req: Request, res: Response) => {
-  const version = sanitizeVersion(req.params.version);
-  const filePath = version ? updateFilePath(version) : '';
-  if (!filePath || !fs.existsSync(filePath)) {
-    return res.status(404).json({ error: 'Файл этой версии не найден на сервере' });
-  }
-  res.download(filePath, `Flux ${version}.exe`);
+// Обновления программы: публикация, раздача и отзыв — server/updates.ts.
+// Файл едет в общую базу: сервера приложения у сотрудников нет, общая только она
+registerUpdateRoutes(app, {
+  getPrisma: () => prisma,
+  dataDir: ventAppDataPath,
+  notifyAll: (category, title, body, route, by) => notifyAll(category, title, body, route, by),
+  broadcast: (event, payload) => { try { io.emit(event, payload); } catch (_) {} },
 });
 
 // Projects

@@ -37,7 +37,7 @@ let current: Dialect = 'sqlite';
 export function setDialect(d: Dialect): void { current = d; }
 export function getDialect(): Dialect { return current; }
 
-export type ColKind = 'text' | 'longtext' | 'int' | 'bool' | 'time';
+export type ColKind = 'text' | 'longtext' | 'int' | 'bool' | 'time' | 'blob';
 
 export interface Col {
   name: string;
@@ -71,6 +71,8 @@ function typeOf(d: Dialect, c: Col): string {
     return d === 'mysql' ? 'DATETIME(3)' : 'TIMESTAMP(3)';
   }
   if (c.kind === 'longtext') return d === 'mysql' ? 'LONGTEXT' : 'TEXT';
+  // Двоичные данные: у каждого движка своё имя, и «почти правильное» не подходит
+  if (c.kind === 'blob') return d === 'mysql' ? 'LONGBLOB' : d === 'postgresql' ? 'BYTEA' : 'BLOB';
   // Обычный текст
   if (d === 'mysql' && (c.pk || c.indexed || c.def !== undefined)) return 'VARCHAR(191)';
   return 'TEXT';

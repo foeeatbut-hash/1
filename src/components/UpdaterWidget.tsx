@@ -71,9 +71,8 @@ export default function UpdaterWidget() {
 
   const isElectron = typeof window !== 'undefined' && (window as any).electron !== undefined;
   const busy = phase === 'downloading' || phase === 'verifying' || phase === 'installing';
-  /** Куда уходит публикация: адрес сервера, с которым работает эта программа */
+  /** Куда уходит запрос за файлом: сервер, с которым работает эта программа */
   const base = getServerBaseUrl() || (typeof window !== 'undefined' ? window.location.origin : '');
-  const onOwnServer = !base || /localhost|127\.0\.0\.1/.test(base);
 
   useEffect(() => {
     void init(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0');
@@ -139,6 +138,7 @@ export default function UpdaterWidget() {
     }
 
     setIsPublishing(true);
+    let sharedWarning = '';
     try {
       // Шаг 1: файл — на сервер (сырыми байтами, минуя JSON-лимиты)
       if (pubFile) {
@@ -149,6 +149,9 @@ export default function UpdaterWidget() {
         });
         const upData = await upRes.json().catch(() => ({}));
         if (!upRes.ok) throw new Error(upData.error || `Загрузка файла: сервер ответил ${upRes.status}`);
+        // Файл, не попавший в общую базу, виден только на этой машине —
+        // сотрудники его не скачают, и знать об этом надо сразу
+        sharedWarning = upData?.shared === false ? String(upData.warning || '') : '';
       }
       // Шаг 2: запись релиза (ссылка на сервер, если файл загружен)
       const res = await fetch('/api/updates', {
@@ -173,10 +176,12 @@ export default function UpdaterWidget() {
         .catch(() => null);
       if (!probe || (!probe.ok && probe.status !== 206)) {
         addToast(
-          `Релиз записан, но файл с сервера ${base || 'этой машины'} не отдаётся `
-          + `(${probe ? `код ${probe.status}` : 'сервер не ответил'}). Сотрудники его не скачают.`,
+          `Релиз записан, но файл не отдаётся (${probe ? `код ${probe.status}` : 'сервер не ответил'}). `
+          + 'Сотрудники его не скачают — опубликуйте заново.',
           'error',
         );
+      } else if (sharedWarning) {
+        addToast(sharedWarning, 'error');
       }
 
       addToast(`Релиз v${version} опубликован — сотрудники получат оповещение.`, 'success');
@@ -367,15 +372,13 @@ export default function UpdaterWidget() {
             </div>
 
             <div className="p-5 flex-1 overflow-y-auto space-y-4">
-              {/* Куда именно уйдёт файл — сказано прямо. Публикация на свою
-                  машину при том, что сотрудники работают с сервером компании,
-                  выглядит успешной и не даёт ничего: «файла этой версии нет» */}
+              {/* Куда уйдёт файл — сказано прямо. Раньше он оставался на диске
+                  того, кто публиковал, и сотрудники получали «файла этой версии
+                  нет», хотя запись о релизе видели все */}
               <div className="text-xs leading-normal bg-amber-500/10 dark:bg-amber-500/5 p-2.5 rounded border border-amber-500/20 text-amber-800 dark:text-amber-300">
-                Файл уйдёт на сервер <span className="font-mono font-bold">{base || 'этой машины'}</span>
-                {onOwnServer
-                  ? ' — это встроенный сервер вашего компьютера. Сотрудники, работающие с сервером компании, этот файл не увидят: сначала укажите адрес сервера компании на экране входа.'
-                  : ' — сервер компании. Оттуда его и скачают сотрудники.'}
-                {' '}Все, кто сейчас в программе, получат оповещение мгновенно; остальные — при следующей проверке.
+                Файл уйдёт в общую базу — ту же, где лежат проекты и переписка. Оттуда его возьмёт
+                программа каждого сотрудника, на какой бы машине она ни работала.
+                Все, кто сейчас в программе, получат оповещение мгновенно; остальные — при следующей проверке.
               </div>
 
               <div className="space-y-1">
