@@ -399,7 +399,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
           const warn = collision > 0 ? `\n⚠ Такой код уже есть у ${collision} тег(ов) — теперь это новый дубль. Можно переименовать и его.` : '';
           post({
             id: uid(), role: 'assistant',
-            text: `✅ Переименовал: «${pending.oldCode}» → «${v.code}». Связи и подописания сохранены.${warn}`,
+            text: `✅ Переименовал: «${pending.oldCode}» → «${v.code}». Связи и комментарии сохранены.${warn}`,
             actions: [
               { label: 'Показать на Схеме', kind: 'focus-tag', tagId: pending.tagId },
               { label: 'Показать дубли', kind: 'ask', query: 'покажи дубли' },
@@ -483,7 +483,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
         pendingInput: { kind: 'rename-tag', tagId: action.tagId!, oldCode: action.code || '' },
         messages: [...s.messages, {
           id: uid(), role: 'assistant',
-          text: `Введите новый код для тега «${action.code || ''}». Связи и подописания сохранятся.\n(или напишите «отмена»)`,
+          text: `Введите новый код для тега «${action.code || ''}». Связи и комментарии сохранятся.\n(или напишите «отмена»)`,
           actions: [{ label: 'Отмена', kind: 'cancel-input' }],
         }],
       }));
@@ -866,7 +866,7 @@ export async function resolveQuery(
         return {
           message: {
             id: uid(), role: 'assistant',
-            text: `✅ Переименовал: «${oldCode}» → «${v.code}». Связи и подописания сохранены.${warn}`,
+            text: `✅ Переименовал: «${oldCode}» → «${v.code}». Связи и комментарии сохранены.${warn}`,
             actions: [
               { label: 'Показать на Схеме', kind: 'focus-tag', tagId: tag.id },
               { label: 'Показать дубли', kind: 'ask', query: 'покажи дубли' },
@@ -881,7 +881,7 @@ export async function resolveQuery(
     return {
       message: {
         id: uid(), role: 'assistant',
-        text: `Введите новый код для тега «${tag.identifier || oldCode}». Связи и подописания сохранятся.\n(или напишите «отмена»)`,
+        text: `Введите новый код для тега «${tag.identifier || oldCode}». Связи и комментарии сохранятся.\n(или напишите «отмена»)`,
         actions: [{ label: 'Отмена', kind: 'cancel-input' }],
       },
       pending: { kind: 'rename-tag', tagId: tag.id, oldCode: tag.identifier || oldCode },

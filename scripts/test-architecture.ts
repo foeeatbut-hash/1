@@ -127,7 +127,7 @@ console.log('6. Размер файлов не растёт (храповик)')
 // выноса кода в отдельные модули не только можно, но и нужно.
 const BUDGET = 1200;
 const LEGACY: Record<string, number> = {
-  'src/screens/Registry.tsx': 6071,
+  'src/screens/Registry.tsx': 5886,
   // Комната документа уехала в server/collab.ts — планка ниже
   'server.ts': 4291,
   // Строки и значки уехали в components/explorer/FileItems.tsx, меню правой
