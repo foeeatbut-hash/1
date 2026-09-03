@@ -2181,10 +2181,11 @@ registerEquipmentUndoRoutes(app);
 
 
 // Registry (Equipment & Tags)
-app.get('/api/equipment', async (req: Request, res: Response) => {
-  const equipment = await prisma.equipment.findMany();
-  res.json({ equipment });
-});
+// Маршрут «/api/equipment» убран: он отдавал оборудование ВСЕХ проектов сразу,
+// без отбора по проекту и без учёта того, кто спрашивает. Раздел «Оборудование»
+// им никогда не пользовался — он берёт системы своего проекта
+// (/api/projects/:id/systems), — так что это была не возможность, а дыра,
+// которая ждала, пока её кто-нибудь позовёт.
 
 // Tag Template
 app.get('/api/projects/:projectId/tag-template', async (req: Request, res: Response) => {

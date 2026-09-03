@@ -77,7 +77,14 @@ npx vite build && npm run build:electron
 Проверки, которым нужен поднятый сервер (`npx tsx server.ts`):
 `test-api`, `test-flow`, `test-layout`, `test-collab-live`, `test-presence-live`,
 `test-assistant-privacy`, `test-assistant-history`, `test-login-db`,
-`test-update-ui`, `test-update-share`, `test-update-repair`, `test-mail-shared`.
+`test-update-ui`, `test-update-share`, `test-update-repair`, `test-mail-shared`,
+`test-office-open`, `test-panels-live`, `test-tours-live`, `test-walkthrough`.
+
+`test-walkthrough` идёт по работе целиком — проект, его данные, тег,
+оборудование, документ, общий доступ, запись в Журнал, — и находит то, что
+между разделами: каждая проба по отдельности зелёная, а цепочка рвётся.
+`test-tours-live` открывает каждый шаг каждой демонстрации помощника и
+проверяет, что подсветка попадает в настоящий элемент, а не в скрытый.
 
 Правило простое: логику, у которой есть правильный ответ, проверяет скрипт;
 интерфейс — снимок экрана через Playwright. «Выглядит правильно» проверкой не
