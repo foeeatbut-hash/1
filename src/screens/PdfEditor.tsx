@@ -13,10 +13,12 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { FileText, Loader2 } from 'lucide-react';
+import { FileText, Loader2, Search, ChevronUp, ChevronDown, X } from 'lucide-react';
 import EditorFrame from '../components/ribbon/EditorFrame';
 import MarkupLayer, { type Markup } from '../components/pdf/MarkupLayer';
 import MarkupList from '../components/pdf/MarkupList';
+import PageThumbs from '../components/pdf/PageThumbs';
+import { findInPages, stepHit, hitsLabel, type Hit, type PageText } from '../lib/pdfSearch';
 import { pdfRibbon, MARKUP_COLORS } from '../lib/ribbonPdf';
 import { openPdf } from '../import/pdfShared';
 import { useToastStore } from '../store/toastStore';
@@ -62,6 +64,15 @@ export default function PdfEditor() {
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [invert, setInvert] = useState(false);
   const [thumbs, setThumbs] = useState(false);
+  // ── Поиск по тексту документа ──
+  // Текст страниц вынимается один раз на файл: на сорока листах разбор идёт
+  // заметное время, и делать его на каждую букву запроса нельзя
+  const [findOpen, setFindOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [hits, setHits] = useState<Hit[]>([]);
+  const [hitAt, setHitAt] = useState(-1);
+  const [reading, setReading] = useState(false);
+  const textRef = useRef<PageText[] | null>(null);
 
   const [markups, setMarkups] = useState<Markup[]>([]);
   const [scope, setScope] = useState<'current' | 'all'>('all');
@@ -270,6 +281,46 @@ export default function PdfEditor() {
     return () => { alive = false; };
   }, [markups]);
 
+  /** Текст всех страниц — один раз на документ */
+  const readText = async (): Promise<PageText[]> => {
+    if (textRef.current) return textRef.current;
+    const pdf = pdfRef.current;
+    if (!pdf) return [];
+    setReading(true);
+    const out: PageText[] = [];
+    try {
+      for (let i = 1; i <= (pdf.numPages || 1); i++) {
+        const p = await pdf.getPage(i);
+        const content = await p.getTextContent();
+        out.push({ page: i, text: (content.items || []).map((x: any) => x.str || '').join(' ') });
+      }
+      textRef.current = out;
+    } catch (_) {
+      // Скан без текстового слоя — искать в нём нечем, и это надо сказать
+    } finally { setReading(false); }
+    return out;
+  };
+
+  const runSearch = async (q: string) => {
+    const pagesText = await readText();
+    const found = findInPages(pagesText, q);
+    setHits(found);
+    const first = stepHit(found.length, -1, 1);
+    setHitAt(first);
+    if (first >= 0) setPage(found[first].page);
+    else if (q.trim()) {
+      addToast(pagesText.length && pagesText.some((p) => p.text.trim())
+        ? 'Совпадений нет'
+        : 'В этом файле нет текстового слоя — это скан. Искать в нём нечем', 'info');
+    }
+  };
+
+  const goHit = (dir: 1 | -1) => {
+    const next = stepHit(hits.length, hitAt, dir);
+    setHitAt(next);
+    if (next >= 0) setPage(hits[next].page);
+  };
+
   /** Штамп на лист: то же замечание, только с готовым текстом и в углу */
   const stamp = (text: string) =>
     addMarkup('STAMP', { x: 0.72, y: 0.04, w: 0.24, h: 0.06 }, text);
@@ -366,6 +417,7 @@ export default function PdfEditor() {
       case 'pdf.scope': return setScope(value === 'current' ? 'current' : 'all');
       case 'pdf.status': return addToast('Стадия меняется в Проводнике — там же, где у остальных файлов', 'info');
       case 'pdf.thumbs': return setThumbs((v) => !v);
+      case 'pdf.find': return setFindOpen((v) => !v);
       case 'pdf.invert': return setInvert((v) => !v);
       default: return undefined;
     }
@@ -378,6 +430,7 @@ export default function PdfEditor() {
     'pdf.scope': scope,
     'pdf.list': listOpen,
     'pdf.thumbs': thumbs,
+    'pdf.find': findOpen,
     'pdf.invert': invert,
     'pdf.cloud': tool === 'CLOUD',
     'pdf.rect': tool === 'RECT',
@@ -421,17 +474,44 @@ export default function PdfEditor() {
         statusRight={<>{zoom} %</>}
       >
         <div ref={wrapRef} className="absolute inset-0 overflow-auto bg-slate-200 dark:bg-slate-950 flex">
-          {thumbs && (
-            <div className="w-28 shrink-0 border-r border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-auto py-2">
-              {Array.from({ length: pages }).map((_, i) => (
-                <button key={i} type="button" onClick={() => setPage(i + 1)}
-                  className={`w-full px-2 py-1.5 text-2xs font-semibold cursor-pointer
-                    ${page === i + 1 ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850'}`}>
-                  Стр. {i + 1}
-                </button>
-              ))}
+          {thumbs && !loading && (
+            <PageThumbs pdf={pdfRef.current} pages={pages} page={page} onPick={setPage} />
+          )}
+          {/* Полоса поиска — поверх листа, у верхнего края: так её видно и
+              она не съедает место у самого чертежа */}
+          {findOpen && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-2 py-1.5
+                            rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-lg">
+              <Search className="w-4 h-4 text-slate-400 shrink-0" />
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) => { setQuery(e.target.value); setHits([]); setHitAt(-1); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { e.preventDefault(); hits.length ? goHit(e.shiftKey ? -1 : 1) : runSearch(query); }
+                  if (e.key === 'Escape') { e.preventDefault(); setFindOpen(false); }
+                }}
+                placeholder="Найти в документе"
+                className="w-56 bg-transparent outline-none text-sm text-slate-800 dark:text-slate-150 placeholder:text-slate-400"
+              />
+              <span className="text-2xs text-slate-400 w-20 text-right shrink-0">
+                {reading ? 'читаю…' : query.trim() ? hitsLabel(hits.length, hitAt) : ''}
+              </span>
+              <button type="button" title="Предыдущее совпадение" onClick={() => (hits.length ? goHit(-1) : runSearch(query))}
+                className="p-1 rounded text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer">
+                <ChevronUp className="w-4 h-4" />
+              </button>
+              <button type="button" title="Следующее совпадение" onClick={() => (hits.length ? goHit(1) : runSearch(query))}
+                className="p-1 rounded text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-850 cursor-pointer">
+                <ChevronDown className="w-4 h-4" />
+              </button>
+              <button type="button" title="Закрыть поиск" onClick={() => setFindOpen(false)}
+                className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
             </div>
           )}
+
           <div className="flex-1 min-w-0 flex items-start justify-center p-6">
             <div className="relative shadow-2xl" style={{ width: size.w, height: size.h }}
               onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp}>

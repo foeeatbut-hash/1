@@ -53,6 +53,14 @@ export function pdfRibbon(): RibbonTab[] {
           ],
         },
         {
+          name: 'поиск',
+          weight: 85,
+          organs: [
+            { id: 'pdf.find', kind: 'label', label: 'Найти', icon: 'find', flux: true,
+              hint: 'Поиск по тексту документа с переходом по совпадениям', toggle: true },
+          ],
+        },
+        {
           name: 'файл',
           weight: 70,
           organs: [
