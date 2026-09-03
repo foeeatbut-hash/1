@@ -11,6 +11,8 @@ export interface StartSource {
   title: string;
   scope: 'project' | 'global' | 'mixed';
   adminOnly?: boolean;
+  /** Раздел выдаётся по праву: без него его не видно нигде */
+  feature?: string;
 }
 
 export interface StartGroup {
@@ -45,9 +47,19 @@ export function matches(title: string, query: string): boolean {
   return t.includes(q) || t.includes(toRu(q));
 }
 
-/** Разделы, доступные человеку: без чужих по правам и без служебных */
-export function allowed(sections: StartSource[], isAdmin: boolean): StartSource[] {
-  return sections.filter((s) => !s.adminOnly || isAdmin);
+/**
+ * Разделы, доступные человеку: без чужих по правам и без служебных.
+ *
+ * `can` отвечает, есть ли у человека право. Без него разделы, закрытые правом,
+ * показывались бы всем — а закрытый раздел, видный в меню, это обещание,
+ * которое программа не выполнит.
+ */
+export function allowed(
+  sections: StartSource[],
+  isAdmin: boolean,
+  can: (feature: string) => boolean = () => true,
+): StartSource[] {
+  return sections.filter((s) => (!s.adminOnly || isAdmin) && (!s.feature || isAdmin || can(s.feature)));
 }
 
 /**
@@ -55,8 +67,13 @@ export function allowed(sections: StartSource[], isAdmin: boolean): StartSource[
  * Параметры) в группы не попадают — они и не про выбор области, а про
  * саму программу, и живут в подвале меню.
  */
-export function groupSections(sections: StartSource[], isAdmin: boolean, query = ''): StartGroup[] {
-  const list = allowed(sections, isAdmin).filter((s) => matches(s.title, query));
+export function groupSections(
+  sections: StartSource[],
+  isAdmin: boolean,
+  query = '',
+  can: (feature: string) => boolean = () => true,
+): StartGroup[] {
+  const list = allowed(sections, isAdmin, can).filter((s) => matches(s.title, query));
   const groups: StartGroup[] = [
     { id: 'project', title: 'Проект', items: list.filter((s) => s.scope === 'project') },
     { id: 'global', title: 'Общее', items: list.filter((s) => s.scope === 'global') },

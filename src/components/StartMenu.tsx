@@ -21,6 +21,7 @@ import { groupSections, countFound, visibleRecent } from '../lib/startMenu';
 import { BAR_H, START_W, TILE_BOX, TILE_ICON } from '../lib/metrics';
 import { Z } from '../lib/layers';
 import ContextMenu, { MenuItem } from './ContextMenu';
+import { can } from '../lib/permissions';
 
 export default function StartMenu({ onClose }: { onClose: () => void }) {
   const user = useStore((s) => s.user);
@@ -61,7 +62,12 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
     };
   }, [onClose]);
 
-  const groups = React.useMemo(() => groupSections(SECTIONS as any, isAdmin, q), [isAdmin, q]);
+  const groups = React.useMemo(
+    // Разделы, закрытые правом, в Пуске не показываются: видный в меню, но
+    // закрытый раздел — обещание, которое программа не выполнит
+    () => groupSections(SECTIONS as any, isAdmin, q, (f) => can(user as any, f)),
+    [isAdmin, q, user],
+  );
   const found = countFound(groups);
   // Список ведёт рабочий стол; здесь только убираем недоступное по правам
   const recent = React.useMemo(

@@ -935,3 +935,18 @@ model AppUpdateChunk {
   @@unique([version, idx])
   @@index([version])
 }
+
+/// Журнал действий: кто, что, над чем и когда. Пишет сервер, а не окно —
+/// запись, которую делает окно, обходится закрытием окна
+model ActionLog {
+  id        String   @id @default(uuid())
+  userId    String   @default("")
+  userName  String   @default("")
+  what      String   @default("")
+  target    String   @default("")
+  route     String   @default("")
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
+}

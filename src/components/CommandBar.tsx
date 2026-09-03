@@ -17,6 +17,7 @@ import {
   Bell, StickyNote, Monitor, AppWindow, MessageCircleQuestion, Slash, Languages, CalendarDays,
 } from 'lucide-react';
 import { useStore } from '../store/store';
+import { can } from '../lib/permissions';
 import { useInsightStore } from '../store/insightStore';
 import { useAssistantStore } from '../store/assistantStore';
 import { useWindowStore } from '../store/windowStore';
@@ -117,7 +118,10 @@ export default function CommandBar() {
   }, [q, open, activeProject?.id]);
 
   const sections = React.useMemo(
-    () => SECTIONS.filter((s) => !s.adminOnly || user?.role === 'ADMIN')
+    // Разделы, закрытые правом, не находятся и поиском: иначе строка команд
+    // предлагала бы то, что не откроется
+    () => SECTIONS.filter((s) => (!s.adminOnly || user?.role === 'ADMIN')
+      && (!s.feature || user?.role === 'ADMIN' || can(user as any, s.feature)))
       .map((s) => ({ path: s.path, title: s.title, multi: s.multi })),
     [user?.role],
   );

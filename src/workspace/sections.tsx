@@ -59,6 +59,11 @@ export interface SectionDef {
   scroll: 'auto' | 'fixed';
   pad: boolean;
   adminOnly?: boolean;
+  /**
+   * Раздел открывается по праву доступа. Без права его нет ни в меню, ни в
+   * Пуске, ни по прямому адресу — и отвечает он словами, а не пустотой
+   */
+  feature?: string;
   /** Значок раздела: тот же в левом меню, на вкладке и на нижней панели */
   icon?: React.ComponentType<{ className?: string }>;
   /** Стоит на нижней панели всегда, даже когда не запущен */
@@ -109,7 +114,7 @@ export const SECTIONS: SectionDef[] = [
   { path: '/mail', title: 'Почта', icon: Mail, scope: 'global', scroll: 'fixed', pad: true, pinned: true, badge: 'mail', Component: MailScreen },
   { path: '/settings', title: 'Настройки', icon: Settings, scope: 'mixed', scroll: 'auto', pad: true, Component: SettingsScreen },
   { path: '/handbook', title: 'Руководство', icon: LifeBuoy, scope: 'global', scroll: 'fixed', pad: true, Component: Handbook },
-  { path: '/logs', title: 'Журнал', icon: ClipboardList, scope: 'global', scroll: 'auto', pad: true, Component: LogsManagement },
+  { path: '/logs', title: 'Журнал', icon: ClipboardList, scope: 'global', scroll: 'auto', pad: true, feature: 'log.view', Component: LogsManagement },
   { path: '/users', title: 'Сотрудники', icon: Users, scope: 'global', scroll: 'auto', pad: true, adminOnly: true, Component: UsersManagement },
 ];
 

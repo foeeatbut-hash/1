@@ -18,6 +18,7 @@ import { setDialect, dialectOf, ensureTables as ensureDbTables } from './server/
 import { setupPresence, readAppVersion } from './server/presence.js';
 import { registerUpdateRoutes } from './server/updates.js';
 import { registerLimitRoutes } from './server/limits.js';
+import { registerActionLog } from './server/actionLog.js';
 import { setupDocRooms } from './server/collab.js';
 import { ensureRemoteSchema } from './server/schema-sync.js';
 import { computeMachineId, licenseStatus, activateLicense } from './electron/license.js';
@@ -1963,6 +1964,10 @@ registerUpdateRoutes(app, {
 // Насколько большой файл примет эта база — server/limits.ts. Окно спрашивает
 // заранее, чтобы отказ звучал до переноса, а не после получаса ожидания
 registerLimitRoutes(app, () => prisma);
+
+// Журнал действий — server/actionLog.ts. Пишет сервер: запись, которую делает
+// окно, обходится закрытием окна. Читается по праву «Журнал действий»
+registerActionLog(app, { getPrisma: () => prisma, can: userCan });
 
 // Projects
 // ── Права доступа «по функциям» (зеркало src/lib/permissions.ts) ──────────────
