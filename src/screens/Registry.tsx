@@ -11,7 +11,6 @@ import {
   Copy,
   List,
   Table,
-  Scissors,
   Plus,
   Trash2, 
   Edit2, 
@@ -37,8 +36,7 @@ import {
   ClipboardCheck,
   Check,
   Edit,
-  Sliders,
-  Upload
+  Sliders
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
@@ -51,6 +49,7 @@ import { countOf } from '../lib/plural';
 import { useModalStore } from '../store/modalStore';
 import NoProject from '../components/NoProject';
 import ExchangeDialog from '../components/ExchangeDialog';
+import ExchangeTab from '../components/registry/ExchangeTab';
 import { toCsv, fileName, type Column } from '../lib/exchange';
 import { TAG_EXCHANGE_COLUMNS, buildTagExchange, buildSegmentTable } from '../lib/tagExchange';
 
@@ -365,7 +364,7 @@ export default function Registry() {
   // Панель связей: «где ещё встречается этот тег» — из меню карточки и с её панели
   const openWhereUsed = useInsightStore((st) => st.openWhere);
   const [tags, setTags] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'board' | 'tree' | 'segments' | 'table' | 'equipment'>('board');
+  const [activeTab, setActiveTab] = useState<'board' | 'tree' | 'segments' | 'table' | 'exchange' | 'equipment'>('board');
   const [showImportWizard, setShowImportWizard] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -2799,16 +2798,6 @@ export default function Registry() {
               <FolderTree className="w-3.5 h-3.5" />
               <span className="hidden @[760px]:inline">Дерево связей</span>
             </button>
-            {/* Быстрая выгрузка — окном (§9). Прежняя полоса осталась вкладкой
-                «Подбор»: она про сложный разбор сегментов, а не про «выгрузить» */}
-            <button type="button"
-              onClick={() => setExchangeOpen(true)}
-              title="Выгрузить теги в файл или буфер обмена"
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
-              <span className="hidden @[760px]:inline text-emerald-700 dark:text-emerald-300">Выгрузить</span>
-            </button>
             <button type="button"
               onClick={() => setActiveTab('segments')}
               title="Подбор по сегментам кода и разбор загруженного файла"
@@ -2832,6 +2821,21 @@ export default function Registry() {
             >
               <List className="w-3.5 h-3.5" />
               <span className="hidden @[760px]:inline">Спецификация</span>
+            </button>
+            {/* Обмен с внешним миром — последним: сначала работа, потом
+                выгрузка. Импорт и захват экрана лежали внутри «Подбора», где
+                их никто не искал, а выгрузка была кнопкой в ряду вкладок */}
+            <button type="button" data-tour="tag-exchange-tab"
+              onClick={() => setActiveTab('exchange')}
+              title="Импорт тегов, выгрузка и захват с экрана"
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
+                activeTab === 'exchange'
+                  ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span className="hidden @[760px]:inline">Экспорт и импорт</span>
             </button>
           </div>
         </div>
@@ -4140,6 +4144,21 @@ export default function Registry() {
           </motion.div>
         )}
 
+        {activeTab === 'exchange' && (
+          <motion.div
+            key="exchange-tab"
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -15 }}
+            transition={{ duration: 0.15 }}
+            className="h-full w-full overflow-y-auto pr-1"
+          >
+            <ExchangeTab total={tags.length}
+              onImport={() => setShowImportWizard(true)}
+              onExport={() => setExchangeOpen(true)} />
+          </motion.div>
+        )}
+
         {/* TAB 4: ADVANCED SEGMENT COLLECTOR & EXPORT PROCESSOR */}
         {activeTab === 'segments' && (
           <motion.div
@@ -4150,52 +4169,6 @@ export default function Registry() {
             transition={{ duration: 0.15 }}
             className="h-full w-full overflow-y-auto space-y-4 text-left pr-1"
           >
-
-            {/* IMPORT FROM SPREADSHEET BANNER */}
-            <div className="flex flex-col @[560px]:flex-row @[560px]:items-center justify-between gap-3 p-5 bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-950/30 dark:to-slate-950 border border-emerald-200/70 dark:border-emerald-900/50 rounded-xl shadow-xs">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-950/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
-                  <FileSpreadsheet className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Импорт тегов из таблицы</h3>
-                  <p className="text-xs text-slate-500 mt-0.5 max-w-lg">Загрузите Excel в Проводник или вставьте данные и отметьте колонки.</p>
-                </div>
-              </div>
-              <button type="button"
-                onClick={() => setShowImportWizard(true)}
-                className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 transition-ui cursor-pointer shrink-0"
-              >
-                <Upload className="w-4 h-4" />
-                <span>Открыть мастер импорта</span>
-              </button>
-            </div>
-
-            {/* ЗАХВАТ С ЭКРАНА */}
-            {!!(window as any).electron?.capture && (
-              <div className="flex flex-col @[560px]:flex-row @[560px]:items-center justify-between gap-3 p-5 bg-gradient-to-br from-sky-50 to-white dark:from-sky-950/30 dark:to-slate-950 border border-sky-200/70 dark:border-sky-900/50 rounded-xl shadow-xs">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-sky-100 dark:bg-sky-950/50 flex items-center justify-center text-sky-600 dark:text-sky-400 shrink-0">
-                    <Scissors className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">Захват с экрана</h3>
-                    <p className="text-xs text-slate-500 mt-0.5 max-w-lg">
-                      Программа свернётся в угол экрана. Выделите теги в любом окне — письме, бланке, PDF —
-                      и скопируйте: пульт увидит буфер сам. Дальше разбор с проверкой, что именно распозналось.
-                      Горячая клавиша <b>Ctrl+Shift+X</b>.
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => (window as any).electron?.capture?.start()}
-                  className="px-5 py-2.5 bg-sky-700 hover:bg-sky-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 transition-all cursor-pointer shrink-0"
-                >
-                  <Scissors className="w-4 h-4" />
-                  <span>Свернуть и захватить</span>
-                </button>
-              </div>
-            )}
 
             {/* SELECTION FILTERS BLOCK */}
             <div className="grid grid-cols-1 @[880px]:grid-cols-2 gap-6 p-5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl  text-left">
