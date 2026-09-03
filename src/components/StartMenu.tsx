@@ -113,6 +113,10 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
         }}
         onDragEnd={() => { dragging.current = false; onClose(); }}
         onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, path }); }}
+        /* Та же метка, что у пункта меню и кнопки на панели задач: демонстрация
+           показывает раздел там, где он есть в этой оболочке, а не там, где его
+           когда-то нарисовали */
+        data-tour={`nav-${path}`}
         title={pinned(path) ? `${title} — на рабочем столе` : `${title} — потяните на стол или панель, чтобы закрепить`}
         className="flex flex-col items-center gap-2 p-3 rounded-xl cursor-pointer min-w-0
                    text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-850

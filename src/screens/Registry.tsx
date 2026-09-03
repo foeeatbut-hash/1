@@ -2821,7 +2821,7 @@ export default function Registry() {
               <List className="w-3.5 h-3.5" />
               <span className="hidden @[760px]:inline">Подбор</span>
             </button>
-            <button type="button"
+            <button type="button" data-tour="tag-table-tab"
               onClick={() => setActiveTab('table')}
               title="Спецификация"
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${

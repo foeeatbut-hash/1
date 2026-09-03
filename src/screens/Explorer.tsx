@@ -1265,7 +1265,7 @@ export default function Explorer() {
              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 shadow-xs cursor-pointer">
               <FolderPlus className="w-4 h-4 text-amber-500" /> Новая папка
            </button>
-           <button type="button" onClick={() => fileInputRef.current?.click()} title="Загрузить файлы"
+           <button type="button" data-tour="explorer-upload-btn" onClick={() => fileInputRef.current?.click()} title="Загрузить файлы"
              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm cursor-pointer">
               <Upload className="w-4 h-4" /> Загрузить
            </button>

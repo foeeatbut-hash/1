@@ -372,6 +372,10 @@ export default function Taskbar() {
               }}
               onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, path: b.path }); }}
               title={b.title}
+              /* Та же метка, что у пункта левого меню: демонстрации помощника
+                 подсвечивают раздел по ней, а левого меню в этой оболочке нет
+                 вовсе — и первый шаг любой демонстрации указывал в пустоту */
+              data-tour={`nav-${b.path}`}
               aria-current={b.active ? 'true' : undefined}
               style={{ height: BAR_BTN }}
               className={`relative px-2.5 rounded-[10px] shrink-0 cursor-pointer flex items-center gap-2

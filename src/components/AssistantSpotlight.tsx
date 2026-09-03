@@ -5,6 +5,28 @@ import { ChevronRight, X } from 'lucide-react';
 
 interface Rect { top: number; left: number; width: number; height: number; }
 
+/**
+ * Первый ВИДИМЫЙ элемент по метке, а не просто первый.
+ *
+ * В этом и была причина того, что демонстрации показывали не туда. Один и тот
+ * же раздел помечен в трёх местах — пункт левого меню, кнопка на панели задач,
+ * плитка в Пуске, — и в каждой оболочке видно только одно из них. Обычный поиск
+ * возвращал первое совпадение по разметке, то есть чаще всего скрытый пункт
+ * меню размером ноль на ноль: подсветка вставала в угол экрана или не
+ * появлялась вовсе, а подсказка при этом просила «нажмите подсвеченный
+ * элемент».
+ */
+export function firstVisible(selector: string): HTMLElement | null {
+  let list: NodeListOf<Element>;
+  try { list = document.querySelectorAll(selector); } catch (_) { return null; }
+  for (const el of Array.from(list)) {
+    const node = el as HTMLElement;
+    const r = node.getBoundingClientRect();
+    if (r.width > 2 && r.height > 2) return node;
+  }
+  return null;
+}
+
 // Подсвечивает целевой элемент во время демонстрации и продвигает тур,
 // когда пользователь кликает по подсвеченному элементу.
 export default function AssistantSpotlight() {
@@ -15,6 +37,14 @@ export default function AssistantSpotlight() {
   const cancelTour = useAssistantStore(s => s.cancelTour);
 
   const [rect, setRect] = useState<Rect | null>(null);
+  /**
+   * Элемент не нашёлся за отведённое время.
+   *
+   * Раньше в этом случае подсветки просто не было, а подсказка всё равно
+   * говорила «нажмите подсвеченный элемент». Человек искал глазами то, чего на
+   * экране нет, — худший исход для демонстрации, которая учит.
+   */
+  const [missing, setMissing] = useState(false);
   const elRef = useRef<Element | null>(null);
 
   const step = activeTour ? activeTour.steps[tourStepIndex] : null;
@@ -22,8 +52,9 @@ export default function AssistantSpotlight() {
 
   // Ищем целевой элемент (с учётом того, что страница может ещё грузиться)
   useEffect(() => {
-    if (!activeTour) { setRect(null); elRef.current = null; return; }
-    if (!highlightSelector) { setRect(null); elRef.current = null; return; }
+    if (!activeTour) { setRect(null); setMissing(false); elRef.current = null; return; }
+    if (!highlightSelector) { setRect(null); setMissing(false); elRef.current = null; return; }
+    setMissing(false);
 
     let cancelled = false;
     let attempts = 0;
@@ -36,7 +67,7 @@ export default function AssistantSpotlight() {
 
     const tick = () => {
       if (cancelled) return;
-      const el = document.querySelector(highlightSelector);
+      const el = firstVisible(highlightSelector);
       if (el) {
         elRef.current = el;
         // Прокручиваем элемент в зону видимости только если он реально вне экрана,
@@ -47,9 +78,15 @@ export default function AssistantSpotlight() {
           if (offscreen) el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         } catch (_) {}
         compute(el);
-      } else if (attempts < 60) {
+      } else if (attempts < 40) {
         attempts++;
         raf = window.setTimeout(tick, 100);
+      } else {
+        // Ждать дольше бессмысленно: за четыре секунды раздел успевает
+        // открыться на любой машине. Значит, элемента тут нет — и сказать об
+        // этом надо прямо, а не молча показывать подсказку без подсветки
+        setMissing(true);
+        setRect(null);
       }
     };
     tick();
@@ -134,7 +171,10 @@ export default function AssistantSpotlight() {
         <p className="text-xs text-slate-100 leading-relaxed mb-3">{step.text}</p>
         <div className="flex items-center justify-between gap-2">
           <span className="text-2xs text-slate-500">
-            {step.target ? 'Нажмите подсвеченный элемент или «Далее»' : 'Нажмите «Далее»'}
+            {!step.target ? 'Нажмите «Далее»'
+              : missing ? 'Этого элемента сейчас нет на экране — «Далее»'
+                : rect ? 'Нажмите подсвеченный элемент или «Далее»'
+                  : 'Ищу элемент на экране…'}
           </span>
           <button type="button"
             onClick={advanceTour}

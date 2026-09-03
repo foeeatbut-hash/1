@@ -1867,7 +1867,7 @@ export default function ConstructorScreen() {
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 text-pretty">Таблицы и текстовые документы из данных проекта — в одном месте</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 min-w-0">
-            <button type="button" onClick={() => createDoc('DOC')} className="flex items-center gap-2 px-2.5 @[560px]:px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новая таблица: формулы, данные проекта, умные блоки">
+            <button type="button" data-tour="doc-create-btn" onClick={() => createDoc('DOC')} className="flex items-center gap-2 px-2.5 @[560px]:px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новая таблица: формулы, данные проекта, умные блоки">
               <Table2 className="w-4 h-4 shrink-0" /> <span className="hidden @[560px]:inline">Таблица</span>
             </button>
             <button type="button" onClick={() => createDoc('TEXT')} className="flex items-center gap-2 px-2.5 @[560px]:px-4 py-2.5 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 text-sm font-bold  cursor-pointer" title="Новый текстовый документ: страницы, стили, списки — как в Word">

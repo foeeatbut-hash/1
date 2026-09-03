@@ -844,7 +844,7 @@ export default function ChatManagement() {
         </div>
 
         {/* Categories channels scrolling container */}
-        <div className="flex-1 overflow-y-auto p-2 space-y-4">
+        <div data-tour="chat-peers" className="flex-1 overflow-y-auto p-2 space-y-4">
 
           {/* Помощник — закреплённый первым разговор, а не программа, в которую
               надо идти (components/chat/AssistantEntry) */}
