@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { usePresenceStore } from '../store/presenceStore';
 import { ENV_CONFIG, getAuthToken } from '../config/env';
+import { isNewer } from '../lib/updates';
 import { useToastStore } from '../store/toastStore';
 import { useStore } from '../store/store';
 import { useNavigate } from 'react-router-dom';
@@ -38,6 +39,31 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
   const { addToast } = useToastStore();
   const userId = useStore((s) => s.user?.id);
   const navigate = useNavigate();
+  /**
+   * Токен в зависимостях, а не только идентификатор человека.
+   *
+   * Сокет получает токен ОДИН РАЗ, при создании, и держит его вечно: при
+   * переподключении socket.io шлёт тот же самый. Пока эффект зависел только от
+   * userId, повторный вход (истёк тридцатидневный срок токена, перезапустили
+   * сервер, администратор сбросил сессию) не пересоздавал сокет — и тот
+   * навсегда оставался с недействительным токеном. Сервер его не пускал, а по
+   * HTTP всё работало: токен там читается на каждом запросе.
+   *
+   * Снаружи это выглядело как «статус в сети не работает»: чат опрашивается по
+   * HTTP и жил, а присутствие ходит только сокетом и молчало до перезапуска
+   * программы.
+   */
+  const [token, setToken] = useState<string>(() => getAuthToken());
+  useEffect(() => {
+    const check = () => {
+      const now = getAuthToken();
+      setToken((was) => (was === now ? was : now));
+    };
+    // Вход и выход происходят в этом же окне — событие storage сюда не придёт
+    const timer = setInterval(check, 2000);
+    window.addEventListener('storage', check);
+    return () => { clearInterval(timer); window.removeEventListener('storage', check); };
+  }, []);
 
   useEffect(() => {
     // Сервер пускает по токену сессии — подключаемся только после входа
@@ -49,7 +75,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
 
     console.log('[RealTimeSync] Подключение socket.io к серверу:', ENV_CONFIG.socketUrl);
     const activeSocket = io(ENV_CONFIG.socketUrl, {
-      auth: { token: getAuthToken() },
+      auth: { token },
       // websocket в приоритете, polling — запасной транспорт (строгие прокси)
       transports: ['websocket', 'polling'],
       autoConnect: true,
@@ -59,20 +85,72 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       reconnectionDelayMax: 4000,
     });
 
+    /**
+     * Состояние сокета пишется в журнал.
+     *
+     * Раньше о нём не было ни строчки, и мёртвый сокет выглядел как «статус в
+     * сети не работает» — без единой зацепки, потому что HTTP-запросы в
+     * журнале были и отвечали нормально.
+     */
+    const journal = (level: 'INFO' | 'ERROR', text: string) => {
+      try { (window as any).__pdmLogStore?.getState().addLog(level, 'Связь', text); } catch (_) {}
+    };
+
     activeSocket.on('connect', () => {
       setIsConnected(true);
+      journal('INFO', `Живая связь установлена: ${ENV_CONFIG.socketUrl}`);
       // Связь вернулась — список «кто в сети» просим заново: пока её не было,
       // кто-то успел прийти и уйти, а мы этого не слышали
       activeSocket.emit('presence:list');
     });
-    activeSocket.on('disconnect', () => {
+    activeSocket.on('disconnect', (reason: string) => {
       setIsConnected(false);
+      journal('INFO', `Живая связь потеряна: ${reason}`);
       // Без связи мы не знаем ничего о чужом присутствии. Показывать прежний
       // список — значит уверенно врать: половина этих людей уже ушла
       usePresenceStore.getState().reset();
     });
+    activeSocket.on('connect_error', (err: any) => {
+      setIsConnected(false);
+      const why = String(err?.message || err);
+      journal('ERROR', `Живая связь не устанавливается: ${why}`);
+      // Сервер не принял токен — берём свежий и пробуем им. Без этого сокет
+      // вечно долбится старым, а «кто в сети» не работает до перезапуска
+      if (/unauthorized|auth/i.test(why)) {
+        const fresh = getAuthToken();
+        if (fresh && fresh !== (activeSocket.auth as any)?.token) {
+          (activeSocket as any).auth = { token: fresh };
+          setToken(fresh);
+        }
+      }
+    });
 
     setSocket(activeSocket);
+
+    /**
+     * Сервер компании старее программы — предупреждаем один раз.
+     *
+     * Программа у сотрудников обновляется сама, а сервер разворачивают отдельно
+     * и обновить его забывают. Старый сервер не знает новых событий, и раздел
+     * выглядит сломанным, хотя сломано несоответствие версий. Молчать об этом —
+     * значит отправить человека искать несуществующую поломку.
+     */
+    void (async () => {
+      try {
+        const mine = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '';
+        const r = await fetch('/api/health');
+        const d = await r.json().catch(() => ({}));
+        const server = String(d?.version || '');
+        journal('INFO', `Сервер: ${server || 'версия не сообщается'}, программа: ${mine}`);
+        if (mine && server && isNewer(mine, server)) {
+          addToast(
+            `Сервер компании версии ${server}, а программа ${mine}. `
+            + 'Часть возможностей не будет работать, пока сервер не обновят.',
+            'info',
+          );
+        }
+      } catch (_) { /* сервер не ответил — об этом скажет сама связь */ }
+    })();
 
     // Стандартные подписчики: транслируем события в window, чтобы экраны
     // могли динамически перезагружать данные
@@ -144,7 +222,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       activeSocket.off('entity:changed', handleEntityChanged);
       activeSocket.disconnect();
     };
-  }, [addToast, navigate, userId]);
+  }, [addToast, navigate, userId, token]);
 
   const emitTagChange = (type: 'linked' | 'updated', tagId: string, details?: any) => {
     if (!socket) return;

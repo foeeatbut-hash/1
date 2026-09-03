@@ -15,7 +15,7 @@ import os from 'os';
 import crypto from 'crypto';
 import { setPrisma, setNotifier, setBroadcaster, upsertSetting } from './server/context.js';
 import { setDialect, dialectOf, ensureTables as ensureDbTables } from './server/ddl.js';
-import { setupPresence } from './server/presence.js';
+import { setupPresence, readAppVersion } from './server/presence.js';
 import { setupDocRooms } from './server/collab.js';
 import { ensureRemoteSchema } from './server/schema-sync.js';
 import { computeMachineId, licenseStatus, activateLicense } from './electron/license.js';
@@ -1001,6 +1001,9 @@ try {
 
 const AUTH_TOKEN_TTL_MS = 30 * 24 * 3600 * 1000; // 30 дней
 
+// Своя версия — из package.json, который едет вместе со сборкой
+const APP_VERSION: string = readAppVersion(__dirname);
+
 const signAuthPayload = (payload: string) =>
   crypto.createHmac('sha256', authSecret).update(payload).digest('base64url');
 
@@ -1104,13 +1107,9 @@ io.on('connection', (socket) => {
 
   // Пришедшему — весь список сразу: без него человек до первого чужого входа
   // видел бы всех офлайн
-  void (async () => {
-    if (uid) await markPresence(uid);
-    socket.emit('presence:list', await rosterFromDb());
-  })();
-  socket.on('presence:list', () => {
-    void (async () => { socket.emit('presence:list', await rosterFromDb()); })();
-  });
+  const sendRoster = async () => socket.emit('presence:list', await rosterFromDb());
+  void (async () => { if (uid) await markPresence(uid); await sendRoster(); })();
+  socket.on('presence:list', () => { void sendRoster(); });
 
   socket.on('tag:linked', (data) => {
     socket.broadcast.emit('tag:linked', data);
@@ -1297,8 +1296,10 @@ app.use(async (req: Request, res: Response, next) => {
 
 // Готовность сервера: порт начинает слушать только после инициализации БД,
 // так что успешный ответ = приложение полностью готово (для стартовой заставки)
+// Готовность сервера и его версия: сервер компании обновляют отдельно, и
+// программа должна сама заметить, что он старее её (см. server/presence.ts)
 app.get('/api/health', (_req: Request, res: Response) => {
-  res.json({ ok: true, uptime: Math.round(process.uptime()) });
+  res.json({ ok: true, uptime: Math.round(process.uptime()), version: APP_VERSION });
 });
 
 // ── Лицензия ──

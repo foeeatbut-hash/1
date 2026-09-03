@@ -123,3 +123,21 @@ export function setupPresence(deps: PresenceDeps): {
 
   return { markPresence, markGone, rosterFromDb };
 }
+
+/**
+ * Версия сервера — из package.json рядом со сборкой.
+ *
+ * Нужна не для порядка: программа у сотрудников обновляется сама, а сервер
+ * компании разворачивают отдельно и обновить забывают. Старый сервер не знает
+ * новых событий, и раздел выглядит сломанным, хотя сломано несоответствие
+ * версий. Программа сверяет версии и говорит об этом сама.
+ */
+export function readAppVersion(dir: string): string {
+  const fs = require('fs');
+  const path = require('path');
+  for (const p of [path.join(dir, 'package.json'), path.join(dir, '..', 'package.json'),
+    path.join(process.cwd(), 'package.json')]) {
+    try { if (fs.existsSync(p)) return String(JSON.parse(fs.readFileSync(p, 'utf-8')).version || ''); } catch (_) { /* дальше */ }
+  }
+  return '';
+}
