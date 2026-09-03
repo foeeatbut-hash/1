@@ -29,6 +29,8 @@ import { countOf } from '../lib/plural';
 import { useModalStore } from '../store/modalStore';
 import EnglishVersion from '../components/translate/EnglishVersion';
 import { docFingerprint } from '../translate/docPlan';
+import { saveBookToWindows, saveBookToExplorer } from '../lib/bookExport';
+import { useOpenFromFile } from '../components/constructor/useOpenFromFile';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm, openPrompt } = useModalStore.getState();
@@ -994,27 +996,20 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
     } catch (err) { addToast('Ошибка экспорта PDF', 'error'); }
   };
 
-  const exportDownload = () => {
+  // Выгрузка книги и в Windows, и в Проводник — в src/lib/bookExport.ts:
+  // это два ответа на один вопрос «отдать людям», и отвечать они должны
+  // одинаково с текстовым документом
+  const exportDownload = async () => {
     try {
-      XLSX.writeFile(buildXlsx(), `${doc?.name || 'Документ'}.xlsx`);
+      const out = await saveBookToWindows(buildXlsx(), doc?.name || 'Документ');
+      if (out.canceled) return;
+      addToast(out.ok ? `Книга сохранена: ${out.path}` : (out.error || 'Не удалось сохранить'), out.ok ? 'success' : 'error');
     } catch (err) { addToast('Ошибка экспорта', 'error'); }
   };
 
   const exportToExplorer = async () => {
     try {
-      const b64 = XLSX.write(buildXlsx(), { type: 'base64', bookType: 'xlsx' });
-      const fileName = `${doc?.name || 'Документ'}.xlsx`;
-      const res = await fetch('/api/files', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: fileName,
-          filePath: `/shared/${fileName}`,
-          size: Math.round(b64.length * 0.75),
-          content: b64,
-          createdById: user?.id || null,
-        }),
-      });
-      if (!res.ok) throw new Error('files failed');
+      const fileName = await saveBookToExplorer(buildXlsx(), doc?.name || 'Документ', user?.id);
       addToast(`«${fileName}» сохранён в Проводник`, 'success');
     } catch (_) { addToast('Не удалось сохранить в Проводник', 'error'); }
   };
@@ -1669,6 +1664,15 @@ export default function ConstructorScreen() {
     const fromUrl = searchParams.get('doc');
     if (fromUrl !== activeDocId) setActiveDocIdRaw(fromUrl);
   }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Принесённый файл Word или Excel: разбор в окне, документ заводится один раз
+  useOpenFromFile({
+    fileId: searchParams.get('fromFile') || '',
+    projectId: activeProject?.id || 'default',
+    openDoc: (docId) => setSearchParams({ doc: docId }, { replace: true }),
+    giveUp: () => setSearchParams({}, { replace: true }),
+    say: (text, kind) => addToast(text, kind),
+  });
   const [trashOpen, setTrashOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   // Вкладки студии: все / таблицы (Эксель) / документы (Ворд). Заметки — в

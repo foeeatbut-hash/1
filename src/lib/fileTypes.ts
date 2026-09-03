@@ -47,6 +47,13 @@ export const FILE_APPS: Record<string, FileApp> = {
     id: 'pdf', name: 'Чертёж', path: '/pdf',
     href: (f) => `/pdf?file=${q(f.id)}`,
   },
+  // Офисный файл, ещё не ставший документом: Конструктор разберёт его при
+  // открытии и запомнит связь, чтобы второе открытие вело в тот же документ,
+  // а не в новую копию
+  office: {
+    id: 'office', name: 'Конструктор', path: '/constructor',
+    href: (f) => `/constructor?fromFile=${q(f.id)}`,
+  },
   // Предпросмотр Проводника — тоже способ открыть: для картинки, бланка и
   // всего, для чего своего редактора нет, он и есть единственный
   explorer: {
@@ -61,6 +68,17 @@ export const FILE_APPS: Record<string, FileApp> = {
 export const isPdf = (f: FileLike): boolean =>
   f.type === 'PDF' || /\.pdf$/i.test(f.name || '');
 
+/**
+ * Книга Excel и документ Word открываются Конструктором.
+ *
+ * Их здесь не было вовсе, и они попадали в «всё остальное — в предпросмотр»:
+ * человек дважды нажимал на принесённую смету и получал картинку-заглушку
+ * вместо редактора. Формат определяется по имени: тип в базе у файлов,
+ * загруженных прежними версиями, бывает каким угодно.
+ */
+export const isOffice = (f: FileLike): boolean =>
+  /\.(xlsx|xlsm|csv|docx)$/i.test(f.name || '');
+
 /** Документ Конструктора — это ссылка на документ, а не файл на диске */
 export const isConstructorDoc = (f: FileLike): boolean =>
   !!f.refId || f.type === 'CONSTRUCTOR';
@@ -72,6 +90,9 @@ export const isConstructorDoc = (f: FileLike): boolean =>
 export function appsFor(f: FileLike): FileApp[] {
   if (isConstructorDoc(f)) return [FILE_APPS.docs];
   if (isPdf(f)) return [FILE_APPS.pdf, FILE_APPS.explorer];
+  // Офисный файл открывается редактором, а не предпросмотром. Предпросмотр
+  // остаётся вторым пунктом: иногда человеку нужно просто посмотреть
+  if (isOffice(f)) return [FILE_APPS.office, FILE_APPS.explorer];
   return [FILE_APPS.explorer];
 }
 

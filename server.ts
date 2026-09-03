@@ -17,6 +17,7 @@ import { setPrisma, setNotifier, setBroadcaster, upsertSetting } from './server/
 import { setDialect, dialectOf, ensureTables as ensureDbTables } from './server/ddl.js';
 import { setupPresence, readAppVersion } from './server/presence.js';
 import { registerUpdateRoutes } from './server/updates.js';
+import { registerLimitRoutes } from './server/limits.js';
 import { setupDocRooms } from './server/collab.js';
 import { ensureRemoteSchema } from './server/schema-sync.js';
 import { computeMachineId, licenseStatus, activateLicense } from './electron/license.js';
@@ -1958,6 +1959,10 @@ registerUpdateRoutes(app, {
   notifyAll: (category, title, body, route, by) => notifyAll(category, title, body, route, by),
   broadcast: (event, payload) => { try { io.emit(event, payload); } catch (_) {} },
 });
+
+// Насколько большой файл примет эта база — server/limits.ts. Окно спрашивает
+// заранее, чтобы отказ звучал до переноса, а не после получаса ожидания
+registerLimitRoutes(app, () => prisma);
 
 // Projects
 // ── Права доступа «по функциям» (зеркало src/lib/permissions.ts) ──────────────

@@ -1,6 +1,19 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 contextBridge.exposeInMainWorld('electron', {
+  /**
+   * Полный путь файла, принесённого из Windows.
+   *
+   * Раньше путь лежал прямо на объекте файла (`file.path`), но в новых версиях
+   * оболочки его там больше нет — остался только этот способ. Нужен он ровно
+   * для одного: чтобы выгрузка предложила ту же папку, из которой файл принесли.
+   */
+  pathOfFile: (file: File): string => {
+    try { return webUtils.getPathForFile(file); } catch (_) { return ''; }
+  },
+  /** Сохранить файл на диск Windows обычным окном сохранения */
+  saveFileAs: (p: { name: string; base64: string; dir?: string }) =>
+    ipcRenderer.invoke('files:save-as', p),
   ipcRenderer: {
     send: (channel: string, ...args: any[]) => ipcRenderer.send(channel, ...args),
     on: (channel: string, func: (...args: any[]) => void) => {

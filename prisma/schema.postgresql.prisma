@@ -247,6 +247,8 @@ model FileNode {
   id          String   @id @default(uuid())
   name        String
   filePath    String
+  /// Откуда файл принесли из Windows — по этому пути выгрузка предложит ту же папку
+  origin      String   @default("")
   size        Int      @default(0)
   type        String   @default("FILE")
   department  String?

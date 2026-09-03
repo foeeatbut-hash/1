@@ -2,6 +2,7 @@ import type { Express, Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 import { getPrisma, resolveProjectId, sendError, upsertSetting } from '../context.js';
 import { normalizeKey, parseRuNumber } from '../normalize.js';
+import { registerImportFileRoute } from './constructorImport.js';
 
 const ALIAS_SETTING_KEY = 'constructor_param_aliases';
 
@@ -453,81 +454,9 @@ export function registerConstructorRoutes(app: Express): void {
     } catch (err: any) { sendError(res, err); }
   });
 
-  // ── «Редактировать копию»: документ студии из файла Проводника ──
-  // Исходный файл не изменяется — регистр выданной документации неприкосновенен.
-  // xlsx/xlsm/csv → таблица (DOC), txt/md → текст (TEXT, содержимое вставит
-  // редактор при первом открытии), docx → текст без сложной вёрстки (mammoth).
-  app.post('/api/constructor/docs/import-file', async (req: Request, res: Response) => {
-    try {
-      const me = authUserOf(req);
-      const prisma = getPrisma();
-      const file = await prisma.fileNode.findUnique({ where: { id: String(req.body?.fileId || '') } });
-      if (!file || !file.content) return res.status(404).json({ error: 'Файл не найден или пуст' });
-      const projectId = await resolveProjectId(String(req.body?.projectId || ''));
-      let b64 = String(file.content);
-      if (b64.includes(',')) b64 = b64.split(',')[1];
-      const buf = Buffer.from(b64, 'base64');
-      const ext = (file.name.split('.').pop() || '').toLowerCase();
-      const baseName = file.name.replace(/\.[^.]+$/, '');
-
-      let kind = 'TEXT';
-      let workbook = '';
-      let bindings = '';
-
-      if (['xlsx', 'xlsm', 'xls', 'csv'].includes(ext)) {
-        // Таблица: SheetJS → минимальный снапшот книги Univer (значения ячеек)
-        kind = 'DOC';
-        const wb = XLSX.read(buf, { type: 'buffer' });
-        const sheets: any = {};
-        const order: string[] = [];
-        wb.SheetNames.forEach((sn, i) => {
-          const aoa = XLSX.utils.sheet_to_json<any[]>(wb.Sheets[sn], { header: 1, blankrows: true, defval: '' }) as any[][];
-          const id = `s${i + 1}`;
-          const cellData: any = {};
-          let maxC = 0;
-          aoa.forEach((row, r) => (row || []).forEach((v, c) => {
-            if (v !== undefined && v !== null && v !== '') {
-              (cellData[r] ||= {})[c] = { v };
-              if (c > maxC) maxC = c;
-            }
-          }));
-          sheets[id] = { id, name: sn || `Лист${i + 1}`, cellData, rowCount: Math.max(100, aoa.length + 30), columnCount: Math.max(26, maxC + 10) };
-          order.push(id);
-        });
-        workbook = JSON.stringify({ name: baseName, sheetOrder: order, sheets });
-      } else if (['txt', 'md', 'log', 'json'].includes(ext)) {
-        // Текст: содержимое вставит редактор при первом открытии (appendText)
-        bindings = JSON.stringify({ importText: buf.toString('utf-8') });
-      } else if (ext === 'docx') {
-        try {
-          const mammoth = require('mammoth');
-          const r = await mammoth.extractRawText({ buffer: buf });
-          bindings = JSON.stringify({ importText: String(r?.value || '') });
-        } catch (e: any) {
-          return res.status(400).json({ error: 'Разбор DOCX недоступен в этой сборке — сложная вёрстка будет в следующей фазе' });
-        }
-      } else {
-        return res.status(400).json({ error: `Формат .${ext} пока не открывается в Конструкторе` });
-      }
-
-      const doc = await prisma.constructorDoc.create({
-        data: {
-          projectId,
-          name: `${baseName} (копия)`,
-          named: true,
-          kind,
-          scope: 'SHARED',
-          ownerId: me?.id || null,
-          createdById: me?.id || null,
-          updatedById: me?.id || null,
-          workbook,
-          ...(bindings ? { bindings } : {}),
-        },
-      });
-      syncMirror(doc);
-      res.json({ doc });
-    } catch (err: any) { sendError(res, err); }
-  });
+  // Открытие принесённого файла Word/Excel и «Редактировать копию» —
+  // server/routes/constructorImport.ts
+  registerImportFileRoute(app, { syncMirror, authUserOf });
 
   // ── Документ целиком (со снапшотом книги) ──
   app.get('/api/constructor/docs/:id', async (req: Request, res: Response) => {

@@ -27,6 +27,8 @@ import { type ConflictChoice } from '../lib/docConflict';
 import SaveConflictDialog from '../components/SaveConflictDialog';
 import { useDocRoom } from '../components/collab/useDocRoom';
 import { dataService } from '../services/dataService';
+import { buildDocx, partsFromHtml } from '../lib/docxWrite';
+import { saveBytes } from '../lib/saveToWindows';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm } = useModalStore.getState();
@@ -604,30 +606,28 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     } catch (_) { addToast('Ошибка экспорта PDF', 'error'); }
   };
 
-  // Выгрузка в Ворд. Файл — HTML с разметкой страницы Ворда: он открывается в
-  // Ворде как обычный документ, шрифты/начертания/выравнивание и поля листа
-  // сохраняются. Формул внутри нет — на их месте стоят значения на момент
-  // выгрузки, поэтому получатель в Windows видит готовый текст.
+  /**
+   * Выгрузка в Word — настоящим файлом `.docx`.
+   *
+   * Раньше отсюда уходил HTML с расширением `.doc`. Word открывал его с
+   * предупреждением «формат не соответствует расширению», и человек, отправивший
+   * документ заказчику, каждый раз объяснял получателю, что это нормально.
+   * Теперь собирается настоящий документ (src/lib/docxWrite.ts): абзацы,
+   * заголовки и таблицы на месте, формул внутри нет — на их месте значения на
+   * момент выгрузки.
+   */
   const exportWord = async () => {
     try {
       const html = await buildFullHtml(true);
       const name = doc?.name || 'Документ';
-
-      // В программе на рабочем месте — обычное окно «Сохранить как», как у
-      // Ворда: человек сам выбирает папку и имя
-      const win = window as any;
-      if (win.electron?.ipcRenderer?.invoke) {
-        const r = await win.electron.ipcRenderer.invoke('doc:save-word', { html, title: name });
-        if (r?.success) addToast('Документ сохранён для Ворда', 'success');
-        else if (!r?.canceled) addToast(r?.error || 'Не удалось сохранить', 'error');
-        return;
-      }
-
-      // В браузере — обычное скачивание. BOM в начале: по нему Ворд определяет
-      // кодировку, иначе кириллица открывается кракозябрами
-      const blob = new Blob(['﻿', html], { type: 'application/msword;charset=utf-8' });
-      download(blob, safeFileName(name, 'doc'));
-      addToast('Документ выгружен для Ворда', 'success');
+      const { htmlToBlocks } = await import('../import/extractors');
+      const parts = partsFromHtml(html, (fragment) => {
+        const found = htmlToBlocks(fragment).find((b: any) => b.kind === 'table') as any;
+        return found?.rows || [];
+      });
+      const out = await saveBytes(safeFileName(name, 'docx'), buildDocx(parts));
+      if (out.canceled) return;
+      addToast(out.ok ? `Документ Word сохранён: ${out.path || name}` : (out.error || 'Не удалось сохранить'), out.ok ? 'success' : 'error');
     } catch (_) { addToast('Не удалось выгрузить в Ворд', 'error'); }
   };
 
