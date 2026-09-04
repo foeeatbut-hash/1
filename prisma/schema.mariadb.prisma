@@ -27,6 +27,8 @@ model User {
   permissions      String?       @db.Text // JSON персональных прав
   signatureImage   String?
   signatureHeightMm Int          @default(8)
+  hideOnline        Boolean      @default(false)
+  lastLoginAt       DateTime?
   createdAt        DateTime      @default(now())
   createdFiles     FileNode[]    @relation("FileCreator")
   updatedFiles     FileNode[]    @relation("FileUpdater")

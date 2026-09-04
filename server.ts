@@ -559,6 +559,14 @@ function ensureSchemaColumns(dbPath: string) {
           db.exec('ALTER TABLE "User" ADD COLUMN "permissions" TEXT');
           logInit('[DB Migrate] Добавлена колонка User.permissions');
         }
+        if (!cols.find(c => c.name === 'hideOnline')) {
+          db.exec('ALTER TABLE "User" ADD COLUMN "hideOnline" BOOLEAN NOT NULL DEFAULT false');
+          logInit('[DB Migrate] Добавлена колонка User.hideOnline');
+        }
+        if (!cols.find(c => c.name === 'lastLoginAt')) {
+          db.exec('ALTER TABLE "User" ADD COLUMN "lastLoginAt" DATETIME');
+          logInit('[DB Migrate] Добавлена колонка User.lastLoginAt');
+        }
       }
       const msgCols = db.prepare('PRAGMA table_info("ChatMessage")').all() as Array<{ name: string }>;
       if (msgCols.length > 0) {
@@ -1084,11 +1092,31 @@ const rosterOnline = () => Array.from(online.keys());
 
 // Присутствие живёт в общей базе (server/presence.ts): в отделе база одна, а
 // сервер у каждого свой — в памяти оно означало бы «все не в сети»
-const { markPresence, markGone, rosterFromDb } = setupPresence({
+/**
+ * Кто скрыл своё присутствие.
+ *
+ * Список кэшируется: он спрашивается на каждом ударе сердца у каждого
+ * сотрудника, а меняется, когда администратор трогает переключатель — то есть
+ * почти никогда. Перечитывает его refreshHiddenOnline().
+ */
+let hiddenOnline: Set<string> = new Set();
+export async function refreshHiddenOnline(): Promise<void> {
+  try {
+    const rows = await prisma.user.findMany({ where: { hideOnline: true }, select: { id: true } });
+    hiddenOnline = new Set(rows.map((r: any) => String(r.id)));
+  } catch (_) {
+    // Колонки может не быть — база старее программы. Скрывать некого
+    hiddenOnline = new Set();
+  }
+}
+
+const { markPresence, markGone, rosterFromDb, isHidden } = setupPresence({
   getPrisma: () => prisma,
   localOnline: rosterOnline,
   localSeen: () => Object.fromEntries(lastSeen),
   broadcast: (roster) => io.emit('presence:list', roster),
+  hiddenIds: () => hiddenOnline,
+  broadcastTo: (userId, roster) => io.to(`user:${userId}`).emit('presence:list', roster),
 });
 
 io.on('connection', (socket) => {
@@ -1106,14 +1134,16 @@ io.on('connection', (socket) => {
     else {
       online.set(uid, new Set([socket.id]));
       // Появился — сказать всем. Себе тоже: своя точка «в сети» подтверждает,
-      // что связь есть, и отличает «никто не отвечает» от «я отключён»
-      io.emit('presence:online', { userId: uid });
+      // что связь есть, и отличает «никто не отвечает» от «я отключён».
+      // Скрывшему себя — только себе: остальным он не появлялся
+      if (isHidden(uid)) socket.emit('presence:online', { userId: uid });
+      else io.emit('presence:online', { userId: uid });
     }
   }
 
   // Пришедшему — весь список сразу: без него человек до первого чужого входа
-  // видел бы всех офлайн
-  const sendRoster = async () => socket.emit('presence:list', await rosterFromDb());
+  // видел бы всех офлайн. Список считается от его лица: себя скрывший видит
+  const sendRoster = async () => socket.emit('presence:list', await rosterFromDb(uid || ''));
   void (async () => { if (uid) await markPresence(uid); await sendRoster(); })();
   socket.on('presence:list', () => { void sendRoster(); });
 
@@ -1145,7 +1175,8 @@ io.on('connection', (socket) => {
         // И в общей базе тоже: иначе на чужих машинах он останется «в сети»
         // до конца срока свежести отметки
         void markGone(uid);
-        io.emit('presence:offline', { userId: uid, at });
+        // Скрытый и так числился ушедшим — событие о его уходе никому не нужно
+        if (!isHidden(uid)) io.emit('presence:offline', { userId: uid, at });
       }
     }
   });
@@ -1790,6 +1821,13 @@ app.post('/api/login', async (req: Request, res: Response) => {
           // Обновляем якорь времени и для бессрочных входов
           trustedNowSync();
         }
+        // Отметка входа. Нужна не для порядка: в разделе «Сотрудники»
+        // администратор видит, кто когда заходил, а присутствие помнит людей
+        // только неделю — по нему «не заходил с мая» отличить от «не заходил
+        // никогда» нельзя
+        try {
+          await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+        } catch (_) { /* колонки может не быть: база старее программы */ }
         const { password: _pw, ...safeUser } = user as any;
         // Права роли отдаём вместе с профилем: интерфейс должен знать, что
         // человеку можно, не запрашивая это на каждом экране.
@@ -1903,7 +1941,7 @@ app.post('/api/import/learn', async (req: Request, res: Response) => {
 });
 // Сотрудники, роли и личные настройки уведомлений вынесены
 // в server/routes/users.ts
-registerUserRoutes(app, { hashPassword, invalidateRolePerms, invalidateAuthUser });
+registerUserRoutes(app, { hashPassword, invalidateRolePerms, invalidateAuthUser, refreshHiddenOnline });
 
 // For dummy data generation so we can test the app
 app.post('/api/seed', async (req: Request, res: Response) => {
@@ -4251,6 +4289,9 @@ async function startServer() {
   // Роли и разбор ФИО на части — в фоне: старт сервера не должен их ждать,
   // а на старой базе таблица ролей появляется только после синхронизации схемы.
   seedRoles().then(backfillNameParts).catch(() => {});
+  // Кто скрыл своё присутствие — читаем один раз при старте: дальше список
+  // держится в памяти и обновляется только при смене переключателя
+  void refreshHiddenOnline();
 
   httpServer.listen(PORT, "0.0.0.0", () => {
     logInit(`[Server listener started] Express backend server successfully running on port ${PORT}`);

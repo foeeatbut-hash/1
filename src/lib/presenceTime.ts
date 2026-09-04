@@ -75,3 +75,57 @@ export function mergeLocal(dbOnline: string[], localOnline: string[]): string[] 
   for (const id of localOnline || []) if (id) all.add(id);
   return Array.from(all);
 }
+
+/**
+ * Когда человек последний раз входил в программу — словами.
+ *
+ * Не то же самое, что «был(а) N назад». Присутствие помнит людей неделю, и по
+ * нему «не заходил с мая» неотличимо от «не заходил никогда». Администратору
+ * нужен именно вход: по нему видно, работает человек или его учётку завели и
+ * забыли.
+ *
+ * Отсюда и точность: сегодняшний и вчерашний вход — со временем (в тот же день
+ * это ещё имеет смысл), остальные — датой. Секунды не показываются нигде: они
+ * создают ощущение слежки и ни на один вопрос не отвечают.
+ */
+export function lastLoginLabel(at: number | string | Date | null | undefined, now = Date.now()): string {
+  if (at === null || at === undefined || at === '') return 'ни разу не заходил(а)';
+  const t = at instanceof Date ? at.getTime() : typeof at === 'number' ? at : Date.parse(String(at));
+  if (!Number.isFinite(t)) return 'ни разу не заходил(а)';
+  const d = new Date(t);
+  const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const today = day(new Date(now));
+  const diffDays = Math.round((today - day(d)) / 86400000);
+  if (diffDays <= 0) return `сегодня в ${time}`;
+  if (diffDays === 1) return `вчера в ${time}`;
+  const date = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+  // Прошлый год без года выглядел бы как позавчера: «12 авг.» о том, что было
+  // четырнадцать месяцев назад, — это неправда, а не краткость
+  const year = d.getFullYear() === new Date(now).getFullYear() ? '' : ` ${d.getFullYear()}`;
+  return `${date}${year}`;
+}
+
+/**
+ * Убрать из списка тех, кто скрыл своё присутствие.
+ *
+ * Скрытие обязано убирать ОБА следа сразу. Точка «в сети» — очевидный, а
+ * «был(а) две минуты назад» — тот же ответ другими словами: по нему видно и что
+ * человек только что работал, и когда он ушёл. Скрыть первое и оставить второе
+ * значит не скрыть ничего.
+ *
+ * Себя человек видит всегда: список приходит на его же машину, и превращать его
+ * самого в невидимку — значит отвечать «связи нет» на вопрос «я подключён?».
+ */
+export function hideFrom(
+  roster: { online: string[]; lastSeen: Record<string, number> },
+  hidden: Iterable<string>,
+  viewerId = '',
+): { online: string[]; lastSeen: Record<string, number> } {
+  const off = new Set(hidden || []);
+  off.delete(viewerId);
+  if (!off.size) return roster;
+  const lastSeen: Record<string, number> = {};
+  for (const [id, at] of Object.entries(roster.lastSeen || {})) if (!off.has(id)) lastSeen[id] = at;
+  return { online: (roster.online || []).filter((id) => !off.has(id)), lastSeen };
+}

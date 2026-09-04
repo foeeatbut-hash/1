@@ -16,6 +16,8 @@ interface UserDeps {
   invalidateRolePerms: () => void;
   /** Сбросить кэш сессии пользователя (или всех, если без аргумента) */
   invalidateAuthUser: (userId?: string) => void;
+  /** Перечитать список скрывших присутствие: он кэшируется у присутствия */
+  refreshHiddenOnline?: () => Promise<void>;
 }
 
 let deps: UserDeps = {
@@ -226,8 +228,14 @@ app.get('/api/users', async (req: Request, res: Response) => {
     // исполнителя, и карточки — при трёх десятках сотрудников это лишний
     // мегабайт на каждый запрос. Отдаём только признак «подпись есть»,
     // а саму картинку — отдельным запросом, когда её собрались смотреть.
-    res.json((users as any[]).map(({ password, signatureImage, ...u }) => ({
+    // Скрывший присутствие не должен просвечивать через этот список: ни сам
+    // признак скрытности (иначе «скрыт» становится видимым состоянием), ни
+    // время последнего входа — оно отвечает на тот же вопрос, что и зелёная
+    // точка. Себе человек виден полностью.
+    const meId = String((req as any).authUser?.id || '');
+    res.json((users as any[]).map(({ password, signatureImage, hideOnline, ...u }) => ({
       ...u,
+      lastLoginAt: hideOnline && u.id !== meId ? null : u.lastLoginAt,
       rolePermissions: byCode[u.role] || '{}',
       hasSignature: !!signatureImage,
     })));
@@ -393,6 +401,38 @@ app.delete('/api/users/:id', async (req: Request, res: Response) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
+
+  // ── Видимость «В сети» ──────────────────────────────────────────────────────
+  // Право скрыть своё присутствие есть только у администратора. Это не
+  // придирка к правам, а решение владельца: у обычного сотрудника невидимость
+  // означала бы, что «кто сейчас в программе» перестал отвечать на свой
+  // вопрос, а весь смысл раздела в том, что ответ там честный.
+  app.get('/api/presence/visibility', async (req: Request, res: Response) => {
+    const me = (req as any).authUser;
+    if (!me) return res.status(401).json({ message: 'Нужен вход.' });
+    res.json({ hidden: !!me.hideOnline, allowed: await isTopAdmin(req) });
+  });
+
+  app.put('/api/presence/visibility', async (req: Request, res: Response) => {
+    const prisma = getPrisma();
+    try {
+      const me = (req as any).authUser;
+      if (!me) return res.status(401).json({ message: 'Нужен вход.' });
+      if (!(await isTopAdmin(req))) {
+        return res.status(403).json({ message: 'Скрывать своё присутствие может только главный администратор.' });
+      }
+      // Только своё: скрыть чужого — это подделать ответ на вопрос «кто в
+      // программе» за другого человека
+      const hidden = !!req.body?.hidden;
+      await prisma.user.update({ where: { id: me.id }, data: { hideOnline: hidden } });
+      invalidateAuthUser(me.id);
+      await deps.refreshHiddenOnline?.();
+      res.json({ success: true, hidden });
+    } catch (error: any) {
+      console.error('[Присутствие] Смена видимости не удалась:', error?.message || error);
+      res.status(500).json({ message: explainDbError(error, 'Настройка') });
+    }
+  });
 
 app.get('/api/roles', async (_req: Request, res: Response) => {
   const prisma = getPrisma();

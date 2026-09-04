@@ -8,6 +8,7 @@ import { Check } from 'lucide-react';
 import NameFields, { NameValue, EMPTY_NAME } from '../components/NameFields';
 import { Role, loadRoles, roleByCode, roleColorClass, isTopAdmin } from '../lib/roles';
 import { usePresenceStore, presenceLabel } from '../store/presenceStore';
+import PresencePanel from '../components/users/PresencePanel';
 import { fullNameOf } from '../lib/declension';
 import RoleIcon from '../components/RoleIcon';
 import { motion, AnimatePresence } from 'motion/react';
@@ -433,6 +434,11 @@ export default function UsersManagement() {
           </button>
         ))}
       </div>
+
+      {/* Кто здесь сейчас и кто когда заходил. Отдельным блоком, а не колонкой
+          в таблице: это вопрос о людях вообще, а не о конкретной строке, и
+          задаётся он раньше, чем начинают искать человека по фамилии. */}
+      <PresencePanel people={usersList as any} />
 
       {/* Поиск и порядок */}
       <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-x border-b border-slate-200 dark:border-dark-border bg-white dark:bg-dark-surface">
