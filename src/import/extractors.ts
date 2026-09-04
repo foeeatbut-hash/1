@@ -169,7 +169,7 @@ export function extractXml(xmlText: string): ExtractedDoc {
   const clean = xmlText.replace(/<!--[\s\S]*?-->/g, '');
 
   // Пары из атрибутов name/value (типовые файлы расчёта)
-  const paramRe = /<(?:parameter|param|spec|характеристика)\b([^>]*?)\/?>(?:([\s\S]*?)<\/(?:parameter|param|spec|характеристика)>)?/gi;
+  const paramRe = /<(?:parameter|param|spec|характеристика)(?=[\s/>])([^>]*?)\/?>(?:([\s\S]*?)<\/(?:parameter|param|spec|характеристика)>)?/gi;
   let pm: RegExpExecArray | null;
   while ((pm = paramRe.exec(clean)) !== null) {
     const attrs = pm[1] || '';

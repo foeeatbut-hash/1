@@ -496,7 +496,7 @@ function enrichFromProse(item: DraftItem, proseTexts: string[]) {
     // (больше сегментов, длиннее), а не короткий обрывок KKS-тега «AN-001».
     // Основную марку ищем ДО пометки «Дополнительно оборудование» — там указана
     // навеска (узлы, приводы), которую нельзя принять за марку самого изделия
-    const mainText = all.split(/дополнительн\w*\s*оборудован|additional\s*equip|доп\.?\s*оборудован/i)[0] || all;
+    const mainText = all.split(/дополнительн[а-яё]*\s*оборудован|additional\s*equip|доп\.?\s*оборудован/i)[0] || all;
     const codes = (mainText.match(/[A-Za-zА-Яа-я]{1,14}[\-./][A-Za-zА-Яа-я0-9,\-./]{2,30}/g) || [])
       .filter(c => /\d/.test(c) && looksLikeCode(c) && !isKksTag(c) && c.length >= 6);
     // Первый по порядку богатый код (≥3 сегментов) — это марка главного изделия;

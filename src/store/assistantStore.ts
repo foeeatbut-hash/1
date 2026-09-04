@@ -3,6 +3,16 @@ import { ENV_CONFIG } from '../config/env';
 import { findKnowledge, matchKnowledge } from '../assistant/knowledge';
 import { TOURS, findBestTour, Tour } from '../assistant/tours';
 import { getSection } from '../assistant/sections';
+import { applyRename } from '../assistant/renameDialog';
+import { exportTableToExcel, exportTableToWord } from '../assistant/tableExport';
+import {
+  fetchAssistantData, invalidateDataCache, renameTagApi, validateTagCode, setDataProjectGetter,
+  type AssistantData,
+} from '../assistant/data';
+import {
+  describeContext, contextHint, needsContext, asksAboutContext, rememberInto,
+  type OpenThing, type WorkContext,
+} from '../assistant/context';
 import { parse, hasIntent, fieldMatchesStems, Parsed } from '../assistant/nlp';
 import { matchLabel, fieldByUniqueUnit, FIELDS, FieldDef } from '../import/dictionary';
 import { asksWhereWritten } from '../assistant/handbookAnswers';
@@ -21,17 +31,6 @@ type PendingInput =
   | { kind: 'rename-tag'; tagId: string; oldCode: string }
   | null;
 
-interface AssistantData {
-  projectId: string;
-  projects: { id: string; name: string; status: string }[];
-  tags: { id: string; identifier: string; brand?: string; department?: string; wbs?: string; fluid?: string; mainName?: string; actuality?: string; stageId?: string; stageLabel?: string; stageSince?: string | null; stageIsFinal?: boolean; supplier?: string; qty?: string }[];
-  components: { id: string; name: string; itemCode: string; systemName: string; category: string; monoblockName: string; status: string; hasConflict: boolean; tags: string[]; specs?: { key: string; value: string; unit: string; group: string }[] }[];
-  stages: { id: string; label: string }[];
-  duplicates: { code: string; count: number; ids: string[] }[];
-  notes: { id: string; title: string; updatedAt: string }[];
-  recentLogs: { description: string; userName: string; targetRoute: string; createdAt: string }[];
-  counts: Record<string, number>;
-}
 
 // Последний результат — для follow-up вопросов («а сколько их?», «выгрузи», «первый на холсте»)
 interface LastResult {
@@ -65,6 +64,11 @@ interface AssistantState {
    * раз называть словами, какой именно из трёх чертежей имеется в виду.
    */
   attached: { id: string; title: string; kind: string } | null;
+  /**
+   * Короткая память: три последних дела человека. Длинная история — это уже
+   * Журнал (§32), у него своё место и своё право доступа.
+   */
+  recentDeeds: string[];
 
   toggleOpen: () => void;
   setOpen: (open: boolean) => void;
@@ -83,6 +87,10 @@ interface AssistantState {
   clearTalk: () => void;
   /** Рассказать про брошенный в разговор файл и прикрепить его */
   askAbout: (fileId: string) => Promise<void>;
+  /** Запомнить дело человека — из него складывается ответ «что я делал» */
+  remember: (what: string) => void;
+  /** Обстановка целиком: раздел, проект, открытые окна, последние дела */
+  scene: () => WorkContext;
 }
 
 let navigateFn: ((path: string) => void) | null = null;
@@ -93,6 +101,23 @@ export function setAssistantNavigator(fn: (path: string) => void) {
 let getActiveProjectId: (() => string | null) | null = null;
 export function setAssistantProjectGetter(fn: () => string | null) {
   getActiveProjectId = fn;
+  // Тот же проект нужен слою данных: два независимых источника «текущего
+  // проекта» однажды разошлись бы, и помощник отвечал бы про чужой
+  setDataProjectGetter(fn);
+}
+
+/**
+ * Обстановка: что открыто и как называется проект.
+ *
+ * Помощник не лезет в хранилища оболочки сам — оболочка сообщает ему сама, тем
+ * же способом, каким сообщает адрес перехода. Иначе помощник знал бы про окна
+ * больше, чем про них знает рама, и они разошлись бы.
+ */
+let getOpenThings: (() => OpenThing[]) | null = null;
+let getProjectName: (() => string) | null = null;
+export function setAssistantSceneGetter(open: () => OpenThing[], projectName: () => string) {
+  getOpenThings = open;
+  getProjectName = projectName;
 }
 
 
@@ -124,86 +149,6 @@ function fieldMatches(fieldValue: string | undefined, token: string): boolean {
     if (stem.length >= 3 && f.includes(stem)) return true;
   }
   return false;
-}
-
-let dataCache: { data: AssistantData; ts: number } | null = null;
-
-async function fetchAssistantData(): Promise<AssistantData> {
-  const now = Date.now();
-  if (dataCache && now - dataCache.ts < 15000) return dataCache.data;
-  const projectId = (getActiveProjectId && getActiveProjectId()) || '';
-  const res = await fetch(`${ENV_CONFIG.apiUrl}/assistant/data?projectId=${encodeURIComponent(projectId)}`);
-  if (!res.ok) throw new Error('Не удалось получить данные из базы');
-  const data = await res.json();
-  dataCache = { data, ts: now };
-  return data;
-}
-
-function invalidateDataCache() { dataCache = null; }
-
-// Переименование тега = смена identifier. Связи хранятся по id тега в metadata,
-// поэтому при переименовании они сохраняются автоматически.
-async function renameTagApi(tagId: string, newCode: string): Promise<void> {
-  const res = await fetch(`${ENV_CONFIG.apiUrl}/tags/${tagId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ identifier: newCode }),
-  });
-  if (!res.ok) {
-    let m = 'Не удалось переименовать тег';
-    try { const d = await res.json(); if (d?.error) m = d.error; } catch (_) {}
-    throw new Error(m);
-  }
-  invalidateDataCache();
-  // Разделы, показывающие теги (холст/дерево), перечитают данные
-  try { window.dispatchEvent(new CustomEvent('flux:tags-changed')); } catch (_) {}
-}
-
-// Проверка кода тега: непустой, разумной длины, без пробелов внутри
-function validateTagCode(raw: string): { ok: boolean; code: string; error?: string } {
-  const code = raw.trim();
-  if (!code) return { ok: false, code, error: 'Код пустой' };
-  if (code.length > 80) return { ok: false, code, error: 'Слишком длинный код (макс. 80 символов)' };
-  if (/\s/.test(code)) return { ok: false, code, error: 'В коде тега не должно быть пробелов' };
-  return { ok: true, code };
-}
-
-function triggerDownload(blob: Blob, fileName: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
-}
-
-// xlsx (около 900 КБ) грузится по требованию: этот стор поднимается при
-// старте программы, и статический импорт держал всю библиотеку в стартовом
-// чанке ради кнопки «выгрузить в Excel», которую нажимают раз в неделю
-async function exportTableToExcel(table: AssistantTable) {
-  const XLSX = await import('xlsx');
-  const aoa = [table.columns, ...table.rows];
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Данные');
-  const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-  const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-  triggerDownload(new Blob([out], { type: 'application/octet-stream' }), `PDM_${ts}.xlsx`);
-}
-
-function exportTableToWord(table: AssistantTable) {
-  const head = table.columns.map(c => `<th style="border:1px solid #888;padding:6px;background:#eee">${c}</th>`).join('');
-  const body = table.rows.map(r =>
-    '<tr>' + r.map(c => `<td style="border:1px solid #888;padding:6px">${String(c ?? '')}</td>`).join('') + '</tr>'
-  ).join('');
-  const html =
-    `<html><head><meta charset="utf-8"></head><body>` +
-    `<h2>${table.title}</h2>` +
-    `<table style="border-collapse:collapse"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` +
-    `</body></html>`;
-  const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-  triggerDownload(new Blob(['﻿', html], { type: 'application/msword' }), `PDM_${ts}.doc`);
 }
 
 // Преобразование подсказки раздела в кнопку-действие сообщения
@@ -311,6 +256,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   lastResult: null,
   pendingInput: null,
   attached: null,
+  recentDeeds: [],
 
   toggleOpen: () => set(s => ({ isOpen: !s.isOpen })),
   setOpen: (open) => set({ isOpen: open }),
@@ -375,45 +321,43 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
         return;
       }
       if (pending.kind === 'rename-tag') {
-        const v = validateTagCode(clean);
-        if (!v.ok) {
-          // остаёмся в режиме ожидания — просим корректный код
-          post({ id: uid(), role: 'assistant', text: `${v.error}. Введите новый код для тега «${pending.oldCode}» ещё раз или напишите «отмена».` });
-          return;
-        }
-        if (v.code === pending.oldCode) {
-          set({ pendingInput: null });
-          post({ id: uid(), role: 'assistant', text: 'Новый код совпадает со старым — оставил без изменений.' });
-          return;
-        }
-        try {
-          // Предупреждение о новом дубле (не блокируем — иногда так и нужно)
-          let collision = 0;
-          try {
+        // Правила разговора — в assistant/renameDialog: неверный код не
+        // выбрасывает из диалога, тот же код — не ошибка, дубль — предупреждение
+        const out = await applyRename({ tagId: pending.tagId, oldCode: pending.oldCode }, clean, {
+          validate: validateTagCode,
+          countSame: async (code, exceptId) => {
             const data = await fetchAssistantData();
-            collision = data.tags.filter(t => t.id !== pending.tagId && (t.identifier || '').trim().toLowerCase() === v.code.toLowerCase()).length;
+            const n = data.tags.filter(
+              (t) => t.id !== exceptId && (t.identifier || '').trim().toLowerCase() === code.toLowerCase(),
+            ).length;
             invalidateDataCache();
-          } catch (_) {}
-          await renameTagApi(pending.tagId, v.code);
-          set({ pendingInput: null });
-          const warn = collision > 0 ? `\n⚠ Такой код уже есть у ${collision} тег(ов) — теперь это новый дубль. Можно переименовать и его.` : '';
-          post({
-            id: uid(), role: 'assistant',
-            text: `✅ Переименовал: «${pending.oldCode}» → «${v.code}». Связи и комментарии сохранены.${warn}`,
-            actions: [
-              { label: 'Показать на Схеме', kind: 'focus-tag', tagId: pending.tagId },
-              { label: 'Показать дубли', kind: 'ask', query: 'покажи дубли' },
-            ],
-          });
-        } catch (err: any) {
-          set({ pendingInput: null });
-          post({ id: uid(), role: 'assistant', text: `Не удалось переименовать: ${err.message}` });
-        }
+            return n;
+          },
+          rename: renameTagApi,
+        });
+        if (out.kind !== 'retry') set({ pendingInput: null });
+        post({
+          id: uid(), role: 'assistant', text: out.text,
+          actions: out.kind === 'done' ? [
+            { label: 'Показать на Схеме', kind: 'focus-tag', tagId: out.tagId },
+            { label: 'Показать дубли', kind: 'ask', query: 'покажи дубли' },
+          ] : undefined,
+        });
         return;
       }
     }
 
     set(s => ({ messages: [...s.messages, userMsg], loading: true }));
+
+    // «Что открыто?», «где я?», «что я делал?» — про обстановку, и отвечать на
+    // них надо обстановкой, а не поиском по тегам
+    if (asksAboutContext(clean)) {
+      set(s => ({
+        loading: false,
+        messages: [...s.messages, { id: uid(), role: 'assistant', text: describeContext(get().scene()) }],
+      }));
+      return;
+    }
 
     try {
       // Понимаем запросы с перепутанной раскладкой («gjrf;b ntub» → «покажи теги»)
@@ -421,6 +365,14 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
       const { message, result, pending } = await resolveQuery(fixed, get().demoMode, get().lastResult);
       if (fixed !== clean) {
         message.text = `🌐 Понял как: «${fixed}»\n\n${message.text}`;
+      }
+      // В вопросе указательное слово — «этот», «здесь», «его». Раньше на них
+      // помощник переспрашивал «какой именно?», хотя нужное было открыто перед
+      // человеком. Теперь он говорит, что именно имеет в виду, и человек сразу
+      // видит, если помощник понял не то
+      if (needsContext(clean)) {
+        const hint = contextHint(get().scene());
+        if (hint) message.text = `${message.text}\n\n${hint}`;
       }
       set(s => ({
         messages: [...s.messages, message],
@@ -438,6 +390,27 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   },
 
   attach: (v) => set({ attached: v }),
+
+  remember: (what) => set((st) => ({ recentDeeds: rememberInto(st.recentDeeds, what) })),
+
+  /**
+   * Обстановка: раздел, проект, открытые окна, последние дела.
+   *
+   * Собирается на каждый вопрос, а не хранится: окна открывают и закрывают
+   * мимо помощника, и его собственная копия сцены устарела бы на первом же
+   * закрытом документе.
+   */
+  scene: () => {
+    const route = get().currentRoute;
+    const sec = getSection(route);
+    return {
+      route,
+      section: sec?.title || '',
+      projectName: getProjectName ? getProjectName() : '',
+      open: getOpenThings ? getOpenThings() : [],
+      recent: get().recentDeeds,
+    };
+  },
 
   clearTalk: () => set(s => ({
     messages: s.messages.slice(0, 1),

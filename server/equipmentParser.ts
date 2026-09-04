@@ -554,7 +554,10 @@ function parseEquipmentXMLLegacy(xmlText: string): EquipParseResult {
   const result: EquipParseResult = { units: [] };
   const attr = (s: string, a: string) => (s.match(new RegExp(`${a}\\s*=\\s*"([^"]*)"`, 'i')) || [])[1] || '';
 
-  const sysRe = /<(?:system|EquipmentSystem|установка|unit)\b([^>]*)>([\s\S]*?)<\/(?:system|EquipmentSystem|установка|unit)>/gi;
+  // Границу имени тега задаём просмотром на пробел, «/» или «>», а не \b:
+// в JavaScript \b кириллицу словом не считает, и «<установка …>» не
+// находилось вовсе — файл с русскими тегами импортировался пустым
+const sysRe = /<(?:system|EquipmentSystem|установка|unit)(?=[\s/>])([^>]*)>([\s\S]*?)<\/(?:system|EquipmentSystem|установка|unit)>/gi;
   let sm: RegExpExecArray | null;
   while ((sm = sysRe.exec(xmlText))) {
     const sysName = attr(sm[1], 'name') || attr(sm[1], 'код') || `у${result.units.length + 1}`;
@@ -562,7 +565,7 @@ function parseEquipmentXMLLegacy(xmlText: string): EquipParseResult {
     const unit: ParsedUnit = { name: sysName, title: sysTitle, groups: [], monoblocks: [] };
     result.units.push(unit);
 
-    const mbRe = /<(?:monoblock|моноблок|mb)\b([^>]*)>([\s\S]*?)<\/(?:monoblock|моноблок|mb)>/gi;
+    const mbRe = /<(?:monoblock|моноблок|mb)(?=[\s/>])([^>]*)>([\s\S]*?)<\/(?:monoblock|моноблок|mb)>/gi;
     let mbm: RegExpExecArray | null;
     let foundMb = false;
     while ((mbm = mbRe.exec(sm[2]))) {
@@ -583,13 +586,13 @@ function parseEquipmentXMLLegacy(xmlText: string): EquipParseResult {
 
 function parseXmlBlocksLegacy(inner: string, attr: (s: string, a: string) => string): ParsedBlock[] {
   const blocks: ParsedBlock[] = [];
-  const blRe = /<(?:block|блок|component|element)\b([^>]*)>([\s\S]*?)<\/(?:block|блок|component|element)>/gi;
+  const blRe = /<(?:block|блок|component|element)(?=[\s/>])([^>]*)>([\s\S]*?)<\/(?:block|блок|component|element)>/gi;
   let bm: RegExpExecArray | null;
   while ((bm = blRe.exec(inner))) {
     const name = attr(bm[1], 'name') || attr(bm[1], 'код') || `бл${blocks.length + 1}`;
     const title = attr(bm[1], 'title') || attr(bm[1], 'описание') || name;
     const groups: SpecGroup[] = [];
-    const grRe = /<(?:group|группа|section)\b([^>]*)>([\s\S]*?)<\/(?:group|группа|section)>/gi;
+    const grRe = /<(?:group|группа|section)(?=[\s/>])([^>]*)>([\s\S]*?)<\/(?:group|группа|section)>/gi;
     let gm: RegExpExecArray | null;
     let hasGroups = false;
     while ((gm = grRe.exec(bm[2]))) {
@@ -607,7 +610,7 @@ function parseXmlBlocksLegacy(inner: string, attr: (s: string, a: string) => str
 
 function parseXmlParamsLegacy(inner: string, attr: (s: string, a: string) => string): SpecParam[] {
   const params: SpecParam[] = [];
-  const pRe = /<(?:param|параметр|property)\b([^>]*)>([\s\S]*?)<\/(?:param|параметр|property)>/gi;
+  const pRe = /<(?:param|параметр|property)(?=[\s/>])([^>]*)>([\s\S]*?)<\/(?:param|параметр|property)>/gi;
   let pm: RegExpExecArray | null;
   while ((pm = pRe.exec(inner))) {
     const key = attr(pm[1], 'name') || attr(pm[1], 'key') || attr(pm[1], 'параметр');

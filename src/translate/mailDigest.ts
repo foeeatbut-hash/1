@@ -128,7 +128,7 @@ export function codesIn(text: string): string[] {
   for (const m of s.matchAll(/(?<![0-9A-Za-zА-Яа-яЁё])[0-9A-ZА-Я]{2,}(?:-[0-9A-ZА-Я]{1,6}){2,}(?![0-9A-Za-zА-Яа-яЁё])/g)) {
     out.add(m[0]);
   }
-  for (const m of s.matchAll(/\b(?:rev\.?|revision|ревизия|рев\.?)\s*([A-Z0-9]{1,2})\b/gi)) {
+  for (const m of s.matchAll(/(?:^|[^а-яёa-z])(?:rev\.?|revision|ревизия|рев\.?)\s*([A-Z0-9]{1,2})(?![A-Za-z0-9])/gi)) {
     out.add(`рев. ${m[1].toUpperCase()}`);
   }
   return [...out].slice(0, 12);

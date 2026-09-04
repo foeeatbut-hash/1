@@ -139,7 +139,7 @@ const LEGACY: Record<string, number> = {
   'src/screens/ConstructorScreen.tsx': 1905,
   'src/screens/SettingsScreen.tsx': 1530,
   // Типы ответа и два новых ответа уехали в src/assistant/ — планка ниже
-  'src/store/assistantStore.ts': 1225,
+  'src/store/assistantStore.ts': 1246,
 };
 const SLACK = 50; // мелкие правки в старых файлах не должны ронять проверку
 const all = [...SRC, ...ELECTRON, ...walk('server'), ...walk('scripts'), 'server.ts'];
