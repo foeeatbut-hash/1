@@ -13,6 +13,7 @@
  */
 
 import { checkServerUrl, useSaved, maskSecrets } from '../lib/serverUrl';
+import { failureText } from '../lib/failureText';
 
 const SERVER_URL_KEY = 'flux_server_url';
 
@@ -183,11 +184,14 @@ if (typeof window !== 'undefined') {
          * «программа выкидывает из календаря» без единой зацепки.
          *
          * Тело читаем с копии ответа, чтобы не отобрать его у вызывающего кода.
+         * Длинный дамп сохраняется с двух концов: причина у драйверов базы
+         * стоит в конце, и обрезка по началу выбрасывала именно её
+         * (правила — lib/failureText).
          */
         if (!res.ok) {
           res.clone().text()
             .then((body) => {
-              const said = body.slice(0, 300).replace(/\s+/g, ' ').trim();
+              const said = failureText(body);
               if (said) logApi('ERROR', 'Ответ', `${res.status} ${shortUrl} — ${said}`);
             })
             .catch(() => { /* тело уже прочитано или его нет */ });

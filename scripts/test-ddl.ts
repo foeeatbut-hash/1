@@ -14,7 +14,7 @@ import {
 } from '../server/ddl';
 // Автомиграция общей базы: она создаёт таблицы по схеме Prisma, и именно она
 // однажды пропустила колонку с файлом обновления
-import { parsePrismaSchema } from '../server/schema-sync';
+import { parsePrismaSchema, needsWidening, isTextDefaultRefusal } from '../server/schema-sync';
 import { readFileSync } from 'fs';
 
 let failed = 0;
@@ -179,6 +179,88 @@ console.log('Неполная таблица дополняется, а не о�
     addColumnSql('postgresql', 'T', blob).includes('"data" BYTEA'), addColumnSql('postgresql', 'T', blob));
   check('«колонка уже есть» — это успех', isDuplicateColumn("Duplicate column name 'data'"));
   check('чужая ошибка успехом не считается', !isDuplicateColumn('Table does not exist'));
+}
+
+// Проверка написана по поломке, из-за которой в настройках не заводились роли.
+// В общей базе каждая строка была VARCHAR(191). Права роли — это JSON со списком
+// доступов, он длиннее; MariaDB отвечала «Data too long», а до человека доходило
+// «роль не создаётся» без причины. Строка под индексом обязана остаться VARCHAR
+// (TEXT в MySQL нельзя индексировать без длины префикса), всё остальное — TEXT.
+console.log('Длинная строка помещается в общую базу');
+{
+  const schema = `
+model Role {
+  id          String @id @default(uuid())
+  code        String @unique
+  name        String
+  permissions String @default("[]")
+  sortOrder   Int    @default(0)
+}
+
+model Tag {
+  id        String  @id @default(uuid())
+  projectId String
+  note      String?
+  project   Project @relation(fields: [projectId], references: [id])
+
+  @@index([projectId])
+}
+`;
+  const my = parsePrismaSchema('mysql', schema);
+  const role = my.find((m) => m.name === 'Role')!;
+  const col = (m: any, n: string) => m.columns.find((c: any) => c.name === n)!;
+
+  check('права роли не влезали в 191 символ — теперь TEXT', col(role, 'permissions').sqlType === 'TEXT',
+    col(role, 'permissions').sqlType);
+  check('название роли тоже TEXT', col(role, 'name').sqlType === 'TEXT', col(role, 'name').sqlType);
+  check('ключ остаётся VARCHAR — по нему первичный индекс',
+    col(role, 'id').sqlType === 'VARCHAR(191)', col(role, 'id').sqlType);
+  check('уникальный код остаётся VARCHAR — по нему уникальный индекс',
+    col(role, 'code').sqlType === 'VARCHAR(191)', col(role, 'code').sqlType);
+  check('число типом не тронуто', col(role, 'sortOrder').sqlType === 'INTEGER', col(role, 'sortOrder').sqlType);
+
+  const tag = my.find((m) => m.name === 'Tag')!;
+  check('поле связи остаётся VARCHAR — по нему ищут теги проекта',
+    col(tag, 'projectId').sqlType === 'VARCHAR(191)', col(tag, 'projectId').sqlType);
+  check('обычная заметка — TEXT', col(tag, 'note').sqlType === 'TEXT', col(tag, 'note').sqlType);
+
+  // У PostgreSQL строка и так TEXT, и разбор не должен туда ничего приносить
+  const pg = parsePrismaSchema('postgresql', schema).find((m) => m.name === 'Role')!;
+  check('у PostgreSQL VARCHAR не появляется',
+    pg.columns.every((c) => !/VARCHAR/.test(c.sqlType)), pg.columns.map((c) => c.sqlType));
+}
+
+// Та же проверка на настоящей схеме: правило должно держаться после любой правки
+{
+  const text = readFileSync('prisma/schema.mariadb.prisma', 'utf-8');
+  const models = parsePrismaSchema('mysql', text);
+  const role = models.find((m) => m.name === 'Role');
+  check('в рабочей схеме роль есть', !!role);
+  const perms = role?.columns.find((c) => c.name === 'permissions');
+  check('и её доступы записываются целиком', perms?.sqlType === 'TEXT', perms?.sqlType);
+  // Ключи при этом никуда не делись: без них база откажется строить индекс
+  const withIndex = models.filter((m) => m.columns.some((c) => c.isId && c.sqlType !== 'VARCHAR(191)'));
+  check('ни один первичный ключ не стал TEXT', withIndex.length === 0, withIndex.map((m) => m.name));
+}
+
+console.log('Узкую колонку в живой базе расширяют, а не оставляют узкой');
+{
+  check('varchar → text расширяется', needsWidening('mysql', 'varchar', 'TEXT'));
+  check('varchar → longtext расширяется', needsWidening('mysql', 'varchar', 'LONGTEXT'));
+  check('text → longtext расширяется', needsWidening('mysql', 'text', 'LONGTEXT'));
+  // Сужение обрезало бы чужие данные — этого автомиграция не делает никогда
+  check('longtext → text не сужается', !needsWidening('mysql', 'longtext', 'TEXT'));
+  check('text → varchar не сужается', !needsWidening('mysql', 'text', 'VARCHAR(191)'));
+  check('одинаковый тип не трогается', !needsWidening('mysql', 'text', 'TEXT'));
+  check('нетекстовые типы не расширяются', !needsWidening('mysql', 'int', 'INTEGER'));
+  check('у PostgreSQL расширять нечего', !needsWidening('postgresql', 'varchar', 'TEXT'));
+  check('у SQLite тоже', !needsWidening('sqlite', 'varchar', 'TEXT'));
+
+  // Старая MariaDB запрещает DEFAULT у TEXT. Отказ надо узнать в лицо, иначе
+  // правка схемы встанет целиком из-за одной колонки
+  check('отказ старого движка распознан',
+    isTextDefaultRefusal("BLOB/TEXT column 'permissions' can't have a default value"));
+  check('чужая ошибка за него не принимается', !isTextDefaultRefusal('Table does not exist'));
 }
 
 if (failed) {

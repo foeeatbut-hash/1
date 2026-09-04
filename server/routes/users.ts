@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { defaultPermissions } from '../../src/lib/permissions';
 import { getPrisma, notifyUser } from '../context.js';
+import { explainDbError } from '../dbError.js';
 
 // Сотрудники, роли и личные настройки уведомлений.
 //
@@ -430,9 +431,11 @@ app.post('/api/roles', async (req: Request, res: Response) => {
         isSystem: false,
       },
     });
+    invalidateRolePerms();   // права новой роли должны действовать сразу
     res.json({ success: true, role });
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    console.error('[Роли] Создание роли не удалось:', error?.message || error);
+    res.status(500).json({ message: explainDbError(error, 'Роль') });
   }
 });
 
@@ -460,7 +463,8 @@ app.put('/api/roles/:id', async (req: Request, res: Response) => {
     invalidateAuthUser();     // роль касается сразу нескольких сотрудников
     res.json({ success: true, role: updated });
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    console.error('[Роли] Изменение роли не удалось:', error?.message || error);
+    res.status(500).json({ message: explainDbError(error, 'Роль') });
   }
 });
 
