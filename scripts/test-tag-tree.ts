@@ -147,9 +147,38 @@ console.log('Дерево, испорченное прежней карточк�
     unring.every((n) => unring.filter((x) => childrenOf(unring, x.id).includes(n.id)).length <= 1));
 }
 
+console.log('«+ родительский тег» вешает тег под выбранного, а не наоборот');
+{
+  // Кнопка в карточке зовёт handleAddConnection(выбранный, свой) — родитель
+  // первым доводом. Перепутанный порядок и есть та самая поломка, из-за
+  // которой строку «Родительский тег» пришлось убирать: она делала родителя
+  // ребёнком собственного ребёнка
+  const next = apply(AHU, linkChild(AHU, 'heater', 'drive'));
+  check('выбранный стал родителем', parentOf(next, 'drive') === 'heater', parentOf(next, 'drive'));
+  check('а не ребёнком', !childrenOf(next, 'drive').includes('heater'), childrenOf(next, 'drive'));
+  // Родитель у тега один: прежнего linkChild отцепляет сам, без отдельной кнопки
+  check('прежний родитель отцеплен', !childrenOf(next, 'valve').includes('drive'), childrenOf(next, 'valve'));
+  check('и держит его ровно один тег',
+    next.filter((n) => childrenOf(next, n.id).includes('drive')).length === 1);
+
+  // Свой же состав в родители не годится — это кольцо. Такие теги из списка
+  // кандидатов убирают заранее, а не ругаются на выбор постфактум
+  const kin = descendantsOf(AHU, 'valve');
+  check('свой потомок в кандидаты не попадёт', kin.has('drive'));
+  check('сам тег в кандидаты не попадёт', kin.has('valve'));
+  check('чужая ветка в кандидаты попадёт', !kin.has('fan') && !kin.has('motor'));
+  check('и правила с этим согласны',
+    !!whyNotLink(AHU, 'drive', 'valve') && whyNotLink(AHU, 'fan', 'valve') === '');
+}
+
 console.log('Неправильная логика убрана из программы');
 {
   const reg = readFileSync(new URL('../src/screens/Registry.tsx', import.meta.url), 'utf8');
+  // Родитель — ПЕРВЫЙ довод. Если вызов перевернут, эта строка исчезнет
+  check('в карточке родителя ставят первым доводом',
+    reg.includes('await handleAddConnection(t.id, tag.id)'));
+  check('а ребёнка — вторым', reg.includes('await handleAddConnection(tag.id, t.id)'));
+  check('кандидаты в родители отбираются по потомкам', reg.includes('descendantsOf(treeNodes(), tagId)'));
   // Строка писала родителя в собственные дети тега — из-за неё всё и поехало
   check('строки «Родительский тег» в карточке нет',
     !/>Родительский тег</.test(reg) && !reg.includes('Нет родительского тега'));

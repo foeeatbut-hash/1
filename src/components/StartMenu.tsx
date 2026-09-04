@@ -169,18 +169,21 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
            когда-то нарисовали */
         data-tour={`nav-${path}`}
         title={pinned(path) ? `${title} — на рабочем столе` : `${title} — потяните на стол или панель, чтобы закрепить`}
-        className={`flex flex-col items-center gap-2 p-3 rounded-xl cursor-pointer min-w-0
+        /* Область наведения ужата до значка с подписью: раньше плитка была
+           блоком с отступом в 12 пикселей со всех сторон, и шесть таких в ряд
+           смотрелись стеной. Воздух теперь МЕЖДУ плитками, а не внутри них */
+        className={`flex flex-col items-center gap-1.5 px-1 py-1.5 rounded-lg cursor-pointer min-w-0
                    text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-850
                    transition-colors ${active ? 'bg-slate-100 dark:bg-slate-850 ring-1 ring-emerald-500' : ''}`}
       >
         <span
           style={{ width: TILE_BOX, height: TILE_BOX }}
-          className="rounded-[10px] bg-slate-100 dark:bg-slate-850 flex items-center justify-center
+          className="rounded-lg bg-slate-100 dark:bg-slate-850 flex items-center justify-center
                      text-emerald-700 dark:text-emerald-400 shrink-0"
         >
           {Icon && <Icon size={TILE_ICON} />}
         </span>
-        <span className="text-2xs leading-tight text-center w-full">{title}</span>
+        <span className="text-2xs leading-tight text-center w-full line-clamp-2 break-words">{title}</span>
       </button>
     );
   };
@@ -270,7 +273,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
         {pinnedList.length > 0 && (
           <section className={suggested.length > 0 ? 'border-t border-slate-200 dark:border-dark-border' : undefined}>
             <h3 className="px-4 pt-3 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400">Закреплено</h3>
-            <div className="grid gap-1 px-2 pb-2" style={{ gridTemplateColumns: `repeat(${START_COLS}, minmax(0, 1fr))` }}>
+            <div className="grid gap-x-2 gap-y-3 px-3 pb-3" style={{ gridTemplateColumns: `repeat(${START_COLS}, minmax(0, 1fr))` }}>
               {pinnedList.map((s, i) => <Tile key={s.path} path={s.path} title={s.title} at={i} />)}
             </div>
           </section>
@@ -294,7 +297,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
         {showAll && groups.map((g) => (
           <section key={g.id} className={g.id === groups[0].id && suggested.length > 0 && pinnedList.length === 0 ? 'border-t border-slate-200 dark:border-dark-border' : undefined}>
             <h3 className="px-4 pt-3 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400">{g.title}</h3>
-            <div className="grid gap-1 px-2 pb-2" style={{ gridTemplateColumns: `repeat(${START_COLS}, minmax(0, 1fr))` }}>
+            <div className="grid gap-x-2 gap-y-3 px-3 pb-3" style={{ gridTemplateColumns: `repeat(${START_COLS}, minmax(0, 1fr))` }}>
               {g.items.map((s) => <Tile key={s.path} path={s.path} title={s.title} />)}
             </div>
           </section>

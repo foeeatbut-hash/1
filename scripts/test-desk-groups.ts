@@ -10,7 +10,7 @@
  */
 import {
   fold, unfold, tidy, hiddenIds, rename, groupById, groupIdOf, isGroupId,
-  withoutItems, DEFAULT_NAME, type DeskGroup,
+  withoutItems, folderItems, DEFAULT_NAME, type DeskGroup,
 } from '../src/lib/deskGroups';
 
 let failed = 0;
@@ -88,6 +88,35 @@ console.log('Имя и поиск');
   check('папка находится по значку стола', groupById(g, groupIdOf(g[0]))?.id === 'g1');
   check('чужой значок папкой не считается', !isGroupId('app:/registry'));
   check('значок папки узнаётся', isGroupId(groupIdOf(g[0])));
+}
+
+console.log('Папка показывает то, что в ней лежит');
+{
+  // Ровно та поломка, из-за которой папка с программами открывалась белым
+  // полотном: стол искал её значки в списке, где их уже не было — папка ведь
+  // сама их и спрятала, — да ещё и без значков программ, которые к столу
+  // добавляются отдельно
+  const g: DeskGroup = { id: 'g1', name: 'Работа', items: ['app:/registry', 'app:/equipment'] };
+  const pool = [
+    { id: 'app:/registry', name: 'Теги' },
+    { id: 'app:/equipment', name: 'Оборудование' },
+    { id: 'file-7', name: 'Ведомость' },
+  ];
+  const inside = folderItems(g, pool);
+  check('папка из двух программ показывает две программы', inside.length === 2, inside);
+  check('и именно те, что складывали', inside.map((i) => i.id).join() === 'app:/registry,app:/equipment');
+  check('порядок — тот, в каком складывали', inside[0].id === 'app:/registry');
+  check('чужого в папке нет', !inside.some((i) => i.id === 'file-7'));
+
+  // Значок мог быть удалён, пока лежал в папке: папка не должна падать
+  check('исчезнувший значок просто не показывается',
+    folderItems({ ...g, items: ['app:/registry', 'нет-такого'] }, pool).length === 1);
+  check('пустая папка — пустой список, а не поломка', folderItems({ ...g, items: [] }, pool).length === 0);
+
+  // Отфильтрованный список — это и была ошибка; проверка ловит её возврат
+  const filtered = pool.filter((i) => !hiddenIds([g]).has(i.id));
+  check('по отфильтрованному списку папка ничего не найдёт — так и было сломано',
+    folderItems(g, filtered).length === 0);
 }
 
 if (failed) {

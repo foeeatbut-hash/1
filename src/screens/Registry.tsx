@@ -18,6 +18,8 @@ import {
   X, 
   ChevronRight,
   ChevronDown,
+  Maximize2,
+  Undo2,
   ChevronUp,
   Database, 
   AlertTriangle, 
@@ -42,6 +44,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
 import { format } from 'date-fns';
 import CustomSelect from '../components/CustomSelect';
+import ContextMenu from '../components/ContextMenu';
 import TagImportWizard from '../components/TagImportWizard';
 import { encodeShare } from '../lib/shareLink';
 import { useShareStore } from '../store/shareStore';
@@ -54,15 +57,25 @@ import TagComments from '../components/registry/TagComments';
 import { toCsv, fileName, type Column } from '../lib/exchange';
 import { TAG_EXCHANGE_COLUMNS, buildTagExchange, buildSegmentTable } from '../lib/tagExchange';
 import {
-  linkChild, unlinkChild, whyNotLink, repairTagTree, type TreeNode, type TreePatch,
+  linkChild, unlinkChild, whyNotLink, repairTagTree, descendantsOf, type TreeNode, type TreePatch,
 } from '../lib/tagTree';
+import {
+  layoutForest, linkPath, portAt, boundsOf, fitView, clampZoom, zoomAt, screenToWorld,
+  hitTestCard, hitTestBox, boxFromDrag, findFreePosition as freeSpot, parkGrid, snap, fitZoom,
+  DEFAULT_BOX as LAYOUT_BOX, GRID, type TreeAxis, type Point,
+} from '../lib/tagLayout';
+import BoardLinks, { type BoardLink } from '../components/registry/BoardLinks';
+import CardActions from '../components/registry/CardActions';
+import DuplicatesPanel from '../components/registry/DuplicatesPanel';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm, openAlert, openPrompt } = useModalStore.getState();
 
-// Габариты карточки на холсте (для центрирования, раскладки и защиты от наложений)
-const CARD_W = 330;
-const CARD_H = 140;
+// Габариты карточки, раскладка, геометрия портов и линий — общие правила из
+// src/lib/tagLayout.ts. Здесь их держать нельзя: числа 330 и 22 уже жили
+// вписанными в четырёх местах этого файла и однажды разошлись с разметкой
+const CARD_W = LAYOUT_BOX.w;
+const CARD_H = LAYOUT_BOX.h;
 
 // Чистые функции уровня модуля: не зависят от состояния компонента,
 // используются и главным экраном, и выделенным компонентом поиска
@@ -385,7 +398,7 @@ export default function Registry() {
   // Board cards expanded states
   const [expandedCardIds, setExpandedCardIds] = useState<{ [tagId: string]: boolean }>({});
   // Быстрое добавление связи из карточки: поиск тега без перетаскивания линий
-  const [linkPicker, setLinkPicker] = useState<{ tagId: string; search: string } | null>(null);
+  const [linkPicker, setLinkPicker] = useState<{ tagId: string; search: string; dir: 'child' | 'parent' } | null>(null);
 
   // Sub-description inline editing state
   const [editingDescId, setEditingDescId] = useState<string | null>(null);
@@ -444,7 +457,9 @@ export default function Registry() {
   const boardRef = useRef<HTMLDivElement>(null);
 
   const [selectedConnection, setSelectedConnection] = useState<{ sourceId: string; targetId: string } | null>(null);
-  const [hoveredConnection, setHoveredConnection] = useState<{ sourceId: string; targetId: string } | null>(null);
+  // Подсветки связи под курсором в состоянии больше нет: она означала полную
+  // перерисовку холста на каждое наведение мыши. Теперь это делает CSS в
+  // components/registry/BoardLinks — без единой перерисовки
 
   // Performance-optimized Refs
   const cardPositionsRef = useRef<Record<string, { x: number, y: number }>>({});
@@ -453,6 +468,24 @@ export default function Registry() {
   const animatingRef = useRef<boolean>(false);
   const zoomRef = useRef<number>(0.9);
   const panRef = useRef<{ x: number, y: number }>({ x: 80, y: 50 });
+  /**
+   * Ось раскладки для обработчиков, которые пишут в DOM напрямую.
+   *
+   * Они живут вне перерисовки — состояние в них приезжает старым. Ось нужна
+   * им, чтобы линия при перетаскивании считалась так же, как в слое связей.
+   */
+  const axisRef = useRef<TreeAxis>('right');
+  /** Слой точечной сетки: он вне трансформируемого мира и двигается отдельно */
+  const gridRef = useRef<HTMLDivElement>(null);
+  /** Надпись с масштабом: во время кручения обновляется мимо перерисовки */
+  const zoomLabelRef = useRef<HTMLSpanElement>(null);
+  const wheelCommitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Карточка, на которую сейчас нацелена тянущаяся связь */
+  const dropTargetRef = useRef<string | null>(null);
+  /** Зажат ли Alt: при нём карточка не прилипает к сетке */
+  const altHeldRef = useRef(false);
+  /** Куда ставить тег, заведённый через меню правой кнопки по холсту */
+  const newTagSpotRef = useRef<Point | null>(null);
 
   useEffect(() => {
     zoomRef.current = zoom;
@@ -467,21 +500,17 @@ export default function Registry() {
     // области 550×320: полсотни карточек ложились друг на друга, и холст
     // при открытии читать было нельзя, пока не нажмёшь «Упорядочить».
     // Раскладываем их сеткой — детерминированно и без наложений.
-    const COL_W = 360, ROW_H = 130, X0 = 80, Y0 = 60;
-    // Число столбцов подбираем так, чтобы холст был близок к пропорциям
-    // экрана: при шести столбцах две тысячи тегов вытягивались в ленту
-    // высотой 44 тысячи пикселей, и до нижних карточек было не добраться.
-    const autoCount = tags.length;
-    const PER_ROW = Math.max(6, Math.ceil(Math.sqrt((autoCount * ROW_H * 1.6) / COL_W)));
-    let autoIndex = 0;
+    // Число столбцов подбирает parkGrid — так, чтобы холст был близок к
+    // пропорциям экрана: при шести столбцах две тысячи тегов вытягивались в
+    // ленту высотой 44 тысячи пикселей, и до нижних карточек было не добраться.
+    const noPos = tags.filter((t: any) => parseTagMetadata(t)._noPos);
+    const grid = parkGrid(noPos.length, { x: 80, y: 60 }, LAYOUT_BOX);
+    const spot = new Map<string, Point>(noPos.map((t: any, i: number) => [t.id, grid[i]]));
     const positions: Record<string, { x: number, y: number }> = {};
     for (const t of tags) {
       const meta = parseTagMetadata(t);
-      if (meta._noPos) {
-        meta.x = X0 + (autoIndex % PER_ROW) * COL_W;
-        meta.y = Y0 + Math.floor(autoIndex / PER_ROW) * ROW_H;
-        autoIndex++;
-      }
+      const put = spot.get(t.id);
+      if (put) { meta.x = put.x; meta.y = put.y; }
       positions[t.id] = { x: meta.x, y: meta.y };
     }
     cardPositionsRef.current = positions;
@@ -489,14 +518,10 @@ export default function Registry() {
 
   // Update direct line positioning during drags
   const updateLinePathDOM = (sourceId: string, targetId: string, sX: number, sY: number, tX: number, tY: number) => {
-    const startX = sX + 330;
-    const startY = sY + 22;
-    const endX = tX;
-    const endY = tY + 22;
-
-    const dx = Math.abs(endX - startX);
-    const ctrlOffset = Math.max(100, dx * 0.45);
-    const pathData = `M ${startX} ${startY} C ${startX + ctrlOffset} ${startY}, ${endX - ctrlOffset} ${endY}, ${endX} ${endY}`;
+    // Та же функция, что рисует линии в слое связей. Пока она была здесь своя,
+    // перетаскивание карточки в одной оси давало кривую, а всё остальное —
+    // ломаную: линия «перескакивала» в момент, когда отпускали карточку
+    const pathData = linkPath({ x: sX, y: sY }, { x: tX, y: tY }, axisRef.current, LAYOUT_BOX);
 
     const linePath = document.getElementById(`path-${sourceId}-${targetId}`);
     if (linePath) {
@@ -610,7 +635,16 @@ export default function Registry() {
 
   // Выбор «главного родителя» для центрирования его дерева (один клик по «Центрировать»)
   const [centerPickerOpen, setCenterPickerOpen] = useState(false);
-  const centerClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Выбор оси раскладки открыт */
+  const [axisPickerOpen, setAxisPickerOpen] = useState(false);
+  /**
+   * Меню правой кнопки по пустому месту холста.
+   *
+   * Раньше правая кнопка по полю умела ровно одно — гасить системное меню.
+   * `at` — точка холста под курсором: «Создать тег здесь» без неё пришлось бы
+   * ставить наугад в центр экрана.
+   */
+  const [boardMenu, setBoardMenu] = useState<{ x: number; y: number; at: Point } | null>(null);
 
   // Размер видимой области холста — для центрирования и отсечения невидимых карточек
   const [boardSize, setBoardSize] = useState({ w: 1200, h: 700 });
@@ -658,9 +692,90 @@ export default function Registry() {
   // Анимированные точки на связях отключаем на больших графах (экономия ресурсов)
   const showFlowDots = tags.length <= 60;
 
+  /**
+   * Куда растёт дерево. Хранится у человека, а не в общих настройках: это
+   * привычка смотреть, а не свойство проекта, — и общая настройка меняла бы
+   * вид холста у всех разом. Тем же способом помнится подсказка холста.
+   */
+  const [axis, setAxis] = useState<TreeAxis>(() => {
+    try { return localStorage.getItem('flux_registry_axis') === 'down' ? 'down' : 'right'; } catch (_) { return 'right'; }
+  });
+  const chooseAxis = React.useCallback((next: TreeAxis) => {
+    setAxis(next);
+    axisRef.current = next;
+    try { localStorage.setItem('flux_registry_axis', next); } catch (_) { /* приватный режим */ }
+  }, []);
+  useEffect(() => { axisRef.current = axis; }, [axis]);
+
+  /**
+   * Связи, которые и правда надо нарисовать.
+   *
+   * Считается здесь, а не внутри слоя связей: слой обязан оставаться
+   * мемоизированным, а живые координаты во время перетаскивания лежат в ref —
+   * читать ref внутри мемоизированного компонента значит рисовать вчерашнее.
+   */
+  const visibleLinks = useMemo<BoardLink[]>(() => {
+    const out: BoardLink[] = [];
+    for (const tag of tags) {
+      const meta = parseTagMetadata(tag);
+      for (const targetId of meta.connections || []) {
+        const target = tagsById[targetId];
+        if (!target) continue;
+        const from = cardPositionsRef.current[tag.id] || meta;
+        const to = cardPositionsRef.current[targetId] || parseTagMetadata(target);
+        if (cullInfo.active) {
+          const bx0 = Math.min(from.x, to.x); const bx1 = Math.max(from.x, to.x) + CARD_W;
+          const by0 = Math.min(from.y, to.y); const by1 = Math.max(from.y, to.y) + CARD_H;
+          if (bx1 < cullInfo.x0 || bx0 > cullInfo.x1 || by1 < cullInfo.y0 || by0 > cullInfo.y1) continue;
+        }
+        // Связь, которую сейчас перецепляют, в общем слое не рисуется: иначе
+        // рядом с тянущейся линией висела бы её же старая копия
+        const re = reconnectingConnectionRef.current;
+        if (re && re.sourceId === tag.id && re.targetId === targetId) continue;
+        out.push({
+          sourceId: tag.id, targetId,
+          sourceName: tag.identifier || '', targetName: target.identifier || '',
+          from: { x: from.x, y: from.y }, to: { x: to.x, y: to.y },
+        });
+      }
+    }
+    return out;
+    // activeConnectionDrag в списке не для чтения, а ради пересчёта: перецепку
+    // помнит ref, и без этой зависимости старая линия так и висела бы рядом с
+    // той, которую тянут
+  }, [tags, tagsById, cullInfo, activeConnectionDrag]);
+
+  const handleSelectConnection = React.useCallback((sourceId: string, targetId: string) => {
+    setSelectedConnection({ sourceId, targetId });
+  }, []);
+
+  /**
+   * Кого можно предложить в родители или в дети.
+   *
+   * Заведомо негодных не показываем вовсе. `whyNotLink` их, конечно, отвергнет
+   * («так получится кольцо»), но предложить тег и тут же на него отругаться —
+   * плохой разговор: человек не виноват, что программа сама его и предложила.
+   *
+   * Потомков считаем ОДИН раз на весь список. `descendantsOf` на каждого
+   * кандидата — это перебор в квадрате, и на двух тысячах тегов поиск начал бы
+   * заикаться на каждой набранной букве.
+   */
+  const linkCandidates = (tagId: string, dir: 'child' | 'parent', search: string): any[] => {
+    const q = search.trim().toLowerCase();
+    const meta = parseTagMetadata(tagsById[tagId] || {});
+    const blocked = dir === 'parent'
+      ? descendantsOf(treeNodes(), tagId)               // свой состав в родители не годится
+      : new Set<string>([tagId, ...(meta.connections || [])]);
+    const parents = dir === 'parent' ? (incomingByTagId[tagId] || []) : [];
+    return tags.filter((t: any) =>
+      !blocked.has(t.id)
+      && !parents.includes(t.id)
+      && (!q || (t.identifier || '').toLowerCase().includes(q))).slice(0, 8);
+  };
+
   // Закрытие контекстного меню карточки, мини-панели и списка «главных родителей»
   useEffect(() => {
-    if (!cardMenu && !centerPickerOpen && !cardPanel) return;
+    if (!cardMenu && !centerPickerOpen && !cardPanel && !axisPickerOpen && !boardMenu) return;
     const close = (ev?: Event) => {
       // Клик, который открыл мини-панель, не должен тут же её закрыть
       if (ev && Date.now() - cardPanelOpenedAtRef.current < 200) return;
@@ -669,6 +784,8 @@ export default function Registry() {
       setCardMenu(null);
       setCenterPickerOpen(false);
       setCardPanel(null);
+      setAxisPickerOpen(false);
+      setBoardMenu(null);
     };
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
     window.addEventListener('click', close);
@@ -677,7 +794,7 @@ export default function Registry() {
       window.removeEventListener('click', close);
       window.removeEventListener('keydown', onKey);
     };
-  }, [cardMenu, centerPickerOpen, cardPanel]);
+  }, [cardMenu, centerPickerOpen, cardPanel, axisPickerOpen, boardMenu]);
 
   // Sort state for Table View
   const [sortConfig, setSortConfig] = useState<{key: string; direction: 'asc' | 'desc'}>({ key: 'createdAt', direction: 'desc' });
@@ -1077,37 +1194,69 @@ export default function Registry() {
     }
   }, [activeTab]);
 
-  // Handle Zooming with Mouse Wheel
+  /**
+   * Колесо мыши.
+   *
+   * Обычное колесо по-прежнему меняет масштаб к точке под курсором: подсказка
+   * на холсте учит именно этому, и менять уже заученный жест значило бы
+   * переучивать людей без выгоды. Добавлено то, чего не хватало: **Shift —
+   * ехать вбок**. После того как деревья встали в ряд, вбок ездят постоянно,
+   * а умела это только правая кнопка.
+   *
+   * Главное здесь не жесты, а то, что ни один щелчок колеса больше не
+   * перерисовывает холст. Раньше `setZoom` со вложенным `setPan` гоняли полную
+   * перерисовку всех карточек и линий на КАЖДЫЙ щелчок — на пятистах тегах это
+   * и есть та медленность, на которую жаловались. Теперь, как и панорама,
+   * масштаб пишется прямо в стиль, а в состояние попадает один раз, когда
+   * колесо остановилось: состояние нужно только отсечению невидимого.
+   */
   useEffect(() => {
     const board = boardRef.current;
     if (!board) return;
 
+    const paint = () => {
+      const z = zoomRef.current; const p = panRef.current;
+      if (worldRef.current) worldRef.current.style.transform = `translate(${p.x}px, ${p.y}px) scale(${z})`;
+      // Сетка лежит ВНЕ трансформируемого мира (так дешевле её растрировать),
+      // поэтому её надо двигать отдельно — иначе точки отстают от карточек
+      if (gridRef.current) {
+        gridRef.current.style.backgroundSize = `${GRID * z}px ${GRID * z}px`;
+        gridRef.current.style.backgroundPosition = `${p.x}px ${p.y}px`;
+      }
+      if (zoomLabelRef.current) zoomLabelRef.current.textContent = `${Math.round(z * 100)}%`;
+    };
+
+    const commit = () => { setZoom(zoomRef.current); setPan({ ...panRef.current }); };
+
     const handleWheelEvent = (e: WheelEvent) => {
       e.preventDefault();
-      const zoomIntensity = 0.05;
       const rect = board.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
 
-      setZoom((currentZoom) => {
-        const newZoom = Math.min(2.5, Math.max(0.15, currentZoom + (e.deltaY < 0 ? 1 : -1) * zoomIntensity * currentZoom));
-        
-        setPan((currentPan) => {
-          const canvasX = (mouseX - currentPan.x) / currentZoom;
-          const canvasY = (mouseY - currentPan.y) / currentZoom;
-          return {
-            x: mouseX - canvasX * newZoom,
-            y: mouseY - canvasY * newZoom
-          };
-        });
-
-        return newZoom;
-      });
+      // Наклонное колесо и трекпад дают deltaX сами — их незачем заставлять
+      // держать Shift
+      const sideways = e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY);
+      if (sideways || e.altKey) {
+        const step = (e.shiftKey ? e.deltaY : e.deltaX || e.deltaY) || 0;
+        const alt = e.altKey && !e.shiftKey;
+        panRef.current = {
+          x: panRef.current.x - (alt ? 0 : step),
+          y: panRef.current.y - (alt ? e.deltaY : 0),
+        };
+      } else {
+        const next = zoomAt(zoomRef.current, panRef.current,
+          { x: e.clientX - rect.left, y: e.clientY - rect.top }, e.deltaY < 0 ? 1 : -1);
+        zoomRef.current = next.zoom;
+        panRef.current = next.pan;
+      }
+      paint();
+      if (wheelCommitRef.current) clearTimeout(wheelCommitRef.current);
+      wheelCommitRef.current = setTimeout(commit, 120);
     };
 
     board.addEventListener('wheel', handleWheelEvent, { passive: false });
     return () => {
       board.removeEventListener('wheel', handleWheelEvent);
+      if (wheelCommitRef.current) clearTimeout(wheelCommitRef.current);
     };
   }, []);
 
@@ -1384,8 +1533,9 @@ export default function Registry() {
       const parentTag = tagsById[parentId];
       if (parentTag) {
         const parentMeta = parseTagMetadata(parentTag);
-        const portX = parentMeta.x + 330;
-        const portY = parentMeta.y + 22;
+        const port = portAt(parentMeta, 'out', axisRef.current, LAYOUT_BOX);
+        const portX = port.x;
+        const portY = port.y;
 
         const rect = boardRef.current?.getBoundingClientRect();
         const mouseX = rect ? e.clientX - rect.left : portX;
@@ -1414,8 +1564,9 @@ export default function Registry() {
       }
     }
 
-    const portX = side === 'left' ? meta.x : meta.x + 330;
-    const portY = meta.y + 22; 
+    const port = portAt(meta, side === 'left' ? 'in' : 'out', axisRef.current, LAYOUT_BOX);
+    const portX = port.x;
+    const portY = port.y; 
 
     const rect = boardRef.current?.getBoundingClientRect();
     const mouseX = rect ? e.clientX - rect.left : portX;
@@ -1443,6 +1594,7 @@ export default function Registry() {
   // Unified MouseMove for Canvas Panning, Node Dragging and Connection Dragging
   const handleCanvasMouseMove = (e: React.MouseEvent) => {
     if (!boardRef.current) return;
+    altHeldRef.current = e.altKey;
 
     const currentZoom = zoomRef.current;
     const currentPan = panRef.current;
@@ -1528,6 +1680,22 @@ export default function Registry() {
       activeConnectionDragRef.current.currentX = canvasX;
       activeConnectionDragRef.current.currentY = canvasY;
 
+      // Цель броска — вся карточка, а не кружок порта шириной шестнадцать
+      // пикселей. Пока целью был только порт, промах мимо кружка выглядел как
+      // «связь не создаётся», хотя человек всё делал правильно
+      const overId = hitTestCard(cardPositionsRef.current, { x: canvasX, y: canvasY },
+        tags.map((t: any) => t.id), LAYOUT_BOX);
+      const dropId = overId && overId !== activeConnectionDragRef.current.tagId ? overId : null;
+      if (dropId !== dropTargetRef.current) {
+        // Подсветка идёт классом напрямую: состояние здесь означало бы полную
+        // перерисовку холста на каждое движение мыши
+        const off = dropTargetRef.current && document.getElementById(`tag-card-${dropTargetRef.current}`);
+        if (off) off.classList.remove('ring-2', 'ring-emerald-500');
+        const on = dropId && document.getElementById(`tag-card-${dropId}`);
+        if (on) on.classList.add('ring-2', 'ring-emerald-500');
+        dropTargetRef.current = dropId;
+      }
+
       // Update active connection line in DOM
       requestAnimationFrame(() => {
         const pathEl = document.getElementById('active-drag-path');
@@ -1535,18 +1703,14 @@ export default function Registry() {
           const { startX, startY, currentX, currentY, side } = activeConnectionDragRef.current;
           const dx = Math.abs(currentX - startX);
           const ctrlOffset = Math.max(90, dx * 0.45);
-          let cp1_x = startX;
-          let cp2_x = currentX;
-
-          if (side === 'right') {
-            cp1_x = startX + ctrlOffset;
-            cp2_x = currentX - ctrlOffset;
-          } else {
-            cp1_x = startX - ctrlOffset;
-            cp2_x = currentX + ctrlOffset;
-          }
-
-          const pathData = `M ${startX} ${startY} C ${cp1_x} ${startY}, ${cp2_x} ${currentY}, ${currentX} ${currentY}`;
+          const down = axisRef.current === 'down';
+          // При раскладке сверху вниз изгиб тоже вертикальный: иначе тянущаяся
+          // линия ведёт себя не так, как все нарисованные
+          const pathData = down
+            ? `M ${startX} ${startY} C ${startX} ${startY + (side === 'right' ? ctrlOffset : -ctrlOffset)}, `
+              + `${currentX} ${currentY - (side === 'right' ? ctrlOffset : -ctrlOffset)}, ${currentX} ${currentY}`
+            : `M ${startX} ${startY} C ${startX + (side === 'right' ? ctrlOffset : -ctrlOffset)} ${startY}, `
+              + `${currentX - (side === 'right' ? ctrlOffset : -ctrlOffset)} ${currentY}, ${currentX} ${currentY}`;
           pathEl.setAttribute('d', pathData);
           pathEl.style.display = 'block';
         }
@@ -1607,13 +1771,18 @@ export default function Registry() {
       if (finalPos) {
         const tag = tagsById[draggedTagId];
         if (tag) {
-          const currentMeta = parseTagMetadata(tag);
-          const finalMeta = {
-            ...currentMeta,
-            x: finalPos.x,
-            y: finalPos.y
-          };
-          await saveTagMetadata(draggedTagId, finalMeta);
+          // Прилипание к той самой сетке, которая на холсте и нарисована.
+          // Пока координаты были произвольными, ровный ряд карточек получался
+          // только случайно. Alt отпускает: иногда надо поставить именно так.
+          //
+          // Прилипаем при отпускании, а не во время переноса: иначе карточка
+          // дёргается по клеткам и не поспевает за курсором
+          const free = altHeldRef.current;
+          const put = free ? finalPos : { x: snap(finalPos.x), y: snap(finalPos.y) };
+          cardPositionsRef.current[draggedTagId] = put;
+          const cardEl = document.getElementById(`tag-card-${draggedTagId}`);
+          if (cardEl) cardEl.style.transform = `translate(${put.x}px, ${put.y}px)`;
+          await saveTagMetadata(draggedTagId, { ...parseTagMetadata(tag), x: put.x, y: put.y });
         }
       }
       setDraggedTagId(null);
@@ -1622,8 +1791,18 @@ export default function Registry() {
     if (activeConnectionDragRef.current) {
       const { sourceId, reconnectTargetId } = activeConnectionDragRef.current;
       
-      if (hoveredPort && hoveredPort.tagId !== sourceId) {
-        const destId = hoveredPort.tagId;
+      // Порт по-прежнему годится, но бросить можно и на саму карточку: порты
+      // учат, ОТКУДА тянуть связь, и незачем им же быть единственным местом,
+      // где её можно отпустить
+      const destId = (hoveredPort && hoveredPort.tagId !== sourceId ? hoveredPort.tagId : null)
+        || (dropTargetRef.current !== sourceId ? dropTargetRef.current : null);
+
+      // Подсветку цели снимаем в любом случае: иначе рамка останется висеть
+      const lit = dropTargetRef.current && document.getElementById(`tag-card-${dropTargetRef.current}`);
+      if (lit) lit.classList.remove('ring-2', 'ring-emerald-500');
+      dropTargetRef.current = null;
+
+      if (destId) {
         // Правила связи одни на всю программу (lib/tagTree): линию тянут мышью
         // или заводят в карточке — дерево от этого не должно получаться разным
         const why = whyNotLink(treeNodes(), sourceId, destId);
@@ -1700,6 +1879,14 @@ export default function Registry() {
     await applyTreePatches(unlinkChild(treeNodes(), sourceId, targetId));
   };
 
+  /** Разрыв связи крестиком на линии: тем же путём, но со словами и снятием выбора */
+  const handleRemoveLink = React.useCallback(async (l: BoardLink) => {
+    await handleRemoveConnection(l.sourceId, l.targetId);
+    setSelectedConnection((cur) =>
+      (cur && cur.sourceId === l.sourceId && cur.targetId === l.targetId ? null : cur));
+    addToast(`Связь ${l.sourceName} → ${l.targetName} разорвана`, 'success');
+  }, [tags]);
+
   // Создание связи «родитель → дочерний» из карточки (без перетаскивания линии).
   // Правила — общие (lib/tagTree): у тега один родитель, кольца не заводятся,
   // а обе записи связи ставятся вместе, а не порознь в трёх местах
@@ -1759,7 +1946,7 @@ export default function Registry() {
     }
     const bw = Math.max(maxX - minX, 200);
     const bh = Math.max(maxY - minY, 160);
-    const z = Math.min(1.1, Math.max(0.15, Math.min((boardSize.w - 80) / bw, (boardSize.h - 80) / bh)));
+    const z = fitZoom({ x: 0, y: 0, w: bw, h: bh }, boardSize);
     setZoom(z);
     setPan({
       x: (boardSize.w - bw * z) / 2 - minX * z,
@@ -1936,19 +2123,8 @@ export default function Registry() {
   }, [location.search, tags]);
 
   // Свободная позиция для новой карточки: не перекрывает существующие
-  const findFreePosition = (baseX: number, baseY: number): { x: number; y: number } => {
-    const positions = Object.values(cardPositionsRef.current);
-    const collides = (x: number, y: number) =>
-      positions.some(p => Math.abs(p.x - x) < CARD_W + 30 && Math.abs(p.y - y) < 110);
-    let x = baseX, y = baseY;
-    let attempt = 0;
-    while (collides(x, y) && attempt < 400) {
-      attempt++;
-      y = baseY + (attempt % 16) * 62;
-      x = baseX + Math.floor(attempt / 16) * (CARD_W + 40);
-    }
-    return { x, y };
-  };
+  const findFreePosition = (baseX: number, baseY: number): { x: number; y: number } =>
+    freeSpot(Object.values(cardPositionsRef.current), { x: baseX, y: baseY }, LAYOUT_BOX);
 
   // «Поделиться в чате»: каждый выбранный тег — отдельная кликабельная кнопка
   // с названием тега, но всё в одном сообщении
@@ -1988,22 +2164,6 @@ export default function Registry() {
     clearShareFocus();
   }, [focusTarget, tagsById]);
 
-  // Кнопка «Центрировать»: один клик — выбор главного родителя (его дерево
-  // центрируется), двойной клик — вписать весь холст целиком
-  const handleCenterClick = () => {
-    if (centerClickTimer.current) {
-      clearTimeout(centerClickTimer.current);
-      centerClickTimer.current = null;
-      setCenterPickerOpen(false);
-      fitCanvasToCenter();
-      return;
-    }
-    centerClickTimer.current = setTimeout(() => {
-      centerClickTimer.current = null;
-      setCenterPickerOpen(v => !v);
-    }, 260);
-  };
-
   // Центрировать дерево выбранного главного родителя (и выделить его)
   const centerTreeOfRoot = (rootId: string) => {
     const treeIds = collectDescendants(rootId);
@@ -2012,70 +2172,103 @@ export default function Registry() {
     setCenterPickerOpen(false);
   };
 
-  // Авто-раскладка «Упорядочить»: строит аккуратное иерархическое дерево без наложений
+  /**
+   * Записать координаты сразу многим тегам.
+   *
+   * Раньше раскладка слала Promise.all из отдельных PUT — по запросу на тег.
+   * На проекте в две тысячи тегов это две тысячи запросов и столько же
+   * транзакций. Массовый маршрут в сервере есть давно, им просто не
+   * пользовались отсюда.
+   *
+   * Пачку режем сами: сервер молча обрезает список до двух тысяч, и часть
+   * координат просто не сохранилась бы, ничего об этом не сказав.
+   */
+  const applyPositions = async (positions: Record<string, { x: number; y: number }>) => {
+    const updates: { id: string; metadata: string }[] = [];
+    for (const t of tags) {
+      const p = positions[t.id];
+      if (!p) continue;
+      cardPositionsRef.current[t.id] = p;
+      updates.push({ id: t.id, metadata: JSON.stringify({ ...parseTagMetadata(t), x: p.x, y: p.y }) });
+    }
+    if (!updates.length) return;
+    const byId = new Map(updates.map((u) => [u.id, u.metadata]));
+    // parsedMetadata сбрасываем, а не переписываем: разбор кэшируется прямо в
+    // объекте тега, и старый разбор пережил бы новую строку
+    setTags((prev: any[]) => prev.map((t) => (byId.has(t.id)
+      ? { ...t, metadata: byId.get(t.id), parsedMetadata: undefined }
+      : t)));
+    for (let i = 0; i < updates.length; i += 500) {
+      const res = await fetch('/api/tags/bulk-metadata', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates: updates.slice(i, i + 500) }),
+      });
+      if (!res.ok) throw new Error('bulk-metadata');
+    }
+  };
+
+  /**
+   * Авто-раскладка «Упорядочить».
+   *
+   * Правила раскладки — в src/lib/tagLayout.ts, здесь только применение: так их
+   * можно проверить скриптом, а не глазами на трёх учебных тегах.
+   */
   const [isArranging, setIsArranging] = useState(false);
-  const arrangeTreeLayout = async () => {
+  const [undoArrange, setUndoArrange] = useState<Record<string, { x: number; y: number }> | null>(null);
+  const arrangeTreeLayout = async (dir: TreeAxis = axis) => {
     if (tags.length === 0 || isArranging) return;
     setIsArranging(true);
     try {
-      const COL_W = 360, ROW_H = 150, MARGIN_X = 120, MARGIN_Y = 90;
-      const childrenMap: Record<string, string[]> = {};
-      const hasParent: Record<string, boolean> = {};
-      const idSet = new Set(tags.map(t => t.id));
-      for (const t of tags) {
-        const meta = parseTagMetadata(t);
-        const kids = (meta.connections || []).filter(id => idSet.has(id));
-        childrenMap[t.id] = kids;
-        kids.forEach(k => { hasParent[k] = true; });
-      }
-      const roots = tags
-        .filter(t => !hasParent[t.id])
-        .sort((a, b) => (a.identifier || '').localeCompare(b.identifier || '', 'ru'));
-      const positions: Record<string, { x: number; y: number }> = {};
-      const visited = new Set<string>();
-      let leafRow = 0;
-      const assign = (id: string, depth: number): number => {
-        visited.add(id);
-        const kids = (childrenMap[id] || []).filter(k => !visited.has(k));
-        let yRaw: number;
-        if (kids.length === 0) {
-          yRaw = leafRow * ROW_H;
-          leafRow++;
-        } else {
-          const ys = kids.map(k => assign(k, depth + 1));
-          yRaw = (ys[0] + ys[ys.length - 1]) / 2;
-        }
-        positions[id] = { x: MARGIN_X + depth * COL_W, y: MARGIN_Y + yRaw };
-        return yRaw;
-      };
-      roots.forEach(r => { if (!visited.has(r.id)) assign(r.id, 0); });
-      // Узлы в циклах / не охваченные обходом — выстраиваем в отдельную колонку
-      for (const t of tags) {
-        if (!visited.has(t.id)) {
-          positions[t.id] = { x: MARGIN_X, y: MARGIN_Y + leafRow * ROW_H };
-          leafRow++;
-        }
-      }
-      // Применяем локально и сохраняем
-      for (const t of tags) {
-        const p = positions[t.id];
-        if (p) cardPositionsRef.current[t.id] = p;
-      }
-      await Promise.all(tags.map(t => {
-        const p = positions[t.id];
-        if (!p) return Promise.resolve();
-        const meta = { ...parseTagMetadata(t), x: p.x, y: p.y };
-        return saveTagMetadata(t.id, meta);
+      // Развёрнутая карточка выше свёрнутой в несколько раз, а раскладка
+      // считает её свёрнутой — соседний ряд лёг бы поверх неё
+      setExpandedCardIds({});
+      const nodes: TreeNode[] = tags.map((t: any) => ({
+        id: t.id,
+        connections: parseTagMetadata(t).connections || [],
       }));
-      // После раскладки вписываем весь холст — не нужно долго листать
+      const codeOf = new Map<string, string>(tags.map((t: any) => [t.id, t.identifier || '']));
+      const res = layoutForest(nodes, dir, {
+        box: LAYOUT_BOX,
+        keyOf: (id) => codeOf.get(id) || id,
+        grid: GRID,
+      });
+
+      // Снимок ДО записи: раскладка переписывает координаты всех тегов разом,
+      // и без отката расставленное руками терялось бы безвозвратно
+      const before: Record<string, { x: number; y: number }> = {};
+      for (const t of tags) {
+        const p = cardPositionsRef.current[t.id] || parseTagMetadata(t);
+        before[t.id] = { x: p.x, y: p.y };
+      }
+
+      await applyPositions(res.positions);
+      setUndoArrange(before);
       fitToTags(tags);
-      addToast('Дерево упорядочено', 'success');
+      addToast(`Дерево упорядочено: ${dir === 'down' ? 'сверху вниз' : 'слева направо'}`, 'success');
+      if (res.cycled.length) {
+        addToast(`Теги в кольце: ${res.cycled.length}. Они вынесены отдельно и ждут выправления.`, 'info');
+      }
     } catch (e) {
       addToast('Не удалось упорядочить дерево', 'error');
     } finally {
       setIsArranging(false);
     }
   };
+
+  /** Вернуть карточки туда, где они стояли до раскладки */
+  const undoArrangeLayout = async () => {
+    if (!undoArrange) return;
+    try {
+      await applyPositions(undoArrange);
+      setUndoArrange(null);
+      fitToTags(tags);
+      addToast('Раскладка отменена', 'success');
+    } catch (e) {
+      addToast('Не удалось вернуть прежнюю раскладку', 'error');
+    }
+  };
+
 
   // Form description mechanics
   const handleAddDescription = async (tagId: string, text: string, comment: string, status: DescriptionItem['status'] = 'actual') => {
@@ -2316,8 +2509,12 @@ export default function Registry() {
     }
 
     try {
-      // Новая карточка появляется на свободном месте — не перекрывая существующие
-      const { x: dropX, y: dropY } = findFreePosition((300 - pan.x) / zoom, (200 - pan.y) / zoom);
+      // Новая карточка появляется на свободном месте — не перекрывая существующие.
+      // Если тег заводят через меню правой кнопки, «свободное место» ищется от
+      // той точки, куда нажали, а не от центра экрана
+      const spot = newTagSpotRef.current || { x: (300 - pan.x) / zoom, y: (200 - pan.y) / zoom };
+      newTagSpotRef.current = null;
+      const { x: dropX, y: dropY } = findFreePosition(spot.x, spot.y);
 
       const configDict = dictionaries.find(d => d.name === '__tag_creation_config__');
       const cats = configDict
@@ -3104,9 +3301,17 @@ export default function Registry() {
               onMouseUp={handleCanvasMouseUp}
               onMouseLeave={handleCanvasMouseUp}
               onContextMenu={(e) => {
-                // Правый клик используем для панорамы: своё меню не нужно,
-                // и после перетаскивания подавляем системное меню
                 e.preventDefault();
+                // Правая кнопка двигает холст, поэтому меню — только когда её
+                // нажали и отпустили НА МЕСТЕ. Иначе меню выскакивало бы в
+                // конце каждой панорамы
+                if (panMovedRef.current) { panMovedRef.current = false; return; }
+                if (e.target !== e.currentTarget) return;
+                const rect = boardRef.current?.getBoundingClientRect();
+                const at = rect
+                  ? screenToWorld({ x: e.clientX - rect.left, y: e.clientY - rect.top }, panRef.current, zoomRef.current)
+                  : { x: 0, y: 0 };
+                setBoardMenu({ x: e.clientX, y: e.clientY, at });
               }}
             >
               {/* Режим связывания: подсказка сверху по центру */}
@@ -3132,17 +3337,19 @@ export default function Registry() {
               {/* Overlaid Zoom and Canvas Controls on the top-right */}
               <div className="absolute top-4 right-4 z-40 flex items-center gap-2 bg-white/90 dark:bg-slate-950/90 backdrop-blur-md p-1.5 rounded-xl border border-slate-200 dark:border-slate-800/80 shadow-md">
                 <div className="flex bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200/50 dark:border-slate-800">
-                  <button type="button" 
-                    onClick={() => setZoom(z => Math.max(0.15, z - 0.1))} 
+                  <button type="button"
+                    onClick={() => setZoom((z) => clampZoom(z - 0.1))}
+                    title="Отдалить"
                     className="p-1 px-1.5 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 rounded transition-colors cursor-pointer"
                   >
                     <ZoomOut className="w-3.5 h-3.5" />
                   </button>
-                  <span className="px-2 py-0.5 text-xs font-mono font-bold text-slate-600 dark:text-slate-400 self-center">
+                  <span ref={zoomLabelRef} className="px-2 py-0.5 text-xs font-mono font-bold text-slate-600 dark:text-slate-400 self-center tabular-nums">
                     {Math.round(zoom * 100)}%
                   </span>
-                  <button type="button" 
-                    onClick={() => setZoom(z => Math.min(2.5, z + 0.1))}
+                  <button type="button"
+                    onClick={() => setZoom((z) => clampZoom(z + 0.1))}
+                    title="Приблизить"
                     className="p-1 px-1.5 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 rounded transition-colors cursor-pointer"
                   >
                     <ZoomIn className="w-3.5 h-3.5" />
@@ -3151,10 +3358,22 @@ export default function Registry() {
 
                 <div className="w-[1px] h-5 bg-slate-200 dark:bg-slate-800" />
 
+                {/* «По размеру» отдельной кнопкой. Раньше это был ВТОРОЙ щелчок
+                    по «Центрировать» с таймером в 260 мс: задержка чувствуется
+                    на каждом обычном нажатии, а научиться такому неоткуда */}
+                <button type="button"
+                  onClick={fitCanvasToCenter}
+                  title="Вписать весь холст (F)"
+                  className="px-2.5 py-1.5 bg-slate-200/70 dark:bg-slate-850 hover:bg-slate-300 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-300 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
+                >
+                  <Maximize2 className="w-3 h-3 text-emerald-600" />
+                  По размеру
+                </button>
+
                 <div className="relative">
                   <button type="button"
-                    onClick={(e) => { e.stopPropagation(); handleCenterClick(); }}
-                    title="1 клик — выбрать главного родителя и центрировать его дерево; 2 клика — вписать весь холст"
+                    onClick={(e) => { e.stopPropagation(); setCenterPickerOpen((v) => !v); }}
+                    title="Показать дерево выбранной установки целиком"
                     className="px-2.5 py-1.5 bg-slate-200/70 dark:bg-slate-850 hover:bg-slate-300 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-300 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
                   >
                     <RefreshCw className="w-3 h-3 text-emerald-600" />
@@ -3168,9 +3387,8 @@ export default function Registry() {
                       onClick={(e) => e.stopPropagation()}
                       onMouseDown={(e) => e.stopPropagation()}
                     >
-                      <div className="px-3 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-slate-850 flex items-center justify-between">
-                        <span>Главные родители ({rootTags.length})</span>
-                        <span className="lowercase italic font-normal">2×клик — весь холст</span>
+                      <div className="px-3 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-slate-850">
+                        Главные родители ({rootTags.length})
                       </div>
                       <div className="max-h-64 overflow-y-auto p-1.5 space-y-0.5">
                         {rootTags.length === 0 ? (
@@ -3190,15 +3408,77 @@ export default function Registry() {
                   )}
                 </div>
 
-                <button type="button"
-                  onClick={arrangeTreeLayout}
-                  disabled={isArranging}
-                  title="Авто-раскладка: аккуратное дерево связей без наложений"
-                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
-                >
-                  <Network className={`w-3 h-3 ${isArranging ? 'animate-pulse' : ''}`} />
-                  {isArranging ? 'Раскладка…' : 'Упорядочить'}
-                </button>
+                {/* Упорядочить — с выбором оси. Ось меняет и раскладку, и то,
+                    как идут линии: холст выглядит так, как его последний раз
+                    разложили */}
+                <div className="relative flex">
+                  <button type="button"
+                    onClick={() => { void arrangeTreeLayout(); }}
+                    disabled={isArranging}
+                    title={axis === 'down'
+                      ? 'Разложить: родитель сверху, дети под ним, следующее дерево правее'
+                      : 'Разложить: родитель слева, дети правее, следующее дерево правее'}
+                    className="pl-2.5 pr-2 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-l-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    <Network className={`w-3 h-3 ${isArranging ? 'animate-pulse' : ''}`} />
+                    {isArranging ? 'Раскладка…' : 'Упорядочить'}
+                  </button>
+                  <button type="button"
+                    onClick={(e) => { e.stopPropagation(); setAxisPickerOpen((v) => !v); }}
+                    disabled={isArranging}
+                    title="Как раскладывать дерево"
+                    aria-label="Выбрать раскладку"
+                    className="px-1.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-r-lg border-l border-emerald-500 transition-colors cursor-pointer"
+                  >
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+
+                  {axisPickerOpen && (
+                    <div
+                      className="absolute top-full right-0 mt-1.5 w-64 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden p-1.5 space-y-0.5"
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
+                      {([
+                        { id: 'down' as const, title: 'Сверху вниз', hint: 'Родитель сверху, состав под ним' },
+                        { id: 'right' as const, title: 'Слева направо', hint: 'Родитель слева, состав правее' },
+                      ]).map((o) => (
+                        <button type="button"
+                          key={o.id}
+                          /* Выбор сразу и раскладывает: переключатель, которому
+                             нужно второе нажатие, читается как несработавший */
+                          onClick={() => { chooseAxis(o.id); setAxisPickerOpen(false); void arrangeTreeLayout(o.id); }}
+                          className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs cursor-pointer flex items-center gap-2 ${
+                            axis === o.id
+                              ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300'
+                              : 'hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-700 dark:text-slate-300'}`}
+                        >
+                          <Check className={`w-3 h-3 shrink-0 ${axis === o.id ? '' : 'opacity-0'}`} />
+                          <span className="min-w-0">
+                            <span className="block font-bold">{o.title}</span>
+                            <span className="block text-2xs text-slate-400">{o.hint}</span>
+                          </span>
+                        </button>
+                      ))}
+                      <p className="px-2.5 pt-1 text-2xs text-slate-400">
+                        Деревья встают в ряд слева направо при обеих раскладках.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Откат раскладки: она переписывает координаты всех тегов
+                    разом, и расставленное руками иначе теряется навсегда */}
+                {undoArrange && !isArranging && (
+                  <button type="button"
+                    onClick={() => { void undoArrangeLayout(); }}
+                    title="Вернуть карточки туда, где они стояли до раскладки"
+                    className="px-2.5 py-1.5 bg-amber-100 dark:bg-amber-950/40 hover:bg-amber-200 dark:hover:bg-amber-900/50 text-amber-900 dark:text-amber-300 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    <Undo2 className="w-3 h-3" />
+                    Отменить
+                  </button>
+                )}
               </div>
 
               {/* Точечная сетка холста.
@@ -3210,13 +3490,14 @@ export default function Registry() {
                   видимую область, а панорама и масштаб отыгрываются
                   смещением и размером узора — рисуется только то, что видно. */}
               <div
+                ref={gridRef}
                 aria-hidden="true"
                 className="absolute inset-0 pointer-events-none"
                 style={{
                   backgroundImage: theme === 'dark'
                     ? 'radial-gradient(circle, #334155 1.1px, transparent 1.1px)'
                     : 'radial-gradient(circle, #cbd5e1 1.1px, transparent 1.1px)',
-                  backgroundSize: `${24 * zoom}px ${24 * zoom}px`,
+                  backgroundSize: `${GRID * zoom}px ${GRID * zoom}px`,
                   backgroundPosition: `${pan.x}px ${pan.y}px`,
                 }}
               />
@@ -3229,173 +3510,19 @@ export default function Registry() {
                   height: `${worldSize.h}px`
                 }}
               >
-                {/* SVG CONNECTION LAYER */}
-                {/* Слой связей. Раньше растягивался на весь холст: при большом
-                    реестре это SVG размером в десятки тысяч пикселей, который
-                    браузер растрирует целиком. Теперь его рамка — видимая
-                    часть холста, а система координат остаётся мировой через
-                    viewBox, поэтому пути считать по-прежнему не нужно. */}
-                <svg
-                  className="absolute pointer-events-none overflow-visible"
-                  style={cullInfo.active ? {
-                    left: `${cullInfo.x0}px`,
-                    top: `${cullInfo.y0}px`,
-                    width: `${Math.max(1, cullInfo.x1 - cullInfo.x0)}px`,
-                    height: `${Math.max(1, cullInfo.y1 - cullInfo.y0)}px`,
-                  } : { inset: 0, width: '100%', height: '100%' }}
-                  viewBox={cullInfo.active
-                    ? `${cullInfo.x0} ${cullInfo.y0} ${Math.max(1, cullInfo.x1 - cullInfo.x0)} ${Math.max(1, cullInfo.y1 - cullInfo.y0)}`
-                    : undefined}
-                >
-                  {/* Draw Dynamo Style Connection Wires */}
-                  {tags.map((tag) => {
-                    const sourceMeta = parseTagMetadata(tag);
-                    return sourceMeta.connections.map((targetId) => {
-                      const targetTag = tagsById[targetId];
-                      if (!targetTag) return null;
-                      const targetMeta = parseTagMetadata(targetTag);
-                      // Живые координаты: во время перетаскивания позиции лежат в ref,
-                      // иначе ре-рендер (hover и т.п.) вернул бы линию в устаревшую точку
-                      const liveSource = cardPositionsRef.current[tag.id] || sourceMeta;
-                      const liveTarget = cardPositionsRef.current[targetId] || targetMeta;
-
-                      // Отсечение: связь целиком за пределами видимой области не рисуем
-                      if (cullInfo.active) {
-                        const bx0 = Math.min(liveSource.x, liveTarget.x);
-                        const bx1 = Math.max(liveSource.x, liveTarget.x) + CARD_W;
-                        const by0 = Math.min(liveSource.y, liveTarget.y);
-                        const by1 = Math.max(liveSource.y, liveTarget.y) + 44;
-                        if (bx1 < cullInfo.x0 || bx0 > cullInfo.x1 || by1 < cullInfo.y0 || by0 > cullInfo.y1) return null;
-                      }
-
-                      // If we are currently reconnecting this specific line, do not draw it in the main layer
-                      if (reconnectingConnectionRef.current && 
-                          reconnectingConnectionRef.current.sourceId === tag.id && 
-                          reconnectingConnectionRef.current.targetId === targetId) {
-                        return null;
-                      }
-
-                      // Source represents Parent Node output (Right Port)
-                      const startX = liveSource.x + 330;
-                      const startY = liveSource.y + 22;
-
-                      // Target represents slave (Left Port)
-                      const endX = liveTarget.x;
-                      const endY = liveTarget.y + 22;
-
-                      // Perfect curves
-                      const dx = Math.abs(endX - startX);
-                      const ctrlOffset = Math.max(100, dx * 0.45);
-
-                      const pathData = `M ${startX} ${startY} C ${startX + ctrlOffset} ${startY}, ${endX - ctrlOffset} ${endY}, ${endX} ${endY}`;
-
-                      const isSelected = selectedConnection && selectedConnection.sourceId === tag.id && selectedConnection.targetId === targetId;
-                      const isHovered = hoveredConnection && hoveredConnection.sourceId === tag.id && hoveredConnection.targetId === targetId;
-
-                      return (
-                        <g 
-                          key={`${tag.id}-${targetId}`} 
-                          className="pointer-events-auto group"
-                          onMouseEnter={() => { if (draggedTagId) return; setHoveredConnection({ sourceId: tag.id, targetId }); }}
-                          onMouseLeave={() => setHoveredConnection(null)}
-                        >
-                          {/* Invisible thick path for easy hovering and clicking */}
-                          <path
-                            id={`path-overlay-${tag.id}-${targetId}`}
-                            d={pathData}
-                            fill="none"
-                            stroke="transparent"
-                            strokeWidth="16"
-                            className="cursor-pointer"
-                            style={{ pointerEvents: 'stroke' }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedConnection({ sourceId: tag.id, targetId });
-                            }}
-                          />
-
-                          {/* Outer glow aura / highlight line when selected or hovered */}
-                          {(isSelected || isHovered) && (
-                            <path
-                              d={pathData}
-                              fill="none"
-                              stroke={isSelected ? '#6366f1' : '#10b981'} // Indigo for selected, emerald for hovered
-                              strokeOpacity={isSelected ? 0.8 : 0.4}
-                              strokeWidth={isSelected ? '6' : '5'}
-                              className="transition-colors duration-150"
-                            />
-                          )}
-
-                          {/* Inner line */}
-                          <path
-                            id={`path-${tag.id}-${targetId}`}
-                            d={pathData}
-                            fill="none"
-                            stroke={isSelected ? '#4f46e5' : (theme === 'dark' ? '#34d399' : '#059669')}
-                            strokeOpacity={theme === 'dark' ? 0.8 : 0.9}
-                            strokeWidth={isSelected ? "3" : "2.5"}
-                            className="cursor-pointer transition-colors duration-150"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedConnection({ sourceId: tag.id, targetId });
-                            }}
-                          />
-
-                          {/* Flow indicator light dot (на больших графах отключен ради производительности) */}
-                          {showFlowDots && (
-                            <circle id={`flow-dot-${tag.id}-${targetId}`} r="3.5" fill={isSelected ? '#c084fc' : '#34d399'}>
-                              <animateMotion path={pathData} dur="6s" repeatCount="indefinite" />
-                            </circle>
-                          )}
-
-                          {/* Link Delete Button precisely placed in the mathematical middle */}
-                          {(isHovered || isSelected) && (() => {
-                            // Calculate midpoint using our cubic bezier formula
-                            const cp1_x = startX + ctrlOffset;
-                            const cp2_x = endX - ctrlOffset;
-                            const midX = 0.125 * startX + 0.375 * cp1_x + 0.375 * cp2_x + 0.125 * endX;
-                            const midY = 0.5 * startY + 0.5 * endY;
-
-                            return (
-                              <foreignObject 
-                                x={midX - 10} 
-                                y={midY - 10} 
-                                width={20} 
-                                height={20}
-                                className="overflow-visible"
-                              >
-                                <button
-                                  type="button"
-                                  className="w-5 h-5 rounded-full bg-rose-500 hover:bg-rose-600 active:bg-rose-700 text-white flex items-center justify-center text-xs font-bold shadow-md hover:scale-110 transition-ui border border-white dark:border-slate-900 cursor-pointer"
-                                  title="Удалить связь"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleRemoveConnection(tag.id, targetId);
-                                    if (isSelected) setSelectedConnection(null);
-                                    addToast(`Связь ${tag.identifier} → ${targetTag.identifier} удалена`, 'success');
-                                  }}
-                                >
-                                  ×
-                                </button>
-                              </foreignObject>
-                            );
-                          })()}
-                        </g>
-                      );
-                    });
-                  })}
-
-                  {/* ACTIVE WIRE DRAGGING PREVIEW */}
-                  <path
-                    id="active-drag-path"
-                    d=""
-                    fill="none"
-                    stroke={theme === 'dark' ? '#10b981' : '#059669'}
-                    strokeWidth="2.5"
-                    strokeDasharray="4 4"
-                    style={{ display: 'none' }}
-                  />
-                </svg>
+                {/* Слой связей — отдельным компонентом (components/registry/BoardLinks).
+                    Он же и мемоизирован: подсветка одной линии раньше жила в
+                    состоянии экрана и потому перерисовывала весь холст. */}
+                <BoardLinks
+                  links={visibleLinks}
+                  axis={axis}
+                  box={LAYOUT_BOX}
+                  selected={selectedConnection}
+                  frame={cullInfo}
+                  showFlowDots={showFlowDots}
+                  onSelect={handleSelectConnection}
+                  onRemove={handleRemoveLink}
+                />
 
                 {/* GRAPH CARDS CONTROLLERS */}
                 <div className="absolute inset-0">
@@ -3577,14 +3704,26 @@ export default function Registry() {
 
                             {/* СВЯЗИ: родители и дочерние теги — добавить/снять в один клик */}
                             <div className="px-3.5 py-2.5 border-b border-slate-100 dark:border-slate-900 no-drag space-y-1.5 text-left">
-                              <div className="flex items-center justify-between">
+                              <div className="flex items-center justify-between gap-2">
                                 <span className="text-2xs font-bold uppercase tracking-wider text-slate-400">Связи</span>
-                                <button type="button"
-                                  onClick={(e) => { e.stopPropagation(); setLinkPicker(prev => prev?.tagId === tag.id ? null : { tagId: tag.id, search: '' }); }}
-                                  className="text-2xs font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer"
-                                >
-                                  + дочерний тег
-                                </button>
+                                {/* Две кнопки, а не одна: чипы связей и раньше показывали
+                                    и родителя (↑), и детей (↓), а завести можно было
+                                    только ребёнка. Родителя приходилось искать на холсте
+                                    и тянуть линию — из другого конца проекта это неудобно */}
+                                <span className="flex items-center gap-2 shrink-0">
+                                  <button type="button"
+                                    onClick={(e) => { e.stopPropagation(); setLinkPicker(prev => (prev?.tagId === tag.id && prev.dir === 'parent') ? null : { tagId: tag.id, search: '', dir: 'parent' }); }}
+                                    className="text-2xs font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer"
+                                  >
+                                    {(incomingByTagId[tag.id] || []).length ? '↑ сменить родителя' : '+ родительский тег'}
+                                  </button>
+                                  <button type="button"
+                                    onClick={(e) => { e.stopPropagation(); setLinkPicker(prev => (prev?.tagId === tag.id && prev.dir === 'child') ? null : { tagId: tag.id, search: '', dir: 'child' }); }}
+                                    className="text-2xs font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer"
+                                  >
+                                    + дочерний тег
+                                  </button>
+                                </span>
                               </div>
                               <div className="flex flex-wrap gap-1">
                                 {(incomingByTagId[tag.id] || []).map(pid => tagsById[pid] && (
@@ -3607,32 +3746,56 @@ export default function Registry() {
                                   <span className="text-2xs text-slate-400">Нет связей</span>
                                 )}
                               </div>
-                              {linkPicker?.tagId === tag.id && (
+                              {linkPicker?.tagId === tag.id && (() => {
+                                const wantParent = linkPicker.dir === 'parent';
+                                const oldParent = (incomingByTagId[tag.id] || [])[0];
+                                const candidates = linkCandidates(tag.id, linkPicker.dir, linkPicker.search);
+                                return (
                                 <div className="pt-1 space-y-1">
+                                  {/* Родитель у тега один, и linkChild сам отцепит прежнего.
+                                      Молчаливая подмена здесь и была бы возвратом к той
+                                      поломке, из-за которой строку «Родительский тег» убрали */}
+                                  {wantParent && oldParent && tagsById[oldParent] && (
+                                    <p className="text-2xs text-amber-700 dark:text-amber-400">
+                                      Заменит нынешнего родителя:{' '}
+                                      <b className="font-mono">{tagsById[oldParent].identifier}</b>
+                                    </p>
+                                  )}
                                   <input
                                     autoFocus
                                     value={linkPicker.search}
-                                    onChange={(e) => setLinkPicker({ tagId: tag.id, search: e.target.value })}
+                                    onChange={(e) => setLinkPicker({ tagId: tag.id, search: e.target.value, dir: linkPicker.dir })}
                                     onKeyDown={(e) => { if (e.key === 'Escape') setLinkPicker(null); }}
-                                    placeholder="Найти тег для связи…"
+                                    placeholder={wantParent ? 'Найти родительский тег…' : 'Найти дочерний тег…'}
                                     className="w-full px-2 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-emerald-400"
                                   />
                                   <div className="max-h-32 overflow-y-auto space-y-0.5">
-                                    {tags
-                                      .filter(t => t.id !== tag.id
-                                        && !(meta.connections || []).includes(t.id)
-                                        && (t.identifier || '').toLowerCase().includes(linkPicker.search.toLowerCase()))
-                                      .slice(0, 8)
-                                      .map(t => (
-                                        <button type="button" key={t.id}
-                                          onClick={async (e) => { e.stopPropagation(); await handleAddConnection(tag.id, t.id); setLinkPicker(null); }}
-                                          className="w-full flex items-center gap-1.5 px-2 py-1 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-left text-xs font-mono font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
-                                          {t.identifier}
-                                        </button>
-                                      ))}
+                                    {candidates.length === 0 && (
+                                      <p className="px-2 py-1 text-2xs text-slate-400">
+                                        {wantParent
+                                          ? 'Подходящих тегов нет: свой же состав родителем стать не может.'
+                                          : 'Подходящих тегов нет.'}
+                                      </p>
+                                    )}
+                                    {candidates.map(t => (
+                                      <button type="button" key={t.id}
+                                        /* Порядок доводов и есть всё различие: первым идёт
+                                           РОДИТЕЛЬ, вторым — ребёнок. Перепутанный вызов
+                                           однажды перевернул дерево целиком */
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          if (wantParent) await handleAddConnection(t.id, tag.id);
+                                          else await handleAddConnection(tag.id, t.id);
+                                          setLinkPicker(null);
+                                        }}
+                                        className="w-full flex items-center gap-1.5 px-2 py-1 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-left text-xs font-mono font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
+                                        {wantParent ? '↑' : '↓'} {t.identifier}
+                                      </button>
+                                    ))}
                                   </div>
                                 </div>
-                              )}
+                                );
+                              })()}
                             </div>
 
                             {/* SUB-DESCRIPTIONS LIST (With full tracking timestamps and inline editing capability!) */}
@@ -3860,225 +4023,93 @@ export default function Registry() {
           </motion.div>
         )}
 
-        {/* Контекстное меню тега: доступно во всех вкладках раздела
-            (холст, дерево связей, спецификация) — «Связи», «Поделиться в чате» */}
-        {cardMenu && createPortal(
-          <div
-            className="fixed z-[120] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 shadow-2xl rounded-xl py-1.5 min-w-[240px] text-xs"
-            style={{ top: Math.min(cardMenu.y, window.innerHeight - 230), left: Math.min(cardMenu.x, window.innerWidth - 260) }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-3 py-1 text-2xs uppercase tracking-wider text-slate-400 truncate font-mono">
-              {tagsById[cardMenu.tagId]?.identifier || 'Тег'}
-              {selectedTagIds.size > 1 && <span className="ml-1 text-emerald-500">+{selectedTagIds.size - 1}</span>}
-            </div>
-            <div className="px-3 py-1 text-2xs uppercase tracking-wider text-slate-400">Связи</div>
-            <button type="button"
-              onClick={() => {
-                setSelectedTagIds(collectAncestors(cardMenu.tagId));
-                setCardMenu(null);
-              }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-300 cursor-pointer"
-            >
-              <ChevronUp className="w-3.5 h-3.5 text-emerald-500" /> Выделить вверх по ступеньке (родители)
-            </button>
-            <button type="button"
-              onClick={() => {
-                setSelectedTagIds(collectDescendants(cardMenu.tagId));
-                setCardMenu(null);
-              }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-300 cursor-pointer"
-            >
-              <ChevronDown className="w-3.5 h-3.5 text-emerald-500" /> Выделить вниз по лестнице (дочерние)
-            </button>
-            <div className="h-px bg-slate-100 dark:bg-slate-850 my-1 mx-2" />
-            {dupCountOf(cardMenu.tagId) > 1 && (
-              <button type="button"
-                onClick={() => {
-                  openDuplicates(cardMenu.tagId);
-                  setCardMenu(null);
-                }}
-                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-slate-800 dark:text-slate-300 cursor-pointer"
-              >
-                <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
-                Найти дубли ({dupCountOf(cardMenu.tagId)})
-              </button>
-            )}
-            <button type="button" onClick={() => { openWhereUsed('tag', cardMenu.tagId); setCardMenu(null); }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-150 cursor-pointer">
-              <Network className="w-3.5 h-3.5 text-emerald-600" /> Карточка связей
-            </button>
-            <button type="button"
-              onClick={() => {
-                const ids = selectedTagIds.size > 0 ? Array.from(selectedTagIds) : [cardMenu.tagId];
-                shareTagsInChat(ids);
-                setCardMenu(null);
-              }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-800 dark:text-slate-300 cursor-pointer"
-            >
-              <Link2 className="w-3.5 h-3.5 text-emerald-600" />
-              Поделиться в рабочем чате{selectedTagIds.size > 1 ? ` (${selectedTagIds.size})` : ''}
-            </button>
-            <button type="button"
-              onClick={() => {
-                setActiveTab('board');
-                setTimeout(() => centerOnTag(cardMenu.tagId), 150);
-                setCardMenu(null);
-              }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-800 dark:text-slate-300 cursor-pointer"
-            >
-              <RefreshCw className="w-3.5 h-3.5 text-slate-400" /> Показать на холсте
-            </button>
-            <button type="button"
-              onClick={() => {
-                setSelectedTagIds(new Set());
-                setCardMenu(null);
-              }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-400 cursor-pointer"
-            >
-              <X className="w-3.5 h-3.5" /> Снять выделение
-            </button>
-          </div>,
-          document.body
+        {/* Меню правой кнопки и мини-панель по клику — components/registry/CardActions.
+            Оба открываются не только с холста: из дерева связей и из таблицы тоже */}
+        {/* Меню правой кнопки по пустому холсту: раскладка, «по размеру» и
+            создание тега прямо там, куда нажали */}
+        {boardMenu && (
+          <ContextMenu
+            x={boardMenu.x}
+            y={boardMenu.y}
+            items={[
+              {
+                label: 'Упорядочить сверху вниз',
+                icon: <Network className="w-3.5 h-3.5" />,
+                onClick: () => { chooseAxis('down'); void arrangeTreeLayout('down'); },
+              },
+              {
+                label: 'Упорядочить слева направо',
+                icon: <Network className="w-3.5 h-3.5" />,
+                onClick: () => { chooseAxis('right'); void arrangeTreeLayout('right'); },
+              },
+              {
+                label: 'Вписать весь холст',
+                icon: <Maximize2 className="w-3.5 h-3.5" />,
+                onClick: () => fitCanvasToCenter(),
+              },
+              {
+                label: 'Создать тег здесь',
+                icon: <Plus className="w-3.5 h-3.5" />,
+                // Место запоминаем ДО открытия формы: пока человек набирает
+                // код, он успевает подвинуть холст, и «здесь» уезжает
+                onClick: () => { newTagSpotRef.current = boardMenu.at; setShowAdvancedCreation(true); },
+              },
+              {
+                label: 'Снять выделение',
+                icon: <X className="w-3.5 h-3.5" />,
+                onClick: () => { setSelectedTagIds(new Set()); setSelectedConnection(null); },
+              },
+            ]}
+            onClose={() => setBoardMenu(null)}
+          />
         )}
 
-        {/* Мини-панель действий у курсора: появляется по одиночному клику на карточку */}
-        {cardPanel && createPortal(
-          <div
-            data-card-panel
-            className="fixed z-[120] flex items-center gap-0.5 p-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 shadow-2xl rounded-xl"
-            style={{ top: Math.min(cardPanel.y, window.innerHeight - 52), left: Math.min(cardPanel.x, window.innerWidth - 300) }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <span className="px-1.5 text-2xs font-mono font-bold text-slate-400 max-w-[110px] truncate">
-              {tagsById[cardPanel.tagId]?.identifier}
-            </span>
-            <button type="button"
-              onClick={() => { setMultiSelectMode(true); setCardPanel(null); }}
-              className="p-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-500 cursor-pointer"
-              title="Выбрать несколько: дальше каждый клик добавляет карточку (Esc — готово)"
-            >
-              <ClipboardCheck className="w-4 h-4" />
-            </button>
-            <button type="button"
-              onClick={() => { setSelectedTagIds(collectAncestors(cardPanel.tagId)); setCardPanel(null); }}
-              className="p-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-500 cursor-pointer"
-              title="Выделить вверх по ступеньке (родители)"
-            >
-              <ChevronUp className="w-4 h-4" />
-            </button>
-            <button type="button"
-              onClick={() => { setSelectedTagIds(collectDescendants(cardPanel.tagId)); setCardPanel(null); }}
-              className="p-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-500 cursor-pointer"
-              title="Выделить вниз по лестнице (дочерние)"
-            >
-              <ChevronDown className="w-4 h-4" />
-            </button>
-            {dupCountOf(cardPanel.tagId) > 1 && (
-              <button type="button"
-                onClick={() => { openDuplicates(cardPanel.tagId); setCardPanel(null); }}
-                className="p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500 cursor-pointer"
-                title={`Найти дубли (${dupCountOf(cardPanel.tagId)})`}
-              >
-                <AlertTriangle className="w-4 h-4" />
-              </button>
-            )}
-            <button type="button" onClick={() => { openWhereUsed('tag', cardPanel.tagId); setCardPanel(null); }}
-              title="Карточка связей: оборудование, документы, файлы, ВДР"
-              className="p-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-600 cursor-pointer">
-              <Network className="w-4 h-4" />
-            </button>
-            <button type="button"
-              onClick={() => {
-                const ids = selectedTagIds.size > 0 ? Array.from(selectedTagIds) : [cardPanel.tagId];
-                shareTagsInChat(ids);
-                setCardPanel(null);
-              }}
-              className="p-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-600 cursor-pointer"
-              title="Поделиться в рабочем чате"
-            >
-              <Link2 className="w-4 h-4" />
-            </button>
-            <button type="button"
-              onClick={() => { setEditingTag(tagsById[cardPanel.tagId]); setCardPanel(null); }}
-              className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-500 cursor-pointer"
-              title="Редактировать тег"
-            >
-              <Edit2 className="w-4 h-4" />
-            </button>
-          </div>,
-          document.body
+        {/* Условие важно, а не косметика: этот блок лежит внутри
+            AnimatePresence mode="wait", а тот допускает ровно одного ребёнка.
+            Безусловный компонент делал детей двумя — motion ругался в консоль,
+            перехватчик журнала на это предупреждение обновлял виджет прямо во
+            время отрисовки, и React сообщал об обновлении при рендере. Раньше
+            здесь стояли три отдельных условия, и пустых детей не возникало */}
+        {(cardMenu || cardPanel || multiSelectMode) && (
+        <CardActions
+          menu={cardMenu}
+          panel={cardPanel}
+          multi={multiSelectMode}
+          selectedCount={selectedTagIds.size}
+          codeOf={(id) => tagsById[id]?.identifier || ''}
+          dupCountOf={dupCountOf}
+          onCloseMenu={() => setCardMenu(null)}
+          onClosePanel={() => setCardPanel(null)}
+          onSelectAncestors={(id) => setSelectedTagIds(collectAncestors(id))}
+          onSelectDescendants={(id) => setSelectedTagIds(collectDescendants(id))}
+          onOpenDuplicates={openDuplicates}
+          onWhereUsed={(id) => openWhereUsed('tag', id)}
+          onShare={(id) => shareTagsInChat(selectedTagIds.size > 0 ? Array.from(selectedTagIds) : [id])}
+          onShowOnBoard={(id) => { setActiveTab('board'); setTimeout(() => centerOnTag(id), 150); }}
+          onClearSelection={() => setSelectedTagIds(new Set())}
+          onEdit={(id) => setEditingTag(tagsById[id])}
+          onStartMulti={() => setMultiSelectMode(true)}
+          onStopMulti={() => setMultiSelectMode(false)}
+        />
         )}
 
-        {/* Индикатор режима «Выбрать несколько» */}
-        {multiSelectMode && createPortal(
-          <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[115] flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-xl shadow-lg text-xs font-semibold">
-            <ClipboardCheck className="w-4 h-4" />
-            Мультивыбор: {selectedTagIds.size} — клик добавляет карточку
-            <button type="button"
-              onClick={() => setMultiSelectMode(false)}
-              className="ml-1 px-2 py-0.5 rounded-lg bg-white/20 hover:bg-white/30 cursor-pointer"
-              title="Завершить (Esc)"
-            >
-              Готово
-            </button>
-          </div>,
-          document.body
-        )}
-
-        {/* Панель дублей: список позиций с тем же кодом, колесо мыши листает и перемещает вид */}
-        {dupPanel && createPortal(
-          <div
-            ref={dupPanelRef}
-            className="fixed right-4 top-28 z-[118] w-72 bg-white/97 dark:bg-slate-950/97 backdrop-blur-md border border-rose-200 dark:border-rose-900 rounded-lg shadow-2xl overflow-hidden"
-          >
-            <div className="flex items-center justify-between px-3 py-2 bg-rose-50/80 dark:bg-rose-950/30 border-b border-rose-100 dark:border-rose-900/60">
-              <div className="min-w-0">
-                <div className="text-xs font-bold text-rose-700 dark:text-rose-300 truncate">Дубли: {dupPanel.code}</div>
-                <div className="text-2xs text-slate-400">колесо мыши — листать · Esc — закрыть</div>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <span className="text-2xs font-mono font-bold text-rose-600 dark:text-rose-400">
-                  {dupPanel.activeIdx + 1} / {dupPanel.ids.length}
-                </span>
-                <button type="button"
-                  onClick={() => setDupPanel(null)}
-                  className="p-1 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/50 text-slate-400 cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-            <div className="max-h-72 overflow-y-auto p-1.5 space-y-0.5">
-              {dupPanel.ids.map((id, i) => {
-                const t = tagsById[id];
-                if (!t) return null;
-                const m = parseTagMetadata(t);
-                const isActive = i === dupPanel.activeIdx;
-                return (
-                  <button type="button"
-                    key={id}
-                    onClick={() => gotoDup(i)}
-                    onMouseEnter={() => { if (!isActive) gotoDup(i); }}
-                    className={`w-full text-left px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer border ${
-                      isActive
-                        ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800'
-                        : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-900'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono font-bold text-slate-800 dark:text-slate-100">{i + 1}. {t.identifier}</span>
-                      {isActive && <Eye className="w-3.5 h-3.5 text-rose-500 shrink-0" />}
-                    </div>
-                    <div className="text-2xs text-slate-400 truncate mt-0.5">
-                      {m.mainName || 'Без наименования'} · {t.department || '—'}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>,
-          document.body
+        {dupPanel && (
+          <DuplicatesPanel
+            code={dupPanel.code}
+            items={dupPanel.ids.map((id) => {
+              const t = tagsById[id];
+              return {
+                id,
+                code: t?.identifier || '',
+                name: t ? (parseTagMetadata(t).mainName || '') : '',
+                department: t?.department || '',
+              };
+            })}
+            activeIdx={dupPanel.activeIdx}
+            panelRef={dupPanelRef}
+            onGo={gotoDup}
+            onClose={() => setDupPanel(null)}
+          />
         )}
 
         {/* Панель выделения для вкладок «Дерево связей» и «Спецификация» */}

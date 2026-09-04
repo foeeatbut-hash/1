@@ -97,6 +97,22 @@ export function groupById(groups: DeskGroup[], deskId: string): DeskGroup | null
   return groups.find((g) => groupIdOf(g) === deskId) || null;
 }
 
+/**
+ * Что лежит в папке — значки в том порядке, в каком их складывали.
+ *
+ * Искать надо среди ВСЕХ значков стола, включая те, что папка сама же и
+ * спрятала. Звучит очевидно, а стоило пустой папки: стол собирал справочник
+ * из уже отфильтрованного списка, где спрятанного не было, да ещё и без
+ * значков программ — те рождаются отдельно, при сборке стола. Папка из двух
+ * программ находила ноль значков и открывалась белым полотном.
+ *
+ * Отсюда и правило: `pool` — это полный список ДО фильтра по спрятанным.
+ */
+export function folderItems<T extends { id: string }>(group: DeskGroup, pool: T[]): T[] {
+  const byId = new Map(pool.map((i) => [i.id, i]));
+  return group.items.map((id) => byId.get(id)).filter(Boolean) as T[];
+}
+
 // ── Хранение ────────────────────────────────────────────────────────────────
 
 const KEY = 'flux_desk_groups';

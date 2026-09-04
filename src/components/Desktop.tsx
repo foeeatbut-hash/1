@@ -34,7 +34,7 @@ import {
   type DeskItem, type SortBy,
 } from '../lib/desktop';
 import { deskMetric, DESK_SCALES } from '../lib/metrics';
-import { hiddenIds, groupIdOf, groupById } from '../lib/deskGroups';
+import { hiddenIds, groupIdOf, groupById, folderItems } from '../lib/deskGroups';
 import { deskAction, isTyping } from '../lib/deskKeys';
 import { appsFor, openHref } from '../lib/fileTypes';
 import { filesFrom, carriesFiles, uploadDropped } from '../lib/dropUpload';
@@ -108,12 +108,20 @@ export default function Desktop() {
   }, []);
 
   /**
+   * Полный список значков стола — ДО того, как папки что-то спрячут.
+   *
+   * Отдельно от `all` не для красоты: содержимое папки ищется именно здесь.
+   * Пока папка искала свои значки в уже отфильтрованном списке, она находила
+   * ноль (её же значки оттуда и убраны) и открывалась пустым белым полотном.
+   */
+  const base = React.useMemo(() => withApps(items, apps), [items, apps]);
+
+  /**
    * Что лежит на столе с учётом папок: спрятанное в папках со стола убирается,
    * а сами папки встают значками. Иначе значок был бы виден и там и там —
    * и человек не понимал бы, где он на самом деле.
    */
   const all = React.useMemo(() => {
-    const base = withApps(items, apps);
     const hidden = hiddenIds(groups);
     const byId = new Map(base.map((i) => [i.id, i]));
     const folders: DeskItem[] = groups.map((g) => ({
@@ -124,7 +132,7 @@ export default function Desktop() {
       members: g.items.filter((i) => byId.has(i)),
     }));
     return [...folders, ...base.filter((i) => !hidden.has(i.id))];
-  }, [items, apps, groups]);
+  }, [base, groups]);
   const view = React.useMemo(() => layout(all, cells, area, metric), [all, cells, area, metric]);
 
   /**
@@ -654,8 +662,9 @@ export default function Desktop() {
       {folder && (() => {
         const g = groupById(groups, folder);
         if (!g) return null;
-        const byId = new Map(all.concat(items).map((i) => [i.id, i]));
-        const inside = g.items.map((id) => byId.get(id)).filter(Boolean) as DeskItem[];
+        // Из ПОЛНОГО списка: значки программ живут только в нём, а спрятанное
+        // папкой из `all` уже вычищено — вместе оба промаха давали пустую папку
+        const inside = folderItems(g, base);
         return (
           <DeskFolder
             group={g}
