@@ -173,7 +173,7 @@ export default function SettingsScreen() {
 
       {/* Содержимое категории */}
       <div className="flex-1 min-w-0 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-lg shadow-xs overflow-y-auto p-3 @[700px]:p-6">
-        {section === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} density={density} setDensity={setDensity} shell={shell} setShell={setShell} />}
+        {section === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} density={density} setDensity={setDensity} shell={shell} setShell={setShell} addToast={addToast} />}
         {section === 'roles' && <RolesSection user={user} addToast={addToast} />}
         {section === 'management' && <ManagementSection isAdmin={isAdmin} addToast={addToast} />}
         {section === 'equipment' && <EquipmentSection isAdmin={isAdmin} addToast={addToast} />}

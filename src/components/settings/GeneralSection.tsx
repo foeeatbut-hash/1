@@ -10,8 +10,9 @@ import { Sun, Moon } from 'lucide-react';
 import SectionShell from './SectionShell';
 import ToggleRow from './ToggleRow';
 import FluxLogo from '../FluxLogo';
+import OnlineVisibility from './OnlineVisibility';
 
-export default function GeneralSection({ theme, toggleTheme, density, setDensity, shell, setShell }: any) {
+export default function GeneralSection({ theme, toggleTheme, density, setDensity, shell, setShell, addToast }: any) {
   return (
     <SectionShell title="Общие" desc="Внешний вид программы.">
       <div className="space-y-4">
@@ -122,6 +123,10 @@ export default function GeneralSection({ theme, toggleTheme, density, setDensity
             />
           </div>
         </div>
+
+        {/* Присутствие. Блок сам решает, показываться ли: право скрыть себя
+            есть только у главного администратора, и спрашивается оно у сервера */}
+        <OnlineVisibility addToast={addToast} />
 
         <StartupSection />
 

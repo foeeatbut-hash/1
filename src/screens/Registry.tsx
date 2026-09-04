@@ -53,6 +53,9 @@ import ExchangeTab from '../components/registry/ExchangeTab';
 import TagComments from '../components/registry/TagComments';
 import { toCsv, fileName, type Column } from '../lib/exchange';
 import { TAG_EXCHANGE_COLUMNS, buildTagExchange, buildSegmentTable } from '../lib/tagExchange';
+import {
+  linkChild, unlinkChild, whyNotLink, repairTagTree, type TreeNode, type TreePatch,
+} from '../lib/tagTree';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm, openAlert, openPrompt } = useModalStore.getState();
@@ -818,6 +821,33 @@ export default function Registry() {
         ...t,
         parsedMetadata: parseTagMetadata(t)
       }));
+      /**
+       * Выправить дерево, если его успели испортить.
+       *
+       * Прежняя строка «Родительский тег» писала выбранного родителя в
+       * СОБСТВЕННЫЙ список детей тега: связь смотрела в обе стороны сразу, и
+       * дерево читалось наизнанку — родитель оказывался ребёнком своего же
+       * ребёнка. Строку убрали, но записи в базе остались, и сами они не
+       * выпрямятся. Правки нужны редко: здоровое дерево не даёт ни одной.
+       */
+      const patches = repairTagTree(tagsWithParsedMetadata.map((t: any) => ({
+        id: t.id,
+        connections: t.parsedMetadata.connections || [],
+        parentId: t.parsedMetadata.parentId,
+      })));
+      for (const patch of patches) {
+        const t = tagsWithParsedMetadata.find((x: any) => x.id === patch.id);
+        if (!t) continue;
+        t.parsedMetadata = { ...t.parsedMetadata, connections: patch.connections, parentId: patch.parentId };
+        t.metadata = JSON.stringify(t.parsedMetadata);
+        void fetch(`/api/tags/${patch.id}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ metadata: t.metadata }),
+        }).catch(() => { /* не записалось — выправим на следующей загрузке */ });
+      }
+      if (patches.length) {
+        addToast(`Связи тегов выправлены: ${patches.length}`, 'info');
+      }
       setTags(tagsWithParsedMetadata);
       loadedTagsRef.current = tagsWithParsedMetadata;
       // Выделение не должно ссылаться на удалённые теги (иначе «Выбрано: 2»
@@ -1234,7 +1264,9 @@ export default function Registry() {
         x: 480,
         y: 120,
         parentId: tagAhu.id,
-        connections: [tagAhu.id],
+        // Дети перечисляет РОДИТЕЛЬ. Здесь стоял сам родитель, и связь смотрела
+        // в обе стороны сразу — с этого дерево и начинало читаться наизнанку
+        connections: [],
         descriptions: [
           { id: '3', text: 'Асинхронный двигатель вентилятора', comment: 'Маркировка BLM. Измеренная температура подшипников 42C.', status: 'actual' }
         ]
@@ -1252,16 +1284,12 @@ export default function Registry() {
       });
       const { tag: tagBlm } = await rBlm.json();
 
-      // Update Ahu master with BLM reference
-      ahuMetadata.connections = [tagBlm.id];
-      await saveTagMetadata(tagAhu.id, ahuMetadata);
-
       // 3. Motor Fan #2 (BLM-002)
       const blm2Metadata: ParsedMetadata = {
         x: 480,
         y: 360,
         parentId: tagAhu.id,
-        connections: [tagAhu.id],
+        connections: [],
         descriptions: [
           { id: '23', text: 'Резервный двигатель вентилятора В-2', comment: 'Шифр BLM. Режим ожидания активен.', status: 'actual' }
         ]
@@ -1279,12 +1307,17 @@ export default function Registry() {
       });
       const { tag: tagBlm2 } = await rBlm2.json();
 
+      // Оба двигателя — дети установки, и записывает их установка: список
+      // детей ведёт родитель, а не наоборот
+      ahuMetadata.connections = [tagBlm.id, tagBlm2.id];
+      await saveTagMetadata(tagAhu.id, ahuMetadata);
+
       // 4. Component Junction Box
       const jbMetadata: ParsedMetadata = {
         x: 880,
         y: 200,
         parentId: tagBlm.id,
-        connections: [tagBlm.id],
+        connections: [],
         descriptions: [
           { id: '4', text: 'Клеммная коробка двигателя JB', comment: 'Пылевлагозащита обеспечена.', status: 'actual' },
           { id: '5', text: 'Кабельные гермовводы', comment: 'Ревизия прокладок успешна.', status: 'actual' }
@@ -1591,37 +1624,20 @@ export default function Registry() {
       
       if (hoveredPort && hoveredPort.tagId !== sourceId) {
         const destId = hoveredPort.tagId;
-        const sourceTag = tagsById[sourceId];
-        const destTag = tagsById[destId];
-
-        if (sourceTag && destTag && collectDescendants(destId).has(sourceId)) {
-          // Цикл: целевой тег — предок источника. Такая связь ломает дерево.
-          addToast('Нельзя соединить: получится цикл (тег — предок источника)', 'error');
-        } else if (sourceTag && destTag) {
-          const sourceMeta = { ...parseTagMetadata(sourceTag) };
-          const destMeta = { ...parseTagMetadata(destTag) };
-
-          // If reconnect target exists, let's remove from old target first
+        // Правила связи одни на всю программу (lib/tagTree): линию тянут мышью
+        // или заводят в карточке — дерево от этого не должно получаться разным
+        const why = whyNotLink(treeNodes(), sourceId, destId);
+        if (why) {
+          addToast(why, 'error');
+        } else {
+          // Перетянули линию с прежнего ребёнка на нового — прежнюю снимаем
+          let nodes = treeNodes();
           if (reconnectTargetId && reconnectTargetId !== destId) {
-            sourceMeta.connections = sourceMeta.connections.filter(id => id !== reconnectTargetId);
-            
-            const oldTargetTag = tagsById[reconnectTargetId];
-            if (oldTargetTag) {
-              const oldTargetMeta = { ...parseTagMetadata(oldTargetTag) };
-              if (oldTargetMeta.parentId === sourceId) {
-                oldTargetMeta.parentId = undefined;
-                await saveTagMetadata(reconnectTargetId, oldTargetMeta);
-              }
-            }
+            const cut = unlinkChild(nodes, sourceId, reconnectTargetId);
+            await applyTreePatches(cut);
+            nodes = withPatches(nodes, cut);
           }
-
-          destMeta.parentId = sourceId;
-          if (!sourceMeta.connections.includes(destId)) {
-            sourceMeta.connections = [...sourceMeta.connections, destId];
-          }
-
-          await saveTagMetadata(sourceId, sourceMeta);
-          await saveTagMetadata(destId, destMeta);
+          await applyTreePatches(linkChild(nodes, sourceId, destId));
         }
       } else {
         // Отпустили в пустоту: связь возвращается на место (без вопросов).
@@ -1645,47 +1661,54 @@ export default function Registry() {
     setIsPanning(false);
   };
 
-  const handleRemoveConnection = async (sourceId: string, targetId: string) => {
-    const tag = tagsById[sourceId];
-    if (!tag) return;
+  /**
+   * Список тегов глазами дерева — для общих правил (lib/tagTree).
+   *
+   * Пересобирается на каждое действие, а не хранится: связей у тега единицы, а
+   * рассогласование двух списков стоило владельцу перевёрнутого дерева.
+   */
+  const treeNodes = (): TreeNode[] => tags.map((t) => {
+    const m = parseTagMetadata(t);
+    return { id: t.id, connections: m.connections || [], parentId: m.parentId };
+  });
 
-    const meta = { ...parseTagMetadata(tag) };
-    meta.connections = meta.connections.filter(id => id !== targetId);
-    if (meta.parentId === targetId) {
-      meta.parentId = undefined;
-    }
+  /**
+   * Наложить правки на список в памяти.
+   *
+   * Нужно потому, что запись в базу не меняет `tags` сию секунду: React
+   * обновит состояние позже. Два действия подряд (снять прежнюю связь и
+   * поставить новую) без этого считались бы от одного и того же устаревшего
+   * дерева, и второе отменяло бы первое.
+   */
+  const withPatches = (nodes: TreeNode[], patches: TreePatch[]): TreeNode[] =>
+    nodes.map((n) => {
+      const p = patches.find((x) => x.id === n.id);
+      return p ? { id: n.id, connections: p.connections, parentId: p.parentId } : n;
+    });
 
-    await saveTagMetadata(sourceId, meta);
-
-    // parentId дочернего тега тоже чистим — иначе дерево «помнит» разорванную связь
-    const child = tagsById[targetId];
-    if (child) {
-      const childMeta = { ...parseTagMetadata(child) };
-      if (childMeta.parentId === sourceId) {
-        childMeta.parentId = undefined;
-        await saveTagMetadata(targetId, childMeta);
-      }
+  /** Записать правки дерева: обе стороны связи одним движением */
+  const applyTreePatches = async (patches: TreePatch[]) => {
+    for (const patch of patches) {
+      const tag = tagsById[patch.id];
+      if (!tag) continue;
+      const meta = { ...parseTagMetadata(tag), connections: patch.connections, parentId: patch.parentId };
+      await saveTagMetadata(patch.id, meta);
     }
   };
 
+  const handleRemoveConnection = async (sourceId: string, targetId: string) => {
+    await applyTreePatches(unlinkChild(treeNodes(), sourceId, targetId));
+  };
+
   // Создание связи «родитель → дочерний» из карточки (без перетаскивания линии).
-  // Защита от циклов: нельзя подключить собственного предка как дочерний тег.
+  // Правила — общие (lib/tagTree): у тега один родитель, кольца не заводятся,
+  // а обе записи связи ставятся вместе, а не порознь в трёх местах
   const handleAddConnection = async (parentId: string, childId: string) => {
-    if (parentId === childId) return;
-    const parentTag = tagsById[parentId];
-    const childTag = tagsById[childId];
-    if (!parentTag || !childTag) return;
-    if (collectDescendants(childId).has(parentId)) {
-      addToast('Нельзя создать цикл: этот тег — предок текущего', 'error');
-      return;
-    }
-    const parentMeta = { ...parseTagMetadata(parentTag) };
-    if ((parentMeta.connections || []).includes(childId)) return;
-    parentMeta.connections = [...(parentMeta.connections || []), childId];
-    const childMeta = { ...parseTagMetadata(childTag) };
-    childMeta.parentId = parentId;
-    await saveTagMetadata(parentId, parentMeta);
-    await saveTagMetadata(childId, childMeta);
+    const why = whyNotLink(treeNodes(), parentId, childId);
+    if (why) { addToast(why, 'error'); return; }
+    const patches = linkChild(treeNodes(), parentId, childId);
+    if (!patches.length) return;
+    await applyTreePatches(patches);
     addToast('Связь создана', 'success');
   };
 
@@ -2406,35 +2429,6 @@ export default function Registry() {
   };
 
   // Re-assign logical parenting
-  const handleUpdateParent = async (tagId: string, parentId: string) => {
-    const tag = tags.find(t => t.id === tagId);
-    if (!tag) return;
-
-    const meta = parseTagMetadata(tag);
-    const oldParentId = meta.parentId;
-    
-    if (parentId === 'none') {
-      meta.parentId = undefined;
-      if (oldParentId) {
-        meta.connections = meta.connections.filter(id => id !== oldParentId);
-      }
-    } else {
-      meta.parentId = parentId;
-      if (!meta.connections.includes(parentId)) {
-        meta.connections.push(parentId);
-      }
-      if (oldParentId && oldParentId !== parentId) {
-        meta.connections = meta.connections.filter(id => id !== oldParentId);
-      }
-    }
-
-    await saveTagMetadata(tagId, meta);
-    
-    if (editingTag && editingTag.id === tagId) {
-      setEditingTag({ ...tag, metadata: JSON.stringify(meta) });
-    }
-  };
-
   const handleSort = (key: string) => {
     setSortConfig(current => ({
       key,
@@ -3471,7 +3465,7 @@ export default function Registry() {
                           onMouseDown={(e) => handlePortMouseDown(e, tag.id, 'left')}
                           onMouseEnter={() => { if (draggedTagId) return; setHoveredPort({ tagId: tag.id, side: 'left' }); }}
                           onMouseLeave={() => setHoveredPort(null)}
-                          title="Родительский ввод (Left Port)"
+                          title="Сюда приходит линия от родителя"
                         >
                           <div className="w-1.5 h-1.5 rounded-full bg-slate-700 dark:bg-slate-300 m-auto mt-[4px]" />
                         </div>
@@ -3485,7 +3479,7 @@ export default function Registry() {
                           onMouseDown={(e) => handlePortMouseDown(e, tag.id, 'right')}
                           onMouseEnter={() => { if (draggedTagId) return; setHoveredPort({ tagId: tag.id, side: 'right' }); }}
                           onMouseLeave={() => setHoveredPort(null)}
-                          title="Дочерний выход (Right Port)"
+                          title="Отсюда тянут линию к дочернему тегу"
                         >
                           <div className="w-1.5 h-1.5 rounded-full bg-slate-700 dark:bg-slate-300 m-auto mt-[4px]" />
                         </div>
@@ -5388,25 +5382,6 @@ export default function Registry() {
                       className={cardField}
                     />
                   </div>
-                </div>
-
-                {/* Родительский тег (связь вверх) — автосохранение на выбор */}
-                <div className="space-y-1 text-left">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Родительский тег</label>
-                  <CustomSelect
-                    value={parseTagMetadata(editingTag).parentId || 'none'}
-                    onChange={(val) => { handleUpdateParent(editingTag.id, val); flashSaved(); }}
-                    placeholder="-- Нет родительского тега --"
-                    options={[
-                      { value: "none", label: "-- Нет родительского тега --" },
-                      ...tags
-                        .filter(t => t.id !== editingTag.id)
-                        .map(t => ({
-                          value: t.id,
-                          label: `${t.identifier} (${t.department || 'Комплексный'})`
-                        }))
-                    ]}
-                  />
                 </div>
 
                 {/* Дополнительные поля — те, что заведены в «Справочнике».

@@ -26,6 +26,8 @@ model User {
   permissions      String?       // JSON персональных прав: {"project.create":{"enabled":true,"until":null}}
   signatureImage   String?
   signatureHeightMm Int          @default(8)
+  hideOnline        Boolean      @default(false)
+  lastLoginAt       DateTime?
   createdAt        DateTime      @default(now())
   createdFiles     FileNode[]    @relation("FileCreator")
   updatedFiles     FileNode[]    @relation("FileUpdater")

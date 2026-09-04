@@ -70,7 +70,7 @@ console.log('Сервер считает сокеты, а не людей');
   check('появление объявляется только для первого сокета',
     /online\.set\(uid, new Set\(\[socket\.id\]\)\);\s*[\s\S]{0,400}?io\.emit\('presence:online'/.test(src));
   check('уход объявляется, когда ушёл последний сокет',
-    /if \(set && set\.size === 0\)[\s\S]{0,200}?io\.emit\('presence:offline'/.test(src));
+    /if \(set && set\.size === 0\)[\s\S]{0,500}?io\.emit\('presence:offline'/.test(src));
   check('вошедшему выдаётся весь список', /socket\.emit\('presence:list'/.test(src));
   check('администратор не исключён из присутствия',
     !/presence[\s\S]{0,200}role\s*!==?\s*'ADMIN'/.test(src));
@@ -87,7 +87,7 @@ console.log('Сервер считает сокеты, а не людей');
 // встроенный. Пока присутствие жило в памяти сервера, каждый сидел в своей
 // комнате один и все были для него «не в сети». Теперь свежесть отметки решает
 // всё, и числа здесь важнее кода.
-import { isFresh, rosterOf, mergeLocal, BEAT_MS, FRESH_MS } from '../src/lib/presenceTime';
+import { isFresh, rosterOf, mergeLocal, hideFrom, lastLoginLabel, BEAT_MS, FRESH_MS } from '../src/lib/presenceTime';
 
 console.log('Свежесть отметки');
 {
@@ -125,6 +125,86 @@ console.log('Свои и чужие вместе');
     mergeLocal(['a'], ['b']).sort().join() === 'a,b');
   check('повтор не удваивает', mergeLocal(['a'], ['a']).join() === 'a');
   check('пустые не попадают', mergeLocal([], ['']).length === 0);
+}
+
+console.log('Скрытое присутствие');
+{
+  const roster = { online: ['a', 'b', 'c'], lastSeen: { a: 10, b: 20, c: 30 } };
+
+  const seen = hideFrom(roster, ['b']);
+  check('скрытого нет среди тех, кто в сети', !seen.online.includes('b'), seen.online);
+  // Половинчатое скрытие не скрывает ничего: «был(а) минуту назад» отвечает на
+  // тот же вопрос, что и зелёная точка
+  check('и когда его видели — тоже не видно', !('b' in seen.lastSeen), seen.lastSeen);
+  check('остальных это не касается',
+    seen.online.join() === 'a,c' && seen.lastSeen.a === 10 && seen.lastSeen.c === 30, seen);
+
+  const mine = hideFrom(roster, ['b'], 'b');
+  check('себя скрывший видит: иначе он решит, что связи нет', mine.online.includes('b'), mine.online);
+  check('и своё время тоже', mine.lastSeen.b === 20, mine.lastSeen);
+
+  check('скрывать некого — список тот же объект', hideFrom(roster, []) === roster);
+  check('скрыт не пойми кто — список не портится',
+    hideFrom(roster, ['нет-такого']).online.join() === 'a,b,c');
+}
+
+console.log('Когда заходил последний раз');
+{
+  const now = Date.parse('2026-09-04T15:00:00');
+  check('сегодняшний вход — со временем', /^сегодня в \d\d:\d\d$/.test(lastLoginLabel(now - 3600_000, now)),
+    lastLoginLabel(now - 3600_000, now));
+  check('вчерашний — тоже', /^вчера в \d\d:\d\d$/.test(lastLoginLabel(Date.parse('2026-09-03T09:15:00'), now)),
+    lastLoginLabel(Date.parse('2026-09-03T09:15:00'), now));
+  // Ночь считается по календарю, а не по «прошло 24 часа»: вход в 23:50
+  // вчера — это вчера, даже если с тех пор прошло полтора часа
+  check('полночь не превращает вчера в сегодня',
+    lastLoginLabel(Date.parse('2026-09-03T23:50:00'), Date.parse('2026-09-04T01:20:00')).startsWith('вчера'),
+    lastLoginLabel(Date.parse('2026-09-03T23:50:00'), Date.parse('2026-09-04T01:20:00')));
+  check('давний вход — датой без времени',
+    lastLoginLabel(Date.parse('2026-08-12T18:30:00'), now) === '12 авг.',
+    lastLoginLabel(Date.parse('2026-08-12T18:30:00'), now));
+  check('прошлый год отмечен годом — иначе он читается как позавчера',
+    lastLoginLabel(Date.parse('2025-08-12T18:30:00'), now).includes('2025'),
+    lastLoginLabel(Date.parse('2025-08-12T18:30:00'), now));
+  // Не заходивший ни разу — это не «неизвестно когда», а отдельный ответ:
+  // по нему видно, что учётку завели и забыли
+  check('не заходивший назван прямо', lastLoginLabel(null, now) === 'ни разу не заходил(а)');
+  check('мусор вместо времени не выдумывает дату', lastLoginLabel('не дата', now) === 'ни разу не заходил(а)');
+  check('секунд нет нигде', !/\d\d:\d\d:\d\d/.test(lastLoginLabel(now - 1000, now)));
+}
+
+console.log('Раздельчик присутствия в Сотрудниках');
+{
+  const panel = readFileSync(new URL('../src/components/users/PresencePanel.tsx', import.meta.url), 'utf8');
+  check('оба вопроса разведены', panel.includes('Сейчас в программе') && panel.includes('Заходили последними'));
+  check('«в сети» берётся у присутствия, а не у отметки входа', panel.includes('onlineIds.includes'));
+  check('«когда заходил» берётся у отметки входа', panel.includes('lastLoginLabel'));
+  const screen = readFileSync(new URL('../src/screens/UsersManagement.tsx', import.meta.url), 'utf8');
+  check('раздельчик стоит в Сотрудниках', screen.includes('<PresencePanel'));
+
+  // Скрытый не должен просвечивать через список сотрудников: там время входа
+  const routes = readFileSync(new URL('../server/routes/users.ts', import.meta.url), 'utf8');
+  check('признак скрытности наружу не отдаётся',
+    /\{ password, signatureImage, hideOnline, \.\.\.u \}/.test(routes));
+  check('и время входа скрытого — тоже',
+    /lastLoginAt: hideOnline && u\.id !== meId \? null/.test(routes));
+}
+
+console.log('Скрыться может только администратор');
+{
+  const routes = readFileSync(new URL('../server/routes/users.ts', import.meta.url), 'utf8');
+  check('переключатель закрыт правом главного администратора',
+    /put\('\/api\/presence\/visibility'[\s\S]{0,600}?isTopAdmin\(req\)/.test(routes));
+  // Скрыть можно только себя: чужая видимость — это подделка ответа за другого
+  check('меняется только своя видимость',
+    /presence\/visibility'[\s\S]{0,900}?prisma\.user\.update\(\{ where: \{ id: me\.id \}/.test(routes));
+
+  const srv = readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+  check('список скрытых кэшируется, а не спрашивается на каждом ударе сердца',
+    srv.includes('let hiddenOnline') && srv.includes('refreshHiddenOnline'));
+  check('скрытый не объявляется ушедшим', /if \(!isHidden\(uid\)\) io\.emit\('presence:offline'/.test(srv));
+  check('скрытый получает свой список лично',
+    /broadcastTo: \(userId, roster\) => io\.to\(`user:\$\{userId\}`\)/.test(srv));
 }
 
 if (failed) {

@@ -108,6 +108,12 @@ const api = async (method: string, url: string, body?: any) => {
    * оболочке нет вовсе — «Менеджмент» и «Блокнот» ищутся в «Пуске». Раньше
    * проверка просто не находила кнопку и объявляла, что раздел не открылся,
    * хотя открыть его было можно.
+   *
+   * В «Пуске» сразу видно только закреплённое, остальное — под «Все
+   * программы», а самый короткий путь и у человека, и здесь один: набрать
+   * название в строке поиска. Проверка, не знавшая про свёрнутый список,
+   * говорила «раздел не открылся» о разделе, который открывается в два
+   * нажатия, — и это её собственный промах, а не дефект программы.
    */
   const clickByName = async (name: string, timeout = 6000) => {
     if (await clickVisible(page.getByRole('button', { name, exact: true }), timeout)) return true;
@@ -116,6 +122,18 @@ const api = async (method: string, url: string, body?: any) => {
     await start.click({ timeout }).catch(() => {});
     await page.waitForTimeout(700);
     const menu = page.getByRole('dialog', { name: 'Пуск' });
+    if (await clickVisible(menu.getByRole('button', { name, exact: true }), 1500)) return true;
+
+    // Не на виду — ищем через строку поиска «Пуска»
+    const search = menu.locator('input').first();
+    if (await search.isVisible().catch(() => false)) {
+      await search.fill(name).catch(() => {});
+      await page.waitForTimeout(600);
+      if (await clickVisible(menu.getByRole('button', { name, exact: true }), timeout)) return true;
+    }
+    // И на всякий случай раскрываем «Все программы»
+    await clickVisible(menu.getByRole('button', { name: /Все программы/i }), 1500);
+    await page.waitForTimeout(500);
     const hit = await clickVisible(menu.getByRole('button', { name, exact: true }), timeout);
     if (!hit) await page.keyboard.press('Escape');
     return hit;

@@ -18,7 +18,7 @@
 import React from 'react';
 import {
   ArrowLeft, ArrowRight, RotateCw, X, Plus, Star, Globe, Home, History,
-  TriangleAlert, ExternalLink, Search, Languages,
+  TriangleAlert, ExternalLink, Search, Languages, Download,
 } from 'lucide-react';
 import { useStore } from '../store/store';
 import { useBrowserStore } from '../store/browserStore';
@@ -26,6 +26,8 @@ import { useToastStore } from '../store/toastStore';
 import { useTranslateStore } from '../store/translateStore';
 import { ENGINES, prettyUrl, tabLabel, hostOf } from '../lib/browserUrl';
 import { useOverlayStore } from '../store/overlayStore';
+import { useDownloadStore } from '../store/downloadStore';
+import DownloadsPanel from '../components/browser/DownloadsPanel';
 
 const api = () => (window as any).electron?.browser || null;
 
@@ -37,13 +39,26 @@ export default function BrowserScreen() {
   const overlays = useOverlayStore((o) => o.count);
   const stageRef = React.useRef<HTMLDivElement>(null);
   const [address, setAddress] = React.useState('');
-  const [showHistory, setShowHistory] = React.useState(false);
+  // Что показано вместо страницы: история, загрузки или ничего
+  const [panel, setPanel] = React.useState<'' | 'history' | 'downloads'>('');
+  const showHistory = panel === 'history';
+  const setShowHistory = (v: boolean | ((p: boolean) => boolean)) =>
+    setPanel((p) => ((typeof v === 'function' ? v(p === 'history') : v) ? 'history' : ''));
   const desktop = !!api();
+  const going = useDownloadStore((s) => s.items.some((d) => d.state === 'progress'));
 
   const active = st.tabs.find((t) => t.id === st.activeId) || null;
   const blank = !active || !active.url;
 
   React.useEffect(() => { void st.load(activeProject?.id || ''); }, [activeProject?.id]);
+
+  // Личная папка загрузок называется логином, а список скачанного — свой у
+  // каждого: за одним компьютером в отделе иногда работают двое
+  const me = useStore((s) => s.user);
+  React.useEffect(() => {
+    useDownloadStore.getState().setWho(me?.id || '');
+    if (me?.symbol) void api()?.setOwner?.(me.symbol);
+  }, [me?.id, me?.symbol]);
 
   // Адресная строка следует за страницей, но не перебивает набор: пока человек
   // печатает, подменять текст под его пальцами нельзя
@@ -59,7 +74,15 @@ export default function BrowserScreen() {
     const offState = b.onState((s: any) => useBrowserStore.getState().applyState(s));
     const offOpened = b.onOpened((p: any) => useBrowserStore.getState().addOpened(p.id, p.url));
     const offFailed = b.onFailed((p: any) => useBrowserStore.getState().setFailed(p.id, p.desc || 'Страница не открылась'));
-    const offDownload = b.onDownload((p: any) => addToast(`Скачивание: ${p.name}`, 'info'));
+    // Скачанное живёт в разделе «Загрузки», а не в исчезающей подсказке: до
+    // этого о файле сообщали один раз и больше нигде не показывали
+    const offDownload = b.onDownload((p: any) => {
+      const before = useDownloadStore.getState().items.find((d) => d.id === p.id);
+      useDownloadStore.getState().apply(p);
+      if (!before) addToast(`Скачивается: ${p.name}`, 'info');
+      else if (p.state === 'done' && before.state !== 'done') addToast(`Скачано: ${p.name}`, 'success');
+      else if (p.state === 'failed' && before.state !== 'failed') addToast(`Не скачалось: ${p.name}`, 'error');
+    });
     return () => { offState?.(); offOpened?.(); offFailed?.(); offDownload?.(); };
   }, [addToast]);
 
@@ -118,9 +141,9 @@ export default function BrowserScreen() {
   React.useEffect(() => {
     const b = api();
     if (!b) return;
-    if (blank || showHistory || overlays > 0) { void b.hide(); return; }
+    if (blank || panel || overlays > 0) { void b.hide(); return; }
     if (st.activeId) { void b.show(st.activeId); place(true); }
-  }, [blank, showHistory, st.activeId, overlays, place]);
+  }, [blank, panel, st.activeId, overlays, place]);
 
   React.useEffect(() => () => { void api()?.hide(); }, []);
 
@@ -180,7 +203,7 @@ export default function BrowserScreen() {
         {st.tabs.map((t) => (
           <div
             key={t.id}
-            onClick={() => { setShowHistory(false); void st.select(t.id); }}
+            onClick={() => { setPanel(''); void st.select(t.id); }}
             onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); void st.closeTab(t.id); } }}
             title={t.url || 'Новая вкладка'}
             className={`${tabBtn} ${t.id === st.activeId && !showHistory
@@ -258,6 +281,14 @@ export default function BrowserScreen() {
         <button type="button" className={navBtn} onClick={() => setShowHistory((v) => !v)} title="История" aria-label="История">
           <History className="w-4 h-4" />
         </button>
+        <button type="button" className={`${navBtn} relative`} aria-label="Загрузки"
+          onClick={() => setPanel((p) => (p === 'downloads' ? '' : 'downloads'))}
+          title="Загрузки — всё скачивается в вашу личную папку">
+          <Download className="w-4 h-4" />
+          {/* Точка, пока файл идёт: раздел не обязан быть открытым, чтобы
+              человек понял, что скачивание живо */}
+          {going && <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-emerald-500" />}
+        </button>
         <button type="button" className={navBtn} disabled={!active?.url} onClick={() => st.act('external')}
           title="Открыть в браузере Windows" aria-label="Открыть снаружи">
           <ExternalLink className="w-4 h-4" />
@@ -286,7 +317,9 @@ export default function BrowserScreen() {
 
       {/* Место страницы: её рисует движок поверх этого прямоугольника */}
       <div ref={stageRef} className="flex-1 min-h-0 relative bg-white dark:bg-slate-950">
-        {showHistory ? (
+        {panel === 'downloads' ? (
+          <DownloadsPanel />
+        ) : showHistory ? (
           <div className="absolute inset-0 overflow-y-auto p-4">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">История</h2>

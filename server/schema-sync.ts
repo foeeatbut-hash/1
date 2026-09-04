@@ -5,9 +5,10 @@
 // новой версии программы не появлялась сама, и базу пришлось бы править вручную.
 //
 // Этот модуль на каждом старте в совместном режиме приводит живую базу к схеме
-// программы: добавляет недостающие таблицы и колонки. ТОЛЬКО ДОБАВЛЯЕТ — ничего
-// не удаляет и не меняет типы, поэтому данные в безопасности. Источник истины —
-// файл prisma/schema.<движок>.prisma, который едет внутри обновления программы.
+// программы: добавляет недостающие таблицы и колонки и РАСШИРЯЕТ узкие
+// текстовые. Ничего не удаляет и не сужает, поэтому данные в безопасности.
+// Источник истины — файл prisma/schema.<движок>.prisma, который едет внутри
+// обновления программы.
 
 type Dialect = 'postgresql' | 'mysql' | 'sqlite';
 
@@ -59,7 +60,20 @@ function quoteStr(s: string): string {
 }
 
 // Тип колонки в SQL для конкретного движка
-function sqlType(dialect: Dialect, base: string, dbAttr: string | null): string {
+/**
+ * Тип колонки в SQL.
+ *
+ * `indexed` — участвует ли строка в индексе (@id, @unique, @@index, @@unique).
+ * Это не украшение, а причина, по которой у MySQL строки вообще стали
+ * VARCHAR(191): TEXT там нельзя проиндексировать без длины префикса, а 191 —
+ * предел ключа для utf8mb4.
+ *
+ * Всё остальное VARCHAR(191) быть не должно, и это стоило владельцу рабочего
+ * дня: права роли — JSON со списком доступов — в 191 символ не влезали, и
+ * общая база отвечала «Data too long». Наружу это выходило как «роль не
+ * создаётся» без единого понятного слова. Не индексируемая строка теперь TEXT.
+ */
+function sqlType(dialect: Dialect, base: string, dbAttr: string | null, indexed = false): string {
   if (dialect === 'sqlite') return sqliteType(base);
   if (dbAttr) {
     const m = dbAttr.match(/^(\w+)(\([^)]*\))?$/);
@@ -75,7 +89,7 @@ function sqlType(dialect: Dialect, base: string, dbAttr: string | null): string 
     if (t === 'blob' || t === 'mediumblob') return dialect === 'mysql' ? t.toUpperCase() : 'BYTEA';
   }
   switch (base) {
-    case 'String': return dialect === 'mysql' ? 'VARCHAR(191)' : 'TEXT';
+    case 'String': return dialect === 'mysql' ? (indexed ? 'VARCHAR(191)' : 'TEXT') : 'TEXT';
     // Без указания размера двоичное поле берётся самым вместительным: в нём
     // едет файл обновления, а BLOB на 64 КБ для него бесполезен
     case 'Bytes': return dialect === 'mysql' ? 'LONGBLOB' : 'BYTEA';
@@ -86,7 +100,7 @@ function sqlType(dialect: Dialect, base: string, dbAttr: string | null): string 
     case 'BigInt': return 'BIGINT';
     case 'Decimal': return 'DECIMAL(65,30)';
     case 'Json': return dialect === 'mysql' ? 'JSON' : 'JSONB';
-    default: return dialect === 'mysql' ? 'VARCHAR(191)' : 'TEXT';
+    default: return dialect === 'mysql' ? (indexed ? 'VARCHAR(191)' : 'TEXT') : 'TEXT';
   }
 }
 
@@ -127,6 +141,23 @@ export function parsePrismaSchema(dialect: Dialect, text: string): Model[] {
     const name = mm[1];
     const body = mm[2];
     const columns: Column[] = [];
+    // Поля, попавшие в индексы таблицы: @@index([a, b]) и @@unique([a, b]).
+    // Их тип обязан оставаться индексируемым — у MySQL это VARCHAR, а не TEXT
+    const indexed = new Set<string>();
+    for (const im of body.matchAll(/@@(?:index|unique)\s*\(\s*\[([^\]]*)\]/g)) {
+      for (const f of im[1].split(',')) {
+        const clean = f.trim().replace(/\(.*$/, '');
+        if (clean) indexed.add(clean);
+      }
+    }
+    // Поля связей — те же ключи: по ним ищут («файлы этой папки», «теги этого
+    // проекта»), и TEXT здесь означал бы перебор всей таблицы на каждый запрос
+    for (const rm of body.matchAll(/@relation\([^)]*fields:\s*\[([^\]]*)\]/g)) {
+      for (const f of rm[1].split(',')) {
+        const clean = f.trim();
+        if (clean) indexed.add(clean);
+      }
+    }
     for (const lineRaw of body.split('\n')) {
       const line = lineRaw.replace(/\/\/.*$/, '').trim();
       if (!line || line.startsWith('@@')) continue;
@@ -144,7 +175,7 @@ export function parsePrismaSchema(dialect: Dialect, text: string): Model[] {
         ?? (attrs.match(/@default\(([\s\S]*)\)/) || [])[1] ?? null;
       columns.push({
         name: fname,
-        sqlType: sqlType(dialect, base, dbAttr),
+        sqlType: sqlType(dialect, base, dbAttr, isId || unique || indexed.has(fname)),
         nullable,
         isId,
         unique,
@@ -158,15 +189,31 @@ export function parsePrismaSchema(dialect: Dialect, text: string): Model[] {
   return models;
 }
 
-function columnDdl(dialect: Dialect, c: Column): string {
+/** Текстовые типы MySQL, которым старые версии запрещают DEFAULT */
+const TEXTY = /^(tinytext|text|mediumtext|longtext|blob|mediumblob|longblob)$/i;
+
+/**
+ * Описание колонки для DDL.
+ *
+ * `noTextDefault` — запасной вариант для старых MySQL и MariaDB до 10.2: там
+ * `DEFAULT` у TEXT и BLOB запрещён, и вся правка схемы падала бы из-за одной
+ * колонки. Сначала пробуем как надо, а на отказ повторяем без умолчания:
+ * пустая строка у TEXT и так подставляется движком.
+ */
+function columnDdl(dialect: Dialect, c: Column, noTextDefault = false): string {
   const base = (c as any)._base as string;
   let def = c.defaultSql;
   if (!c.nullable && !c.isId && def == null) def = fallbackDefault(dialect, base);
+  if (noTextDefault && dialect === 'mysql' && TEXTY.test(c.sqlType.replace(/\(.*$/, ''))) def = null;
   const parts = [quoteId(dialect, c.name), c.sqlType];
   if (!c.nullable) parts.push('NOT NULL');
   if (def != null) parts.push(`DEFAULT ${def}`);
   return parts.join(' ');
 }
+
+/** «У этого типа не может быть значения по умолчанию» — отказ старого движка */
+export const isTextDefaultRefusal = (message: string): boolean =>
+  /BLOB|TEXT.*can't have a default|default value|1101/i.test(String(message || ''));
 
 async function existingTables(prisma: any, dialect: Dialect): Promise<Set<string>> {
   if (dialect === 'sqlite') {
@@ -184,18 +231,53 @@ async function existingTables(prisma: any, dialect: Dialect): Promise<Set<string
   return new Set(rows.map(r => String(r.t ?? r.T)));
 }
 
-async function existingColumns(prisma: any, dialect: Dialect, table: string): Promise<Set<string>> {
+/** Колонки таблицы и их нынешние типы: имя → тип строчными («varchar», «text») */
+async function existingColumns(prisma: any, dialect: Dialect, table: string): Promise<Map<string, string>> {
   if (dialect === 'sqlite') {
     const rows: any[] = await prisma.$queryRawUnsafe(`PRAGMA table_info(${quoteId(dialect, table)})`);
-    return new Set(rows.map((r: any) => String(r.name)));
+    return new Map(rows.map((r: any) => [String(r.name), String(r.type || '').toLowerCase()]));
   }
   const where = dialect === 'mysql'
     ? "table_schema = DATABASE()"
     : "table_schema = current_schema()";
   const rows: any[] = await prisma.$queryRawUnsafe(
-    `SELECT column_name AS c FROM information_schema.columns WHERE ${where} AND table_name = ${quoteStr(table)}`
+    `SELECT column_name AS c, data_type AS t FROM information_schema.columns WHERE ${where} AND table_name = ${quoteStr(table)}`
   );
-  return new Set(rows.map(r => String(r.c ?? r.C)));
+  return new Map(rows.map(r => [String(r.c ?? r.C), String(r.t ?? r.T ?? '').toLowerCase()]));
+}
+
+/** Насколько тип вместителен: расширять можно только вверх */
+const TEXT_RANK: Record<string, number> = {
+  char: 1, varchar: 2, tinytext: 3, text: 4, mediumtext: 5, longtext: 6,
+};
+
+/**
+ * Надо ли расширить колонку.
+ *
+ * Только текстовые и только вверх: сузить — значит обрезать чужие данные, а
+ * этого автомиграция делать не должна никогда. У PostgreSQL строка и так TEXT,
+ * поэтому расширять там нечего.
+ */
+export function needsWidening(dialect: Dialect, currentType: string, wantedSql: string): boolean {
+  if (dialect !== 'mysql') return false;
+  const cur = TEXT_RANK[String(currentType || '').toLowerCase()];
+  const want = TEXT_RANK[String(wantedSql || '').toLowerCase().replace(/\(.*$/, '')];
+  if (!cur || !want) return false;
+  return want > cur;
+}
+
+/** Одна правка колонки с тем же отходом на старый движок, что и у создания */
+async function alterColumn(
+  prisma: any, dialect: Dialect, table: string, c: Column, what: 'ADD' | 'MODIFY',
+): Promise<void> {
+  const sql = (noTextDefault: boolean) =>
+    `ALTER TABLE ${quoteId(dialect, table)} ${what} COLUMN ${columnDdl(dialect, c, noTextDefault)}`;
+  try {
+    await prisma.$executeRawUnsafe(sql(false));
+  } catch (e: any) {
+    if (!isTextDefaultRefusal(e.message)) throw e;
+    await prisma.$executeRawUnsafe(sql(true));
+  }
 }
 
 // Главная точка: привести общую базу к схеме программы (аддитивно).
@@ -231,29 +313,49 @@ export async function ensureRemoteSchema(
     try {
       if (!tables.has(model.name)) {
         // Новой таблицы нет — создаём с колонками и первичным ключом
-        const defs = model.columns.map(c => {
-          let d = columnDdl(dialect, c);
-          if (c.unique && !c.isId) d += ' UNIQUE';
-          return d;
-        });
-        const idCol = model.columns.find(c => c.isId);
-        if (idCol) defs.push(`PRIMARY KEY (${quoteId(dialect, idCol.name)})`);
-        const engine = dialect === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : '';
-        const ddl = `CREATE TABLE IF NOT EXISTS ${quoteId(dialect, model.name)} (${defs.join(', ')})${engine}`;
-        await prisma.$executeRawUnsafe(ddl);
+        const create = (noTextDefault: boolean) => {
+          const defs = model.columns.map(c => {
+            let d = columnDdl(dialect, c, noTextDefault);
+            if (c.unique && !c.isId) d += ' UNIQUE';
+            return d;
+          });
+          const idCol = model.columns.find(c => c.isId);
+          if (idCol) defs.push(`PRIMARY KEY (${quoteId(dialect, idCol.name)})`);
+          const engine = dialect === 'mysql' ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : '';
+          return `CREATE TABLE IF NOT EXISTS ${quoteId(dialect, model.name)} (${defs.join(', ')})${engine}`;
+        };
+        try {
+          await prisma.$executeRawUnsafe(create(false));
+        } catch (e: any) {
+          // Старый движок не разрешает умолчание у TEXT. Повторяем без него:
+          // лучше таблица без DEFAULT, чем ни таблицы, ни объяснения
+          if (!isTextDefaultRefusal(e.message)) throw e;
+          await prisma.$executeRawUnsafe(create(true));
+        }
         applied.push(`создана таблица ${model.name}`);
         continue;
       }
-      // Таблица есть — добавляем недостающие колонки
+      // Таблица есть — добавляем недостающие колонки и расширяем узкие
       const cols = await existingColumns(prisma, dialect, model.name);
       for (const c of model.columns) {
-        if (cols.has(c.name)) continue;
-        const ddl = `ALTER TABLE ${quoteId(dialect, model.name)} ADD COLUMN ${columnDdl(dialect, c)}`;
+        if (!cols.has(c.name)) {
+          try {
+            await alterColumn(prisma, dialect, model.name, c, 'ADD');
+            applied.push(`${model.name}.${c.name}`);
+          } catch (e: any) {
+            log(`[Schema Sync] Пропуск ${model.name}.${c.name}: ${e.message}`);
+          }
+          continue;
+        }
+        // «Таблица есть» не значит «колонка годится»: узкая VARCHAR(191) в
+        // общей базе резала права роли и подпись в письме — записать не
+        // получалось, а причина в ответе выглядела дампом драйвера
+        if (!needsWidening(dialect, cols.get(c.name) || '', c.sqlType)) continue;
         try {
-          await prisma.$executeRawUnsafe(ddl);
-          applied.push(`${model.name}.${c.name}`);
+          await alterColumn(prisma, dialect, model.name, c, 'MODIFY');
+          applied.push(`${model.name}.${c.name} → ${c.sqlType}`);
         } catch (e: any) {
-          log(`[Schema Sync] Пропуск ${model.name}.${c.name}: ${e.message}`);
+          log(`[Schema Sync] Не удалось расширить ${model.name}.${c.name}: ${e.message}`);
         }
       }
     } catch (e: any) {

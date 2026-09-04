@@ -18,7 +18,10 @@
  * вкладок и адресная строка, а главный процесс — нет. Поэтому границы
  * приезжают сюда числами.
  */
-import { BrowserWindow, WebContentsView, ipcMain, shell, session } from 'electron';
+import { BrowserWindow, WebContentsView, ipcMain, shell, session, app } from 'electron';
+import * as path from 'path';
+import * as fs from 'fs';
+import { safeFileName, uniqueFileName, personFolder } from './downloadPath';
 
 interface Tab {
   id: string;
@@ -117,17 +120,90 @@ function createTab(win: BrowserWindow, url: string): string {
     return { action: 'deny' };
   });
 
-  // Скачивание отдаём системе: сохранять молча в неизвестное место хуже, чем
-  // спросить. Куда именно — решает человек в диалоге системы
-  wc.session.on('will-download', (_e, item) => {
-    send(win.id, 'browser:download', { name: item.getFilename(), size: item.getTotalBytes() });
-  });
-
   if (url) void wc.loadURL(url).catch(() => { /* об ошибке скажет did-fail-load */ });
   return id;
 }
 
+// ── Скачанное ───────────────────────────────────────────────────────────────
+// Системный диалог «куда сохранить» убран намеренно. Он спрашивал одно и то же
+// на каждый файл, а ответ по умолчанию сваливал всё в общую папку «Загрузки»
+// машины — где через неделю не разобрать, чьё это и откуда. Теперь файл едет в
+// личную папку сотрудника без вопросов, а браузер показывает раздел «Загрузки»
+// со списком и кнопками «Открыть» и «Показать в папке».
+//
+// Слушатель вешается ОДИН РАЗ на сессию, а не на вкладку: сессия у вкладок
+// общая, и слушатель в createTab означал бы столько же событий на один файл,
+// сколько открыто вкладок.
+
+/** Логин того, кто работает в программе: им названа его личная папка */
+let owner = '';
+
+/** Корень загрузок: <Загрузки системы>/Flux/<логин> */
+function downloadsDir(): string {
+  const base = path.join(app.getPath('downloads'), 'Flux', personFolder(owner));
+  try { fs.mkdirSync(base, { recursive: true }); } catch (_) { /* скажет сохранение */ }
+  return base;
+}
+
+/** Путь внутри личной папки — и ничего снаружи: проверка для «открыть» */
+function insideDownloads(target: string): boolean {
+  const root = path.resolve(path.join(app.getPath('downloads'), 'Flux'));
+  const p = path.resolve(String(target || ''));
+  return p === root || p.startsWith(root + path.sep);
+}
+
+let downloadsWatched = false;
+function watchDownloads() {
+  if (downloadsWatched) return;
+  downloadsWatched = true;
+  const ses = session.fromPartition('persist:flux-browser');
+  ses.on('will-download', (_e, item, wc) => {
+    const win = BrowserWindow.fromWebContents(wc) || BrowserWindow.getAllWindows()[0];
+    const dir = downloadsDir();
+    let taken: string[] = [];
+    try { taken = fs.readdirSync(dir); } catch (_) { /* папки ещё нет — значит пусто */ }
+    const name = uniqueFileName(safeFileName(item.getFilename()), taken);
+    const target = path.join(dir, name);
+    item.setSavePath(target);
+
+    const id = `dl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const url = item.getURL();
+    const say = (state: string) => {
+      if (!win || win.isDestroyed()) return;
+      send(win.id, 'browser:download', {
+        id, name, url, path: target, state,
+        size: item.getTotalBytes(), received: item.getReceivedBytes(),
+      });
+    };
+    say('progress');
+    item.on('updated', (_ev, s) => say(s === 'interrupted' ? 'failed' : 'progress'));
+    item.once('done', (_ev, s) => say(s === 'completed' ? 'done' : s === 'cancelled' ? 'cancelled' : 'failed'));
+  });
+}
+
 export function setupBrowser() {
+  watchDownloads();
+
+  // Кто работает: личная папка называется его логином. Приходит из окна
+  // программы — главный процесс о входе не знает
+  ipcMain.handle('browser:set-owner', (_event, symbol: string) => {
+    owner = String(symbol || '');
+    return downloadsDir();
+  });
+
+  ipcMain.handle('browser:downloads-dir', () => downloadsDir());
+
+  // Открыть скачанное или показать его в папке. Путь принимается только свой:
+  // «открой что скажу» из окна — это открытие любого файла на машине
+  ipcMain.handle('browser:open-download', async (_event, target: string, reveal: boolean) => {
+    const p = String(target || '');
+    if (!insideDownloads(p)) return { ok: false, error: 'Файл не из папки загрузок.' };
+    if (!fs.existsSync(p)) return { ok: false, error: 'Файла больше нет — его переместили или удалили.' };
+    if (reveal) shell.showItemInFolder(p);
+    else await shell.openPath(p);
+    return { ok: true };
+  });
+
   ipcMain.handle('browser:new-tab', (event, url: string) => {
     const win = ownerOf(event);
     if (!win) return '';

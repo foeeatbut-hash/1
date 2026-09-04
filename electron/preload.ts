@@ -108,11 +108,17 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.on('browser:failed', sub);
       return () => ipcRenderer.removeListener('browser:failed', sub);
     },
-    onDownload: (callback: (p: { name: string; size: number }) => void) => {
+    onDownload: (callback: (p: any) => void) => {
       const sub = (_e: any, p: any) => callback(p);
       ipcRenderer.on('browser:download', sub);
       return () => ipcRenderer.removeListener('browser:download', sub);
     },
+    // Личная папка загрузок называется логином сотрудника: главный процесс о
+    // том, кто вошёл, не знает — окно программы говорит ему это само
+    setOwner: (symbol: string) => ipcRenderer.invoke('browser:set-owner', symbol),
+    downloadsDir: () => ipcRenderer.invoke('browser:downloads-dir'),
+    openDownload: (path: string, reveal = false) =>
+      ipcRenderer.invoke('browser:open-download', path, reveal),
   },
 
   // Уведомления системы: показываются, когда окно свёрнуто или не в фокусе

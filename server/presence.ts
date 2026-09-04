@@ -15,7 +15,7 @@
  * Правила свежести (сколько ждать, кого гасить) лежат отдельно и проверяются
  * скриптом — src/lib/presenceTime.ts.
  */
-import { rosterOf, mergeLocal, BEAT_MS, FRESH_MS } from '../src/lib/presenceTime.js';
+import { rosterOf, mergeLocal, hideFrom, BEAT_MS, FRESH_MS } from '../src/lib/presenceTime.js';
 import { ensureTables } from './ddl.js';
 
 export interface Roster { online: string[]; lastSeen: Record<string, number> }
@@ -29,12 +29,24 @@ export interface PresenceDeps {
   localSeen: () => Record<string, number>;
   /** Разослать список своим окнам */
   broadcast: (roster: Roster) => void;
+  /**
+   * Кто скрыл своё присутствие.
+   *
+   * Список берётся снаружи и кэшируется там же: спрашивать базу на каждом
+   * ударе сердца — это лишний запрос раз в пятнадцать секунд у каждого
+   * сотрудника, а меняется он от силы раз в месяц.
+   */
+  hiddenIds?: () => Set<string>;
+  /** Список лично одному человеку: себя он видит и будучи скрытым */
+  broadcastTo?: (userId: string, roster: Roster) => void;
 }
 
 export function setupPresence(deps: PresenceDeps): {
   markPresence: (userId: string) => Promise<void>;
   markGone: (userId: string) => Promise<void>;
-  rosterFromDb: () => Promise<Roster>;
+  rosterFromDb: (viewerId?: string) => Promise<Roster>;
+  /** Видно ли этого человека остальным — для событий «пришёл» и «ушёл» */
+  isHidden: (userId: string) => boolean;
 } {
   /**
    * Общей таблицы может не быть — например, база создана старой версией.
@@ -84,11 +96,16 @@ export function setupPresence(deps: PresenceDeps): {
     } catch (_) { /* таблицы нет — работаем по памяти, как раньше */ }
   };
 
+  const hidden = (): Set<string> => {
+    try { return deps.hiddenIds?.() || new Set<string>(); } catch (_) { return new Set<string>(); }
+  };
+  const isHidden = (userId: string): boolean => hidden().has(userId);
+
   const localRoster = (): Roster => ({ online: deps.localOnline(), lastSeen: deps.localSeen() });
 
-  const rosterFromDb = async (): Promise<Roster> => {
+  const rosterFromDb = async (viewerId = ''): Promise<Roster> => {
     const prisma = deps.getPrisma();
-    if (!prisma || !tableOk) return localRoster();
+    if (!prisma || !tableOk) return hideFrom(localRoster(), hidden(), viewerId);
     try {
       // Неделя — предел памяти о людях: «был(а) в мае» никому не нужно, а
       // список от этого растёт с каждым уволившимся
@@ -99,12 +116,14 @@ export function setupPresence(deps: PresenceDeps): {
       });
       const r = rosterOf(rows as any, Date.now(), FRESH_MS);
       const mine = localRoster();
-      return {
+      // Скрытые убираются в самом конце: отметки в базе им пишутся как всем,
+      // иначе после выключения скрытности человек «не заходил никогда»
+      return hideFrom({
         online: mergeLocal(r.online, mine.online),
         lastSeen: { ...r.lastSeen, ...mine.lastSeen },
-      };
+      }, hidden(), viewerId);
     } catch (_) {
-      return localRoster();
+      return hideFrom(localRoster(), hidden(), viewerId);
     }
   };
 
@@ -118,10 +137,18 @@ export function setupPresence(deps: PresenceDeps): {
     void (async () => {
       for (const uid of deps.localOnline()) await markPresence(uid);
       deps.broadcast(await rosterFromDb());
+      // Скрытым — их собственный список: в общем они отсутствуют, и без этой
+      // рассылки человек видел бы себя не в сети на своей же машине
+      const off = hidden();
+      if (off.size && deps.broadcastTo) {
+        for (const uid of deps.localOnline()) {
+          if (off.has(uid)) deps.broadcastTo(uid, await rosterFromDb(uid));
+        }
+      }
     })();
   }, BEAT_MS);
 
-  return { markPresence, markGone, rosterFromDb };
+  return { markPresence, markGone, rosterFromDb, isHidden };
 }
 
 /**

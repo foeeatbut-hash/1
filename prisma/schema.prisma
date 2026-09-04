@@ -26,6 +26,8 @@ model User {
   permissions       String? // JSON персональных прав: {"project.create":{"enabled":true,"until":null}}
   signatureImage    String? // Подпись сотрудника: PNG в виде data-URL, фон уже убран
   signatureHeightMm Int           @default(8) // Высота подписи в документе, мм — не в точках: иначе она зависит от разрешения скана
+  hideOnline        Boolean       @default(false) // Скрыть своё присутствие: другие видят «не в сети» и не видят, когда заходил
+  lastLoginAt       DateTime? // Когда человек последний раз входил в программу
   createdAt         DateTime      @default(now())
   createdFiles      FileNode[]    @relation("FileCreator")
   updatedFiles      FileNode[]    @relation("FileUpdater")
