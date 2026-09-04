@@ -36,6 +36,7 @@ async function ensureTables(): Promise<void> {
         "vendorDocNo" TEXT NOT NULL DEFAULT '', "revision" TEXT NOT NULL DEFAULT 'A',
         "revisions" TEXT NOT NULL DEFAULT '[]', "preparedBy" TEXT NOT NULL DEFAULT '',
         "checkedBy" TEXT NOT NULL DEFAULT '', "approvedBy" TEXT NOT NULL DEFAULT '',
+        "preparedById" TEXT, "checkedById" TEXT, "approvedById" TEXT,
         "columnsConfig" TEXT NOT NULL DEFAULT '[]', "managerId" TEXT, "createdById" TEXT,
         "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
         "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -309,7 +310,11 @@ export function registerVdrRoutes(app: Express): void {
 
   const REGISTER_FIELDS = ['name', 'vendor', 'contractor', 'owner', 'poNumber', 'ownerProjectNo', 'contractorProjectNo',
     'materialRequisition', 'equipmentTitle', 'contractorDocNo', 'ownerDocNo', 'vendorDocNo', 'revision',
-    'preparedBy', 'checkedBy', 'approvedBy'] as const;
+    'preparedBy', 'checkedBy', 'approvedBy',
+    // Кто именно подписывает: по ним титул документа берёт подписи (§42).
+    // Имя строкой остаётся рядом — в импортированных реестрах человек указан
+    // текстом, и сотрудника с таким именем в программе может не быть
+    'preparedById', 'checkedById', 'approvedById'] as const;
 
   app.post('/api/vdr/registers', async (req: Request, res: Response) => {
     try {
@@ -329,6 +334,9 @@ export function registerVdrRoutes(app: Express): void {
     try {
       const data: any = {};
       for (const k of REGISTER_FIELDS) if (typeof req.body?.[k] === 'string') data[k] = req.body[k];
+      // Пустая строка в поле подписанта означает «никого», и в базе это null,
+      // а не '': по пустой строке потом не отличить «не выбрали» от «стёрли»
+      for (const k of ['preparedById', 'checkedById', 'approvedById']) if (data[k] === '') data[k] = null;
       if ('managerId' in (req.body || {})) data.managerId = req.body.managerId || null;
       if ('standardId' in (req.body || {})) data.standardId = req.body.standardId || null;
       if (Array.isArray(req.body?.columnsConfig)) data.columnsConfig = JSON.stringify(req.body.columnsConfig);

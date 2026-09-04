@@ -3,6 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { PLACEHOLDERS, placeholderToken, fillSnapshot, countTokens } from '../lib/docPlaceholders';
 import LabelBar from '../components/constructor/LabelBar';
+import RecentDocsPanel from '../components/office/RecentDocsPanel';
+import { rememberDoc } from '../store/recentStore';
 import { type ConflictChoice } from '../lib/docConflict';
 import { useDocRoom } from '../components/collab/useDocRoom';
 import SaveConflictDialog from '../components/SaveConflictDialog';
@@ -1037,11 +1039,23 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   // несколько, и различать их по названию программы нечем
   useWindowTitle(doc?.name || '');
 
+  // Запоминаем открытое для «Открыть недавние» и «Рекомендуем» в Пуске.
+  // Пишем, когда у документа уже есть имя: строка «Без названия» в списке
+  // недавних не помогает никому
+  useEffect(() => {
+    if (!doc?.name) return;
+    rememberDoc({
+      href: `/constructor?doc=${docId}`, title: doc.name, kind: 'sheet',
+      at: Date.now(), projectId: activeProject?.id,
+    });
+  }, [docId, doc?.name, activeProject?.id]);
+
   // ── Лента: состояние, значения органов и разбор команд ──
   const tabs = useMemo(() => sheetRibbon(), []);
   const [tab, setTab] = useState('Главная');
   const [folded, setFolded] = useState(false);
   const [fileOpen, setFileOpen] = useState(false);
+  const [recentOpen, setRecentOpen] = useState(false);
   const [zoom, setZoom] = useState(100);
   const [font, setFont] = useState('');
   const [numFormat, setNumFormat] = useState('General');
@@ -1294,6 +1308,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   }
 
   const fileSections = editorFileMenu({
+    recent: () => { setFileOpen(false); setRecentOpen(true); },
     saveNow: () => { saveNow(); setFileOpen(false); },
     saveVersion: async () => { setFileOpen(false); await makeVersion('ручное сохранение'); addToast('Версия сохранена', 'success'); },
     versions: () => { setFileOpen(false); setVersionsOpen(true); loadVersions(); },
@@ -1431,6 +1446,16 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       )}
 
       {/* Панель истории версий: автоснимки и ручные, откат */}
+      {/* Одно окно недавних на все программы Flux Office: вернуться ко
+          вчерашней работе — самое частое дело, а дорог к нему было две */}
+      {recentOpen && (
+        <RecentDocsPanel
+          projectId={activeProject?.id || null}
+          onOpen={(href) => { window.location.hash = `#${href}`; }}
+          onClose={() => setRecentOpen(false)}
+        />
+      )}
+
       {versionsOpen && (
         <DocVersionsPanel
           versions={versions}

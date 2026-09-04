@@ -14,6 +14,8 @@ import ParagraphSpacingMenu from '../components/ParagraphSpacingMenu';
 import PageSetupDialog from '../components/PageSetupDialog';
 import DocVersionsPanel from '../components/DocVersionsPanel';
 import DataFieldsPanel from '../components/DataFieldsPanel';
+import RecentDocsPanel from '../components/office/RecentDocsPanel';
+import { rememberDoc } from '../store/recentStore';
 import { describeParagraph, type RulerModel } from '../lib/docStyle';
 import {
   patchParagraphs, patchDocumentStyle, readParagraphStyle, readZoom, type EngineCtx,
@@ -740,11 +742,21 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   // Имя окна — имя документа: два документа рядом иначе неразличимы
   useWindowTitle(doc?.name || '');
 
+  // То же, что у таблицы: список недавних один на все программы Flux Office
+  useEffect(() => {
+    if (!doc?.name) return;
+    rememberDoc({
+      href: `/constructor?doc=${docId}`, title: doc.name, kind: 'text',
+      at: Date.now(), projectId: activeProject?.id,
+    });
+  }, [docId, doc?.name, activeProject?.id]);
+
   // ── Лента: состояние вкладок, значения органов и разбор команд ──
   const tabs = React.useMemo(() => docRibbon(), []);
   const [tab, setTab] = useState('Главная');
   const [folded, setFolded] = useState(false);
   const [fileOpen, setFileOpen] = useState(false);
+  const [recentOpen, setRecentOpen] = useState(false);
   const [showRuler, setShowRuler] = useState(true);
   const [fontSize, setFontSize] = useState(11);
   // Выбранный шрифт и стиль держим у себя: движок не отдаёт наружу оформление
@@ -911,6 +923,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   }
 
   const fileSections = editorFileMenu({
+    recent: () => { setFileOpen(false); setRecentOpen(true); },
     saveNow: () => { saveNow(); setFileOpen(false); },
     saveVersion: async () => { setFileOpen(false); await makeVersion('ручное сохранение'); addToast('Версия сохранена', 'success'); },
     versions: () => { setFileOpen(false); setVersionsOpen(true); loadVersions(); },
@@ -1050,6 +1063,16 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
       )}
 
       {/* История версий — тот же компонент, что у таблиц */}
+      {/* Одно окно недавних на все программы Flux Office: вернуться ко
+          вчерашней работе — самое частое дело, а дорог к нему было две */}
+      {recentOpen && (
+        <RecentDocsPanel
+          projectId={activeProject?.id || null}
+          onOpen={(href) => { window.location.hash = `#${href}`; }}
+          onClose={() => setRecentOpen(false)}
+        />
+      )}
+
       {versionsOpen && (
         <DocVersionsPanel
           versions={versions}

@@ -12,13 +12,15 @@ import React from 'react';
 import { useOverlay } from '../store/overlayStore';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Search, Settings, LogOut, Sun, Moon, ArrowRight, Pin, PinOff, FolderOpen, Power, ChevronDown, ChevronRight } from 'lucide-react';
+import { Search, Settings, LogOut, Sun, Moon, ArrowRight, Pin, PinOff, FolderOpen, Power, ChevronDown, ChevronRight, FileClock } from 'lucide-react';
 import { SECTIONS } from '../workspace/sections';
 import { useStore } from '../store/store';
-import { rememberSectionUse, recentSections } from '../store/workspaceStore';
+import { rememberSectionUse } from '../store/workspaceStore';
 import { useDesktopStore } from '../store/desktopStore';
 import { useInsightStore } from '../store/insightStore';
-import { groupSections, countFound, visibleRecent, pinnedTiles, stepFocus } from '../lib/startMenu';
+import { groupSections, countFound, pinnedTiles, stepFocus } from '../lib/startMenu';
+import { useRecentStore } from '../store/recentStore';
+import { visibleRecentDocs, whenLabel, kindName } from '../lib/recentDocs';
 import { BAR_H, START_W, START_COLS, TILE_BOX, TILE_ICON } from '../lib/metrics';
 import { Z } from '../lib/layers';
 import ContextMenu, { MenuItem } from './ContextMenu';
@@ -80,11 +82,15 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
     [isAdmin, q, user],
   );
   const found = countFound(groups);
-  // Список ведёт рабочий стол; здесь только убираем недоступное по правам
-  const recent = React.useMemo(
-    () => (q ? [] : visibleRecent(recentSections(), SECTIONS as any, isAdmin)),
-    [q, isAdmin],
+  // «Рекомендуем» — недавние ВЕЩИ, а не разделы: человек и так помнит, что
+  // работает в Конструкторе; он не помнит, как называлась вчерашняя записка
+  const project = useStore((s) => s.activeProject);
+  const recentDocs = useRecentStore((s) => s.docs);
+  const suggested = React.useMemo(
+    () => (q ? [] : visibleRecentDocs(recentDocs, project?.id || null).slice(0, 4)),
+    [recentDocs, project?.id, q],
   );
+
   // Свой набор человека идёт первым: искать его в общем списке каждый раз незачем
   const pinnedList = React.useMemo(
     () => (q ? [] : pinnedTiles(apps, SECTIONS as any, isAdmin, (f) => can(user as any, f))),
@@ -237,31 +243,32 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
           </p>
         )}
 
-        {recent.length > 0 && (
+        {suggested.length > 0 && (
           <section>
-            <h3 className="px-4 pt-3 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400">Недавние</h3>
+            <h3 className="px-4 pt-3 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400">Рекомендуем</h3>
             <div className="px-2 pb-2">
-              {recent.map((s) => {
-                const Icon = iconOf(s.path) as any;
-                return (
-                  <button
-                    key={s.path}
-                    type="button"
-                    onClick={() => go(s.path)}
-                    className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer text-left
-                               text-sm text-slate-600 dark:text-slate-300
-                               hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors"
-                  >
-                    {Icon && <Icon className="w-4 h-4 shrink-0 text-slate-400" />}
-                    <span className="truncate">{s.title}</span>
-                  </button>
-                );
-              })}
+              {suggested.map((d) => (
+                <button
+                  key={d.href}
+                  type="button"
+                  onClick={() => { navigate(d.href); onClose(); }}
+                  title={`${kindName(d.kind)} · открывали ${whenLabel(d.at)}`}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer text-left
+                             hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors"
+                >
+                  <FileClock className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm text-slate-700 dark:text-slate-300 truncate">{d.title}</span>
+                    <span className="block text-2xs text-slate-400">{kindName(d.kind)} · {whenLabel(d.at)}</span>
+                  </span>
+                </button>
+              ))}
             </div>
           </section>
         )}
+
         {pinnedList.length > 0 && (
-          <section className={recent.length > 0 ? 'border-t border-slate-200 dark:border-dark-border' : undefined}>
+          <section className={suggested.length > 0 ? 'border-t border-slate-200 dark:border-dark-border' : undefined}>
             <h3 className="px-4 pt-3 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400">Закреплено</h3>
             <div className="grid gap-1 px-2 pb-2" style={{ gridTemplateColumns: `repeat(${START_COLS}, minmax(0, 1fr))` }}>
               {pinnedList.map((s, i) => <Tile key={s.path} path={s.path} title={s.title} at={i} />)}
@@ -285,7 +292,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
         )}
 
         {showAll && groups.map((g) => (
-          <section key={g.id} className={g.id === groups[0].id && recent.length > 0 && pinnedList.length === 0 ? 'border-t border-slate-200 dark:border-dark-border' : undefined}>
+          <section key={g.id} className={g.id === groups[0].id && suggested.length > 0 && pinnedList.length === 0 ? 'border-t border-slate-200 dark:border-dark-border' : undefined}>
             <h3 className="px-4 pt-3 pb-1 text-2xs font-bold uppercase tracking-wider text-slate-400">{g.title}</h3>
             <div className="grid gap-1 px-2 pb-2" style={{ gridTemplateColumns: `repeat(${START_COLS}, minmax(0, 1fr))` }}>
               {g.items.map((s) => <Tile key={s.path} path={s.path} title={s.title} />)}

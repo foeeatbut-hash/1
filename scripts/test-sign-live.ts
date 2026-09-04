@@ -105,6 +105,55 @@ console.log('0. Пометки доезжают до общей базы');
     ok('автор проставлен сервером, а не телом запроса', !!signed.author, signed);
     ok('строка под подписью сохранена', String(signed.text || '').includes('Раупов'), signed.text);
 
+    console.log('3. Подпись из реестра ВДР доходит до титула документа');
+    const vdr = await page.evaluate(async () => {
+      const me = JSON.parse(localStorage.getItem('pdm_session_user') || '{}');
+      const pj = await (await fetch('/api/projects')).json();
+      const list = Array.isArray(pj) ? pj : (pj.projects || []);
+      const projectId = list[0]?.id;
+      // Реестр, в котором проверяющий — это я
+      const mk = await fetch('/api/vdr/registers', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId, name: 'Проба подписей' }),
+      });
+      const reg = (await mk.json())?.register;
+      await fetch(`/api/vdr/registers/${reg.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ checkedBy: 'Проверяющий', checkedById: me.id }),
+      });
+      // Строка реестра и документ, привязанный к ней
+      const it = await fetch('/api/vdr/items', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ registerId: reg.id, projectId, titleRu: 'Записка' }),
+      });
+      const item = (await it.json())?.item;
+      const dk = await fetch('/api/constructor/docs', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Записка с титулом', kind: 'TEXT', projectId }),
+      });
+      const doc = (await dk.json())?.doc;
+      await fetch(`/api/constructor/docs/${doc.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings: JSON.stringify({ vdrItemId: item.id, docMeta: {} }) }),
+      });
+      const ctx = await (await fetch(`/api/constructor/title/context?docId=${doc.id}`)).json();
+      return {
+        regId: reg.id, docId: doc.id,
+        hasChecked: !!ctx?.context?.['person.checked.signature'],
+        checkedName: ctx?.context?.['person.checked.name'] || '',
+        hasApproved: !!ctx?.context?.['person.approved.signature'],
+      };
+    });
+    ok('подпись «Проверил» доехала до титула', vdr.hasChecked, vdr);
+    ok('и это тот, кто указан в реестре', !!vdr.checkedName, vdr);
+    // Не назначенная роль не должна брать чью-то чужую подпись
+    ok('«Утвердил» без сотрудника остаётся пустым', !vdr.hasApproved, vdr);
+
+    await page.evaluate(async (args: any) => {
+      if (args.docId) await fetch(`/api/constructor/docs/${args.docId}`, { method: 'DELETE' });
+      if (args.regId) await fetch(`/api/vdr/registers/${args.regId}`, { method: 'DELETE' });
+    }, vdr);
+
     // Прибираем: проба не должна оставлять мусор ни в файлах, ни в профиле
     await page.evaluate(async (args: any) => {
       if (args.fileId) await fetch(`/api/files/${args.fileId}`, { method: 'DELETE' });

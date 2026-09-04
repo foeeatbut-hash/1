@@ -997,6 +997,23 @@ export function registerConstructorRoutes(app: Express): void {
       if (me?.id) wanted.add(me.id);
       for (const id of String(req.query.userIds || '').split(',').filter(Boolean)) wanted.add(id);
 
+      // Подписанты реестра ВДР: документ, привязанный к строке реестра, знает
+      // своих «Разработал / Проверил / Утвердил» — и подпись каждого должна
+      // доехать до титула сама, без ручного выбора сотрудника (§42)
+      const vdrRoles: Record<string, string> = {};
+      if (dm && settings.vdrItemId) {
+        try {
+          const item = await prisma.docRegisterItem.findUnique({
+            where: { id: String(settings.vdrItemId) },
+            select: { register: { select: { preparedById: true, checkedById: true, approvedById: true } } },
+          });
+          const reg: any = (item as any)?.register;
+          for (const [role, id] of [['prepared', reg?.preparedById], ['checked', reg?.checkedById], ['approved', reg?.approvedById]]) {
+            if (id) { wanted.add(String(id)); vdrRoles[String(id)] = String(role); }
+          }
+        } catch (_) { /* реестра нет — титул обойдётся без его подписей */ }
+      }
+
       const users = wanted.size
         ? await prisma.user.findMany({
             where: { id: { in: [...wanted] } },
@@ -1015,6 +1032,9 @@ export function registerConstructorRoutes(app: Express): void {
       };
       for (const u of users as any[]) {
         put(`person.${u.id}`, u);
+        // «Проверил» на титуле — это роль, а не конкретный человек: сменится
+        // проверяющий в реестре — сменится и подпись, без правки шаблона
+        if (vdrRoles[u.id]) put(`person.${vdrRoles[u.id]}`, u);
         if (u.id === doc.createdById) { put('person.author', u); author = u.name || u.symbol || ''; }
         if (me?.id && u.id === me.id) put('person.current', u);
       }

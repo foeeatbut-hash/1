@@ -19,11 +19,15 @@ import MarkupLayer, { type Markup } from '../components/pdf/MarkupLayer';
 import MarkupList from '../components/pdf/MarkupList';
 import PageThumbs from '../components/pdf/PageThumbs';
 import { findInPages, stepHit, hitsLabel, type Hit, type PageText } from '../lib/pdfSearch';
+import {
+  SCALES, PT_TO_MM, measureLabel, scaleLabel, type Sheet,
+} from '../lib/pdfMeasure';
 import { pdfRibbon, MARKUP_COLORS } from '../lib/ribbonPdf';
 import { openPdf } from '../import/pdfShared';
 import { useToastStore } from '../store/toastStore';
 import { useModalStore } from '../store/modalStore';
 import { useWindowTitle } from '../lib/paneTitle';
+import { rememberDoc } from '../store/recentStore';
 import { useStore } from '../store/store';
 import { signCaption, signBox, NO_SIGNATURE, DEFAULT_AT } from '../lib/signStamp';
 import { roleByCode } from '../lib/roles';
@@ -96,12 +100,29 @@ export default function PdfEditor() {
   const me = useStore((st) => st.user);
   /** Настоящий размер листа в точках ПДФ — по нему считается место подписи */
   const pageSizePt = useRef<{ w: number; h: number } | null>(null);
+  /**
+   * Измерения: масштаб листа и что намерили последним.
+   *
+   * Масштаб — свойство документа, а не пометки: на чертеже он один и стоит в
+   * штампе. Спрашивать его на каждое измерение значило бы спрашивать одно и
+   * то же по десять раз за разбор одного листа.
+   */
+  const [measure, setMeasure] = useState<'length' | 'area' | null>(null);
+  const [sheetScale, setSheetScale] = useState(1);
+  const [measured, setMeasured] = useState('');
 
   const tabs = React.useMemo(() => pdfRibbon(), []);
   const revision = String(file?.revision || '1');
 
   // Имя окна — имя чертежа с ревизией: их открывают по нескольку сразу
   useWindowTitle(file?.name ? `${file.name} · ред. ${revision}` : '');
+
+  // Чертёж — такая же вещь в списке недавних, как таблица и записка: человек
+  // ищет «то, что смотрел вчера», не разбирая, какой это программой открывалось
+  useEffect(() => {
+    if (!file?.name) return;
+    rememberDoc({ href: `/pdf?file=${fileId}`, title: file.name, kind: 'pdf', at: Date.now() });
+  }, [fileId, file?.name]);
 
   // ── Загрузка файла и его пометок ──
   useEffect(() => {
@@ -189,11 +210,26 @@ export default function PdfEditor() {
   };
 
   const onDown = (e: React.MouseEvent) => {
+    if (measure) { startRef.current = rel(e); setMeasured(''); return; }
     if (!tool) return;
     startRef.current = rel(e);
     setDraft({ ...startRef.current, w: 0, h: 0, kind: tool, color });
   };
   const onMove = (e: React.MouseEvent) => {
+    // Измерение показывается на ходу: человек тянет и сразу видит число, а не
+    // узнаёт его после отпускания, когда поправить уже нечего
+    if (measure && startRef.current) {
+      const p = rel(e);
+      const s0 = startRef.current;
+      setMeasured(measureLabel(measure,
+        { dx: Math.abs(p.x - s0.x), dy: Math.abs(p.y - s0.y) }, sheetOf()));
+      setDraft({
+        x: Math.min(s0.x, p.x), y: Math.min(s0.y, p.y),
+        w: Math.abs(p.x - s0.x), h: Math.abs(p.y - s0.y),
+        kind: 'RECT', color: '#0369a1',
+      });
+      return;
+    }
     if (!tool || !startRef.current) return;
     const p = rel(e);
     const s = startRef.current;
@@ -204,6 +240,7 @@ export default function PdfEditor() {
     });
   };
   const onUp = async (e: React.MouseEvent) => {
+    if (measure) { startRef.current = null; setDraft(null); return; }
     if (!tool || !startRef.current) return;
     const s = startRef.current;
     const p = rel(e);
@@ -358,6 +395,12 @@ export default function PdfEditor() {
     await addMarkup('SIGN', box, line);
   };
 
+  /** Лист для измерений: настоящие миллиметры и масштаб из штампа */
+  const sheetOf = (): Sheet | null => {
+    const v = pageSizePt.current;
+    return v ? { wMm: v.w * PT_TO_MM, hMm: v.h * PT_TO_MM, scale: sheetScale } : null;
+  };
+
   /** Размеры открытого листа в миллиметрах — по ним считается место подписи */
   const mmOfPage = (): { wMm?: number; hMm?: number } => {
     // Точки ПДФ — 1/72 дюйма; в миллиметрах это 25.4/72
@@ -382,7 +425,9 @@ export default function PdfEditor() {
   const shown = markups.filter((m) => m.page === page && (scope === 'all' || m.revision === revision));
 
   const runCommand = (id: string, value?: string) => {
-    if (TOOLS[id]) { setTool((t) => (t === TOOLS[id] ? null : TOOLS[id])); return; }
+    // Мерить и обводить одновременно нельзя: мышь одна, и человек не поймёт,
+    // почему обводка вдруг ничего не поставила
+    if (TOOLS[id]) { setMeasure(null); setTool((t) => (t === TOOLS[id] ? null : TOOLS[id])); return; }
     switch (id) {
       case 'pdf.prev': return setPage((p) => Math.max(1, p - 1));
       case 'pdf.next': return setPage((p) => Math.min(pages, p + 1));
@@ -418,6 +463,9 @@ export default function PdfEditor() {
       case 'pdf.status': return addToast('Стадия меняется в Проводнике — там же, где у остальных файлов', 'info');
       case 'pdf.thumbs': return setThumbs((v) => !v);
       case 'pdf.find': return setFindOpen((v) => !v);
+      case 'pdf.length': setTool(null); return setMeasure((v) => (v === 'length' ? null : 'length'));
+      case 'pdf.area': setTool(null); return setMeasure((v) => (v === 'area' ? null : 'area'));
+      case 'pdf.scale': return setSheetScale(Number(value) || 1);
       case 'pdf.invert': return setInvert((v) => !v);
       default: return undefined;
     }
@@ -431,6 +479,9 @@ export default function PdfEditor() {
     'pdf.list': listOpen,
     'pdf.thumbs': thumbs,
     'pdf.find': findOpen,
+    'pdf.length': measure === 'length',
+    'pdf.area': measure === 'area',
+    'pdf.scale': String(sheetScale),
     'pdf.invert': invert,
     'pdf.cloud': tool === 'CLOUD',
     'pdf.rect': tool === 'RECT',
@@ -470,7 +521,8 @@ export default function PdfEditor() {
         folded={folded} onFold={setFolded}
         fileOpen={fileOpen} onFileOpen={setFileOpen}
         statusLeft={<>страница {page} из {pages || 1} · пометок {shown.length}
-          {tool ? ' · обведите место на чертеже' : ''}</>}
+          {tool ? ' · обведите место на чертеже' : ''}
+          {measure ? ` · ${measure === 'length' ? 'протяните' : 'обведите'} по чертежу, масштаб ${scaleLabel(sheetScale)}` : ''}</>}
         statusRight={<>{zoom} %</>}
       >
         <div ref={wrapRef} className="absolute inset-0 overflow-auto bg-slate-200 dark:bg-slate-950 flex">
@@ -509,6 +561,15 @@ export default function PdfEditor() {
                 className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
+            </div>
+          )}
+
+          {/* Намеренное — крупно и рядом с чертежом: число нужно прочитать,
+              не отводя глаз от того места, которое меряют */}
+          {measure && measured && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-xl
+                            bg-sky-700 text-white text-sm font-bold shadow-lg">
+              {measured}
             </div>
           )}
 

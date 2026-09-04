@@ -123,6 +123,12 @@ model DocRegister {
   preparedBy          String @default("")
   checkedBy           String @default("")
   approvedBy          String @default("")
+  /// Кто именно подписывает: по ним берутся подписи на титул документа (§42).
+  /// Имя рядом остаётся: в импортированных реестрах человек указан строкой,
+  /// и терять её нельзя — сотрудника с таким именем может не быть в программе
+  preparedById        String?
+  checkedById         String?
+  approvedById        String?
   columnsConfig       String @default("[]") // JSON: колонки реестра (импортированные + свои)
   managerId   String?  // ответственный менеджер (получает «документ готов»)
   createdById String?

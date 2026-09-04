@@ -27,7 +27,14 @@ export interface DateFormat {
 export type NameFormat = 'full' | 'initialsAfter' | 'initialsBefore' | 'last';
 
 /** Чьи ФИО или подпись подставлять */
-export type PersonSource = 'author' | 'current' | 'user';
+/**
+ * Чья подпись и чьё имя ставить.
+ *
+ * Кроме конкретного человека есть три РОЛИ реестра ВДР: разработал, проверил,
+ * утвердил. Роль лучше человека в шаблоне титула: сменится проверяющий в
+ * реестре — сменится и подпись, а шаблон править не надо.
+ */
+export type PersonSource = 'author' | 'current' | 'user' | 'prepared' | 'checked' | 'approved';
 
 export interface ValueConfig {
   /** Ключ поля контекста: date · doc.code · person и т.п. */
@@ -239,9 +246,12 @@ export function evalExpr(expr: string, ctx: FormulaContext): string {
 
 // ── Кто подставляется ───────────────────────────────────────────────────────
 // Ключи людей в контексте: person.author.*, person.current.*, person.<id>.*
+const VDR_ROLES = new Set(['prepared', 'checked', 'approved']);
+
 const personPrefix = (src: PersonSource | undefined, userId?: string) =>
   src === 'current' ? 'person.current'
   : src === 'user' && userId ? `person.${userId}`
+  : src && VDR_ROLES.has(src) ? `person.${src}`
   : 'person.author';
 
 function personParts(ctx: FormulaContext, src?: PersonSource, userId?: string) {

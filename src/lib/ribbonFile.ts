@@ -29,6 +29,8 @@ export interface FileMenuHandlers {
   plain?: () => void;
   plainLabel?: string;
   properties?: () => void;
+  /** «Открыть недавние» — общее окно на все программы Flux Office */
+  recent?: () => void;
   close: () => void;
   /** Причины, по которым пункт нельзя нажать */
   noRevision?: string;
@@ -36,6 +38,17 @@ export interface FileMenuHandlers {
 
 export function editorFileMenu(h: FileMenuHandlers): FileMenuSection[] {
   const sections: FileMenuSection[] = [
+    // «Открыть недавние» первым: вернуться ко вчерашней работе человек хочет
+    // чаще, чем сделать что-либо ещё, и раньше для этого приходилось идти в
+    // библиотеку Конструктора или в Проводник — двумя разными дорогами
+    ...(h.recent ? [{
+      name: 'Открыть',
+      items: [{
+        label: 'Открыть недавние', icon: 'history',
+        hint: 'Таблицы, документы, заметки и чертежи — общим списком',
+        run: h.recent,
+      }],
+    }] : []),
     {
       name: 'Сохранить',
       items: [
@@ -72,7 +85,10 @@ export function editorFileMenu(h: FileMenuHandlers): FileMenuSection[] {
     },
   ];
   if (h.plain && h.plainLabel) {
-    sections[3].items.push({ label: h.plainLabel, hint: 'Только содержимое, без оформления', icon: 'extract', run: h.plain });
+    // Ищем раздел по имени, а не по номеру: номер поехал, когда впереди
+    // появилось «Открыть», и пункт ушёл бы не туда
+    const out = sections.find((x) => x.name === 'Печать и выгрузка');
+    out?.items.push({ label: h.plainLabel, hint: 'Только содержимое, без оформления', icon: 'extract', run: h.plain });
   }
   sections.push({
     name: 'Закрыть',
