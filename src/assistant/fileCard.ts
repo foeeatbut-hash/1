@@ -59,7 +59,7 @@ export function fileCard(f: FileRecord): FileCard {
       {
         actions: [
           {
-            label: kind === 'doc' ? 'Открыть в Конструкторе' : kind === 'pdf' ? 'Открыть в Чертеже' : 'Показать в Проводнике',
+            label: kind === 'doc' ? 'Открыть в Конструкторе' : kind === 'pdf' ? 'Открыть в Просмотре' : 'Показать в Проводнике',
             kind: 'navigate', route: openRoute(f),
           },
           {

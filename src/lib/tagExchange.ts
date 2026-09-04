@@ -91,7 +91,7 @@ export function buildSegmentTable(tags: any[], on: SegmentColumns, h: SegmentHel
   if (on.department) headers.push('Дисциплина / Отдел');
   if (on.fluid) headers.push('Тех. Среда / Назначение');
   if (on.chain) headers.push('Инженерная Цепочка (Parent Chain)');
-  if (on.descriptions) headers.push('Замечания и подописания');
+  if (on.descriptions) headers.push('Комментарии');
 
   const rows = (tags || []).map((t) => {
     const row: string[] = [];

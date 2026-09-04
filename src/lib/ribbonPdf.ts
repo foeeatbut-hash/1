@@ -7,6 +7,7 @@
  * него.
  */
 import type { RibbonTab } from './ribbon';
+import { SCALES, scaleLabel } from './pdfMeasure';
 
 /** Цвета пометок: набор короткий и один и тот же, чтобы красный у всех значил одно */
 export const MARKUP_COLORS = ['#be123c', '#b45309', '#047857', '#0369a1', '#0f172a'];
@@ -50,6 +51,14 @@ export function pdfRibbon(): RibbonTab[] {
           organs: [
             { id: 'pdf.rotateLeft', kind: 'icon', icon: 'rotate-left', hint: 'Повернуть влево' },
             { id: 'pdf.rotateRight', kind: 'icon', icon: 'rotate-right', hint: 'Повернуть вправо' },
+          ],
+        },
+        {
+          name: 'поиск',
+          weight: 85,
+          organs: [
+            { id: 'pdf.find', kind: 'label', label: 'Найти', icon: 'find', flux: true,
+              hint: 'Поиск по тексту документа с переходом по совпадениям', toggle: true },
           ],
         },
         {
@@ -104,8 +113,40 @@ export function pdfRibbon(): RibbonTab[] {
       ],
     },
     {
+      name: 'Измерения',
+      groups: [
+        {
+          // Измерения — свойство листа, а не пометки: масштаб на чертеже один
+          // и стоит в штампе, поэтому он задаётся раз на документ
+          name: 'измерения',
+          weight: 80,
+          organs: [
+            { id: 'pdf.length', kind: 'label', label: 'Длина', icon: 'ruler', flux: true,
+              hint: 'Протянуть по чертежу — покажет длину в настоящих метрах', toggle: true },
+            { id: 'pdf.area', kind: 'label', label: 'Площадь', icon: 'rect', flux: true,
+              hint: 'Обвести участок — покажет площадь по масштабу листа', toggle: true },
+            {
+              id: 'pdf.scale', kind: 'select', label: 'Масштаб', width: 150,
+              hint: 'Масштаб листа из штампа: без него измерения бессмысленны',
+              options: SCALES.map((n) => ({ value: String(n), label: scaleLabel(n) })),
+            },
+          ],
+        },
+      ],
+    },
+    {
       name: 'Данные проекта',
       groups: [
+        {
+          // Подпись — не штамп: она принадлежит человеку, а не документу, и
+          // берётся из его профиля. Поэтому отдельной группой
+          name: 'подпись',
+          weight: 75,
+          organs: [
+            { id: 'pdf.sign', kind: 'label', label: 'Подписать', icon: 'stamp', flux: true,
+              hint: 'Поставить свою подпись с фамилией и датой. Это скан живой подписи, а не электронная подпись' },
+          ],
+        },
         {
           name: 'ревизии',
           weight: 100,

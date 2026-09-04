@@ -11,12 +11,14 @@
  * проверяется. Здесь только ввод, список и исполнение выбранной строки.
  */
 import React from 'react';
+import { useOverlay } from '../store/overlayStore';
 import { useNavigate } from 'react-router-dom';
 import {
   Search, CornerDownLeft, ArrowUp, ArrowDown, ShieldCheck, History, BookOpen,
   Bell, StickyNote, Monitor, AppWindow, MessageCircleQuestion, Slash, Languages, CalendarDays,
 } from 'lucide-react';
 import { useStore } from '../store/store';
+import { can } from '../lib/permissions';
 import { useInsightStore } from '../store/insightStore';
 import { useAssistantStore } from '../store/assistantStore';
 import { useWindowStore } from '../store/windowStore';
@@ -59,6 +61,9 @@ function ItemIcon({ icon }: { icon: string }) {
 
 export default function CommandBar() {
   const open = useInsightStore((s) => s.paletteOpen);
+  // Пока это открыто, страница браузера уступает место: родной слой Chromium
+  // выше любой разметки, и без этого панель оказалась бы под страницей
+  useOverlay(open);
   const close = useInsightStore((s) => s.closePalette);
   const toggle = useInsightStore((s) => s.togglePalette);
   const openCheck = useInsightStore((s) => s.openCheck);
@@ -117,7 +122,10 @@ export default function CommandBar() {
   }, [q, open, activeProject?.id]);
 
   const sections = React.useMemo(
-    () => SECTIONS.filter((s) => !s.adminOnly || user?.role === 'ADMIN')
+    // Разделы, закрытые правом, не находятся и поиском: иначе строка команд
+    // предлагала бы то, что не откроется
+    () => SECTIONS.filter((s) => (!s.adminOnly || user?.role === 'ADMIN')
+      && (!s.feature || user?.role === 'ADMIN' || can(user as any, s.feature)))
       .map((s) => ({ path: s.path, title: s.title, multi: s.multi })),
     [user?.role],
   );

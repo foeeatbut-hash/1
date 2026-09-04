@@ -9,12 +9,13 @@
  * чтобы видеть, что учтено, а не чтобы править.
  */
 import React from 'react';
+import { CAPTION_PART } from '../../lib/signStamp';
 
 export interface Markup {
   id: string;
   revision: string;
   page: number;
-  kind: 'CLOUD' | 'RECT' | 'ARROW' | 'NOTE' | 'STAMP' | 'PEN';
+  kind: 'CLOUD' | 'RECT' | 'ARROW' | 'NOTE' | 'STAMP' | 'PEN' | 'SIGN';
   x: number; y: number; w: number; h: number;
   color: string;
   strokeWidth: number;
@@ -51,11 +52,17 @@ function cloudPath(x: number, y: number, w: number, h: number): string {
 }
 
 export default function MarkupLayer({
-  markups, width, height, currentRevision, selectedId, onSelect, draft,
+  markups, width, height, currentRevision, selectedId, onSelect, draft, signatures = {},
 }: {
   markups: Markup[];
   width: number;
   height: number;
+  /**
+   * Подписи людей по их идентификатору. Приходят снаружи, а не из пометки:
+   * копия росчерка в каждой пометке значила бы, что смена подписи в профиле не
+   * доходит до документов, а старые росчерки живут вечно.
+   */
+  signatures?: Record<string, { src: string; heightMm: number }>;
   /** Ревизия чертежа сейчас: пометки других ревизий гасим */
   currentRevision: string;
   selectedId: string | null;
@@ -88,6 +95,24 @@ export default function MarkupLayer({
           <line x1={x} y1={y} x2={x + w} y2={y + h} stroke="transparent" strokeWidth={14} />
         </g>
       );
+      case 'SIGN': {
+        // Подпись человека и строка под ней. Пометка знает только автора —
+        // росчерк берётся из его профиля и всегда свежий
+        const src = signatures[m.createdBy?.id || '']?.src || '';
+        const capH = Math.max(9, Math.min(13, h * CAPTION_PART));
+        return (
+          <g opacity={old ? 0.45 : 1} onClick={(e) => { e.stopPropagation(); onSelect(m.id); }}
+            style={{ cursor: 'pointer' }}>
+            {src
+              ? <image href={src} x={x} y={y} width={w} height={Math.max(1, h - capH)} preserveAspectRatio="xMinYMax meet" />
+              /* Росчерка нет — линия для подписи от руки: лист всё равно
+                 распечатают, и подписать его можно ручкой */
+              : <line x1={x} y1={y + h - capH} x2={x + w} y2={y + h - capH} stroke={stroke} strokeWidth={1} />}
+            <text x={x} y={y + h - 1} fontSize={capH * 0.8} fill={stroke} fontWeight={600}
+              style={{ pointerEvents: 'none' }}>{m.text || ''}</text>
+          </g>
+        );
+      }
       case 'NOTE':
       case 'STAMP': return (
         <g {...common}>

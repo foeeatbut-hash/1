@@ -10,6 +10,8 @@ import {
   seenKeys, setSeenLocal, unreadByFolder, threadStates,
 } from '../mail/access.js';
 import { watchAccount, stopWatch, restartWatch } from '../mail/idle.js';
+import { verifySmtp } from '../mail/send.js';
+import { discover } from '../mail/discover.js';
 
 /**
  * Маршруты раздела «Почта».
@@ -160,6 +162,22 @@ export function registerMailRoutes(app: Express, deps: MailDeps): void {
     } catch (err) { sendError(res, err); }
   });
 
+  /**
+   * Найти сервер по адресу, если подсказка по домену не подошла.
+   *
+   * Подсказка угадывает «imap.<домен>», и для почты предприятия это почти
+   * всегда мимо. Человек получал «Адрес сервера не найден» и упирался: свой
+   * адрес он написал правильно, а про сервер не знает ничего и знать не должен.
+   */
+  app.get('/api/mail/discover', async (req: Request, res: Response) => {
+    const email = str(req.query.email as string, 200).toLowerCase();
+    if (!email.includes('@')) return res.status(400).json({ error: 'Укажите адрес почты' });
+    try {
+      const found = await discover(email);
+      res.json(found);
+    } catch (err) { sendError(res, err); }
+  });
+
   app.post('/api/mail/accounts', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
@@ -283,9 +301,19 @@ export function registerMailRoutes(app: Express, deps: MailDeps): void {
       const password = unseal(acc.secret, acc.secretNonce);
       if (!password) return res.json({ imap: { ok: false, error: 'Пароль не задан или не читается' } });
       const result = await imap.verify({ ...credsOf(acc), password });
+      // Отправку проверяем тоже — раньше это было только обещано в пояснении, а
+      // неверный сервер исходящих обнаруживался в момент, когда человек нажимал
+      // «Отправить» на готовом письме и терял его
+      const smtp = await verifySmtp({
+        smtpHost: acc.smtpHost, smtpPort: acc.smtpPort, smtpSecure: acc.smtpSecure !== false,
+        login: acc.login || acc.email, password,
+      });
       const prisma = getPrisma();
-      await prisma.mailAccount.update({ where: { id: acc.id }, data: { lastError: result.ok ? '' : result.error } });
-      res.json({ imap: result });
+      await prisma.mailAccount.update({
+        where: { id: acc.id },
+        data: { lastError: result.ok ? (smtp.ok ? '' : smtp.error) : result.error },
+      });
+      res.json({ imap: result, smtp });
     } catch (err) { sendError(res, err); }
   });
 

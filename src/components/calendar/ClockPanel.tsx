@@ -9,6 +9,7 @@
  * трея (docs/os-design.md §2.5).
  */
 import React from 'react';
+import { useOverlay } from '../../store/overlayStore';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Maximize2, Video } from 'lucide-react';
@@ -24,6 +25,9 @@ import {
 } from '../../lib/calendar';
 
 export default function ClockPanel({ onClose }: { onClose: () => void }) {
+  // Пока это открыто, страница браузера уступает место: родной слой Chromium
+  // выше любой разметки, и без этого панель оказалась бы под страницей
+  useOverlay(true);
   const navigate = useNavigate();
   const projectId = useStore((s) => s.activeProject?.id) || '';
   const st = useCalendarStore();

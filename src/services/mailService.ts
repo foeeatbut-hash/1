@@ -178,8 +178,23 @@ export const mailService = {
   removeAccount: (id: string) =>
     call<{ ok: boolean }>(`/mail/accounts/${id}`, { method: 'DELETE' }),
 
+  /**
+   * Подобрать сервер по адресу: перебирает привычные имена и проверяет, какое
+   * из них отвечает. Нужно там, где подсказка по домену не подошла — то есть
+   * почти на всякой почте предприятия
+   */
+  discover: (email: string) =>
+    call<{
+      imap: { host: string; port: number; secure: boolean } | null;
+      smtp: { host: string; port: number; secure: boolean } | null;
+      why: string;
+    }>(`/mail/discover${qs({ email })}`),
+
   verify: (id: string) =>
-    call<{ imap: { ok: boolean; error: string; folders: number } }>(`/mail/accounts/${id}/verify`, { method: 'POST' }),
+    call<{
+      imap: { ok: boolean; error: string; folders: number };
+      smtp?: { ok: boolean; error: string };
+    }>(`/mail/accounts/${id}/verify`, { method: 'POST' }),
 
   sync: (id: string, opts: { deep?: boolean; folderId?: string } = {}) =>
     call<{ report: { folders: number; added: number; updated: number; resynced: string[]; error: string } }>(

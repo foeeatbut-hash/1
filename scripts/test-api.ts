@@ -84,7 +84,6 @@ const call = async (method: string, url: string, body?: any) => {
     ['роли', '/api/roles'],
     ['настройки уведомлений', '/api/notif-prefs'],
     ['уведомления', '/api/notifications'],
-    ['оборудование', '/api/equipment'],
     ['словарь импорта', '/api/import/dictionary'],
     ['группы чата', '/api/chat/groups'],
     ['заметки', '/api/notes'],

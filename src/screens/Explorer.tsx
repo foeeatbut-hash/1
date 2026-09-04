@@ -23,6 +23,8 @@ import { countOf } from '../lib/plural';
 import { openInProject, useProjectNames } from '../lib/projectScope';
 import { useWindowTitle } from '../lib/paneTitle';
 import FilePreview from '../components/explorer/FilePreview';
+import { uploadDropped } from '../lib/dropUpload';
+import { saveFileNode } from '../lib/saveToWindows';
 import {
   SEC_SHARED, TRASH_ID, SMART_RECENT, SMART_UNTAGGED, SMART_DUPES,
   isSmartId, personalSecId, isSectionId, parseSection,
@@ -569,81 +571,29 @@ export default function Explorer() {
     const sec = inSectionRoot ? parseSection(targetFolderId) : null;
     const realFolderId = inSectionRoot ? null : targetFolderId;
 
-    // Имена, уже занятые в целевой папке (для дедупа при загрузке — B8)
-    const existingNames = new Set(
-      (realFolderId === null
-        ? rootFiles.filter((f: any) => itemSection(f) === targetFolderId)
-        : (folders.find((f: any) => f.id === realFolderId)?.files || [])
-      ).map((f: any) => String(f.name))
-    );
-    const uniqueName = (name: string): string => {
-      if (!existingNames.has(name)) { existingNames.add(name); return name; }
-      const parts = name.split('.');
-      const hasExt = parts.length > 1;
-      const ext = hasExt ? parts.pop() : '';
-      const base = parts.join('.');
-      let n = 1, candidate = name;
-      do { candidate = hasExt ? `${base} (${n}).${ext}` : `${base} (${n})`; n++; } while (existingNames.has(candidate));
-      existingNames.add(candidate);
-      return candidate;
-    };
+    // Имена, уже занятые в целевой папке: по ним считается «Смета (2).xlsx»
+    const existingNames = (realFolderId === null
+      ? rootFiles.filter((f: any) => itemSection(f) === targetFolderId)
+      : (folders.find((f: any) => f.id === realFolderId)?.files || [])
+    ).map((f: any) => String(f.name));
 
-    const CONTENT_LIMIT = 5 * 1024 * 1024; // порог хранения содержимого в БД
+    // Приём — общий со столом (src/lib/dropUpload.ts). Пока он был записан
+    // здесь, стол не принимал файлы вовсе: одно движение мышью давало разный
+    // результат в зависимости от того, куда его сделали
     setUploadProgress({ current: 0, total: files.length });
-    let ok = 0; const failed: string[] = []; const skippedBig: string[] = [];
-
-    for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-
-        // Файл просто сохраняется в проводник. Импорт в «Оборудование» —
-        // только вручную: выделить файл(ы) и нажать «В оборудование» на панели.
-        let type = 'FILE';
-        if (file.name.match(/\.(pdf)$/i)) type = 'PDF';
-        else if (file.name.match(/\.(doc|docx)$/i)) type = 'DOCX';
-        else if (file.name.match(/\.(txt|md|csv)$/i)) type = 'TXT';
-        else if (file.name.match(/\.(png|jpe?g|gif|webp)$/i)) type = 'IMAGE';
-        else type = file.name.split('.').pop()?.toUpperCase() || 'FILE';
-
-        let content: any = undefined;
-        if (file.size < CONTENT_LIMIT) {
-           const reader = new FileReader();
-           content = await new Promise((resolve) => {
-             reader.onload = (e) => resolve(e.target?.result);
-             reader.onerror = () => resolve(undefined);
-             reader.readAsDataURL(file);
-           });
-        } else {
-           skippedBig.push(file.name); // содержимое не сохраняем — предупредим (B3)
-        }
-
-        const name = uniqueName(file.name);
-        const scopeLabel = sec?.scope === 'PERSONAL' ? 'personal' : 'shared';
-        try {
-          const res = await fetch('/api/files', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                name,
-                folderId: realFolderId,
-                ...(sec ? { scope: sec.scope, ownerId: sec.ownerId || user?.id } : {}),
-                filePath: `/${scopeLabel}/${name}`,
-                size: file.size,          // реальный размер, без random (B2)
-                type,
-                department: 'Unassigned',
-                content,
-                createdById: user?.id,
-                updatedById: user?.id
-              })
-          });
-          if (res.ok) ok++; else failed.push(file.name); // честный итог (B10)
-        } catch (_) { failed.push(file.name); }
-        setUploadProgress(prev => prev ? { ...prev, current: i + 1 } : null);
-    }
+    const out = await uploadDropped(
+      Array.from(files),
+      {
+        folderId: realFolderId,
+        ...(sec ? { scope: sec.scope as 'SHARED' | 'PERSONAL', ownerId: sec.ownerId || user?.id } : {}),
+        userId: user?.id || null,
+      },
+      existingNames,
+      (done, total) => setUploadProgress({ current: done, total }),
+    );
     setUploadProgress(null);
 
-    if (ok > 0) addToast(`Загружено файлов: ${ok}${failed.length ? `, ошибок: ${failed.length}` : ''}`, failed.length ? 'error' : 'success');
-    else if (failed.length) addToast(`Не удалось загрузить: ${failed.length}`, 'error');
-    if (skippedBig.length) addToast(`Файлы больше 5 МБ сохранены без предпросмотра/скачивания: ${skippedBig.join(', ')}`, 'info');
+    if (out.said) addToast(out.said, out.ok && !out.failed.length && !out.refused.length ? 'success' : (out.ok ? 'info' : 'error'));
     fetchData();
   };
 
@@ -874,27 +824,21 @@ export default function Explorer() {
   useEffect(() => { handlePasteRef.current = handlePaste; }, [handlePaste]);
   useEffect(() => { navigateToRef.current = navigateTo; }, [navigateTo]);
 
-  const handleDownload = (id: string, isFolder: boolean) => {
+  /**
+   * Выгрузить файл в Windows.
+   *
+   * Раньше это было скачивание мимо человека: файл падал в «Загрузки» и там
+   * терялся. Теперь открывается обычное окно сохранения и, если известно,
+   * откуда файл когда-то принесли, предлагается та же папка — файл, который
+   * ходит туда-сюда, ходит по одной тропинке.
+   */
+  const handleDownload = async (id: string, isFolder: boolean) => {
     if (isFolder) return;
     const item = allCurrentItems.find(i => i.id === id);
     if (!item) return;
-    
-    if (!item.content) {
-      addToast("Нет содержимого файла для скачивания.", "error");
-      return;
-    }
-    
-    const a = document.createElement("a");
-    if (item.content.startsWith("data:")) {
-      a.href = item.content;
-    } else {
-      const blob = new Blob([item.content], { type: "text/plain" });
-      a.href = URL.createObjectURL(blob);
-    }
-    a.download = item.name;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    const out = await saveFileNode(id);
+    if (out.canceled) return;
+    addToast(out.ok ? `Сохранено: ${out.path || item.name}` : (out.error || 'Не удалось выгрузить'), out.ok ? 'success' : 'error');
   };
 
   const currentFolder = isSectionId(currentFolderId) ? undefined : folders.find(f => f.id === currentFolderId);
@@ -1321,7 +1265,7 @@ export default function Explorer() {
              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 shadow-xs cursor-pointer">
               <FolderPlus className="w-4 h-4 text-amber-500" /> Новая папка
            </button>
-           <button type="button" onClick={() => fileInputRef.current?.click()} title="Загрузить файлы"
+           <button type="button" data-tour="explorer-upload-btn" onClick={() => fileInputRef.current?.click()} title="Загрузить файлы"
              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm cursor-pointer">
               <Upload className="w-4 h-4" /> Загрузить
            </button>
@@ -1937,7 +1881,7 @@ export default function Explorer() {
                      <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-1 bg-slate-50 dark:bg-dark-surface border-t border-slate-200 dark:border-dark-border grid grid-cols-2 gap-1.5 mt-3">
                        <button type="button" onClick={() => handleDownload(item.id, false)}
                          className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-2xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition-ui cursor-pointer">
-                         <Download className="w-3.5 h-3.5" /> Скачать
+                         <Download className="w-3.5 h-3.5" /> Выгрузить в Windows
                        </button>
                        <button type="button" onClick={() => handleAssignTag(item.id)}
                          className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-2xs font-semibold border border-slate-200 dark:border-dark-border hover:bg-white dark:hover:bg-dark-panel transition-ui cursor-pointer">

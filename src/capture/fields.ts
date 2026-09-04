@@ -26,9 +26,9 @@ export const FIELD_LABEL: Record<string, string> =
 export const detectField = (header: string): FieldKey | '' => {
   const h = (header || '').toLowerCase().trim();
   if (!h) return '';
-  if (/(код\s*тег|^тег|\bтег\b|tag|kks|ккс|позиц|обознач)/.test(h)) return 'identifier';
+  if (/(код\s*тег|(^|[^а-яё])тег([^а-яё]|$)|tag|kks|ккс|позиц|обознач)/.test(h)) return 'identifier';
   if (/(родит|parent|вышестоящ|принадлеж|связь)/.test(h)) return 'parent';
-  if (/(марк|модел|тип\b|brand|артикул)/.test(h)) return 'brand';
+  if (/(марк|модел|тип(?![а-яё])|brand|артикул)/.test(h)) return 'brand';
   if (/(наимен|назван|name|описан|издели)/.test(h)) return 'name';
   if (/(отдел|дисциплин|department|раздел|подразд)/.test(h)) return 'department';
   if (/(сред|fluid|назнач|поток)/.test(h)) return 'fluid';

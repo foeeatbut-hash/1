@@ -161,23 +161,18 @@ export function sheetRibbon(): RibbonTab[] {
       name: 'Данные проекта',
       groups: [
         {
-          name: 'умные блоки',
+          // Одно понятие — метка. Раньше здесь стояли две группы, «умные блоки»
+          // и «подстановки», с двумя кнопками обновления; человек нажимал одну
+          // и половина книги оставалась со старыми данными
+          name: 'метки',
           weight: 100,
           organs: [
-            { id: 'sh.blocks', kind: 'big', label: 'Блоки', icon: 'blocks', flux: true,
-              hint: 'Список блоков книги: что откуда собрано и когда обновлялось', toggle: true },
-            { id: 'sh.refreshAll', kind: 'label', label: 'Обновить всё', icon: 'refresh', flux: true,
-              hint: 'Перечитать данные проекта во всех блоках книги' },
-          ],
-        },
-        {
-          name: 'подстановки',
-          weight: 80,
-          organs: [
-            { id: 'sh.placeholders', kind: 'label', label: 'Метки', icon: 'formula', flux: true,
+            { id: 'sh.blocks', kind: 'big', label: 'Метки', icon: 'blocks', flux: true,
+              hint: 'Что в книге взято из проекта: откуда собрано и когда обновлялось', toggle: true },
+            { id: 'sh.refreshAll', kind: 'label', label: 'Обновить данные', icon: 'refresh', flux: true,
+              hint: 'Перечитать данные проекта во всех метках книги' },
+            { id: 'sh.placeholders', kind: 'label', label: 'Вставить метку', icon: 'formula', flux: true,
               hint: 'Лента меток: кнопка вставляет метку в ячейку', toggle: true },
-            { id: 'sh.fillData', kind: 'label', label: 'Заполнить', icon: 'refresh', flux: true,
-              hint: 'Подставить данные вместо меток' },
           ],
         },
         {

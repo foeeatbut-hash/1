@@ -18,8 +18,10 @@ import { ServerGate } from './components/BootSplash';
 import LicenseGate from './screens/LicenseGate';
 import ActionLogWidget from './components/ActionLogWidget';
 import AssistantSpotlight from './components/AssistantSpotlight';
-import { setAssistantNavigator, setAssistantProjectGetter, useAssistantStore } from './store/assistantStore';
+import { setAssistantNavigator, setAssistantProjectGetter, setAssistantSceneGetter, useAssistantStore } from './store/assistantStore';
 import { Z } from './lib/layers';
+import { useWindowStore } from './store/windowStore';
+import { SECTIONS } from './workspace/sections';
 
 function ScreenLoader() {
   return (
@@ -211,11 +213,30 @@ function AnimatedRoutes() {
   React.useEffect(() => {
     setAssistantNavigator((path: string) => navigate(path));
     setAssistantProjectGetter(() => useStore.getState().activeProject?.id || null);
+    // Обстановку помощнику сообщает оболочка: она одна знает, какие окна
+    // открыты и как называются их документы. Если бы помощник читал окна сам,
+    // он знал бы про них больше, чем рама, и они разошлись бы (§17.3)
+    setAssistantSceneGetter(
+      () => {
+        const st = useWindowStore.getState();
+        return st.windows.map((w) => ({
+          path: w.path,
+          section: SECTIONS.find((s) => s.path === w.path)?.title || w.path,
+          title: st.titles[w.id] || '',
+          z: w.z,
+          minimized: w.minimized,
+        }));
+      },
+      () => useStore.getState().activeProject?.name || '',
+    );
   }, [navigate]);
 
   // Сообщаем ассистенту текущий раздел (для контекстной встречи и подсказок)
   React.useEffect(() => {
     useAssistantStore.getState().setRoute(location.pathname);
+    // и запоминаем как дело: «что я делал» отвечается этим, а не журналом
+    const title = SECTIONS.find((s) => s.path === location.pathname)?.title;
+    if (title) useAssistantStore.getState().remember(`открыл раздел «${title}»`);
   }, [location.pathname]);
 
   // Сессия API истекла или профиль отключён (401 от сервера) → на экран входа

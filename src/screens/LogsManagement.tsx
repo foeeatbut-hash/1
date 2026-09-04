@@ -20,12 +20,35 @@ export default function LogsManagement() {
   const [selectedUser, setSelectedUser] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
 
-  // Fetch full log database list
+  /**
+   * Журнал берётся из двух мест и показывается одним списком.
+   *
+   * События проекта (кто что менял) писались и раньше. К ним добавились
+   * действия сотрудников, которые пишет сервер: вход, создание, правка,
+   * удаление, выгрузка, публикация, изменение прав. Раньше журнал отвечал на
+   * «что изменилось», а на «кто что делал» — нет.
+   */
   const fetchAllLogs = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
       const fetchedLogs = await dataService.getLogs();
-      setLogs(fetchedLogs);
+      let actions: SystemChangeLog[] = [];
+      try {
+        const r = await fetch('/api/logs/actions?take=300');
+        if (r.ok) {
+          const d = await r.json();
+          actions = (Array.isArray(d?.actions) ? d.actions : []).map((a: any) => ({
+            id: `a:${a.id}`,
+            userName: a.userName || 'Сотрудник',
+            userSymbol: '',
+            description: a.target ? `${a.what} (${String(a.target).slice(0, 8)})` : a.what,
+            targetRoute: a.route || '',
+            createdAt: a.createdAt,
+          }));
+        }
+      } catch (_) { /* журнал действий может быть недоступен по праву */ }
+      const at = (x: any) => new Date(x?.createdAt || 0).getTime() || 0;
+      setLogs([...fetchedLogs, ...actions].sort((x, y) => at(y) - at(x)));
       if (silent) {
         addToast('Журнал обновлен', 'success');
       }

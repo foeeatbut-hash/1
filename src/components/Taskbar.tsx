@@ -225,7 +225,9 @@ export default function Taskbar() {
   ];
 
   // Обе панели выезжают справа и заняли бы одно место — открываем по одной
-  const openAssistant = () => { setNotifOpen(false); setAssistantOpen(!assistantOpen); };
+  // Помощник открывается, не закрывая уведомления: правая колонка держит обоих
+  // (components/RightDock), и терять начатое чтение при вопросе больше не надо
+  const openAssistant = () => setAssistantOpen(!assistantOpen);
 
   /**
    * Справка по тому разделу, где человек стоит, — то же, что F1. Помощник
@@ -289,6 +291,7 @@ export default function Taskbar() {
       ref={barRef}
       role="toolbar"
       aria-label="Панель задач"
+      data-taskbar
       /* Высота, рост кнопки и размер значка — общая мера оболочки
          (src/lib/metrics.ts): панель обязана быть того же роста, что и ряд
          значков в системе, иначе программа рядом с ней выглядит увеличенной */
@@ -369,6 +372,10 @@ export default function Taskbar() {
               }}
               onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, path: b.path }); }}
               title={b.title}
+              /* Та же метка, что у пункта левого меню: демонстрации помощника
+                 подсвечивают раздел по ней, а левого меню в этой оболочке нет
+                 вовсе — и первый шаг любой демонстрации указывал в пустоту */
+              data-tour={`nav-${b.path}`}
               aria-current={b.active ? 'true' : undefined}
               style={{ height: BAR_BTN }}
               className={`relative px-2.5 rounded-[10px] shrink-0 cursor-pointer flex items-center gap-2

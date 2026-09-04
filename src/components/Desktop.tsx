@@ -21,7 +21,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   FolderPlus, Table, Type, StickyNote, Users, Lock, RefreshCw, ArrowDownAZ, Clock, Shapes,
-  Pencil, Trash2, FolderOpen, PinOff, Info, LayoutGrid, List, Link2,
+  Pencil, Trash2, FolderOpen, PinOff, Info, LayoutGrid, List, Link2, ArrowDownToLine,
 } from 'lucide-react';
 import { useStore } from '../store/store';
 import { useDesktopStore } from '../store/desktopStore';
@@ -37,6 +37,9 @@ import { deskMetric, DESK_SCALES } from '../lib/metrics';
 import { hiddenIds, groupIdOf, groupById } from '../lib/deskGroups';
 import { deskAction, isTyping } from '../lib/deskKeys';
 import { appsFor, openHref } from '../lib/fileTypes';
+import { filesFrom, carriesFiles, uploadDropped } from '../lib/dropUpload';
+import { dropLabel } from '../lib/dropFiles';
+import { saveFileNode } from '../lib/saveToWindows';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import DeskIcon, { titleOf } from './desktop/DeskIcon';
 import DeskList from './desktop/DeskList';
@@ -70,6 +73,10 @@ export default function Desktop() {
   const [dragging, setDragging] = React.useState<{ id: string; dx: number; dy: number; x: number; y: number } | null>(null);
   const [props, setProps] = React.useState<string | null>(null);
   const [dropHere, setDropHere] = React.useState(false);
+  /** Что человек несёт из Windows — подписью под курсором, пока он не отпустил */
+  const [carry, setCarry] = React.useState('');
+  /** Сколько файлов уже легло: перенос книги на 20 МБ — дело не мгновенное */
+  const [taking, setTaking] = React.useState<{ done: number; total: number } | null>(null);
   /** Раскрытая папка: полотно поверх стола, а не окно */
   const [folder, setFolder] = React.useState<string | null>(null);
   // Начатый перенос средствами браузера отменяет перенос указателем: иначе
@@ -287,6 +294,14 @@ export default function Desktop() {
         onClick: () => go(app.href(item)),
       })) : []),
       { label: 'Переименовать', icon: <Pencil className="w-3.5 h-3.5" />, onClick: () => setRenaming({ id: item.id, value: item.name }) },
+      // Дорога обратно в Windows. Для файла она прямая: те же байты, та же
+      // папка, откуда его принесли. Документы Flux выгружаются из своего
+      // редактора — там известно, во что их превращать
+      ...(item.kind === 'file' ? [{
+        label: 'Выгрузить в Windows',
+        icon: <ArrowDownToLine className="w-3.5 h-3.5" />,
+        onClick: () => { void exportItem(item); },
+      }] : []),
       {
         label: item.shared ? 'Убрать с общего стола' : 'Положить на общий стол',
         icon: item.shared ? <Lock className="w-3.5 h-3.5" /> : <Users className="w-3.5 h-3.5" />,
@@ -375,10 +390,69 @@ export default function Desktop() {
     e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'app_items', ids: [item.id], desk: true }));
   };
 
+  /**
+   * Принять файлы Windows: положить в личную папку стола и поставить значок в
+   * ту клетку, куда метили.
+   *
+   * Правила приёма (что берём, под каким именем, что говорим) — в
+   * src/lib/dropFiles.ts, отправка — в dropUpload.ts. Здесь только стол:
+   * место значка и то, что человек видит, пока файл едет.
+   */
+  const takeFiles = async (files: File[], cell: { col: number; row: number } | null) => {
+    const before = new Set(useDesktopStore.getState().items.map((i) => i.id));
+    const taken = useDesktopStore.getState().items.map((i) => i.name);
+    setTaking({ done: 0, total: files.length });
+    const out = await uploadDropped(
+      files,
+      { folderId: personalFolderId, scope: 'PERSONAL', ownerId: user?.id || null, userId: user?.id || null },
+      taken,
+      (done, total) => setTaking({ done, total }),
+    );
+    setTaking(null);
+    if (out.ok) {
+      await load(projectId);
+      // Новые значки — те, которых не было до переноса. Первый ложится в
+      // клетку, куда целились, остальные — рядом, чтобы не сесть друг на друга
+      if (cell) {
+        const fresh = useDesktopStore.getState().items.filter((i) => !before.has(i.id));
+        fresh.forEach((item, n) => setCell(item.id, { col: cell.col + n, row: cell.row }, area));
+      }
+    }
+    if (out.said) addToast(out.said, out.ok ? (out.refused.length || out.failed.length ? 'info' : 'success') : 'error');
+  };
+
+  /** Выгрузить файл обратно в Windows — в ту папку, откуда его принесли */
+  const exportItem = async (item: DeskItem) => {
+    const out = await saveFileNode(item.id);
+    if (out.canceled) return;
+    addToast(out.ok ? `Сохранено: ${out.path || item.name}` : (out.error || 'Не удалось выгрузить'), out.ok ? 'success' : 'error');
+  };
+
   const onDeskDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setDropHere(false);
+    setCarry('');
     const box = ref.current?.getBoundingClientRect();
+
+    /**
+     * Файл, принесённый из Windows.
+     *
+     * Этого не было вовсе: приём читал только своё содержимое переноса и молча
+     * выходил, если пришло чужое. Человек тащил на стол книгу Excel — и не
+     * получал ни значка, ни ошибки, ни объяснения.
+     *
+     * Кладём в ту клетку, куда метили: значок «где-нибудь» означает, что
+     * человек будет искать его глазами по всему столу.
+     */
+    const brought = filesFrom(e.dataTransfer);
+    if (brought.length) {
+      const cell = box && !asList
+        ? xyToCell(e.clientX - box.left + metric.w / 2 - 24, e.clientY - box.top + metric.h / 2 - 24, area, metric)
+        : null;
+      await takeFiles(brought, cell);
+      return;
+    }
+
     let data: any = null;
     try { data = JSON.parse(e.dataTransfer.getData('text/plain') || 'null'); } catch (_) { data = null; }
 
@@ -446,15 +520,27 @@ export default function Desktop() {
       ref={ref}
       onPointerDown={asList ? undefined : startBand}
       onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, id: null }); }}
-      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        // Файл из Windows — это «скопировать», а не «переместить»: курсор
+        // должен обещать то, что произойдёт на самом деле
+        e.dataTransfer.dropEffect = carriesFiles(e.dataTransfer) ? 'copy' : 'move';
+      }}
       onDragEnter={(e) => {
         // Подсветка только для чужого: своё перекладывание по столу и так видно
         try {
-          const raw = e.dataTransfer.types.includes('text/plain');
-          if (raw) setDropHere(true);
+          if (carriesFiles(e.dataTransfer)) {
+            setDropHere(true);
+            // Имена файлов до отпускания браузер не отдаёт — только их число.
+            // Говорим то, что знаем: сколько файлов и куда они лягут
+            const n = e.dataTransfer.items ? Array.from(e.dataTransfer.items).filter((i) => i.kind === 'file').length : 0;
+            setCarry(dropLabel(Array.from({ length: n }, () => ({ name: 'файл', size: 1 }))));
+            return;
+          }
+          if (e.dataTransfer.types.includes('text/plain')) setDropHere(true);
         } catch (_) { /* некоторые источники не дают заглянуть в содержимое */ }
       }}
-      onDragLeave={(e) => { if (e.currentTarget === e.target) setDropHere(false); }}
+      onDragLeave={(e) => { if (e.currentTarget === e.target) { setDropHere(false); setCarry(''); } }}
       onDrop={onDeskDrop}
       className={`absolute inset-0 overflow-hidden select-none ${
         dropHere ? 'ring-2 ring-inset ring-emerald-500/60 bg-emerald-500/5' : ''
@@ -464,6 +550,15 @@ export default function Desktop() {
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 px-3 py-1.5 rounded-lg text-2xs font-semibold
                         bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900">
           Стол не прочитан: {error}
+        </div>
+      )}
+
+      {/* Что произойдёт, если отпустить, — сказано словами, а не одной рамкой */}
+      {(!!carry || !!taking) && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-lg text-2xs font-semibold
+                        bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300
+                        border border-emerald-200 dark:border-emerald-900 shadow-sm">
+          {taking ? `Переношу на стол… ${taking.done} из ${taking.total}` : carry}
         </div>
       )}
 

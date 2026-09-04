@@ -11,7 +11,6 @@ import {
   Copy,
   List,
   Table,
-  Scissors,
   Plus,
   Trash2, 
   Edit2, 
@@ -37,8 +36,7 @@ import {
   ClipboardCheck,
   Check,
   Edit,
-  Sliders,
-  Upload
+  Sliders
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
@@ -51,6 +49,8 @@ import { countOf } from '../lib/plural';
 import { useModalStore } from '../store/modalStore';
 import NoProject from '../components/NoProject';
 import ExchangeDialog from '../components/ExchangeDialog';
+import ExchangeTab from '../components/registry/ExchangeTab';
+import TagComments from '../components/registry/TagComments';
 import { toCsv, fileName, type Column } from '../lib/exchange';
 import { TAG_EXCHANGE_COLUMNS, buildTagExchange, buildSegmentTable } from '../lib/tagExchange';
 
@@ -297,6 +297,9 @@ const TagSearchPanel = React.memo(function TagSearchPanel({
   );
 });
 
+/** Одинаковое поле карточки тега: раньше каждое несло свой набор классов */
+const cardField = 'w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded-lg text-xs text-slate-850 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500';
+
 const actualitySelectOptions = [
   { value: 'actual', label: '🟢 Актуально' },
   { value: 'warning', label: '🟡 Проверить' },
@@ -365,7 +368,7 @@ export default function Registry() {
   // Панель связей: «где ещё встречается этот тег» — из меню карточки и с её панели
   const openWhereUsed = useInsightStore((st) => st.openWhere);
   const [tags, setTags] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'board' | 'tree' | 'segments' | 'table' | 'equipment'>('board');
+  const [activeTab, setActiveTab] = useState<'board' | 'tree' | 'segments' | 'table' | 'exchange' | 'equipment'>('board');
   const [showImportWizard, setShowImportWizard] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -383,7 +386,6 @@ export default function Registry() {
 
   // Sub-description inline editing state
   const [editingDescId, setEditingDescId] = useState<string | null>(null);
-  const [modalStatusInput, setModalStatusInput] = useState<string>('actual');
   const [editDescForm, setEditDescForm] = useState<{
     text: string;
     comment: string;
@@ -706,14 +708,10 @@ export default function Registry() {
   const [newTagMarkingSeparator, setNewTagMarkingSeparator] = useState('-');
 
   const [editTagBrand, setEditTagBrand] = useState('');
-  const [editTagMarkingSelections, setEditTagMarkingSelections] = useState<Record<string, string>>({});
-  const [editTagMarkingSeparator, setEditTagMarkingSeparator] = useState('-');
 
   // Форма карточки: контролируемые поля + автосохранение (без кнопок «Применить»)
   const [modalMainName, setModalMainName] = useState('');
   const [modalCode, setModalCode] = useState('');
-  const [modalDescText, setModalDescText] = useState('');
-  const [modalDescComment, setModalDescComment] = useState('');
   const [savedFlash, setSavedFlash] = useState(false);
   const savedFlashTimer = useRef<any>(null);
   const flashSaved = () => {
@@ -729,13 +727,8 @@ export default function Registry() {
       modalInitRef.current = editingTag.id;
       const m = parseTagMetadata(editingTag);
       setEditTagBrand(editingTag.brand || '');
-      setEditTagMarkingSelections({});
-      setEditTagMarkingSeparator('-');
       setModalMainName(m.mainName || '');
       setModalCode(editingTag.identifier || '');
-      setModalDescText('');
-      setModalDescComment('');
-      setModalStatusInput('actual');
     } else if (!editingTag) {
       modalInitRef.current = null;
     }
@@ -2644,6 +2637,14 @@ export default function Registry() {
   const parentRefTable = useRef<HTMLDivElement>(null);
   const sortedTagsList = useMemo(() => getSortedTags(), [tags, searchQuery, sortConfig]);
 
+  // Марки, уже встречающиеся в проекте: подсказка вместо конструктора марки.
+  // Люди пишут одну и ту же марку по-разному, и список сам это выравнивает
+  const projectBrands = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of tags) { const b = String(t.brand || '').trim(); if (b) set.add(b); }
+    return [...set].sort((a, b) => a.localeCompare(b, 'ru'));
+  }, [tags]);
+
   const tableVirtualizer = useVirtualizer({
     count: sortedTagsList.length,
     getScrollElement: () => parentRefTable.current,
@@ -2799,16 +2800,6 @@ export default function Registry() {
               <FolderTree className="w-3.5 h-3.5" />
               <span className="hidden @[760px]:inline">Дерево связей</span>
             </button>
-            {/* Быстрая выгрузка — окном (§9). Прежняя полоса осталась вкладкой
-                «Подбор»: она про сложный разбор сегментов, а не про «выгрузить» */}
-            <button type="button"
-              onClick={() => setExchangeOpen(true)}
-              title="Выгрузить теги в файл или буфер обмена"
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
-              <span className="hidden @[760px]:inline text-emerald-700 dark:text-emerald-300">Выгрузить</span>
-            </button>
             <button type="button"
               onClick={() => setActiveTab('segments')}
               title="Подбор по сегментам кода и разбор загруженного файла"
@@ -2821,7 +2812,7 @@ export default function Registry() {
               <List className="w-3.5 h-3.5" />
               <span className="hidden @[760px]:inline">Подбор</span>
             </button>
-            <button type="button"
+            <button type="button" data-tour="tag-table-tab"
               onClick={() => setActiveTab('table')}
               title="Спецификация"
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
@@ -2832,6 +2823,21 @@ export default function Registry() {
             >
               <List className="w-3.5 h-3.5" />
               <span className="hidden @[760px]:inline">Спецификация</span>
+            </button>
+            {/* Обмен с внешним миром — последним: сначала работа, потом
+                выгрузка. Импорт и захват экрана лежали внутри «Подбора», где
+                их никто не искал, а выгрузка была кнопкой в ряду вкладок */}
+            <button type="button" data-tour="tag-exchange-tab"
+              onClick={() => setActiveTab('exchange')}
+              title="Импорт тегов, выгрузка и захват с экрана"
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-ui cursor-pointer ${
+                activeTab === 'exchange'
+                  ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span className="hidden @[760px]:inline">Экспорт и импорт</span>
             </button>
           </div>
         </div>
@@ -3525,7 +3531,7 @@ export default function Registry() {
                               )}
                               {/* Toggle Info / Expand Detailed View */}
                               <button type="button"
-                                title={isExpanded ? "Свернуть подописания" : "Открыть подописания тега"}
+                                title={isExpanded ? "Свернуть комментарии" : "Открыть комментарии тега"}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setExpandedCardIds(prev => ({ ...prev, [tag.id]: !prev[tag.id] }));
@@ -3638,7 +3644,7 @@ export default function Registry() {
                             {/* SUB-DESCRIPTIONS LIST (With full tracking timestamps and inline editing capability!) */}
                             <div className="p-3.5 space-y-2 max-h-[220px] overflow-y-auto no-drag">
                               <div className="text-2xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                                Подописания ({meta.descriptions.length})
+                                Комментарии ({meta.descriptions.length})
                               </div>
 
                               {meta.descriptions.map((desc) => {
@@ -3722,7 +3728,7 @@ export default function Registry() {
                                             
                                             {/* Actions */}
                                             <button type="button"
-                                              title="Редактировать подописание"
+                                              title="Изменить комментарий"
                                               onClick={() => {
                                                 setEditingDescId(desc.id);
                                                 setEditDescForm({
@@ -3736,7 +3742,7 @@ export default function Registry() {
                                               <Edit className="w-2.5 h-2.5" />
                                             </button>
                                             <button type="button"
-                                              title="Удалить подописание"
+                                              title="Удалить комментарий"
                                               onClick={() => handleRemoveDescription(tag.id, desc.id)}
                                               className="p-1 hover:text-rose-500 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors text-slate-400 cursor-pointer"
                                             >
@@ -3764,7 +3770,7 @@ export default function Registry() {
                               )}
                             </div>
 
-                            {/* Быстрое добавление подописания */}
+                            {/* Быстрое добавление комментария */}
                             <div className="p-3 bg-slate-50 dark:bg-slate-900 border-t border-slate-105 dark:border-slate-850 space-y-2 no-drag text-left text-xs">
                               <div className="flex gap-1.5">
                                 <input
@@ -4140,6 +4146,21 @@ export default function Registry() {
           </motion.div>
         )}
 
+        {activeTab === 'exchange' && (
+          <motion.div
+            key="exchange-tab"
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -15 }}
+            transition={{ duration: 0.15 }}
+            className="h-full w-full overflow-y-auto pr-1"
+          >
+            <ExchangeTab total={tags.length}
+              onImport={() => setShowImportWizard(true)}
+              onExport={() => setExchangeOpen(true)} />
+          </motion.div>
+        )}
+
         {/* TAB 4: ADVANCED SEGMENT COLLECTOR & EXPORT PROCESSOR */}
         {activeTab === 'segments' && (
           <motion.div
@@ -4151,52 +4172,6 @@ export default function Registry() {
             className="h-full w-full overflow-y-auto space-y-4 text-left pr-1"
           >
 
-            {/* IMPORT FROM SPREADSHEET BANNER */}
-            <div className="flex flex-col @[560px]:flex-row @[560px]:items-center justify-between gap-3 p-5 bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-950/30 dark:to-slate-950 border border-emerald-200/70 dark:border-emerald-900/50 rounded-xl shadow-xs">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-950/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
-                  <FileSpreadsheet className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Импорт тегов из таблицы</h3>
-                  <p className="text-xs text-slate-500 mt-0.5 max-w-lg">Загрузите Excel в Проводник или вставьте данные и отметьте колонки.</p>
-                </div>
-              </div>
-              <button type="button"
-                onClick={() => setShowImportWizard(true)}
-                className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 transition-ui cursor-pointer shrink-0"
-              >
-                <Upload className="w-4 h-4" />
-                <span>Открыть мастер импорта</span>
-              </button>
-            </div>
-
-            {/* ЗАХВАТ С ЭКРАНА */}
-            {!!(window as any).electron?.capture && (
-              <div className="flex flex-col @[560px]:flex-row @[560px]:items-center justify-between gap-3 p-5 bg-gradient-to-br from-sky-50 to-white dark:from-sky-950/30 dark:to-slate-950 border border-sky-200/70 dark:border-sky-900/50 rounded-xl shadow-xs">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-sky-100 dark:bg-sky-950/50 flex items-center justify-center text-sky-600 dark:text-sky-400 shrink-0">
-                    <Scissors className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">Захват с экрана</h3>
-                    <p className="text-xs text-slate-500 mt-0.5 max-w-lg">
-                      Программа свернётся в угол экрана. Выделите теги в любом окне — письме, бланке, PDF —
-                      и скопируйте: пульт увидит буфер сам. Дальше разбор с проверкой, что именно распозналось.
-                      Горячая клавиша <b>Ctrl+Shift+X</b>.
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => (window as any).electron?.capture?.start()}
-                  className="px-5 py-2.5 bg-sky-700 hover:bg-sky-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 transition-all cursor-pointer shrink-0"
-                >
-                  <Scissors className="w-4 h-4" />
-                  <span>Свернуть и захватить</span>
-                </button>
-              </div>
-            )}
-
             {/* SELECTION FILTERS BLOCK */}
             <div className="grid grid-cols-1 @[880px]:grid-cols-2 gap-6 p-5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl  text-left">
               
@@ -4206,9 +4181,9 @@ export default function Registry() {
                   <div>
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-                      👈 LEFT SIDE: Tag Filtering Zone
+                      Отбор по сегментам тега
                     </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Фильтрация по сегментам тега KKS (только латиница и цифры).</p>
+                    <p className="text-xs text-slate-500 mt-0.5">По частям кода тега: только латиница и цифры.</p>
                   </div>
                   <button type="button"
                     onClick={() => setAddedTagSegmentsCount(prev => prev + 1)}
@@ -4281,7 +4256,7 @@ export default function Registry() {
                         <div>
                           <div className="flex items-center justify-between border-b border-slate-200/40 dark:border-slate-800/45 pb-1 mb-2">
                             <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 uppercase tracking-wider">
-                              Segment KKS {idx + 1}
+                              Сегмент тега {idx + 1}
                             </span>
                             {idx >= getMaximumTagSegmentLength() && (
                               <button type="button"
@@ -4409,7 +4384,7 @@ export default function Registry() {
                         <div className="space-y-1 border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
                           <div className="space-y-1">
                             <span className="block text-xs font-semibold text-slate-450 dark:text-slate-500 uppercase tracking-wider">
-                              Связать со справочником KKS:
+                              Справочник значений:
                             </span>
                             <CustomSelect
                               value={boundDictId}
@@ -4487,9 +4462,9 @@ export default function Registry() {
                   <div>
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
-                      👉 RIGHT SIDE: Mark Filtering Zone
+                      Отбор по сегментам марки
                     </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Фильтрация физического состава марки (поддержка любых языков).</p>
+                    <p className="text-xs text-slate-500 mt-0.5">По частям марки оборудования: любой язык.</p>
                   </div>
                   <button type="button"
                     onClick={() => setAddedMarkSegmentsCount(prev => prev + 1)}
@@ -4562,7 +4537,7 @@ export default function Registry() {
                         <div>
                           <div className="flex items-center justify-between border-b border-slate-200/40 dark:border-slate-800/45 pb-1 mb-2">
                             <span className="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1 uppercase tracking-wider">
-                              Segment Mark {idx + 1}
+                              Сегмент марки {idx + 1}
                             </span>
                             {idx >= getMaximumMarkSegmentLength() && (
                               <button type="button"
@@ -4690,7 +4665,7 @@ export default function Registry() {
                         <div className="space-y-1 border-t border-slate-200/40 dark:border-slate-800/40 mt-2 pt-2">
                           <div className="space-y-1">
                             <span className="block text-xs font-semibold text-slate-455 dark:text-slate-500 uppercase tracking-wider">
-                              Связать со справочником Mark:
+                              Справочник значений:
                             </span>
                             <CustomSelect
                               value={boundDictId}
@@ -4843,7 +4818,7 @@ export default function Registry() {
                     onChange={(e) => setExportColumns(p => ({ ...p, parts: e.target.checked }))}
                     className="rounded border-slate-300 text-emerald-600"
                   />
-                  <span>Сегменты отдельно (Segment breakdown)</span>
+                  <span>Сегменты отдельными колонками</span>
                 </label>
                 <label className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-100 dark:border-slate-800 cursor-pointer">
                   <input
@@ -4897,7 +4872,7 @@ export default function Registry() {
                     onChange={(e) => setExportColumns(p => ({ ...p, descriptions: e.target.checked }))}
                     className="rounded border-slate-300 text-emerald-600"
                   />
-                  <span>Подописания / Контрольные точки КИП</span>
+                  <span>Комментарии / Контрольные точки КИП</span>
                 </label>
               </div>
             </div>
@@ -4917,20 +4892,13 @@ export default function Registry() {
                 <table className="w-full text-sm text-left border-collapse">
                   <thead className="sticky top-0 bg-white dark:bg-slate-950 text-slate-500 dark:text-slate-400 border-b border-slate-250 dark:border-slate-850 text-xs font-semibold uppercase tracking-wider z-10 shadow-xs">
                     <tr>
-                      <th className="flux-cell">Tag Segments (Тег KKS)</th>
-                      <th className="flux-cell">Mark Segments (Характеристики)</th>
-                      <th className="flux-cell">Наименование тега (Name)</th>
-                      <th className="flux-cell flex items-center justify-between col-span-1">
-                        <span>Статус / Актуальность (Status)</span>
-                        <button
-                          type="button"
-                          onClick={() => void openAlert('Пока недоступно', 'Эта возможность ещё не готова.')}
-                          className="p-1 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-905 hover:scale-105 transition-ui cursor-pointer font-bold shrink-0 shadow-xs flex items-center justify-center w-5 h-5 ml-2"
-                          title="Добавить колонку (Spreadsheet Extension)"
-                        >
-                          +
-                        </button>
-                      </th>
+                      <th className="flux-cell">Сегменты тега</th>
+                      <th className="flux-cell">Сегменты марки</th>
+                      <th className="flux-cell">Наименование тега</th>
+                      {/* Кнопка «добавить колонку» отсюда убрана: она только
+                          сообщала, что возможность не готова. Кнопка, которая
+                          ничего не делает, хуже отсутствующей — она обещает */}
+                      <th className="flux-cell">Статус / Актуальность</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-850">
@@ -5109,7 +5077,8 @@ export default function Registry() {
                           </th>
                         </>
                       )}
-                      <th className="flux-cell font-bold">Распознанные подописания КИПиА</th>
+                      <th className="flux-cell font-bold">Актуальность</th>
+                      <th className="flux-cell font-bold">Комментарии</th>
                       <th className="flux-cell cursor-pointer hover:bg-slate-105 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('createdAt')}>
                         Регистрация {sortConfig.key === 'createdAt' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                       </th>
@@ -5119,7 +5088,7 @@ export default function Registry() {
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-850">
                     {tableVirtualizer.getVirtualItems().length > 0 && (
                       <tr style={{ height: `${tableVirtualizer.getVirtualItems()[0].start}px`, border: 'none' }}>
-                        <td colSpan={showOptionalTableColumns ? 7 : 5} style={{ padding: 0, border: 'none' }} />
+                        <td colSpan={showOptionalTableColumns ? 8 : 6} style={{ padding: 0, border: 'none' }} />
                       </tr>
                     )}
                     {tableVirtualizer.getVirtualItems().map((virtualRow) => {
@@ -5192,6 +5161,19 @@ export default function Registry() {
                               </td>
                             </>
                           )}
+                          {/* Актуальность тега — отдельной колонкой: за ней и
+                              приходят в спецификацию, а раньше её приходилось
+                              выискивать среди комментариев */}
+                          <td className="flux-cell">
+                            {(() => {
+                              const look = statusConfig[getTagOverallStatus(t)] || statusConfig.draft;
+                              return (
+                                <span className={`inline-block px-1.5 py-0.5 rounded text-2xs font-semibold border ${look.bg} ${look.text} ${look.border}`}>
+                                  {look.label}
+                                </span>
+                              );
+                            })()}
+                          </td>
                           <td className="flux-cell">
                             {meta.descriptions.length > 0 ? (
                               <div className="space-y-1">
@@ -5204,7 +5186,7 @@ export default function Registry() {
                                   className="text-xs inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer text-slate-650 dark:text-slate-300 border border-slate-200 dark:border-slate-805"
                                 >
                                   <Eye className="w-3.5 h-3.5 text-emerald-600" />
-                                  <span>{showTableDescriptions[t.id] ? 'Скрыть' : 'Показать'} подописания ({meta.descriptions.length})</span>
+                                  <span>{showTableDescriptions[t.id] ? 'Скрыть' : 'Показать'} комментарии ({meta.descriptions.length})</span>
                                 </button>
                                 
                                 {showTableDescriptions[t.id] && (
@@ -5226,7 +5208,7 @@ export default function Registry() {
                                 )}
                               </div>
                             ) : (
-                              <span className="text-slate-400 italic text-xs">Нет подописаний</span>
+                              <span className="text-slate-400 italic text-xs">Комментариев нет</span>
                             )}
                           </td>
                           <td className="flux-cell text-slate-500 font-mono text-xs">
@@ -5255,13 +5237,13 @@ export default function Registry() {
                     })}
                     {tableVirtualizer.getVirtualItems().length > 0 && (
                       <tr style={{ height: `${tableVirtualizer.getTotalSize() - tableVirtualizer.getVirtualItems()[tableVirtualizer.getVirtualItems().length - 1].end}px`, border: 'none' }}>
-                        <td colSpan={showOptionalTableColumns ? 7 : 5} style={{ padding: 0, border: 'none' }} />
+                        <td colSpan={showOptionalTableColumns ? 8 : 6} style={{ padding: 0, border: 'none' }} />
                       </tr>
                     )}
 
                     {tags.length === 0 && (
                       <tr>
-                        <td colSpan={showOptionalTableColumns ? 7 : 5} className="text-center py-20 text-slate-400">
+                        <td colSpan={showOptionalTableColumns ? 8 : 6} className="text-center py-20 text-slate-400">
                           В данном проекте отсутствуют теги. Создайте первый тег выше!
                         </td>
                       </tr>
@@ -5320,11 +5302,28 @@ export default function Registry() {
                 </div>
               </div>
 
-              <div className="p-5 overflow-y-auto space-y-5 text-left">
-                
-                {/* Главное наименование — автосохранение на blur */}
-                <div className="space-y-1.5 text-left">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Главное наименование</label>
+              {/* Плотнее, чем было: карточку открывают ради одной правки, а
+                  она требовала прокрутки из-за крупных блоков с отступами */}
+              <div className="p-4 overflow-y-auto space-y-3 text-left">
+
+                {/* Наименование и актуальность — то, ради чего карточку открыли */}
+                <div className="space-y-1 text-left">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Наименование</label>
+                    {/* Актуальность тега не задаётся отдельно: она складывается
+                        из комментариев ниже. Показываем её тем же значком, что
+                        и в списке, — иначе человек ищет переключатель, которого
+                        нет, и решает, что поле пропало */}
+                    {(() => {
+                      const look = statusConfig[getTagOverallStatus(editingTag)] || statusConfig.draft;
+                      return (
+                        <span className={`px-1.5 py-0.5 rounded text-2xs font-semibold border ${look.bg} ${look.text} ${look.border}`}
+                          title="Актуальность тега складывается из его комментариев">
+                          {look.label}
+                        </span>
+                      );
+                    })()}
+                  </div>
                   <input
                     type="text"
                     placeholder="Напр., Приточная вентиляционная установка"
@@ -5336,13 +5335,64 @@ export default function Registry() {
                         flashSaved();
                       }
                     }}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded-xl text-sm text-slate-850 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
+                    className={cardField}
                   />
                 </div>
 
+                {/* Марка и WBS. Конструктор марки убран: он собирал строку из
+                    трёх списков справочника, которого почти нигде нет, и занимал
+                    треть карточки, показывая пустоту. Марка сейчас — просто
+                    марка, а подсказка берётся из марок этого же проекта */}
+                <div className="grid grid-cols-1 @[560px]:grid-cols-2 gap-2.5">
+                  <div className="space-y-1 text-left">
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Марка</label>
+                    <input
+                      type="text"
+                      list="tag-brands"
+                      placeholder="Напр. Датчик-К1"
+                      value={editTagBrand}
+                      onChange={(e) => setEditTagBrand(e.target.value)}
+                      onBlur={async () => {
+                        if (editTagBrand !== (editingTag.brand || '')) {
+                          await handleUpdateBrand(editingTag.id, editTagBrand);
+                          flashSaved();
+                        }
+                      }}
+                      className={cardField}
+                    />
+                    <datalist id="tag-brands">
+                      {projectBrands.map((b) => <option key={b} value={b} />)}
+                    </datalist>
+                  </div>
+                  <div className="space-y-1 text-left">
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">WBS</label>
+                    <input
+                      key={`wbs-${editingTag.id}`}
+                      type="text"
+                      placeholder="Структура работ, необязательно"
+                      defaultValue={editingTag.wbs || ''}
+                      onBlur={async (e) => {
+                        const v = e.target.value.trim();
+                        if (v === (editingTag.wbs || '')) return;
+                        try {
+                          const res = await fetch(`/api/tags/${editingTag.id}`, {
+                            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ wbs: v }),
+                          });
+                          if (!res.ok) throw new Error();
+                          setTags(prev => prev.map(t => t.id === editingTag.id ? { ...t, wbs: v } : t));
+                          setEditingTag((prev: any) => prev ? { ...prev, wbs: v } : null);
+                          flashSaved();
+                        } catch { addToast('Не удалось сохранить WBS', 'error'); }
+                      }}
+                      className={cardField}
+                    />
+                  </div>
+                </div>
+
                 {/* Родительский тег (связь вверх) — автосохранение на выбор */}
-                <div className="space-y-1.5 text-left">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Родительский тег (связь вверх)</label>
+                <div className="space-y-1 text-left">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Родительский тег</label>
                   <CustomSelect
                     value={parseTagMetadata(editingTag).parentId || 'none'}
                     onChange={(val) => { handleUpdateParent(editingTag.id, val); flashSaved(); }}
@@ -5359,7 +5409,9 @@ export default function Registry() {
                   />
                 </div>
 
-                {/* DYNAMIC CATEGORIES FORM SECTION */}
+                {/* Дополнительные поля — те, что заведены в «Справочнике».
+                    Заведённое там появляется здесь само: это и есть обещанная
+                    расширяемость, а не отдельная настройка карточки */}
                 {(() => {
                   const configDict = dictionaries.find(d => d.name === '__tag_creation_config__');
                   const cats = configDict
@@ -5373,9 +5425,9 @@ export default function Registry() {
                     const tagDFields = tagMeta.dynamicFields || {};
 
                     return (
-                      <div className="space-y-3 p-4 bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-800 rounded-xl">
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Дополнительные параметры</label>
-                        <div className="grid grid-cols-2 gap-3.5">
+                      <div className="space-y-2">
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Дополнительные поля</label>
+                        <div className="grid grid-cols-1 @[560px]:grid-cols-2 gap-2.5">
                           {cats.map((cat: any) => {
                             const options = (configDict?.items || [])
                               .filter((i: any) => i.parentId === cat.id)
@@ -5403,301 +5455,21 @@ export default function Registry() {
                   return null;
                 })()}
 
-                {/* EDIT BRAND (МАРКА) SECTION */}
-                <div className="space-y-2 p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-left">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Марка оборудования</label>
-                  
-                  {/* Reference Dropdowns */}
-                  {(() => {
-                    const markingDict = dictionaries.find(d => d.name === '__tag_marking_config__');
-                    const mItems = markingDict?.items || [];
-                    const mCats = mItems
-                      .filter((i: any) => !i.parentId)
-                      .sort((a: any, b: any) => a.code.localeCompare(b.code));
-
-                    if (mCats.length > 0) {
-                      return (
-                        <div className="space-y-2 pb-2 border-b border-slate-200/50 dark:border-slate-800/50">
-                          <p className="text-xs text-slate-400 font-semibold uppercase tracking-wide">Конструктор марки:</p>
-                          <div className="grid grid-cols-3 gap-2">
-                            {mCats.map((cat: any) => {
-                              const options = mItems
-                                .filter((i: any) => i.parentId === cat.id)
-                                .sort((a: any, b: any) => a.nameRu.localeCompare(b.nameRu));
-
-                              return (
-                                <div key={cat.id} className="space-y-1">
-                                  <span className="text-xs uppercase font-bold text-slate-400">{cat.nameRu}</span>
-                                  <CustomSelect
-                                    value={editTagMarkingSelections[cat.id] || ''}
-                                    onChange={(val) => {
-                                      const updatedSelections = { ...editTagMarkingSelections, [cat.id]: val };
-                                      setEditTagMarkingSelections(updatedSelections);
-                                      
-                                      // Compile brand
-                                      const parts = mCats
-                                        .map((c: any) => updatedSelections[c.id])
-                                        .filter(Boolean);
-                                      setEditTagBrand(parts.join(editTagMarkingSeparator));
-                                    }}
-                                    placeholder="-- выбрать --"
-                                    options={options.map((opt: any) => ({
-                                      value: opt.nameRu,
-                                      label: opt.nameRu
-                                    }))}
-                                  />
-                                </div>
-                              );
-                            })}
-
-                            <div className="space-y-1">
-                              <span className="text-xs uppercase font-bold text-slate-400">Разделитель</span>
-                              <CustomSelect
-                                value={editTagMarkingSeparator}
-                                onChange={(val) => {
-                                  const sep = val;
-                                  setEditTagMarkingSeparator(sep);
-                                  
-                                  const parts = mCats
-                                    .map((c: any) => editTagMarkingSelections[c.id])
-                                    .filter(Boolean);
-                                  setEditTagBrand(parts.join(sep));
-                                }}
-                                options={[
-                                  { value: "-", label: "-" },
-                                  { value: "/", label: "/" },
-                                  { value: ".", label: "." },
-                                  { value: " ", label: "пробел" },
-                                  { value: "", label: "без знака" }
-                                ]}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    }
-                    return null;
-                  })()}
-
-                  {/* Марка — автосохранение на blur (или при выборе в конструкторе) */}
-                  <input
-                    type="text"
-                    placeholder="Задайте марку (напр: Датчик-К1)"
-                    value={editTagBrand}
-                    onChange={(e) => setEditTagBrand(e.target.value)}
-                    onBlur={async () => {
-                      if (editTagBrand !== (editingTag.brand || '')) {
-                        await handleUpdateBrand(editingTag.id, editTagBrand);
-                        flashSaved();
-                      }
-                    }}
-                    className="w-full px-3 py-2 mt-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 font-medium"
-                  />
-
-                  {/* WBS — автосохранение на blur */}
-                  <input
-                    key={`wbs-${editingTag.id}`}
-                    type="text"
-                    placeholder="WBS (структура работ, необязательно)"
-                    defaultValue={editingTag.wbs || ''}
-                    onBlur={async (e) => {
-                      const v = e.target.value.trim();
-                      if (v === (editingTag.wbs || '')) return;
-                      try {
-                        const res = await fetch(`/api/tags/${editingTag.id}`, {
-                          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ wbs: v }),
-                        });
-                        if (!res.ok) throw new Error();
-                        setTags(prev => prev.map(t => t.id === editingTag.id ? { ...t, wbs: v } : t));
-                        setEditingTag((prev: any) => prev ? { ...prev, wbs: v } : null);
-                        flashSaved();
-                      } catch { addToast('Не удалось сохранить WBS', 'error'); }
-                    }}
-                    className="w-full px-3 py-2 mt-2 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 font-medium"
-                  />
-                </div>
-
-                {/* Добавить подписание */}
-                <div className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl space-y-3">
-                  <h4 className="text-xs font-bold text-slate-750 dark:text-slate-300 uppercase tracking-widest flex items-center gap-1">
-                    <Plus className="w-4 h-4 text-emerald-600" />
-                    Новое подписание
-                  </h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <span className="text-xs font-bold text-slate-500">Заголовок</span>
-                      <input
-                        type="text"
-                        placeholder="Напр., Датчик TE-101"
-                        value={modalDescText}
-                        onChange={(e) => setModalDescText(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter' && modalDescText.trim()) (document.getElementById('modal-add-desc-btn') as HTMLButtonElement)?.click(); }}
-                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <span className="text-xs font-bold text-slate-500">Актуальность</span>
-                      <CustomSelect
-                        value={modalStatusInput}
-                        onChange={(val) => setModalStatusInput(val)}
-                        options={actualitySelectOptions}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <span className="text-xs font-bold text-slate-500">Комментарий</span>
-                    <input
-                      type="text"
-                      placeholder="Замечания или лог проверки…"
-                      value={modalDescComment}
-                      onChange={(e) => setModalDescComment(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' && modalDescText.trim()) (document.getElementById('modal-add-desc-btn') as HTMLButtonElement)?.click(); }}
-                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
-                    />
-                  </div>
-
-                  <button type="button"
-                    id="modal-add-desc-btn"
-                    disabled={!modalDescText.trim()}
-                    onClick={async () => {
-                      if (!modalDescText.trim()) return;
-                      await handleAddDescription(editingTag.id, modalDescText.trim(), modalDescComment.trim(), modalStatusInput as any);
-                      setModalDescText('');
-                      setModalDescComment('');
-                      setModalStatusInput('actual');
-                      flashSaved();
-                    }}
-                    className="w-full py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-xs font-semibold cursor-pointer transition-colors border-none"
-                  >
-                    Добавить подписание
-                  </button>
-                </div>
-
-                {/* CURRENT LIST OF DESCRIPTIONS */}
-                <div className="space-y-2.5">
-                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                    Подописания тега ({parseTagMetadata(editingTag).descriptions.length})
-                  </div>
-                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                    {parseTagMetadata(editingTag).descriptions.map((desc) => {
-                      const config = statusConfig[desc.status] || statusConfig.draft;
-                      const Icon = config.icon;
-                      const isEditingThisDesc = editingDescId === desc.id;
-
-                      return (
-                        <div key={desc.id} className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-lg flex flex-col gap-2">
-                          {isEditingThisDesc ? (
-                            /* DESCRIPTIONS DIALOG INLINE LOADER EDITOR */
-                            <div className="space-y-2 text-left w-full">
-                              <div className="grid grid-cols-2 gap-2">
-                                <input
-                                  type="text"
-                                  value={editDescForm.text}
-                                  onChange={(e) => setEditDescForm(prev => ({ ...prev, text: e.target.value }))}
-                                  className="px-2.5 py-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
-                                  placeholder="Название..."
-                                />
-                                <CustomSelect
-                                  value={editDescForm.status}
-                                  onChange={(val) => setEditDescForm(prev => ({ ...prev, status: val as any }))}
-                                  options={actualitySelectOptions}
-                                />
-                              </div>
-                              <textarea
-                                value={editDescForm.comment}
-                                onChange={(e) => setEditDescForm(prev => ({ ...prev, comment: e.target.value }))}
-                                className="w-full p-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded text-xs text-slate-800 dark:text-slate-100 focus:outline-none animate-none"
-                                placeholder="Комментарий..."
-                                rows={2}
-                              />
-                              <div className="flex justify-end gap-1.5">
-                                <button type="button"
-                                  onClick={() => setEditingDescId(null)}
-                                  className="px-2 py-0.5 text-xs text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
-                                >
-                                  Отмена
-                                </button>
-                                <button type="button"
-                                  onClick={async () => {
-                                    await handleUpdateDescription(editingTag.id, desc.id, {
-                                      text: editDescForm.text,
-                                      comment: editDescForm.comment,
-                                      status: editDescForm.status
-                                    });
-                                    setEditingDescId(null);
-                                  }}
-                                  className="px-3 py-0.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold rounded cursor-pointer"
-                                >
-                                  Сохранить
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            /* STANDARD MODE VIEW WITH STAMPS */
-                            <>
-                              <div className="flex items-start justify-between gap-2.5">
-                                <div className="flex gap-2 text-left">
-                                  <Icon className={`w-5 h-5 shrink-0 mt-0.5 ${config.text}`} />
-                                  <div>
-                                    <p className="text-xs font-bold text-slate-850 dark:text-slate-100">{desc.text}</p>
-                                    {desc.comment && (
-                                      <p className="text-xs text-slate-550 dark:text-slate-400 mt-1 pl-1.5 border-l border-slate-200 dark:border-slate-750">
-                                        {desc.comment}
-                                      </p>
-                                    )}
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-2 shrink-0">
-                                  <span className={`inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-xs font-semibold border ${config.bg} ${config.text} ${config.border}`}>
-                                    {config.label}
-                                  </span>
-                                  <button type="button"
-                                    title="Редактировать подописание"
-                                    onClick={() => {
-                                      setEditingDescId(desc.id);
-                                      setEditDescForm({
-                                        text: desc.text,
-                                        comment: desc.comment || '',
-                                        status: desc.status
-                                      });
-                                    }}
-                                    className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded text-slate-405 hover:text-emerald-600 transition-colors cursor-pointer"
-                                  >
-                                    <Edit className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button type="button"
-                                    onClick={() => handleRemoveDescription(editingTag.id, desc.id)}
-                                    className="p-1 hover:bg-rose-50 dark:hover:bg-rose-950 rounded text-slate-400 hover:text-rose-500 transition-colors cursor-pointer"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              </div>
-
-                              {/* TIMESTAMPS FOR CREATOR / UPDATER */}
-                              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-450 dark:text-slate-500 font-mono mt-1 border-t border-slate-100 dark:border-slate-800/40 pt-1 leading-none">
-                                <span>Ср: <strong>{desc.createdBy || 'Система'}</strong> {desc.createdAt && `(${formatDateStr(desc.createdAt)})`}</span>
-                                {desc.updatedBy && (
-                                  <>
-                                    <span className="text-slate-300 dark:text-slate-455">|</span>
-                                    <span>Из: <strong>{desc.updatedBy}</strong> {desc.updatedAt && `(${formatDateStr(desc.updatedAt)})`}</span>
-                                  </>
-                                )}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      );
-                    })}
-
-                    {parseTagMetadata(editingTag).descriptions.length === 0 && (
-                      <p className="text-center py-6 text-slate-400 text-xs italic">Описания отсутствуют.</p>
-                    )}
-                  </div>
-                </div>
+                <TagComments
+                  items={parseTagMetadata(editingTag).descriptions as any}
+                  statusConfig={statusConfig as any}
+                  statusOptions={actualitySelectOptions}
+                  formatDate={formatDateStr}
+                  onAdd={async (text, comment, status) => {
+                    await handleAddDescription(editingTag.id, text, comment, status as any);
+                    flashSaved();
+                  }}
+                  onUpdate={async (id, patch) => {
+                    await handleUpdateDescription(editingTag.id, id, patch as any);
+                    flashSaved();
+                  }}
+                  onRemove={(id) => handleRemoveDescription(editingTag.id, id)}
+                />
 
                 {/* Документы ВДР по этому тегу (главный тег строки реестра) */}
                 <TagVdrDocs identifier={editingTag.identifier} projectId={activeProject?.id || 'default'} />
@@ -5992,7 +5764,7 @@ export default function Registry() {
               <div className="flex items-center gap-2">
                 <button type="button"
                   onClick={() => setShowTreeDescriptions(prev => ({ ...prev, [node.id]: !prev[node.id] }))}
-                  title={isTreeDescVisible ? "Скрыть подописания" : `Показать подописания (${configList.length})`}
+                  title={isTreeDescVisible ? "Скрыть комментарии" : `Показать комментарии (${configList.length})`}
                   className={`p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer flex items-center justify-center ${
                     isTreeDescVisible ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 font-bold' : 'text-slate-400'
                   }`}

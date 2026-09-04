@@ -123,6 +123,57 @@ export function forwardSubject(subject: string): string {
   return /^(fwd|fw):/i.test(s) ? s : `Fwd: ${s}`;
 }
 
+/**
+ * Проверка отправки: сервер SMTP отвечает и пускает с этим паролем.
+ *
+ * Раньше проверка связи спрашивала только IMAP, хотя обещала оба — так и было
+ * написано в её пояснении. Из-за этого неверный сервер исходящих обнаруживался
+ * не при подключении ящика, а в тот момент, когда человек нажимал «Отправить»
+ * на готовом письме и терял его.
+ */
+export async function verifySmtp(
+  c: { smtpHost: string; smtpPort: number; smtpSecure: boolean; login: string; password: string },
+): Promise<{ ok: boolean; error: string }> {
+  if (!c.smtpHost) return { ok: false, error: 'Не указан сервер исходящей почты (SMTP)' };
+  const transport = nodemailer.createTransport({
+    host: c.smtpHost,
+    port: c.smtpPort || 465,
+    secure: c.smtpSecure !== false,
+    auth: { user: c.login, pass: c.password },
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 20000,
+  });
+  try {
+    await transport.verify();
+    return { ok: true, error: '' };
+  } catch (err: any) {
+    return { ok: false, error: explainSmtpError(err) };
+  } finally {
+    try { transport.close(); } catch (_) { /* уже закрыт */ }
+  }
+}
+
+/** Отказ SMTP словами: человеку нужно знать, что делать, а не текст сервера */
+export function explainSmtpError(err: any): string {
+  const raw = String(err?.response || err?.message || err || '');
+  const low = raw.toLowerCase();
+  if (low.includes('enotfound') || low.includes('getaddrinfo') || low.includes('eai_again')) {
+    return 'Сервер исходящей почты не найден. Проверьте адрес SMTP.';
+  }
+  if (low.includes('econnrefused')) return 'Сервер исходящей почты отказал в соединении. Проверьте порт: обычно 465 или 587.';
+  if (low.includes('etimedout') || low.includes('timeout')) {
+    return 'Сервер исходящей почты не ответил вовремя — возможно, порт закрыт межсетевым экраном.';
+  }
+  if (low.includes('invalid login') || low.includes('authentication') || low.includes('535')) {
+    return 'Логин или пароль для отправки не подошли. У Gmail, Яндекса и Mail.ru нужен отдельный пароль приложения.';
+  }
+  if (low.includes('certificate') || low.includes('self-signed')) {
+    return 'Не сошёлся сертификат сервера исходящей почты — проверьте адрес.';
+  }
+  return raw || 'Не удалось соединиться с сервером исходящей почты.';
+}
+
 export async function sendMail(accountId: string, input: SendInput, sigDir: string): Promise<SendResult> {
   const prisma = getPrisma();
   const acc = await prisma.mailAccount.findUnique({ where: { id: accountId } });

@@ -46,6 +46,10 @@ export default function MailAccountForm({ account, mayShared = false, onClose, o
   const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
   const [check, setCheck] = useState<{ ok: boolean; text: string } | null>(null);
+  /** Отдельно про отправку: сервер входящих и исходящих ломаются порознь */
+  const [smtpCheck, setSmtpCheck] = useState<{ ok: boolean; text: string } | null>(null);
+  /** Идёт подбор сервера по адресу */
+  const [seeking, setSeeking] = useState(false);
   const [error, setError] = useState('');
 
   useEscapeClose(true, () => { if (!busy) onClose(); });
@@ -101,6 +105,41 @@ export default function MailAccountForm({ account, mayShared = false, onClose, o
     return () => { alive = false; clearTimeout(t); };
   }, [email]);
 
+  /**
+   * Подобрать сервер по адресу.
+   *
+   * Подсказка по домену угадывает «imap.<домен>», и для почты предприятия это
+   * почти всегда мимо: человек видел «Адрес сервера не найден» и упирался —
+   * свой-то адрес он написал верно, а про сервер не знает ничего.
+   */
+  const seekServer = async () => {
+    if (!email.includes('@')) { setError('Сначала укажите адрес почты'); return; }
+    setSeeking(true);
+    setError('');
+    try {
+      const r = await mailService.discover(email);
+      if (r.imap) {
+        setImapHost(r.imap.host);
+        setImapPort(String(r.imap.port));
+        filledRef.current.imapHost = r.imap.host;
+        filledRef.current.imapPort = String(r.imap.port);
+      }
+      if (r.smtp) {
+        setSmtpHost(r.smtp.host);
+        setSmtpPort(String(r.smtp.port));
+        filledRef.current.smtpHost = r.smtp.host;
+        filledRef.current.smtpPort = String(r.smtp.port);
+      }
+      setAdvanced(true);
+      if (!r.imap) setError(r.why || 'Сервер не найден');
+      else setCheck({ ok: true, text: `Сервер найден: ${r.imap.host}:${r.imap.port}. Проверьте пароль и сохраните.` });
+    } catch (err: any) {
+      setError(err?.message || 'Не удалось подобрать сервер');
+    } finally {
+      setSeeking(false);
+    }
+  };
+
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -131,7 +170,15 @@ export default function MailAccountForm({ account, mayShared = false, onClose, o
       // потом в пустом списке писем
       const v = await mailService.verify(saved.account.id);
       setCheck({ ok: v.imap.ok, text: v.imap.ok ? `Связь есть, папок на сервере: ${v.imap.folders}` : v.imap.error });
-      if (v.imap.ok) {
+      // Отправку показываем отдельной строкой: сервер входящих и исходящих
+      // ломаются порознь, и «письма приходят, но не уходят» — обычное дело
+      if (v.smtp) setSmtpCheck({ ok: v.smtp.ok, text: v.smtp.ok ? 'Отправка проверена' : v.smtp.error });
+      if (!v.imap.ok) {
+        // Не сошлось — человеку нужны поля серверов, а не поиск кнопки,
+        // которая их раскрывает
+        setAdvanced(true);
+      }
+      if (v.imap.ok && (!v.smtp || v.smtp.ok)) {
         onSaved();
         setTimeout(onClose, 900);
       }
@@ -269,6 +316,17 @@ export default function MailAccountForm({ account, mayShared = false, onClose, o
                   Адреса серверов {preset && !advanced ? `— подставлены для «${preset.title}»` : ''}
                 </span>
               </button>
+              {/* Подобрать сервер: перебирает привычные имена и проверяет, какое
+                  отвечает. Про сервер человек не знает ничего и знать не должен */}
+              <div className="px-3 pb-2 -mt-1">
+                <button
+                  type="button" onClick={seekServer} disabled={busy || seeking}
+                  className="text-2xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline
+                             cursor-pointer disabled:opacity-50"
+                >
+                  {seeking ? 'Ищу сервер…' : 'Подобрать сервер по адресу'}
+                </button>
+              </div>
               {advanced && (
                 <div className="grid grid-cols-1 @[440px]:grid-cols-2 gap-3 px-3 pb-3">
                   <div>
@@ -311,6 +369,23 @@ export default function MailAccountForm({ account, mayShared = false, onClose, o
                   : <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />}
                 <p className={`text-xs ${check.ok ? 'text-emerald-800 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'}`}>
                   {check.text}
+                </p>
+              </div>
+            )}
+
+            {/* Отправка — отдельной строкой: сервер входящих и исходящих
+                ломаются порознь, и «письма приходят, но не уходят» бывает чаще,
+                чем кажется. Раньше проверка обещала оба, а спрашивала только
+                входящие, и неверный SMTP находился на первом же письме */}
+            {smtpCheck && (
+              <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 ${smtpCheck.ok
+                ? 'border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/30'
+                : 'border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30'}`}>
+                {smtpCheck.ok
+                  ? <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
+                  : <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />}
+                <p className={`text-xs ${smtpCheck.ok ? 'text-emerald-800 dark:text-emerald-300' : 'text-amber-800 dark:text-amber-300'}`}>
+                  Отправка: {smtpCheck.text}
                 </p>
               </div>
             )}

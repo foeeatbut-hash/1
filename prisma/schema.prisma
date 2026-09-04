@@ -124,6 +124,12 @@ model DocRegister {
   preparedBy          String   @default("")
   checkedBy           String   @default("")
   approvedBy          String   @default("")
+  /// Кто именно подписывает: по ним берутся подписи на титул документа (§42).
+  /// Имя рядом остаётся: в импортированных реестрах человек указан строкой,
+  /// и терять её нельзя — сотрудника с таким именем может не быть в программе
+  preparedById        String?
+  checkedById         String?
+  approvedById        String?
   columnsConfig       String   @default("[]") // JSON: колонки реестра (импортированные + свои)
   managerId           String? // ответственный менеджер (получает «документ готов»)
   createdById         String?
@@ -249,6 +255,8 @@ model FileNode {
   id          String   @id @default(uuid())
   name        String
   filePath    String
+  /// Откуда файл принесли из Windows — по этому пути выгрузка предложит ту же папку
+  origin      String   @default("")
   size        Int      @default(0)
   type        String   @default("FILE")
   department  String?
@@ -292,7 +300,7 @@ model PdfMarkup {
   /// Ревизия чертежа на момент постановки пометки
   revision    String    @default("1")
   page        Int       @default(1)
-  /// CLOUD | ARROW | RECT | NOTE | STAMP | PEN
+  /// CLOUD | ARROW | RECT | NOTE | STAMP | PEN | SIGN
   kind        String    @default("CLOUD")
   x           Float     @default(0)
   y           Float     @default(0)
@@ -932,4 +940,19 @@ model AppUpdateChunk {
 
   @@unique([version, idx])
   @@index([version])
+}
+
+/// Журнал действий: кто, что, над чем и когда. Пишет сервер, а не окно —
+/// запись, которую делает окно, обходится закрытием окна
+model ActionLog {
+  id        String   @id @default(uuid())
+  userId    String   @default("")
+  userName  String   @default("")
+  what      String   @default("")
+  target    String   @default("")
+  route     String   @default("")
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
 }

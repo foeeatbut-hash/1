@@ -25,6 +25,7 @@ import { useBrowserStore } from '../store/browserStore';
 import { useToastStore } from '../store/toastStore';
 import { useTranslateStore } from '../store/translateStore';
 import { ENGINES, prettyUrl, tabLabel, hostOf } from '../lib/browserUrl';
+import { useOverlayStore } from '../store/overlayStore';
 
 const api = () => (window as any).electron?.browser || null;
 
@@ -32,6 +33,8 @@ export default function BrowserScreen() {
   const activeProject = useStore((s) => s.activeProject);
   const { addToast } = useToastStore();
   const st = useBrowserStore();
+  // Сколько открыто поверх содержимого: родной слой страницы обязан уступить
+  const overlays = useOverlayStore((o) => o.count);
   const stageRef = React.useRef<HTMLDivElement>(null);
   const [address, setAddress] = React.useState('');
   const [showHistory, setShowHistory] = React.useState(false);
@@ -64,32 +67,60 @@ export default function BrowserScreen() {
    * Где стоять странице. Меряем пустое место и сообщаем числами: главный
    * процесс не знает ни про полосу вкладок, ни про полку закладок.
    */
-  const place = React.useCallback(() => {
+  const lastBox = React.useRef('');
+  const place = React.useCallback((force = false) => {
     const b = api();
     const el = stageRef.current;
     if (!b || !el) return;
     const r = el.getBoundingClientRect();
+    const key = `${Math.round(r.left)}:${Math.round(r.top)}:${Math.round(r.width)}:${Math.round(r.height)}`;
+    if (!force && key === lastBox.current) return;
+    lastBox.current = key;
     void b.setBounds({ x: r.left, y: r.top, width: r.width, height: r.height });
   }, []);
 
+  /**
+   * Следим за МЕСТОМ, а не только за размером.
+   *
+   * Наблюдатель за размером молчит, когда меняется одно положение, — а именно
+   * это и происходит, когда человек тянет окно программы за заголовок:
+   * оболочка едет, страница остаётся стоять там, где была, потому что новых
+   * чисел ей никто не послал. Поэтому проверяем прямоугольник на каждом кадре
+   * и отправляем числа только при настоящем сдвиге: сравнение дешёвое, а
+   * перетаскивание перестаёт быть особым случаем.
+   */
   React.useEffect(() => {
     const el = stageRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(place);
+    let alive = true;
+    const tick = () => {
+      if (!alive) return;
+      place();
+      raf = requestAnimationFrame(tick);
+    };
+    let raf = requestAnimationFrame(tick);
+    const ro = new ResizeObserver(() => place(true));
     ro.observe(el);
-    window.addEventListener('scroll', place, true);
-    place();
-    return () => { ro.disconnect(); window.removeEventListener('scroll', place, true); };
+    window.addEventListener('scroll', () => place(true), true);
+    place(true);
+    return () => { alive = false; cancelAnimationFrame(raf); ro.disconnect(); };
   }, [place]);
 
-  // Пустая вкладка и уход из раздела: страницу снимаем со сцены, иначе она
-  // останется висеть поверх Конструктора, куда человек перешёл
+  /**
+   * Когда страницу видно.
+   *
+   * Кроме пустой вкладки и ухода из раздела есть третий случай, из-за которого
+   * казалось, что панели «не открываются»: родной слой Chromium всегда выше
+   * любой разметки, и Пуск, панель уведомлений или диалог, открытые поверх
+   * браузера, оказывались ПОД страницей. Поэтому страница уступает дорогу
+   * всему, что открыто поверх (src/store/overlayStore.ts).
+   */
   React.useEffect(() => {
     const b = api();
     if (!b) return;
-    if (blank || showHistory) { void b.hide(); return; }
-    if (st.activeId) { void b.show(st.activeId); place(); }
-  }, [blank, showHistory, st.activeId, place]);
+    if (blank || showHistory || overlays > 0) { void b.hide(); return; }
+    if (st.activeId) { void b.show(st.activeId); place(true); }
+  }, [blank, showHistory, st.activeId, overlays, place]);
 
   React.useEffect(() => () => { void api()?.hide(); }, []);
 

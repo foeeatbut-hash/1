@@ -19,6 +19,7 @@ import { sectionForPath } from '../workspace/sections';
 import { useStore } from '../store/store';
 import SectionErrorBoundary from './SectionErrorBoundary';
 import { PaneContext } from '../lib/paneTitle';
+import { can, featureById } from '../lib/permissions';
 
 export const asHref = (l: Location | { pathname: string; search?: string; hash?: string }) =>
   `${l.pathname}${l.search || ''}${l.hash || ''}`;
@@ -117,6 +118,23 @@ export default function SectionFrame({
 
   if (def.adminOnly && user?.role !== 'ADMIN') {
     return visible ? <Navigate to="/" replace /> : null;
+  }
+
+  // Раздел, закрытый правом, отвечает словами, а не пустотой и не уводом на
+  // Главную: человек должен понять, что дело в праве, а не в поломке
+  if (def.feature && user?.role !== 'ADMIN' && !can(user as any, def.feature)) {
+    if (!visible) return null;
+    const what = featureById(def.feature)?.label || def.feature;
+    return (
+      <div className="h-full flex items-center justify-center p-8">
+        <div className="max-w-sm text-center">
+          <div className="text-sm font-bold text-slate-800 dark:text-white mb-1">Раздел закрыт</div>
+          <div className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+            «{def.title}» доступен по праву «{what}». Его выдаёт администратор — в разделе «Сотрудники».
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const Comp = def.Component;

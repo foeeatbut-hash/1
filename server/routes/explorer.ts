@@ -258,6 +258,9 @@ app.post('/api/files', async (req: Request, res: Response) => {
     content: typeof b.content === 'string' ? b.content : undefined,
     createdById: b.createdById || null,
     updatedById: b.updatedById || b.createdById || null,
+    // Откуда файл принесли из Windows: по этому пути выгрузка предложит ту же
+    // папку, и файл, который ходит туда-сюда, ходит по одной тропинке
+    ...(typeof b.origin === 'string' && b.origin ? { origin: b.origin.slice(0, 500) } : {}),
     ...(typeof b.refId === 'string' ? { refId: b.refId } : {}),
     ...(typeof b.revision === 'string' ? { revision: b.revision } : {}),
     ...(typeof b.statusCode === 'string' ? { statusCode: b.statusCode } : {}),

@@ -22,6 +22,7 @@ import { useToastStore } from '../../store/toastStore';
 import { useInsightStore } from '../../store/insightStore';
 import { useReminderStore } from '../../store/reminderStore';
 import { parseSlash, whenLabel, parseWhen } from '../../lib/commandBar';
+import { ASSISTANT_MODES, modeLabel, modePlaceholder } from '../../lib/assistantModes';
 
 function actionIcon(kind: AssistantAction['kind']) {
   switch (kind) {
@@ -158,6 +159,8 @@ export default function Chat({ compact }: { compact?: boolean }) {
   });
 
   const [input, setInput] = React.useState('');
+  /** Открыт ли список режимов над кнопкой */
+  const [modesOpen, setModesOpen] = React.useState(false);
   const [dropping, setDropping] = React.useState(false);
   const messagesRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -331,20 +334,49 @@ export default function Chat({ compact }: { compact?: boolean }) {
         </div>
       )}
 
-      <div className="px-3 py-2 shrink-0">
-        <button type="button" onClick={() => toggleDemoMode()}
-          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${
+      {/* Режим — кнопкой, а не переключателем во всю ширину. «Демонстрация»
+          перестала быть главной настройкой экрана и стала одним из режимов;
+          список — в src/lib/assistantModes.ts, чтобы третий режим менял одну
+          строку, а не разметку панели */}
+      <div className="px-3 pt-1 pb-0.5 shrink-0 relative">
+        <button type="button" onClick={() => setModesOpen((v) => !v)}
+          title="Как отвечать: словами или показом по шагам"
+          className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-2xs font-semibold cursor-pointer transition-colors ${
             demoMode
-              ? 'bg-emerald-600/15 border-emerald-600/40 text-emerald-700 dark:text-emerald-300'
-              : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400'
+              ? 'bg-emerald-600/15 text-emerald-700 dark:text-emerald-300'
+              : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850'
           }`}
-          title="В режиме демонстрации любой вопрос превращается в пошаговую инструкцию"
         >
-          <span className="flex items-center gap-2"><GraduationCap className="w-4 h-4" /> Режим «Демонстрация»</span>
-          <span className={`w-9 h-5 rounded-full relative transition-colors ${demoMode ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`}>
-            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-ui ${demoMode ? 'left-[18px]' : 'left-0.5'}`} />
-          </span>
+          <GraduationCap className="w-3.5 h-3.5" />
+          {modeLabel(demoMode ? 'demo' : 'normal')}
         </button>
+
+        {modesOpen && (
+          <>
+            {/* Панелька встаёт НАД кнопкой: под ней поле ввода, и список,
+                выпавший вниз, закрывал бы то, ради чего его открыли */}
+            <div className="fixed inset-0 z-10" onClick={() => setModesOpen(false)} />
+            <div className="absolute bottom-full left-3 mb-1 z-20 w-64 rounded-xl border border-slate-200
+                            dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl overflow-hidden">
+              {ASSISTANT_MODES.map((m) => {
+                const active = (m.id === 'demo') === !!demoMode;
+                return (
+                  <button key={m.id} type="button"
+                    onClick={() => { if ((m.id === 'demo') !== !!demoMode) toggleDemoMode(); setModesOpen(false); }}
+                    className={`w-full text-left px-3 py-2 cursor-pointer transition-colors ${
+                      active ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'hover:bg-slate-50 dark:hover:bg-slate-850'
+                    }`}
+                  >
+                    <div className={`text-xs font-bold ${active ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-800 dark:text-white'}`}>
+                      {m.label}
+                    </div>
+                    <div className="text-2xs text-slate-500 dark:text-slate-400 leading-snug">{m.hint}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
 
       <form onSubmit={(e) => { e.preventDefault(); send(input); }}
@@ -357,7 +389,7 @@ export default function Chat({ compact }: { compact?: boolean }) {
           onKeyDown={onKeyDown}
           placeholder={pendingInput?.kind === 'rename-tag'
             ? `Новый код для «${pendingInput.oldCode}»…`
-            : demoMode ? 'Что показать? Напишите вопрос…' : 'Спросите или скомандуйте: /напомни завтра в 9…'}
+            : modePlaceholder(demoMode ? 'demo' : 'normal')}
           className={`flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border rounded-lg text-xs text-slate-800
                       dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 transition-ui ${
             pendingInput ? 'border-amber-400/60 focus:ring-amber-400/30 focus:border-amber-400'

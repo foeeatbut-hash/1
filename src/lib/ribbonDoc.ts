@@ -166,20 +166,23 @@ export function docRibbon(): RibbonTab[] {
       name: 'Данные проекта',
       groups: [
         {
-          name: 'поля',
+          name: 'метки',
           weight: 100,
           organs: [
             {
-              id: 'doc.fields', kind: 'big', label: 'Вставить поле', icon: 'data', flux: true,
-              hint: 'Шифр проекта, заказчик, параметр тега, характеристика оборудования',
+              id: 'doc.fields', kind: 'big', label: 'Метки', icon: 'data', flux: true,
+              hint: 'Шифр проекта, заказчик, параметр тега, характеристика оборудования — и список меток документа',
+              toggle: true,
             },
+            { id: 'doc.refreshData', kind: 'label', label: 'Обновить данные', icon: 'refresh', flux: true,
+              hint: 'Перечитать значения проекта во всех метках документа' },
           ],
         },
         {
           name: 'сейчас',
           weight: 70,
           organs: [
-            { id: 'doc.today', kind: 'label', label: 'Сегодня', icon: 'date', flux: true, hint: 'Сегодняшняя дата' },
+            { id: 'doc.today', kind: 'label', label: 'Сегодня', icon: 'date', flux: true, hint: 'Сегодняшняя дата обычным текстом' },
             { id: 'doc.author', kind: 'label', label: 'Автор', icon: 'info', flux: true, hint: 'Ваше имя из учётной записи' },
           ],
         },

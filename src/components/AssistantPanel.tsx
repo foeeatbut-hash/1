@@ -12,7 +12,6 @@
  * того, что рядом что-то открыли.
  */
 import React, { useEffect, useState } from 'react';
-import { Z } from '../lib/layers';
 import { X, Maximize2 } from 'lucide-react';
 import { useAssistantStore } from '../store/assistantStore';
 import { useWindowStore } from '../store/windowStore';
@@ -41,14 +40,14 @@ export default function AssistantPanel() {
     useWindowStore.getState().open('/assistant');
   };
 
+  // Где стоит панель и сколько ей места — решает правая колонка
+  // (components/RightDock): панелей две, и делить колонку они обязаны вместе,
+  // а не каждая по-своему. Здесь остаётся только содержимое
+  if (!isOpen) return null;
+
   return (
-    <aside style={{ zIndex: Z.tray }}
-      className={`${isOpen ? 'w-[380px] opacity-100' : 'w-0 opacity-0 pointer-events-none'} shrink-0 h-full
-                  bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col
-                  transition-ui duration-300 overflow-hidden absolute top-0 bottom-0 right-[var(--flux-rail-w)]
-                  shadow-2xl`}
-    >
-      <div className="w-[380px] h-full flex flex-col shrink-0">
+    <div className="h-full w-full flex flex-col bg-white dark:bg-slate-900">
+      <div className="h-full flex flex-col">
         {artOn
           ? <ArtShelf onClose={() => setOpen(false)} onExpand={toWindow} />
           : (
@@ -70,6 +69,6 @@ export default function AssistantPanel() {
           <Chat compact />
         </div>
       </div>
-    </aside>
+    </div>
   );
 }

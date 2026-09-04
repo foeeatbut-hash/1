@@ -425,6 +425,7 @@ export default function Equipment() {
         </div>
         <div className="p-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
           <button type="button"
+            data-tour="equipment-import-btn"
             onClick={() => setShowDocImport(true)}
             className="w-full flex items-center justify-center gap-1.5 px-1.5 @[820px]:px-2.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-colors"
             title="Импорт из документов: распознать бланк, ведомость или страницу каталога — PDF, Excel, Word, XML"

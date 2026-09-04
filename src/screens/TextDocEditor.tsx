@@ -14,6 +14,8 @@ import ParagraphSpacingMenu from '../components/ParagraphSpacingMenu';
 import PageSetupDialog from '../components/PageSetupDialog';
 import DocVersionsPanel from '../components/DocVersionsPanel';
 import DataFieldsPanel from '../components/DataFieldsPanel';
+import RecentDocsPanel from '../components/office/RecentDocsPanel';
+import { rememberDoc } from '../store/recentStore';
 import { describeParagraph, type RulerModel } from '../lib/docStyle';
 import {
   patchParagraphs, patchDocumentStyle, readParagraphStyle, readZoom, type EngineCtx,
@@ -27,6 +29,9 @@ import { type ConflictChoice } from '../lib/docConflict';
 import SaveConflictDialog from '../components/SaveConflictDialog';
 import { useDocRoom } from '../components/collab/useDocRoom';
 import { dataService } from '../services/dataService';
+import { buildDocx, partsFromHtml } from '../lib/docxWrite';
+import { saveBytes } from '../lib/saveToWindows';
+import { useDocLabels } from '../components/doc/useDocLabels';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm } = useModalStore.getState();
@@ -88,7 +93,14 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   const [versions, setVersions] = useState<{ id: string; version: number; comment: string; createdAt: string }[]>([]);
   const [reloadTick, setReloadTick] = useState(0);
   const [counts, setCounts] = useState({ words: 0, chars: 0 });
-  const [dataOpen, setDataOpen] = useState(false); // панель «Данные» (умные поля)
+  const [dataOpen, setDataOpen] = useState(false); // панель меток данных
+  const docLabels = useDocLabels({
+    projectId: activeProject?.id || 'default',
+    plainText: () => snapshotToPlainText(JSON.parse(takeSnapshot() || '{}')),
+    replaceText: (from, to) => fdocRef.current?.replaceText?.(from, to),
+    save: (bindings) => { saveNow({ bindings }); },
+    say: (message, kind) => addToast(message, kind),
+  });
   // ── Титул: присвоенный шаблон + реквизиты именно этого документа ──
   const [titleOpen, setTitleOpen] = useState(false);
   const [settings, setSettings] = useState<TitleSettings>({});
@@ -361,6 +373,11 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         fdocRef.current = fdoc;
         lastSavedRef.current = loaded.workbook || '';
 
+        // Метки документа: что и откуда сюда подставлено. Без этого чтения
+        // документ, открытый заново, забывал бы свои метки, и «Обновить
+        // данные» честно отвечало бы «меток нет» на документе, полном меток
+        docLabels.load(loaded.bindings);
+
         // Импорт из файла Проводника: содержимое вставляется при первом
         // открытии (сервер положил plain-текст в bindings.importText)
         if (isNew) {
@@ -369,8 +386,8 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
             const importText = String(b?.importText || '');
             if (importText) {
               await fdoc?.appendText?.(importText);
-              // Текст вставлен — очищаем задание импорта и сохраняем снапшот
-              setTimeout(() => saveNow({ bindings: JSON.stringify({}) }), 800);
+              // Текст вставлен — задание импорта снимаем, метки оставляем
+              setTimeout(() => saveNow({ bindings: docLabels.bindings() }), 800);
             }
           } catch (_) {}
         }
@@ -524,14 +541,24 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     saveNow();
   };
 
-  // Вставка «умного поля»: живое значение проекта/тега/даты — в позицию курсора
-  const insertField = async (text: string) => {
+  /**
+   * Вставка метки: значение проекта или тега в позицию курсора.
+   *
+   * В документ попадает значение, а не код: документ уходит в Word и к
+   * заказчику, где считать некому. Но откуда значение взято — документ теперь
+   * ПОМНИТ, и по кнопке «Обновить данные» метки оживают. Раньше здесь
+   * вставлялся мёртвый текст, и шифр проекта в записке застывал навсегда,
+   * пока в ведомости он же оставался живым. Правила и хранение меток —
+   * src/lib/docLabels.ts и ../components/doc/useDocLabels.
+   */
+  const insertField = async (text: string, source?: { fn: string; args: string[] }) => {
     const fdoc = fdocRef.current;
     if (!fdoc) return;
     try {
       if (fdoc.insertText) await fdoc.insertText(text);
       else await fdoc.appendText?.(text);
-      setTimeout(() => saveNow(), 400);
+      if (source && text) docLabels.record(text, source);
+      setTimeout(() => saveNow(source && text ? { bindings: docLabels.bindings() } : undefined), 400);
     } catch (_) { addToast('Не удалось вставить значение', 'error'); }
   };
 
@@ -604,30 +631,28 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     } catch (_) { addToast('Ошибка экспорта PDF', 'error'); }
   };
 
-  // Выгрузка в Ворд. Файл — HTML с разметкой страницы Ворда: он открывается в
-  // Ворде как обычный документ, шрифты/начертания/выравнивание и поля листа
-  // сохраняются. Формул внутри нет — на их месте стоят значения на момент
-  // выгрузки, поэтому получатель в Windows видит готовый текст.
+  /**
+   * Выгрузка в Word — настоящим файлом `.docx`.
+   *
+   * Раньше отсюда уходил HTML с расширением `.doc`. Word открывал его с
+   * предупреждением «формат не соответствует расширению», и человек, отправивший
+   * документ заказчику, каждый раз объяснял получателю, что это нормально.
+   * Теперь собирается настоящий документ (src/lib/docxWrite.ts): абзацы,
+   * заголовки и таблицы на месте, формул внутри нет — на их месте значения на
+   * момент выгрузки.
+   */
   const exportWord = async () => {
     try {
       const html = await buildFullHtml(true);
       const name = doc?.name || 'Документ';
-
-      // В программе на рабочем месте — обычное окно «Сохранить как», как у
-      // Ворда: человек сам выбирает папку и имя
-      const win = window as any;
-      if (win.electron?.ipcRenderer?.invoke) {
-        const r = await win.electron.ipcRenderer.invoke('doc:save-word', { html, title: name });
-        if (r?.success) addToast('Документ сохранён для Ворда', 'success');
-        else if (!r?.canceled) addToast(r?.error || 'Не удалось сохранить', 'error');
-        return;
-      }
-
-      // В браузере — обычное скачивание. BOM в начале: по нему Ворд определяет
-      // кодировку, иначе кириллица открывается кракозябрами
-      const blob = new Blob(['﻿', html], { type: 'application/msword;charset=utf-8' });
-      download(blob, safeFileName(name, 'doc'));
-      addToast('Документ выгружен для Ворда', 'success');
+      const { htmlToBlocks } = await import('../import/extractors');
+      const parts = partsFromHtml(html, (fragment) => {
+        const found = htmlToBlocks(fragment).find((b: any) => b.kind === 'table') as any;
+        return found?.rows || [];
+      });
+      const out = await saveBytes(safeFileName(name, 'docx'), buildDocx(parts));
+      if (out.canceled) return;
+      addToast(out.ok ? `Документ Word сохранён: ${out.path || name}` : (out.error || 'Не удалось сохранить'), out.ok ? 'success' : 'error');
     } catch (_) { addToast('Не удалось выгрузить в Ворд', 'error'); }
   };
 
@@ -717,11 +742,21 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
   // Имя окна — имя документа: два документа рядом иначе неразличимы
   useWindowTitle(doc?.name || '');
 
+  // То же, что у таблицы: список недавних один на все программы Flux Office
+  useEffect(() => {
+    if (!doc?.name) return;
+    rememberDoc({
+      href: `/constructor?doc=${docId}`, title: doc.name, kind: 'text',
+      at: Date.now(), projectId: activeProject?.id,
+    });
+  }, [docId, doc?.name, activeProject?.id]);
+
   // ── Лента: состояние вкладок, значения органов и разбор команд ──
   const tabs = React.useMemo(() => docRibbon(), []);
   const [tab, setTab] = useState('Главная');
   const [folded, setFolded] = useState(false);
   const [fileOpen, setFileOpen] = useState(false);
+  const [recentOpen, setRecentOpen] = useState(false);
   const [showRuler, setShowRuler] = useState(true);
   const [fontSize, setFontSize] = useState(11);
   // Выбранный шрифт и стиль держим у себя: движок не отдаёт наружу оформление
@@ -849,6 +884,7 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
       case 'doc.page': return openPageDialog();
       case 'doc.ruler': return setShowRuler(v => !v);
       case 'doc.fields': return setDataOpen(v => !v);
+      case 'doc.refreshData': return docLabels.refresh();
       case 'doc.today': return insertField(new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }));
       case 'doc.author': return insertField(user?.name || user?.symbol || 'Автор');
       case 'doc.revision': return setRevDialog(true);
@@ -881,8 +917,13 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
     organDisabled['doc.fields'] = 'Проект не выбран — значения брать неоткуда';
     organDisabled['doc.today'] = 'Проект не выбран';
   }
+  // Кнопка, которой нечего делать, врёт человеку молча: пусть скажет причину
+  if (!docLabels.labels.length) {
+    organDisabled['doc.refreshData'] = 'В документе нет меток данных — обновлять нечего';
+  }
 
   const fileSections = editorFileMenu({
+    recent: () => { setFileOpen(false); setRecentOpen(true); },
     saveNow: () => { saveNow(); setFileOpen(false); },
     saveVersion: async () => { setFileOpen(false); await makeVersion('ручное сохранение'); addToast('Версия сохранена', 'success'); },
     versions: () => { setFileOpen(false); setVersionsOpen(true); loadVersions(); },
@@ -999,13 +1040,15 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
         />
       )}
 
-      {/* Панель «Данные»: живые поля проекта, тегов, дата/автор */}
+      {/* Панель меток: поля проекта и тегов, дата/автор, список меток документа */}
       {dataOpen && (
         <DataFieldsPanel
           projectId={activeProject?.id || 'default'}
           projectName={activeProject?.name || ''}
           userName={user?.name || user?.symbol || 'Пользователь'}
+          labels={docLabels.labels}
           onInsert={insertField}
+          onRefresh={docLabels.refresh}
           onClose={() => setDataOpen(false)}
         />
       )}
@@ -1020,6 +1063,16 @@ export default function TextDocEditor({ docId, onClose }: { docId: string; onClo
       )}
 
       {/* История версий — тот же компонент, что у таблиц */}
+      {/* Одно окно недавних на все программы Flux Office: вернуться ко
+          вчерашней работе — самое частое дело, а дорог к нему было две */}
+      {recentOpen && (
+        <RecentDocsPanel
+          projectId={activeProject?.id || null}
+          onOpen={(href) => { window.location.hash = `#${href}`; }}
+          onClose={() => setRecentOpen(false)}
+        />
+      )}
+
       {versionsOpen && (
         <DocVersionsPanel
           versions={versions}

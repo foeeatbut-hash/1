@@ -13,6 +13,7 @@
  * строка «Все проекты» отвечают на тот же вопрос за одно нажатие.
  */
 import React from 'react';
+import { useOverlay } from '../store/overlayStore';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown, FolderKanban, Search } from 'lucide-react';
 import { useStore } from '../store/store';
@@ -25,6 +26,13 @@ type Project = { id: string; name: string };
 const RECENT_SHOWN = 5;
 /** Размер всплывающей панели: по нему считается, куда она поместится */
 const MENU_W = 288;
+/**
+ * Предел высоты панели, а не её высота.
+ *
+ * Разница существенная: раньше это число вычиталось из верха кнопки, и панель
+ * вставала по выдуманной высоте. Теперь оно только ограничивает рост списка,
+ * а место панели задаёт её низ.
+ */
 const MENU_H = 320;
 
 export default function ProjectSwitcher({ compact, variant = 'rail', maxWidth, onOpenAll }: {
@@ -41,7 +49,18 @@ export default function ProjectSwitcher({ compact, variant = 'rail', maxWidth, o
   const [loading, setLoading] = React.useState(false);
   const [query, setQuery] = React.useState('');
   const btnRef = React.useRef<HTMLButtonElement>(null);
-  const [pos, setPos] = React.useState<{ top: number; left: number } | null>(null);
+  /**
+   * Где стоит панель. У панели в трее задаётся НИЗ, а не верх.
+   *
+   * Раньше верх считался как «верх кнопки минус высота меню», где высота —
+   * записанное в коде число. Меню почти всегда ниже этого числа, и панель
+   * повисала выше кнопки, оторванная от неё. Низ же известен точно: панель
+   * задач. Так делает система, и так панель не оторвётся никогда — сколько бы
+   * проектов в ней ни было.
+   */
+  const [pos, setPos] = React.useState<{ top?: number; bottom?: number; left: number } | null>(null);
+  // Пока панель открыта, страница браузера уступает место
+  useOverlay(open);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -61,7 +80,11 @@ export default function ProjectSwitcher({ compact, variant = 'rail', maxWidth, o
     // вниз ей некуда, там панель задач и край экрана
     if (r) {
       setPos(variant === 'tray'
-        ? { top: Math.max(8, r.top - 8 - MENU_H), left: Math.max(8, Math.min(r.right - MENU_W, window.innerWidth - MENU_W - 8)) }
+        ? {
+            // Отступ от панели задач тот же, что у остальных панелей трея
+            bottom: Math.round(window.innerHeight - r.top + 6),
+            left: Math.max(8, Math.min(r.right - MENU_W, window.innerWidth - MENU_W - 8)),
+          }
         : { top: r.bottom + 6, left: Math.max(8, r.left) });
     }
     setOpen(true);
@@ -141,7 +164,7 @@ export default function ProjectSwitcher({ compact, variant = 'rail', maxWidth, o
         <div className="fixed inset-0 z-[80]" onMouseDown={() => setOpen(false)}>
           <div
             className="absolute max-h-[70vh] flex flex-col rounded-xl border border-slate-200 dark:border-dark-border bg-white dark:bg-dark-panel shadow-xl overflow-hidden"
-            style={{ top: pos.top, left: pos.left, width: MENU_W }}
+            style={{ top: pos.top, bottom: pos.bottom, left: pos.left, width: MENU_W, maxHeight: MENU_H }}
             onMouseDown={(e) => e.stopPropagation()}
             role="listbox"
             aria-label="Выбор проекта"

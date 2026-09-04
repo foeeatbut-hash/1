@@ -519,6 +519,41 @@ app.whenReady().then(() => {
     return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
   };
 
+  /**
+   * Сохранить файл на диск Windows обычным окном сохранения.
+   *
+   * Один обработчик на всю программу, а не кнопка в каждом разделе: выгрузка
+   * книги, документа Word и журнала — одно и то же действие с точки зрения
+   * человека, и вести себя оно должно одинаково.
+   *
+   * `dir` — папка, из которой файл когда-то принесли: программа предлагает
+   * вернуть его туда же, чтобы файл, который ходит туда-сюда, ходил по одной
+   * тропинке, а не расползался копиями по всему диску.
+   */
+  ipcMain.handle('files:save-as', async (_event, p: { name: string; base64: string; dir?: string }) => {
+    const { dialog } = require('electron');
+    const fs = require('fs');
+    const path = require('path');
+    try {
+      const name = String(p?.name || 'Документ');
+      const ext = (name.split('.').pop() || '').toLowerCase();
+      const suggested = p?.dir ? path.join(String(p.dir), name) : name;
+      const result = await dialog.showSaveDialog({
+        title: 'Сохранить в Windows',
+        defaultPath: suggested,
+        filters: [
+          ...(ext ? [{ name: `Файл ${ext.toUpperCase()} (*.${ext})`, extensions: [ext] }] : []),
+          { name: 'Все файлы (*.*)', extensions: ['*'] },
+        ],
+      });
+      if (!result || result.canceled || !result.filePath) return { success: false, canceled: true };
+      fs.writeFileSync(result.filePath, Buffer.from(String(p?.base64 || ''), 'base64'));
+      return { success: true, filePath: result.filePath };
+    } catch (err: any) {
+      return { success: false, error: String(err?.message || err) };
+    }
+  });
+
   ipcMain.handle('log:save-dialog', async (event, text: string) => {
     const { dialog } = require('electron');
     const fs = require('fs');

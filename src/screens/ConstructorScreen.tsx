@@ -2,6 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { PLACEHOLDERS, placeholderToken, fillSnapshot, countTokens } from '../lib/docPlaceholders';
+import LabelBar from '../components/constructor/LabelBar';
+import RecentDocsPanel from '../components/office/RecentDocsPanel';
+import { rememberDoc } from '../store/recentStore';
 import { type ConflictChoice } from '../lib/docConflict';
 import { useDocRoom } from '../components/collab/useDocRoom';
 import SaveConflictDialog from '../components/SaveConflictDialog';
@@ -29,6 +32,9 @@ import { countOf } from '../lib/plural';
 import { useModalStore } from '../store/modalStore';
 import EnglishVersion from '../components/translate/EnglishVersion';
 import { docFingerprint } from '../translate/docPlan';
+import { saveBookToWindows, saveBookToExplorer, bookFromSnapshot } from '../lib/bookExport';
+import { waitForSheet } from '../lib/engineReady';
+import { useOpenFromFile } from '../components/constructor/useOpenFromFile';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm, openPrompt } = useModalStore.getState();
@@ -64,7 +70,10 @@ function fmtDate(s: string) {
 
 // ═══════════════════════ Мастер «Собрать данные» ═══════════════════════
 
-// ── Умный блок: вставленная таблица помнит свой запрос ──
+// ── Метка-таблица: вставленный кусок данных помнит свой запрос ──
+// В интерфейсе это «метка данных» — то же понятие, что в текстовом документе
+// (src/lib/docLabels.ts): и там, и здесь документ помнит, откуда взято, и
+// обновляется одной кнопкой. Внутри тип назван SmartBlock по истории кода.
 // Упрощение MVP относительно части II дизайна: ручные правки внутри блока
 // обнаруживаются при обновлении сравнением с последними записанными
 // значениями (а не перехватом команд движка) и сохраняются как overrides;
@@ -133,7 +142,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   const myEditRef = useRef(false);
   const [peerRects, setPeerRects] = useState<{ key: string; name: string; color: string; left: number; top: number; width: number; height: number }[]>([]);
 
-  // ── Умные блоки ──
+  // ── Метки-таблицы (см. SmartBlock выше) ──
   const bindingsRef = useRef<{ schemaVersion: number; blocks: SmartBlock[] }>({ schemaVersion: 1, blocks: [] });
   const bindingsDirtyRef = useRef(false);
   const [blocksTick, setBlocksTick] = useState(0);          // форс-перерисовка панели блоков
@@ -587,7 +596,16 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         });
         (univerRef.current as any).cmdDisposer = cmdDisposer;
 
+        // Ждём сам лист, а не отмеренное на глаз время: иначе человек,
+        // создавший документ, секунду смотрит на белое поле (src/lib/engineReady.ts)
+        await waitForSheet(() => !!univerAPI.getActiveWorkbook?.()?.getActiveSheet?.());
+        if (disposed) return;
         setLoading(false);
+
+        // Новая книга сохраняется сразу: пока снимок не записан, документ в
+        // базе пуст, и открытый на другой машине он выглядит потерянным
+        if (!loaded.workbook) setTimeout(() => { void saveNow(); }, 300);
+
         // Документ создан по шаблону: сразу наполняем блоки данными ЭТОГО проекта
         if (autoRefresh && bindingsRef.current.blocks.length > 0) {
           setTimeout(() => { refreshAll(); }, 600);
@@ -841,10 +859,22 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
     setReloadTick(t => t + 1); // движок пересоздаётся с восстановленным снапшотом
   };
 
+  /**
+   * Обновить данные книги — всё, что взято из проекта, одной кнопкой.
+   *
+   * Раньше кнопок было две: «Обновить всё» перечитывала блоки, «Заполнить»
+   * подставляла метки-подстановки, и человек резонно считал, что умные блоки
+   * не работают: он нажимал одну и половина документа оставалась старой.
+   * Понятие теперь одно — метка, и обновление одно.
+   */
   const refreshAll = async () => {
     (univerRef.current as any)?.fnMemo?.clear?.(); // формулы =ТЕГ/=ПАРАМ возьмут свежее
     await makeVersion('перед обновлением данных'); // автоснимок (часть I §3)
     for (const b of [...bindingsRef.current.blocks]) await refreshBlock(b.id, true);
+    // Подстановки заполняются последними: они читают снимок, а блоки его
+    // только что переписали. Перечитывать документ ради них незачем, если
+    // заполнять нечего — fillPlaceholders сам это увидит
+    if (phCount) await fillPlaceholders();
   };
 
   // Отвязать: данные остаются обычными ячейками, привязка удаляется
@@ -890,28 +920,9 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   };
 
   // Снапшот книги → книга SheetJS (все листы, значения)
-  const buildXlsx = () => {
-    const snap = JSON.parse(takeSnapshot() || '{}');
-    const wb = XLSX.utils.book_new();
-    const order: string[] = snap.sheetOrder || Object.keys(snap.sheets || {});
-    for (const sheetId of order) {
-      const sh = snap.sheets?.[sheetId];
-      if (!sh) continue;
-      const aoa: any[][] = [];
-      const cellData = sh.cellData || {};
-      for (const rk of Object.keys(cellData)) {
-        const r = Number(rk);
-        for (const ck of Object.keys(cellData[rk] || {})) {
-          const c = Number(ck);
-          if (!aoa[r]) aoa[r] = [];
-          aoa[r][c] = cellData[rk][ck]?.v ?? '';
-        }
-      }
-      const wsx = XLSX.utils.aoa_to_sheet(aoa.length ? aoa : [[]]);
-      XLSX.utils.book_append_sheet(wb, wsx, (sh.name || 'Лист').slice(0, 31));
-    }
-    return wb;
-  };
+  // Снимок книги → книга SheetJS: превращение нужно и выгрузке на диск, и
+  // сохранению в Проводник, поэтому живёт рядом с ними (lib/bookExport)
+  const buildXlsx = () => bookFromSnapshot(takeSnapshot());
 
   // Печатный HTML активного листа: значения + жирность из стилей книги.
   // Полная пагинация с колонтитулами — следующая фаза (часть II §8 дизайна).
@@ -994,27 +1005,20 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
     } catch (err) { addToast('Ошибка экспорта PDF', 'error'); }
   };
 
-  const exportDownload = () => {
+  // Выгрузка книги и в Windows, и в Проводник — в src/lib/bookExport.ts:
+  // это два ответа на один вопрос «отдать людям», и отвечать они должны
+  // одинаково с текстовым документом
+  const exportDownload = async () => {
     try {
-      XLSX.writeFile(buildXlsx(), `${doc?.name || 'Документ'}.xlsx`);
+      const out = await saveBookToWindows(buildXlsx(), doc?.name || 'Документ');
+      if (out.canceled) return;
+      addToast(out.ok ? `Книга сохранена: ${out.path}` : (out.error || 'Не удалось сохранить'), out.ok ? 'success' : 'error');
     } catch (err) { addToast('Ошибка экспорта', 'error'); }
   };
 
   const exportToExplorer = async () => {
     try {
-      const b64 = XLSX.write(buildXlsx(), { type: 'base64', bookType: 'xlsx' });
-      const fileName = `${doc?.name || 'Документ'}.xlsx`;
-      const res = await fetch('/api/files', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: fileName,
-          filePath: `/shared/${fileName}`,
-          size: Math.round(b64.length * 0.75),
-          content: b64,
-          createdById: user?.id || null,
-        }),
-      });
-      if (!res.ok) throw new Error('files failed');
+      const fileName = await saveBookToExplorer(buildXlsx(), doc?.name || 'Документ', user?.id);
       addToast(`«${fileName}» сохранён в Проводник`, 'success');
     } catch (_) { addToast('Не удалось сохранить в Проводник', 'error'); }
   };
@@ -1035,11 +1039,23 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
   // несколько, и различать их по названию программы нечем
   useWindowTitle(doc?.name || '');
 
+  // Запоминаем открытое для «Открыть недавние» и «Рекомендуем» в Пуске.
+  // Пишем, когда у документа уже есть имя: строка «Без названия» в списке
+  // недавних не помогает никому
+  useEffect(() => {
+    if (!doc?.name) return;
+    rememberDoc({
+      href: `/constructor?doc=${docId}`, title: doc.name, kind: 'sheet',
+      at: Date.now(), projectId: activeProject?.id,
+    });
+  }, [docId, doc?.name, activeProject?.id]);
+
   // ── Лента: состояние, значения органов и разбор команд ──
   const tabs = useMemo(() => sheetRibbon(), []);
   const [tab, setTab] = useState('Главная');
   const [folded, setFolded] = useState(false);
   const [fileOpen, setFileOpen] = useState(false);
+  const [recentOpen, setRecentOpen] = useState(false);
   const [zoom, setZoom] = useState(100);
   const [font, setFont] = useState('');
   const [numFormat, setNumFormat] = useState('General');
@@ -1244,7 +1260,6 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       case 'sh.blocks': return setBlocksOpen(v => !v);
       case 'sh.refreshAll': return refreshAll();
       case 'sh.placeholders': return setPhOpen(v => !v);
-      case 'sh.fillData': return fillPlaceholders();
       case 'sh.template': return saveAsTemplate();
       case 'sh.versions': { setVersionsOpen(v => !v); if (!versionsOpen) loadVersions(); return; }
       case 'sh.english': return openEnglish();
@@ -1288,12 +1303,12 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
     'sh.filter': filterOn,
   };
   const organDisabled: Record<string, string> = {};
-  if (!bindingsRef.current.blocks.length) {
-    organDisabled['sh.refreshAll'] = 'В книге пока нет умных блоков — обновлять нечего';
+  if (!bindingsRef.current.blocks.length && !phCount) {
+    organDisabled['sh.refreshAll'] = 'В книге пока нет меток данных — обновлять нечего';
   }
-  if (!phCount) organDisabled['sh.fillData'] = 'Незаполненных меток нет';
 
   const fileSections = editorFileMenu({
+    recent: () => { setFileOpen(false); setRecentOpen(true); },
     saveNow: () => { saveNow(); setFileOpen(false); },
     saveVersion: async () => { setFileOpen(false); await makeVersion('ручное сохранение'); addToast('Версия сохранена', 'success'); },
     versions: () => { setFileOpen(false); setVersionsOpen(true); loadVersions(); },
@@ -1322,7 +1337,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
     { label: 'Имя', value: doc?.name || '—' },
     { label: 'Раздел', value: doc?.scope === 'PERSONAL' ? 'Личный' : 'Общий' },
     { label: 'Проект', value: activeProject?.name || '—' },
-    { label: 'Умных блоков', value: String(bindingsRef.current.blocks.length) },
+    { label: 'Меток данных', value: String(bindingsRef.current.blocks.length) },
     { label: 'Изменён', value: doc?.updatedAt ? fmtDate(doc.updatedAt) : '—' },
     { label: 'Меток без данных', value: String(phCount) },
   ];
@@ -1342,7 +1357,7 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
           saveState: saveConflict ? 'conflict' : saveState,
           menu: [
             { label: 'История версий', hint: 'Снимки и возврат к любому', run: () => { setVersionsOpen(true); loadVersions(); } },
-            { label: 'Умные блоки', hint: 'Что откуда собрано и когда обновлялось', run: () => setBlocksOpen(true) },
+            { label: 'Метки данных', hint: 'Что откуда собрано и когда обновлялось', run: () => setBlocksOpen(true) },
           ],
         }}
         tabs={tabs} active={tab} onActive={setTab}
@@ -1354,68 +1369,10 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       {/* Полоса меток и полотно — колонкой: метки над листом, как в Экселе
           строка формул */}
       <div className="absolute inset-0 flex flex-col">
-      {/* ═══ Лента подстановок ═══
-          Отдельная полоса под панелью: кнопка = метка. Нажал «Дата
-          прописью» — в активной ячейке появилась метка, при заполнении она
-          станет реальной датой. Так шаблон собирается мышью, без
-          запоминания синтаксиса. */}
+      {/* Лента меток: кнопка = метка, рядом видно, что подставится сейчас */}
       {phOpen && (
-        <div className="shrink-0 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/60 px-3 py-2">
-          <div className="flex items-start gap-4 flex-wrap">
-            {(['Документ', 'Проект', 'Дата', 'Сотрудник'] as const).map((group) => (
-              <div key={group} className="min-w-0">
-                <div className="text-2xs font-mono uppercase tracking-wider text-slate-400 mb-1">{group}</div>
-                <div className="flex items-center gap-1 flex-wrap">
-                  {PLACEHOLDERS.filter(ph => ph.group === group).map((ph) => {
-                    // Показываем не только название метки, но и то, что
-                    // подставится прямо сейчас: человек видит данные своей
-                    // программы и сразу замечает, если чего-то не хватает
-                    // (не задан код проекта, нет номера документа).
-                    const value = phPreview[ph.key] || '';
-                    const empty = !value;
-                    return (
-                      <button
-                        key={ph.key}
-                        type="button"
-                        onClick={() => insertPlaceholder(ph.key)}
-                        title={empty
-                          ? `${ph.hint}. Сейчас данных нет — метка ${placeholderToken(ph.key)} останется пустой до заполнения`
-                          : `${ph.hint}. Сейчас подставится: ${value}`}
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border bg-white dark:bg-slate-900 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-xs font-semibold text-slate-700 dark:text-slate-300 transition-ui cursor-pointer ${
-                          empty
-                            ? 'border-amber-300 dark:border-amber-800 hover:border-amber-500'
-                            : 'border-slate-200 dark:border-slate-800 hover:border-emerald-600 dark:hover:border-emerald-400'}`}
-                      >
-                        <span className={`w-1.5 h-1.5 rounded-sm shrink-0 ${empty ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-                        <span className="min-w-0 text-left">
-                          {ph.label}
-                          <span className={`block text-2xs font-normal truncate max-w-[11rem] ${empty ? 'text-amber-600 dark:text-amber-500' : 'text-slate-400'}`}>
-                            {empty ? 'нет данных' : value}
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-
-            <div className="ml-auto flex items-center gap-2 self-end">
-              <span className="text-2xs text-slate-400 max-w-[16rem] hidden @[1100px]:block">
-                Кнопка вставляет метку в выбранную ячейку. Когда шаблон готов — «Заполнить данными».
-              </span>
-              {phCount > 0 && (
-                <span className="text-2xs font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-1 rounded-lg">
-                  незаполненных меток: {phCount}
-                </span>
-              )}
-              <button type="button" onClick={fillPlaceholders}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition-ui cursor-pointer">
-                <RefreshCw className="w-3.5 h-3.5" /> Заполнить данными
-              </button>
-            </div>
-          </div>
-        </div>
+        <LabelBar preview={phPreview} unfilled={phCount}
+          onInsert={insertPlaceholder} onFill={fillPlaceholders} />
       )}
 
       {/* Полотно движка */}
@@ -1489,6 +1446,16 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
       )}
 
       {/* Панель истории версий: автоснимки и ручные, откат */}
+      {/* Одно окно недавних на все программы Flux Office: вернуться ко
+          вчерашней работе — самое частое дело, а дорог к нему было две */}
+      {recentOpen && (
+        <RecentDocsPanel
+          projectId={activeProject?.id || null}
+          onOpen={(href) => { window.location.hash = `#${href}`; }}
+          onClose={() => setRecentOpen(false)}
+        />
+      )}
+
       {versionsOpen && (
         <DocVersionsPanel
           versions={versions}
@@ -1499,11 +1466,11 @@ function DocEditor({ docId, onClose, autoRefresh }: { docId: string; onClose: ()
         />
       )}
 
-      {/* Панель умных блоков: обновление, отвязка, индикатор устаревания */}
+      {/* Панель меток: обновление, отвязка, индикатор устаревания */}
       {blocksOpen && (
         <div className="absolute right-4 top-14 z-40 w-96 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden" data-tick={blocksTick}>
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-800">
-            <span className="text-sm font-bold text-slate-800 dark:text-white">Умные блоки</span>
+            <span className="text-sm font-bold text-slate-800 dark:text-white">Метки данных</span>
             <div className="flex items-center gap-2">
               <button type="button" onClick={refreshAll} disabled={refreshingIds.length > 0}
                 className="text-xs font-bold px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white cursor-pointer flex items-center gap-1">
@@ -1669,6 +1636,15 @@ export default function ConstructorScreen() {
     const fromUrl = searchParams.get('doc');
     if (fromUrl !== activeDocId) setActiveDocIdRaw(fromUrl);
   }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Принесённый файл Word или Excel: разбор в окне, документ заводится один раз
+  useOpenFromFile({
+    fileId: searchParams.get('fromFile') || '',
+    projectId: activeProject?.id || 'default',
+    openDoc: (docId) => setSearchParams({ doc: docId }, { replace: true }),
+    giveUp: () => setSearchParams({}, { replace: true }),
+    say: (text, kind) => addToast(text, kind),
+  });
   const [trashOpen, setTrashOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   // Вкладки студии: все / таблицы (Эксель) / документы (Ворд). Заметки — в
@@ -1872,7 +1848,7 @@ export default function ConstructorScreen() {
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 text-pretty">Таблицы и текстовые документы из данных проекта — в одном месте</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 min-w-0">
-            <button type="button" onClick={() => createDoc('DOC')} className="flex items-center gap-2 px-2.5 @[560px]:px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новая таблица: формулы, данные проекта, умные блоки">
+            <button type="button" data-tour="doc-create-btn" onClick={() => createDoc('DOC')} className="flex items-center gap-2 px-2.5 @[560px]:px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm cursor-pointer" title="Новая таблица: формулы, данные проекта, метки">
               <Table2 className="w-4 h-4 shrink-0" /> <span className="hidden @[560px]:inline">Таблица</span>
             </button>
             <button type="button" onClick={() => createDoc('TEXT')} className="flex items-center gap-2 px-2.5 @[560px]:px-4 py-2.5 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 text-sm font-bold  cursor-pointer" title="Новый текстовый документ: страницы, стили, списки — как в Word">

@@ -25,6 +25,7 @@ interface Register {
   ownerProjectNo: string; contractorProjectNo: string; materialRequisition: string;
   equipmentTitle: string; contractorDocNo: string; ownerDocNo: string; vendorDocNo: string;
   revision: string; revisions: any[]; preparedBy: string; checkedBy: string; approvedBy: string;
+  preparedById?: string | null; checkedById?: string | null; approvedById?: string | null;
   columnsConfig: ColumnDef[]; counts: Record<string, number>;
 }
 interface ColumnDef { key: string; title: string; titleRu?: string; field?: string; source?: string; type?: string }
@@ -36,7 +37,7 @@ interface Item {
   assigneeId?: string | null; remarks: string; reviewCode: string; dueDate?: string | null;
   extra: Record<string, string>;
 }
-interface UserLite { id: string; name: string; role?: string }
+interface UserLite { id: string; name: string; role?: string; hasSignature?: boolean }
 interface Standard { id: string; name: string; config: any }
 
 const STATUS_META: Record<string, { label: string; cls: string }> = {
@@ -729,6 +730,9 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
       for (const k of ['name', 'vendor', 'contractor', 'owner', 'poNumber', 'ownerProjectNo', 'contractorProjectNo',
         'materialRequisition', 'equipmentTitle', 'contractorDocNo', 'ownerDocNo', 'vendorDocNo',
         'preparedBy', 'checkedBy', 'approvedBy']) body[k] = String(f[k] ?? '');
+      // Пустая строка, а не null: сервер принимает только строки, а '' и
+      // означает «сотрудник не выбран»
+      for (const k of ['preparedById', 'checkedById', 'approvedById']) body[k] = String(f[k] ?? '');
       body.standardId = f.standardId || null;
       body.managerId = f.managerId || null;
       const r = await fetch(`/api/vdr/registers/${register.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -745,6 +749,46 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
       <input value={String(f[k] ?? '')} onChange={e => setF((s: any) => ({ ...s, [k]: e.target.value }))} className={inputCls} />
     </div>
   );
+
+  /**
+   * Подписант: сотрудник программы и его имя строкой.
+   *
+   * Имя оставлено полем не для красоты: в реестрах, пришедших от подрядчика,
+   * человек указан текстом, и сотрудника с таким именем в программе может не
+   * быть. Выбор сотрудника — то, по чему титул документа возьмёт его подпись
+   * (§42); без выбора остаётся ровно то, что было, — строка.
+   */
+  const Signer = ({ label, k, kId }: { label: string; k: string; kId: string }) => {
+    const chosen = users.find((u) => u.id === f[kId]);
+    return (
+      <div>
+        <label className="block text-xs font-bold text-slate-500 uppercase">{label}</label>
+        <input value={String(f[k] ?? '')} onChange={e => setF((s: any) => ({ ...s, [k]: e.target.value }))}
+          placeholder="Фамилия И.О." className={inputCls} />
+        <select
+          value={String(f[kId] || '')}
+          onChange={(e) => {
+            const id = e.target.value;
+            const u = users.find((x) => x.id === id);
+            // Выбрали сотрудника — подставляем и его имя: две разные строки в
+            // одном поле («Иванов» в тексте, Петров в выборе) хуже пустого
+            setF((s: any) => ({ ...s, [kId]: id || null, ...(u ? { [k]: u.name } : {}) }));
+          }}
+          className={inputCls + ' cursor-pointer mt-1'}
+        >
+          <option value="">— сотрудник не выбран, подписи не будет —</option>
+          {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+        </select>
+        {chosen && (
+          <p className="text-2xs text-slate-400 mt-0.5">
+            {(chosen as any).hasSignature
+              ? 'Подпись есть — встанет на титул документа'
+              : 'Подписи у сотрудника нет: на титуле останется пустое место'}
+          </p>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6" onClick={onClose}>
@@ -780,9 +824,9 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
               {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
           </div>
-          <F label="Подготовил" k="preparedBy" />
-          <F label="Проверил" k="checkedBy" />
-          <F label="Утвердил" k="approvedBy" />
+          <Signer label="Разработал" k="preparedBy" kId="preparedById" />
+          <Signer label="Проверил" k="checkedBy" kId="checkedById" />
+          <Signer label="Утвердил" k="approvedBy" kId="approvedById" />
         </div>
 
         <div className="pt-2 border-t border-slate-100 dark:border-slate-850">

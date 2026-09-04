@@ -16,7 +16,7 @@ import { isNewer, fileUrlOf, blocker, phaseLabel, versionFromFileName, versionPr
 import { sameServer, installerName, badPackage, downloadError, MIN_EXE_BYTES } from '../electron/updates';
 // Со стороны сервера — выбор релиза: предлагать можно только то, что реально
 // можно скачать
-import { pickRelease } from '../server/updates';
+import { pickRelease, chunkSizeFor, CHUNK_MAX, CHUNK_MIN } from '../server/updates';
 
 let failed = 0;
 const check = (name: string, cond: boolean, got?: unknown) => {
@@ -151,6 +151,31 @@ console.log('Сервер предлагает только то, что мож�
   check('когда качать нечего — обновления нет', none.release === null);
   check('и все пустые публикации перечислены', none.broken.length === 3, none.broken);
   check('пустой список никого не смущает', pickRelease([], has([])).release === null);
+}
+
+// Проверка написана по последней поломке: два мегабайта проходили во всех
+// проверках, а у живого сервера отдела предел размера пакета оказался меньше.
+// MariaDB на такой пакет не отвечает ошибкой — она разрывает соединение, и
+// программа видит только «connection closed»
+console.log('Кусок файла подгоняется под предел пакета у базы');
+{
+  check('предел неизвестен — берём проверенные два мегабайта', chunkSizeFor(0) === CHUNK_MAX, chunkSizeFor(0));
+  check('просторная база: больше двух мегабайт не берём',
+    chunkSizeFor(64 * 1024 * 1024) === CHUNK_MAX, chunkSizeFor(64 * 1024 * 1024));
+
+  // Обычная тесная настройка MariaDB: предел в один мегабайт
+  const tight = chunkSizeFor(1024 * 1024);
+  check('при пределе в мегабайт кусок меньше половины предела', tight <= 512 * 1024, tight);
+  check('и не опускается ниже разумного', tight >= CHUNK_MIN, tight);
+
+  check('совсем крошечный предел не даёт нулевого куска',
+    chunkSizeFor(16 * 1024) === CHUNK_MIN, chunkSizeFor(16 * 1024));
+  check('кусок никогда не бывает отрицательным', chunkSizeFor(1) > 0, chunkSizeFor(1));
+  // Смысл всей затеи: кусок должен помещаться в пакет вместе с запросом
+  for (const limit of [1, 16 * 1024, 512 * 1024, 1024 * 1024, 4 * 1024 * 1024]) {
+    check(`кусок укладывается в предел ${limit} Б`,
+      chunkSizeFor(limit) <= Math.max(limit, CHUNK_MIN), { limit, кусок: chunkSizeFor(limit) });
+  }
 }
 
 console.log('Ход дела одной строкой');

@@ -405,11 +405,18 @@ export default function FormulaManager({ projectId, context, onInsert, onClose }
                         { v: 'author', label: 'Автор документа' },
                         { v: 'current', label: 'Кто открыл' },
                         { v: 'user', label: 'Выбранный' },
+                        { v: 'prepared', label: 'Разработал (ВДР)' },
+                        { v: 'checked', label: 'Проверил (ВДР)' },
+                        { v: 'approved', label: 'Утвердил (ВДР)' },
                       ]} />
                   </div>
                   <p className="text-2xs text-slate-400">
                     Картинка и её высота берутся из профиля сотрудника. Подписи нет —
                     в документе останется пустое место: ФИО вместо подписи не подставляется.
+                  </p>
+                  <p className="text-2xs text-slate-400">
+                    Роли ВДР берут человека из реестра: сменится проверяющий — сменится
+                    и подпись, шаблон править не надо.
                   </p>
                 </>
               )}

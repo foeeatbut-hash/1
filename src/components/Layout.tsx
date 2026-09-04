@@ -12,8 +12,7 @@ import CaptureReview from './CaptureReview';
 import { dataService } from '../services/dataService';
 import { useLogStore } from '../store/logStore';
 import { useAssistantStore } from '../store/assistantStore';
-import AssistantPanel from './AssistantPanel';
-import NotificationsPanel from './NotificationsPanel';
+import RightDock from './RightDock';
 import RightRail from './RightRail';
 import ShareLayer from './ShareLayer';
 import CommandBar from './CommandBar';
@@ -667,7 +666,7 @@ export default function Layout() {
     { label: 'Общее', items: [
       { name: 'Проводник', path: '/explorer', icon: FolderOpen },
       { name: 'Блокнот', path: '/notes', icon: NotebookPen },
-      { name: 'Чат', path: '/chat', icon: MessagesSquare },
+      { name: 'Мессенджер', path: '/chat', icon: MessagesSquare },
       { name: 'Почта', path: '/mail', icon: Mail },
       { name: 'Браузер', path: '/browser', icon: Globe },
       { name: 'Календарь', path: '/calendar', icon: CalendarDays },
@@ -936,8 +935,7 @@ export default function Layout() {
 
       {/* Раздвижные панели справа сдвигают содержимое. Рельс — только при левом
           меню: без меню его работу делает трей панели задач */}
-      <NotificationsPanel />
-      <AssistantPanel />
+      <RightDock />
       {shell === 'menu' && <RightRail />}
 
 

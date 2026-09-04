@@ -30,6 +30,7 @@ model User {
   createdAt        DateTime      @default(now())
   createdFiles     FileNode[]    @relation("FileCreator")
   updatedFiles     FileNode[]    @relation("FileUpdater")
+  pdfMarkups       PdfMarkup[]   @relation("MarkupAuthor")
   sentMessages     ChatMessage[] @relation("SentMessages")
   receivedMessages ChatMessage[] @relation("ReceivedMessages")
   chatGroups       ChatGroup[]   @relation("GroupMembers")
@@ -117,6 +118,12 @@ model DocRegister {
   preparedBy          String @default("")
   checkedBy           String @default("")
   approvedBy          String @default("")
+  /// Кто именно подписывает: по ним берутся подписи на титул документа (§42).
+  /// Имя рядом остаётся: в импортированных реестрах человек указан строкой,
+  /// и терять её нельзя — сотрудника с таким именем может не быть в программе
+  preparedById        String?
+  checkedById         String?
+  approvedById        String?
   columnsConfig       String @default("[]") @db.LongText // JSON: колонки реестра (импортированные + свои)
   managerId   String?  // ответственный менеджер (получает «документ готов»)
   createdById String?
@@ -235,6 +242,8 @@ model FileNode {
   id          String   @id @default(uuid())
   name        String
   filePath    String   @db.Text
+  /// Откуда файл принесли из Windows — по этому пути выгрузка предложит ту же папку
+  origin      String   @default("") @db.VarChar(500)
   size        Int      @default(0)
   type        String   @default("FILE")
   department  String?
@@ -258,6 +267,8 @@ model FileNode {
   additionalTags  Tag[]    @relation("FileAdditionalTags")
   deletedAt   DateTime? // корзина: файл скрыт, но восстановим
   deletedById String?
+
+  pdfMarkups  PdfMarkup[]
 }
 
 model Equipment {
@@ -881,4 +892,51 @@ model AppUpdateChunk {
 
   @@unique([version, idx])
   @@index([version])
+}
+
+/// Журнал действий: кто, что, над чем и когда. Пишет сервер, а не окно —
+/// запись, которую делает окно, обходится закрытием окна
+model ActionLog {
+  id        String   @id @default(uuid())
+  userId    String   @default("")
+  userName  String   @default("")
+  what      String   @default("") @db.VarChar(191)
+  target    String   @default("") @db.VarChar(191)
+  route     String   @default("") @db.VarChar(191)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
+}
+
+/// Пометки на чертежах ПДФ: облако, рамка, стрелка, записка, штамп, подпись.
+///
+/// Хранятся рядом с файлом, а не внутри него: присланный чертёж ценен тем, что
+/// он не изменён. Координаты — доли страницы (0..1), а не точки: чертёж A1 и
+/// его же скан в другом разрешении дают одно и то же место.
+model PdfMarkup {
+  id          String    @id @default(uuid())
+  fileId      String
+  file        FileNode  @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  /// Ревизия чертежа на момент постановки пометки
+  revision    String    @default("1")
+  page        Int       @default(1)
+  /// CLOUD | ARROW | RECT | NOTE | STAMP | PEN | SIGN
+  kind        String    @default("CLOUD")
+  x           Float     @default(0)
+  y           Float     @default(0)
+  w           Float     @default(0)
+  h           Float     @default(0)
+  color       String    @default("#be123c") @db.VarChar(16)
+  strokeWidth Int       @default(2)
+  text        String?   @db.Text
+  /// OPEN | DONE | REJECTED — учтено ли замечание
+  state       String    @default("OPEN")
+  createdAt   DateTime  @default(now())
+  createdById String?
+  createdBy   User?     @relation("MarkupAuthor", fields: [createdById], references: [id])
+  updatedAt   DateTime  @default(now()) @updatedAt
+  deletedAt   DateTime?
+
+  @@index([fileId, revision])
 }
