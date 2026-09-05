@@ -131,8 +131,8 @@ const LEGACY: Record<string, number> = {
   // карточки — в CardActions, панель дублей — в DuplicatesPanel, геометрия и
   // раскладка — в lib/tagLayout: планка ниже
   'src/screens/Registry.tsx': 5899,
-  // Комната документа уехала в server/collab.ts — планка ниже
-  'server.ts': 4291,
+  // Проверка и копирование SQLite вынесены отдельно, мастер-вход удалён.
+  'server.ts': 4206,
   // Строки и значки уехали в components/explorer/FileItems.tsx, меню правой
   // кнопки — в components/explorer/ExplorerMenu.tsx: планка ниже
   'src/screens/Explorer.tsx': 2368,
