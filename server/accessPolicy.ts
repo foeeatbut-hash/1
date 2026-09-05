@@ -6,6 +6,10 @@ export const isLoopbackAddress = (ip: string): boolean =>
 
 export function allowsLocalSetup(route: string, ip: string, origin?: string, host?: string): boolean {
   if (!LOCAL_SETUP.has(route) || !isLoopbackAddress(ip)) return false;
+  // Одного адреса соединения мало: чужой домен может указывать на loopback (DNS rebinding).
+  try {
+    if (!host || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(`http://${host}`).hostname)) return false;
+  } catch (_) { return false; }
   // Чужая страница в браузере не должна перенастраивать локальную программу.
   if (!origin) return true;
   try { return new URL(origin).host === host; } catch (_) { return false; }
