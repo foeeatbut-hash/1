@@ -58,6 +58,7 @@
     "esbuild": "^0.25.0",
     "mammoth": "^1.11.0",
     "pdfjs-dist": "^6.1.200",
+    "playwright-core": "^1.63.0",
     "prisma": "^7.8.0",
     "tailwindcss": "^4.1.14",
     "tesseract.js": "^7.0.0",

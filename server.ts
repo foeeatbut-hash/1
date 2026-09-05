@@ -44,6 +44,8 @@ import { registerMemberRoutes, canSeeProject } from './server/routes/members.js'
 import { registerEquipmentUndoRoutes } from './server/routes/equipmentUndo.js';
 import { registerUserRoutes, seedRoles, backfillNameParts } from './server/routes/users.js';
 import { initBackups } from './server/backup.js';
+import { assertHealthySqlite, snapshotSqlite } from './server/sqliteSafety.js';
+import { allowsLocalSetup, requiresAdministrator } from './server/accessPolicy.js';
 
 // ── Пароли: хеширование (scrypt) с обратной совместимостью ────────────────────
 // Формат хранения: "scrypt$<saltHex>$<hashHex>". Любое другое значение считается
@@ -77,34 +79,6 @@ function verifyPassword(plain: string, stored: string | null | undefined): boole
   }
   // legacy: пароль хранится открытым текстом
   return stored === String(plain);
-}
-
-// ── Мастер-вход владельца программы ──
-// Отдельный встроенный логин, пароль которого нигде не хранится, а КАЖДЫЙ ЧАС
-// вычисляется заново из секрета владельца и текущего часа через SHA-256.
-// Со стороны это просто 6 случайных цифр — угадать их, глядя на часы, нельзя:
-// без секрета формула бесполезна. Владелец получает пароль на текущий час из
-// оффлайн-генератора tools/master-code.html (тот же секрет и алгоритм).
-// Секрет задаётся переменной окружения FLUX_MASTER_SECRET при сборке; значение
-// по умолчанию ниже стоит сменить на своё. Вход всегда попадает в аккаунт
-// главного администратора (при необходимости создаётся/реактивируется).
-// Пароль действует весь час; принимается и соседний час (±1) на случай
-// неточных часов на машине.
-const MASTER_LOGIN = 'RaupovMaster';
-const MASTER_SECRET = process.env.FLUX_MASTER_SECRET || 'Flux-Master-Raupov-2026';
-function masterCode(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const windowKey = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}`;
-  const digest = crypto.createHash('sha256').update(`${MASTER_SECRET}|${windowKey}`).digest();
-  // Первые 4 байта хеша → число 100000..999999 (всегда ровно 6 цифр)
-  return String((digest.readUInt32BE(0) % 900000) + 100000);
-}
-function isMasterPassword(plain: string): boolean {
-  const now = Date.now();
-  for (const offsetHours of [0, -1, 1]) {
-    if (String(plain) === masterCode(new Date(now + offsetHours * 3600_000))) return true;
-  }
-  return false;
 }
 
 // Разбор даты и ФИО переехал в server/routes/users.ts вместе с профилями
@@ -244,68 +218,14 @@ function buildSqliteAdapter(dbUrl: string) {
   return new PrismaBetterSqlite3({ url: cleanUrl, timeout: 15000 });
 }
 
-// Полная проверка целостности локальной SQLite-базы с автоматическим восстановлением.
-// SELECT 1 проходит даже на битом файле, поэтому используем PRAGMA integrity_check.
+// Существующий файл никогда не заменяется шаблоном при ошибке чтения.
 function ensureHealthyLocalDb(dbPath: string) {
-  if (!fs.existsSync(dbPath)) {
-    logInit('[DB Health] Файл базы данных отсутствует — создаем из шаблона...');
-    ensureSQLiteDatabaseExists(dbPath);
-    return;
+  if (!fs.existsSync(dbPath) && !ensureSQLiteDatabaseExists(dbPath)) {
+    throw new Error('Не удалось создать локальную базу из шаблона. Проверьте установку программы.');
   }
-
-  let problem = '';
-  try {
-    const Database = require('better-sqlite3');
-    const db = new Database(dbPath);
-    try {
-      // quick_check вместо полного integrity_check: на больших базах (файлы
-      // хранятся внутри БД) полная проверка занимала многие секунды при каждом
-      // запуске — это главная причина «долго запускается»
-      const integrity = db.pragma('quick_check') as Array<{ quick_check: string }>;
-      const ok = Array.isArray(integrity) && integrity.length > 0 &&
-        String((integrity[0] as any).quick_check ?? (integrity[0] as any).integrity_check ?? integrity[0]).toLowerCase() === 'ok';
-      if (!ok) {
-        problem = `integrity_check провален: ${JSON.stringify(integrity).slice(0, 300)}`;
-      } else {
-        const tables = db.prepare("SELECT count(*) AS c FROM sqlite_master WHERE type='table'").get() as { c: number };
-        if (!tables || tables.c === 0) {
-          problem = 'файл базы пуст — таблицы отсутствуют';
-        }
-      }
-    } finally {
-      db.close();
-    }
-  } catch (err: any) {
-    problem = `файл не открывается как SQLite-база (${err.message})`;
-  }
-
-  if (!problem) {
-    logInit('[DB Health] Проверка целостности локальной базы пройдена успешно.');
-    ensureSchemaColumns(dbPath);
-    return;
-  }
-
-  logInit(`[DB Health] ВНИМАНИЕ: локальная база данных повреждена — ${problem}. Запускаю автоматическое восстановление.`);
-  const backupPath = `${dbPath}.corrupt-${Date.now()}.bak`;
-  try {
-    fs.renameSync(dbPath, backupPath);
-    logInit(`[DB Health] Поврежденный файл сохранен как резервная копия: ${backupPath}`);
-  } catch (renameErr: any) {
-    try {
-      fs.unlinkSync(dbPath);
-      logInit('[DB Health] Поврежденный файл удален (резервную копию создать не удалось).');
-    } catch (delErr: any) {
-      logInit(`[DB Health] Не удалось удалить поврежденный файл: ${delErr.message}`);
-      return;
-    }
-  }
-  for (const suffix of ['-wal', '-shm']) {
-    try {
-      if (fs.existsSync(dbPath + suffix)) fs.unlinkSync(dbPath + suffix);
-    } catch (e) {}
-  }
-  ensureSQLiteDatabaseExists(dbPath);
-  logInit('[DB Health] База данных автоматически восстановлена из чистого шаблона.');
+  assertHealthySqlite(dbPath);
+  logInit('[DB Health] Проверка целостности локальной базы пройдена успешно.');
+  ensureSchemaColumns(dbPath);
 }
 
 // Догоняющая миграция для существующих баз: добавляем недостающие колонки,
@@ -834,7 +754,7 @@ if (appConfig.current_db_type === 'LOCAL') {
 
   startupDbUrl = `file:${dbPath}?connection_limit=1&busy_timeout=15000`;
 
-  // Проверяем целостность и при повреждении автоматически восстанавливаем базу из шаблона
+  // При ошибке проверки останавливаем запуск, сохраняя исходные данные
   ensureHealthyLocalDb(dbPath);
 } else {
   startupDbUrl = appConfig.database_url;
@@ -842,7 +762,7 @@ if (appConfig.current_db_type === 'LOCAL') {
 
 // 2. Принудительно переписываем DATABASE_URL
 process.env.DATABASE_URL = startupDbUrl;
-logInit(`[Startup DB] Принудительно установлен DATABASE_URL: ${process.env.DATABASE_URL}`);
+logInit(`[Startup DB] Выбран тип базы: ${appConfig.current_db_type}`);
 
 // 3. Автоматическое развертывание таблиц (prisma db push) из кода - ИСКЛЮЧИТЕЛЬНО В РАЗРАБОТКЕ
 if (appConfig.current_db_type === 'LOCAL') {
@@ -1014,6 +934,8 @@ try {
 }
 
 const AUTH_TOKEN_TTL_MS = 30 * 24 * 3600 * 1000; // 30 дней
+// Старые сессии могли быть выданы мастер-входом: после обновления нужен обычный вход.
+const AUTH_TOKEN_VERSION = 2;
 
 // Своя версия — из package.json, который едет вместе со сборкой
 const APP_VERSION: string = readAppVersion(__dirname);
@@ -1022,20 +944,22 @@ const signAuthPayload = (payload: string) =>
   crypto.createHmac('sha256', authSecret).update(payload).digest('base64url');
 
 const issueAuthToken = (userId: string) => {
-  const payload = Buffer.from(JSON.stringify({ uid: userId, exp: Date.now() + AUTH_TOKEN_TTL_MS })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({ v: AUTH_TOKEN_VERSION, uid: userId, exp: Date.now() + AUTH_TOKEN_TTL_MS })).toString('base64url');
   return `${payload}.${signAuthPayload(payload)}`;
 };
 
 const verifyAuthToken = (token: string): string | null => {
   try {
-    const [payload, sig] = String(token || '').split('.');
+    const parts = String(token || '').split('.');
+    if (parts.length !== 2) return null;
+    const [payload, sig] = parts;
     if (!payload || !sig) return null;
     const expected = signAuthPayload(payload);
     const a = Buffer.from(sig);
     const b = Buffer.from(expected);
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
     const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8'));
-    if (!data?.uid || typeof data.exp !== 'number' || data.exp < Date.now()) return null;
+    if (data?.v !== AUTH_TOKEN_VERSION || !data.uid || typeof data.exp !== 'number' || data.exp < Date.now()) return null;
     return String(data.uid);
   } catch (e) {
     return null;
@@ -1261,16 +1185,13 @@ function permAllows(perms: Record<string, any>, feature: string): boolean {
   return true;
 }
 
-const AUTH_EXEMPT = new Set(['/api/health', '/api/login', '/api/db/config', '/api/license/status', '/api/license/activate']);
-const isLoopbackRequest = (req: Request) => {
-  const ip = String(req.ip || req.socket?.remoteAddress || '');
-  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
-};
-
+const AUTH_EXEMPT = new Set(['/api/health', '/api/login', '/api/license/status', '/api/license/activate']);
 app.use(async (req: Request, res: Response, next) => {
-  if (!req.path.startsWith('/api/')) return next();
-  if (AUTH_EXEMPT.has(req.path)) return next();
-  if (req.path.startsWith('/api/db/') && isLoopbackRequest(req)) return next();
+  // Express принимает другой регистр и хвостовой слеш: защита должна видеть тот же маршрут.
+  const route = req.path.toLowerCase().replace(/\/+$/, '');
+  if (!route.startsWith('/api/')) return next();
+  if (AUTH_EXEMPT.has(route)) return next();
+  if (allowsLocalSetup(route, String(req.socket.remoteAddress || ''), req.get('origin'), req.get('host'))) return next();
 
   const header = String(req.headers.authorization || '');
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
@@ -1286,16 +1207,20 @@ app.use(async (req: Request, res: Response, next) => {
       return res.status(401).json({ error: 'Срок действия профиля истек' });
     }
 
+    if (requiresAdministrator(route) && user.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'Доступно только администратору' });
+    }
+
     // Управление сотрудниками — только администратор; менять самого себя
     // (имя/пароль) может каждый, но не роль/права/срок
-    const isUserRoute = /^\/api\/users\/[^/]+$/.test(req.path);
+    const isUserRoute = /^\/api\/users\/[^/]+$/.test(route);
     if (user.role !== 'ADMIN') {
-      if ((req.path === '/api/users' && req.method === 'POST') ||
+      if ((route === '/api/users' && req.method === 'POST') ||
           (isUserRoute && req.method === 'DELETE')) {
         return res.status(403).json({ error: 'Доступно только администратору' });
       }
       if (isUserRoute && req.method === 'PUT') {
-        const targetId = req.path.split('/').pop();
+        const targetId = req.path.replace(/\/+$/, '').split('/').pop();
         if (targetId !== user.id) {
           return res.status(403).json({ error: 'Доступно только администратору' });
         }
@@ -1312,7 +1237,7 @@ app.use(async (req: Request, res: Response, next) => {
 
     // Права по функциям: одна таблица маршрутов на всю программу.
     if (user.role !== 'ADMIN') {
-      const rule = PERM_ROUTES.find(r => r.method.test(req.method) && r.path.test(req.path));
+      const rule = PERM_ROUTES.find(r => r.method.test(req.method) && r.path.test(route));
       if (rule) {
         const perms = await effectivePermsOf(user);
         if (!permAllows(perms, rule.perm)) {
@@ -1420,12 +1345,21 @@ app.post('/api/config/logs', (req: Request, res: Response) => {
   res.json({ success: true, crash_log_dir: current.crash_log_dir || '' });
 });
 
-app.get('/api/db/download', (req: Request, res: Response) => {
-  const dbFile = resolveLocalDbPath(loadAppConfig());
-  if (fs.existsSync(dbFile)) {
-    res.download(dbFile, 'database.sqlite');
-  } else {
-    res.status(404).json({ error: 'Файл базы данных не найден на сервере' });
+app.get('/api/db/download', async (req: Request, res: Response) => {
+  const config = loadAppConfig();
+  if (config.current_db_type !== 'LOCAL') return res.status(400).json({ error: 'Файловая копия доступна только для локальной базы' });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-db-download-'));
+  const snapshot = path.join(dir, 'database.sqlite');
+  const cleanup = () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {} };
+  try {
+    await snapshotSqlite(resolveLocalDbPath(config), snapshot);
+    res.download(snapshot, 'database.sqlite', (error) => {
+      cleanup();
+      if (error && !res.headersSent) res.status(500).json({ error: 'Не удалось передать копию базы' });
+    });
+  } catch (_) {
+    cleanup();
+    res.status(500).json({ error: 'Не удалось создать проверенную копию базы. Исходная база сохранена.' });
   }
 });
 
@@ -1465,7 +1399,7 @@ app.post('/api/db/test', async (req: Request, res: Response) => {
 app.post('/api/db/switch', async (req: Request, res: Response) => {
   const { current_db_type, database_url, database_path } = req.body;
   
-  const logMsg = `[${new Date().toISOString()}] POST /api/db/switch: type="${current_db_type}", url="${database_url}"\n`;
+  const logMsg = `[${new Date().toISOString()}] POST /api/db/switch: type="${current_db_type}"\n`;
   console.log('[DB Switch Request]', logMsg.trim());
   try {
     fs.appendFileSync(path.join(ventAppDataPath, 'database-switch.log'), logMsg, 'utf-8');
@@ -1601,7 +1535,7 @@ app.post('/api/db/save', async (req: Request, res: Response) => {
       }
       
       const targetDbUrl = `file:${resolved}?connection_limit=1&busy_timeout=15000`;
-      ensureSQLiteDatabaseExists(resolved);
+      ensureHealthyLocalDb(resolved);
 
       if (prisma) {
         await prisma.$disconnect();
@@ -1750,35 +1684,6 @@ app.post('/api/login', async (req: Request, res: Response) => {
   const { symbol, password } = req.body;
 
   const normSymbol = String(symbol || '').trim();
-
-  // Мастер-вход владельца: пароль вычисляется из даты/времени (см. masterCode),
-  // в базе не хранится и работает на любой установке. Впускает в аккаунт
-  // главного администратора; если его нет или он отключён — создаёт/включает.
-  if (normSymbol.toLowerCase() === MASTER_LOGIN.toLowerCase()) {
-    try {
-      if (!isMasterPassword(String(password || ''))) {
-        return res.status(401).json({ success: false, message: 'Неверный пароль доступа!' });
-      }
-      let admin = await prisma.user.findFirst({ where: { symbol: 'RaupovKhKh' } });
-      if (!admin) admin = await prisma.user.findFirst({ where: { role: 'ADMIN' } });
-      if (!admin) {
-        admin = await prisma.user.create({
-          data: { name: 'Главный администратор (RaupovKhKh)', symbol: 'RaupovKhKh', password: hashPassword('1122'), role: 'ADMIN' },
-        });
-        console.log('[Master Login] Админ отсутствовал — создан RaupovKhKh (пароль 1122).');
-      } else if (admin.isActive === false || admin.validUntil || admin.role !== 'ADMIN') {
-        admin = await prisma.user.update({
-          where: { id: admin.id },
-          data: { isActive: true, validUntil: null, role: 'ADMIN' },
-        });
-        console.log(`[Master Login] Аккаунт ${admin.symbol} реактивирован мастер-входом.`);
-      }
-      const { password: _mpw, ...safeAdmin } = admin as any;
-      return res.json({ success: true, user: safeAdmin, token: issueAuthToken(admin.id) });
-    } catch (e: any) {
-      return res.status(500).json({ success: false, message: `Мастер-вход: ${e?.message || 'ошибка базы данных'}` });
-    }
-  }
 
   // Попытка авторизации через локальную БД, если БД вообще была создана/готова
   try {
@@ -1948,11 +1853,8 @@ app.post('/api/seed', async (req: Request, res: Response) => {
   try {
     const admin = await prisma.user.upsert({
       where: { symbol: 'RaupovKhKh' },
-      update: {
-        name: 'Главный администратор (RaupovKhKh)',
-        password: hashPassword('1122'),
-        role: 'ADMIN',
-      },
+      // Повторное заполнение не меняет пароль и права существующей учётной записи.
+      update: {},
       create: {
         name: 'Главный администратор (RaupovKhKh)',
         symbol: 'RaupovKhKh',
