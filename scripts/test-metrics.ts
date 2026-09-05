@@ -13,7 +13,10 @@
  * Запуск: npx tsx scripts/test-metrics.ts
  */
 import { readFileSync } from 'fs';
-import { BAR_H, BAR_BTN, BAR_ICON, BAR_EDGE, DESK, DESK_SCALES, DESK_DEFAULT, deskMetric, ROW_H } from '../src/lib/metrics';
+import {
+  BAR_H, BAR_BTN, BAR_ICON, BAR_EDGE, DESK, DESK_SCALES, DESK_DEFAULT, deskMetric, ROW_H,
+  START_W, START_COLS, START_PAD, TILE_BOX, TILE_ICON, TILE_CELL,
+} from '../src/lib/metrics';
 import { Z } from '../src/lib/layers';
 import { CELL_W, CELL_H, gridSize, layout, arrange, cellToXY, xyToCell } from '../src/lib/desktop';
 
@@ -42,6 +45,28 @@ console.log('Числа сходятся');
   check('обычный размер — тот, что по умолчанию', deskMetric() === DESK[DESK_DEFAULT]);
   check('неизвестное имя не ломает стол', deskMetric('огромные' as any) === DESK[DESK_DEFAULT]);
   check('стол берёт клетку из общей меры', CELL_W === DESK.normal.w && CELL_H === DESK.normal.h);
+}
+
+console.log('Пуск: значки мельче своих клеток, а меню — уже экрана');
+{
+  // Меню «Пуск» здесь не проверялось вовсе, и числа в нём жили сами по себе.
+  // Плитки были крупными и по четыре в ряд: список выходил вдвое длиннее, а
+  // меню читалось стеной из блоков
+  check('значок меньше своей подложки', TILE_ICON < TILE_BOX, [TILE_ICON, TILE_BOX]);
+  check('подложка меньше клетки — воздух между плитками есть',
+    TILE_BOX < TILE_CELL, [TILE_BOX, TILE_CELL]);
+  check('вокруг подложки остаётся не меньше 16 px', TILE_CELL - TILE_BOX >= 16, TILE_CELL - TILE_BOX);
+  check('ширина меню считается из клеток, а не на глаз',
+    START_W === START_COLS * TILE_CELL + START_PAD * 2, START_W);
+  check('в ряд встаёт не меньше пяти программ', START_COLS >= 5, START_COLS);
+  // Найдено снимком экрана: при клетке в 72 px «Оборудование» обрезалось на
+  // «Оборудова». Самое длинное название раздела — 12 букв, кегль подписи 11 px
+  check('в клетку влезает самое длинное название раздела',
+    TILE_CELL - 8 >= 12 * 7.2, TILE_CELL);
+  // Меню на пол-экрана перестаёт быть меню: за ним не видно, куда открывать
+  check('меню у́же трети ноутбучного экрана', START_W <= 1366 / 2, START_W);
+  check('плитка Пуска мельче значка стола: стол — главное место, меню — список',
+    TILE_BOX < DESK.normal.icon + 8, [TILE_BOX, DESK.normal.icon]);
 }
 
 console.log('Сетка считает по выбранному размеру');
